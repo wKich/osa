@@ -61,8 +61,8 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | Permission ask/reply round trip runs offline over the child seam | `verified` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
 | A reply of `always` is honored once; the next gated call asks again | `degraded` | [`openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/api-check.log`](../openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/api-check.log) |
 | stream_event deltas translate into part delta frames | `unverified` | [`openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/e2e-note.md`](../openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/e2e-note.md) |
-| User prompts render before the assistant output they caused | `buggy` ([message-order-inversion](../bridge/defects.json)) | [`bridge/test/golden/want-message-order-inversion.json`](../bridge/test/golden/want-message-order-inversion.json) |
-| Session events carry Maki's real model name | `buggy` ([synthesized-model-name](../bridge/defects.json)) | [`bridge/test/golden/want-synthesized-model-name.json`](../bridge/test/golden/want-synthesized-model-name.json) |
+| User prompts render before the assistant output they caused | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) |
+| Session events carry Maki's real model name | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) |
 | System api_retry frames are tolerated without disturbing the transcript | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) |
 | Interrupt round trip via control_cancel_request and the interrupt route | `unverified` | [`openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md) |
 | Mid-session model switch forwards set_model / the model POST route | `unverified` | [`openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md) |

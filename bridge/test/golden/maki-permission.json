@@ -1,13 +1,23 @@
 [
   {
+    "type": "session.inbox.enqueued",
+    "item": {
+      "type": "user",
+      "payload": {
+        "text": "golden prompt 1"
+      },
+      "delivery": "steer"
+    }
+  },
+  {
     "type": "session.execution.started"
   },
   {
     "type": "session.step.started",
     "agent": "sample",
     "model": {
-      "providerID": "sample",
-      "id": "sample"
+      "providerID": "maki",
+      "id": "syn:small:text"
     }
   },
   {
@@ -93,14 +103,24 @@
     "type": "session.execution.succeeded"
   },
   {
+    "type": "session.inbox.enqueued",
+    "item": {
+      "type": "user",
+      "payload": {
+        "text": "golden prompt 2"
+      },
+      "delivery": "steer"
+    }
+  },
+  {
     "type": "session.execution.started"
   },
   {
     "type": "session.step.started",
     "agent": "sample",
     "model": {
-      "providerID": "sample",
-      "id": "sample"
+      "providerID": "maki",
+      "id": "syn:small:text"
     }
   },
   {

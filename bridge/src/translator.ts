@@ -18,6 +18,15 @@ export interface TranslatorHooks {
   onResult?: (result: AnyObj) => void;
 }
 
+// the child is the single source of model identity (design decision 3):
+// `provider/id` splits on the first "/", ids without one keep the raw value
+// under the "maki" provider
+function parseModel(raw: unknown): { providerID: string; id: string } | undefined {
+  if (typeof raw !== "string" || !raw) return undefined;
+  const slash = raw.indexOf("/");
+  return slash === -1 ? { providerID: "maki", id: raw } : { providerID: raw.slice(0, slash), id: raw.slice(slash + 1) };
+}
+
 // durable events carry {aggregateID, seq, version}; versions are binary-derived
 // (spike stub measurement), delta/permission events are ephemeral
 const DURABLE_VERSION: Record<string, number> = {
@@ -43,6 +52,9 @@ export class Translator {
   private hooks: TranslatorHooks;
   private am = ""; // the turn's minted assistant message id
   private turnOpen = false;
+  // the model the child last announced (system.init / assistant.model);
+  // synthesized defaults serve only until then (design decision 3)
+  private announced?: { providerID: string; id: string };
   // per-kind part indexes: the same part keeps the same index (and ordinal)
   // whether it arrived streamed or buffered
   private counts: Record<PartKind, number> = { reasoning: 0, text: 0, tool: 0 };
@@ -57,19 +69,39 @@ export class Translator {
     return this.am;
   }
 
-  /** prompt accepted: turn boundary frames (mapping-table.md §2) */
-  beginTurn(assistantMessageID: string): void {
+  /** the child's announced model, or undefined before the first announcement */
+  get announcedModel(): { providerID: string; id: string } | undefined {
+    return this.announced;
+  }
+
+  private modelNow(): { providerID: string; id: string } {
+    return this.announced ?? this.hooks.model();
+  }
+
+  /** prompt accepted: turn boundary frames (mapping-table.md §2). The user
+   * prompt representation is emitted here, at admission, because maki never
+   * echoes plain user text (cross-map.md pinned shape). */
+  beginTurn(assistantMessageID: string, user?: { text: string; id: string; delivery: string }): void {
     this.am = assistantMessageID;
     this.turnOpen = true;
     this.counts = { reasoning: 0, text: 0, tool: 0 };
     this.streamCursor = { reasoning: 0, text: 0, tool: 0 };
     this.streamed = new Map();
+    if (user) {
+      // shortcut: the real server also emits session.inbox.delivered once the
+      // runner consumes the item; omitted (no consumer needs it yet) — add it
+      // when a TUI behavior is proven to depend on it
+      this.emit("session.inbox.enqueued", {
+        inboxID: user.id,
+        item: { type: "user", payload: { text: user.text }, delivery: user.delivery },
+      }, 1);
+    }
     this.emitExec("session.execution.started", {});
     this.emit("session.step.started", {
       sessionID: this.hooks.sessionID,
       assistantMessageID: this.am,
       agent: this.hooks.agent(),
-      model: this.hooks.model(),
+      model: this.modelNow(),
       started: Date.now(),
     });
   }
@@ -85,6 +117,7 @@ export class Translator {
     switch (frame.type) {
       case "system":
         if (frame.subtype === "init") {
+          this.announced = parseModel(frame.model) ?? this.announced;
           this.hooks.onInit?.({
             sessionID: frame.session_id,
             cwd: frame.cwd,
@@ -103,6 +136,8 @@ export class Translator {
 
   // ---------- buffered `assistant` message (the floor) ----------
   private handleAssistant(frame: AnyObj): void {
+    // every assistant message names the model that produced it
+    this.announced = parseModel(frame.message?.model) ?? this.announced;
     const content = frame.message?.content;
     if (!Array.isArray(content)) return;
     for (const part of content) {

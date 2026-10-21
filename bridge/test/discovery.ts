@@ -9,7 +9,7 @@
 //   bun bridge/test/discovery.ts     (from the repository root)
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { startBridge, waitFor, type BridgeHandle, type Frame } from "./lib/bridge.ts";
+import { startBridge, sleep, waitFor, type BridgeHandle, type Frame } from "./lib/bridge.ts";
 
 const DEFECTS_PATH = fileURLToPath(new URL("../defects.json", import.meta.url));
 
@@ -65,6 +65,16 @@ const main = async () => {
     if (created.status !== 200) throw new Error(`session create failed: HTTP ${created.status}`);
     const sid = (await created.json()).data.id as string;
 
+    // The child announces its model on system.init a few ms after spawn; the
+    // real TUI boots long before the composer accepts a prompt, so mirror that
+    // here — wait for the announcement, then the turn's expectation is about
+    // translation, not scheduling (spec permits synthesis before announcement)
+    for (let i = 0; i < 50; i++) {
+      const s = (await (await fetch(`${bridge.base}/api/session/${sid}`)).json())?.data;
+      if (s?.model?.providerID === "synthetic") break;
+      await sleep(100);
+    }
+
     // --- 1. multi-turn Q-A-Q-A ordering -----------------------------------
     // Expectation: a frame represents each user prompt before the assistant
     // output it caused, so the transcript interleaves Q-A-Q-A across turns.
@@ -72,7 +82,7 @@ const main = async () => {
     const turn2 = await promptTurn(bridge, sid, 2, "Reply with the word PONG one more time.");
     const bothTurns = [...turn1, ...turn2];
     const userFrames = bothTurns.filter(
-      (f) => f.type === "message.part.updated" && f.data?.message?.role === "user",
+      (f) => f.type === "session.inbox.enqueued" && f.data?.item?.type === "user",
     );
     results.push({
       id: "message-order-inversion",
@@ -84,17 +94,20 @@ const main = async () => {
       finding: {
         id: "message-order-inversion",
         title: "User prompts render after assistant responses (A-A-A-Q-Q-Q)",
-        note: "expected one message.part.updated (role user) per prompt before its assistant frames; none were emitted across two turns",
+        note: "expected one session.inbox.enqueued (item type user) per prompt before its assistant frames; none were emitted across two turns",
         frames: bothTurns,
       },
     });
 
     // --- 2. status-line model name ----------------------------------------
     // Expectation: session events carry the model the maki child announced on
-    // its system.init (the scripted child reports `synthetic/fake`; a live
-    // child reports maki's -m value) — not a synthesized placeholder.
+    // its system.init (the scripted child reports `synthetic/fake`, parsed
+    // provider/id on the first "/" per design decision 3; a live child reports
+    // maki's -m value) — not a synthesized placeholder.
     const stepStarted = bothTurns.filter((f) => f.type === "session.step.started");
-    const wrongModel = stepStarted.filter((f) => f.data?.model?.id !== "synthetic/fake");
+    const wrongModel = stepStarted.filter(
+      (f) => f.data?.model?.providerID !== "synthetic" || f.data?.model?.id !== "fake",
+    );
     results.push({
       id: "synthesized-model-name",
       clean: stepStarted.length > 0 && wrongModel.length === 0,
@@ -103,11 +116,11 @@ const main = async () => {
           ? "no session.step.started frames observed"
           : wrongModel.length === 0
             ? `model reported on every step.started (${stepStarted.length})`
-            : `model ${JSON.stringify(wrongModel[0].data?.model)} instead of the child's "synthetic/fake"`,
+            : `model ${JSON.stringify(wrongModel[0].data?.model)} instead of the child's announced {providerID:"synthetic", id:"fake"}`,
       finding: {
         id: "synthesized-model-name",
         title: "Status line shows a synthesized model name instead of Maki's real model",
-        note: "expected session.step.started model.id === the child's announced model; the bridge answers from the pinned spec by synthesis",
+        note: "expected session.step.started model to be the child's announced model (provider/id split on first '/'); the bridge answers from the pinned spec by synthesis",
         frames: stepStarted,
       },
     });

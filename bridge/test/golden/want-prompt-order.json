@@ -1,14 +1,12 @@
 [
   {
-    "type": "message.part.updated",
-    "data": {
-      "message": {
-        "role": "user"
+    "type": "session.inbox.enqueued",
+    "item": {
+      "type": "user",
+      "payload": {
+        "text": "golden prompt 1"
       },
-      "part": {
-        "type": "text",
-        "text": "Reply with the word PONG only."
-      }
+      "delivery": "steer"
     }
   },
   {
@@ -18,8 +16,8 @@
     "type": "session.step.started",
     "agent": "sample",
     "model": {
-      "providerID": "sample",
-      "id": "sample"
+      "providerID": "maki",
+      "id": "syn:small:text"
     }
   },
   {

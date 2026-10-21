@@ -92,11 +92,12 @@ const defects: Defect[] = JSON.parse(readFileSync(new URL("../defects.json", imp
 const open = defects.filter((d) => d.status === "known");
 
 const reproduces: Record<string, () => { reproduced: boolean; detail: string }> = {
-  // cause as measured: the frame stream carries assistant-side frames only,
-  // so no frame represents the user's submitted prompt
+  // cause as measured: the frame stream carried assistant-side frames only,
+  // so no frame represented the user's submitted prompt (the real server
+  // emits session.inbox.enqueued; see fix-bridge-transcript-defects evidence)
   "message-order-inversion": () => {
     const userFrames = frames.filter(
-      (f) => eventName(f) === "message.part.updated" && payload(f).message?.role === "user",
+      (f) => eventName(f) === "session.inbox.enqueued" && payload(f).item?.type === "user",
     );
     return {
       reproduced: userFrames.length === 0,

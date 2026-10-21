@@ -2,23 +2,21 @@
   {
     "id": "message-order-inversion",
     "title": "User prompts render after assistant responses (A-A-A-Q-Q-Q)",
-    "status": "known",
+    "status": "fixed",
     "capture": "openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/bridge-sse-frames.jsonl",
     "golden": {
       "fixture": "maki-plain",
-      "want": "golden/want-message-order-inversion.json"
-    },
-    "expectedFailure": true
+      "want": "golden/want-prompt-order.json"
+    }
   },
   {
     "id": "synthesized-model-name",
     "title": "Status line shows a synthesized model name instead of Maki's real model",
-    "status": "known",
+    "status": "fixed",
     "capture": "openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/tui-run.typescript",
     "golden": {
       "fixture": "maki-plain",
       "want": "golden/want-synthesized-model-name.json"
-    },
-    "expectedFailure": true
+    }
   }
 ]

@@ -142,7 +142,7 @@ function sessionObject(s: BridgeSession): AnyObj {
     id: s.id,
     projectID: PROJECT_ID,
     agent: s.agent,
-    model: s.model,
+    model: s.translator.announcedModel ?? s.model,
     cost: s.cost ?? 0,
     tokens: s.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: { created: s.created, updated: s.updated },
@@ -248,8 +248,11 @@ function prompt(sid: string, body: AnyObj, url: URL): { status: number; payload:
   const text = String(body?.text ?? "");
   const userMsgID = typeof body?.id === "string" && /^msg_/.test(body.id) ? body.id : mintMessage();
   // mint the turn's assistant message id before maki can answer, so every part
-  // event of the turn carries the same msg_ (mapping-table.md §5)
-  s.translator.beginTurn(mintMessage());
+  // event of the turn carries the same msg_ (mapping-table.md §5); the user
+  // frame goes out first, before the child is written to, so the transcript
+  // orders Q-A-Q-A within and across turns (spec: "Prompt renders before its
+  // response"; shape pinned live in evidence/cross-map.md)
+  s.translator.beginTurn(mintMessage(), { text, id: userMsgID, delivery: String(body?.delivery ?? "steer") });
   s.maki.prompt(text);
   const { status, payload } = synthesize("POST", `/api/session/${sid}/prompt`, url, body, CANONICAL);
   if (payload?.data) payload.data = { ...payload.data, id: userMsgID, sessionID: sid, time: { created: Date.now() }, payload: { text } };
@@ -347,6 +350,18 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
   return synthesize(method, `/api/session/${sid}${rest ? `/${rest}` : ""}`, url, body, CANONICAL);
 }
 
+// /api/model must name the model a live child has announced, not a spec
+// placeholder (design decision 3); synthesis serves only before an announcement
+function modelList(url: URL): { status: number; payload: any } {
+  const result = synthesize("GET", "/api/model", url, null, CANONICAL);
+  const announced = [...sessions.values()].map((s) => s.translator.announcedModel).find(Boolean);
+  if (announced && Array.isArray(result.payload?.data) && result.payload.data[0]) {
+    const first = result.payload.data[0];
+    result.payload.data[0] = { ...first, id: announced.id, modelID: announced.id, providerID: announced.providerID, name: announced.id, enabled: true };
+  }
+  return result;
+}
+
 // ---------- request logging (redacted; design decision 6 hygiene) ----------
 const SECRET_KEY = /\b(authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|secret|password|cookie|credential)\b/i;
 const SECRET_VALUE = /\b(sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._-]{8,})/g;
@@ -384,6 +399,8 @@ async function handle(req: Request): Promise<Response> {
     else result = synthesize(method, path, url, body, CANONICAL);
   } else if (parts[1] === "api" && parts[2] === "session" && parts[3] && parts[3] !== "active") {
     result = sessionRoute(method, parts[3]!, parts.slice(4).join("/"), body, url);
+  } else if (method === "GET" && path === "/api/model") {
+    result = modelList(url);
   } else {
     result = synthesize(method, path, url, body, CANONICAL);
   }

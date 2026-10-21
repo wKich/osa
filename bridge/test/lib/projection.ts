@@ -79,7 +79,13 @@ export function runFixture(name: string): SinkEvent[] {
   for (const frame of loadFixture(name)) {
     if (frame.type === "assistant") {
       if (!turnOpen) {
-        translator.beginTurn(`msg_golden${String(++turn).padStart(4, "0")}`);
+        // mirror live prompt admission: the user frame is emitted at admission
+        // (bridge.ts prompt handler), before the child is written to
+        translator.beginTurn(`msg_golden${String(++turn).padStart(4, "0")}`, {
+          text: `golden prompt ${turn}`,
+          id: `msg_goldenprompt${turn}`,
+          delivery: "steer",
+        });
         turnOpen = true;
       }
       translator.onFrame(frame);
@@ -95,7 +101,7 @@ export function runFixture(name: string): SinkEvent[] {
   return events;
 }
 
-const STRIP = new Set(["sessionID", "assistantMessageID", "id", "started", "created"]);
+const STRIP = new Set(["sessionID", "assistantMessageID", "id", "inboxID", "started", "created"]);
 
 /** reduce sink events to {type, part order, text, …} with ids/timestamps removed */
 export function project(events: SinkEvent[]): Projected[] {

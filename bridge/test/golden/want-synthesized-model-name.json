@@ -1,12 +1,22 @@
 [
   {
+    "type": "session.inbox.enqueued",
+    "item": {
+      "type": "user",
+      "payload": {
+        "text": "golden prompt 1"
+      },
+      "delivery": "steer"
+    }
+  },
+  {
     "type": "session.execution.started"
   },
   {
     "type": "session.step.started",
     "agent": "sample",
     "model": {
-      "providerID": "syn",
+      "providerID": "maki",
       "id": "syn:small:text"
     }
   },

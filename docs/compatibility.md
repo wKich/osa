@@ -64,11 +64,11 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | User prompts render before the assistant output they caused | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) |
 | Session events carry Maki's real model name | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) |
 | System api_retry frames are tolerated without disturbing the transcript | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) |
-| Interrupt round trip via control_cancel_request and the interrupt route | `unverified` | [`openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md) |
-| Mid-session model switch forwards set_model / the model POST route | `unverified` | [`openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md) |
-| Mid-turn steering via an inbound user prompt while the agent runs | `unverified` | [`openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md) |
-| SDK control handshake (initialize / set_permission_mode) is sent to the child | `unverified` | [`openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md) |
-| Subagent transcript nesting via parent_tool_use_id | `unverified` | [`openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md) |
+| Interrupt round trip via control_cancel_request and the interrupt route | `unverified` | [`openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md) |
+| Mid-session model switch forwards set_model / the model POST route | `unverified` | [`openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md) |
+| Mid-turn steering via an inbound user prompt while the agent runs | `unverified` | [`openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md) |
+| SDK control handshake (initialize / set_permission_mode) is sent to the child | `unverified` | [`openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md) |
+| Subagent transcript nesting via parent_tool_use_id | `unverified` | [`openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md) |
 
 ## Version matrix
 

@@ -12,7 +12,11 @@ either upstream project.
 The bridge SHALL answer the OpenCode `2.0.32` boot and config reads the TUI
 performs — `/api/info`, agent/model/config reads, and the session/worktree list
 routes — with spec-valid, internally consistent payloads so the TUI reaches a
-usable composer without a "session location unavailable" dialog.
+usable composer without a "session location unavailable" dialog. Model values
+SHALL come from the Maki child when it has announced one (`system.init.model`,
+`assistant.model`) rather than from synthesized defaults; synthesized values
+are permitted only before any child announcement and only for models the
+child has not named.
 
 #### Scenario: TUI boots against the bridge
 - **WHEN** the OpenCode TUI is started with `--server` pointed at the bridge
@@ -29,6 +33,13 @@ usable composer without a "session location unavailable" dialog.
 - **THEN** the primary agent is selectable (mode not `subagent`), migration
   status does not block submission, and no first-enum-value default prevents
   the user from sending a prompt
+
+#### Scenario: Reported model is the child's model
+- **WHEN** the Maki child announces `synthetic/fake` on `system.init` and the
+  TUI renders a turn (status line, `session.step.started`, model list)
+- **THEN** the reported provider and model id are the announced ones, and no
+  route answers with a synthesized placeholder while a live child session
+  exists
 
 ### Requirement: Maintain one Maki session behind one OpenCode session
 The bridge SHALL run one Maki SDK session per OpenCode session — Maki running
@@ -49,7 +60,10 @@ from Maki's ids.
 ### Requirement: Translate the prompt into an OpenCode transcript
 The bridge SHALL accept a prompt on the OpenCode prompt endpoint and emit SSE
 event frames covering reasoning, text, tool, step, and execution boundaries as
-Maki reports them, for both streamed and non-streamed Maki output.
+Maki reports them, for both streamed and non-streamed Maki output. The
+transcript SHALL be causally ordered: a frame representing the user's prompt
+precedes every assistant frame the prompt caused, within a turn and across
+turns.
 
 #### Scenario: Plain text turn renders
 - **WHEN** the user submits a prompt and Maki returns an assistant text part
@@ -71,6 +85,29 @@ Maki reports them, for both streamed and non-streamed Maki output.
 - **WHEN** the TUI connects to the event stream
 - **THEN** the first frame is `server.connected` and subsequent frames follow
   the wire format the real server uses
+
+#### Scenario: Prompt renders before its response
+- **WHEN** the user submits a prompt and the session produces assistant
+  output, across one or more turns
+- **THEN** the emitted transcript places a user-role representation of each
+  prompt before the assistant frames it caused, so the rendered conversation
+  interleaves Q-A-Q-A instead of grouping all answers before all questions
+
+### Requirement: Tolerate recorded Maki wire frames with no OpenCode counterpart
+The bridge SHALL consume outbound Maki frames it has no OpenCode
+representation for — first among them `system{subtype:"api_retry"}` with its
+`attempt`, `retry_delay_ms`, and `error` fields (Maki SDK wire v0.6.4) —
+without emitting any event frame for them and without disturbing the
+in-progress turn: the emitted transcript SHALL be identical to the same turn
+replayed without those frames.
+
+#### Scenario: A mid-turn api_retry leaves the transcript undisturbed
+- **WHEN** a recorded Maki fixture replays a plain turn with
+  `system{subtype:"api_retry"}` frames interleaved between its assistant and
+  result frames
+- **THEN** the projected frame sequence matches the committed plain-turn
+  golden exactly — no extra, dropped, or reordered frames, and the turn still
+  ends in `session.execution.succeeded`
 
 ### Requirement: Round-trip tool permissions
 The bridge SHALL forward each Maki `can_use_tool` control request to the TUI as

@@ -51,7 +51,13 @@
     { "id": "permission-reask", "title": "A reply of `always` is honored once; the next gated call asks again", "status": "degraded", "evidence": "openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/api-check.log" },
     { "id": "stream-deltas", "title": "stream_event deltas translate into part delta frames", "status": "unverified", "evidence": "openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/e2e-note.md" },
     { "id": "transcript-order", "title": "User prompts render before the assistant output they caused", "status": "unverified", "evidence": "bridge/test/golden/want-message-order-inversion.json", "defect": "message-order-inversion" },
-    { "id": "model-identity", "title": "Session events carry Maki's real model name", "status": "unverified", "evidence": "bridge/test/golden/want-synthesized-model-name.json", "defect": "synthesized-model-name" }
+    { "id": "model-identity", "title": "Session events carry Maki's real model name", "status": "unverified", "evidence": "bridge/test/golden/want-synthesized-model-name.json", "defect": "synthesized-model-name" },
+    { "id": "api-retry-tolerance", "title": "System api_retry frames are tolerated without disturbing the transcript", "status": "verified", "evidence": "bridge/test/golden.test.ts" },
+    { "id": "interrupt-round-trip", "title": "Interrupt round trip via control_cancel_request and the interrupt route", "status": "unverified", "evidence": "openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md" },
+    { "id": "mid-session-model-switch", "title": "Mid-session model switch forwards set_model / the model POST route", "status": "unverified", "evidence": "openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md" },
+    { "id": "mid-turn-steering", "title": "Mid-turn steering via an inbound user prompt while the agent runs", "status": "unverified", "evidence": "openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md" },
+    { "id": "sdk-control-handshake", "title": "SDK control handshake (initialize / set_permission_mode) is sent to the child", "status": "unverified", "evidence": "openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md" },
+    { "id": "subagent-nesting", "title": "Subagent transcript nesting via parent_tool_use_id", "status": "unverified", "evidence": "openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md" }
   ],
   "versions": [
     { "component": "OpenCode (pinned contract)", "value": "2.0.32", "evidence": "bridge/src/openapi-2.0.32.json" },

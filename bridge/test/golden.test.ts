@@ -80,3 +80,13 @@ test("every defect expected-failure marker has a golden file", () => {
     }
   }
 });
+
+// spec scenario "A mid-turn api_retry leaves the transcript undisturbed":
+// the retry fixture's projection must equal the plain-turn golden literally,
+// so the fixture is deliberately NOT in FIXTURES (which would mint its own golden).
+test("golden translation: maki-retry equals the plain-turn golden", () => {
+  const actual = project(runFixture("maki-retry"));
+  const diff = firstDiff(actual, readGolden("golden/maki-plain.json"));
+  if (diff) throw new Error(`api_retry frames disturbed the transcript:\n      ${diff}`);
+  expect(diff).toBeNull();
+});

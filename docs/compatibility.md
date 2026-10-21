@@ -63,6 +63,12 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | stream_event deltas translate into part delta frames | `unverified` | [`openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/e2e-note.md`](../openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/e2e-note.md) |
 | User prompts render before the assistant output they caused | `buggy` ([message-order-inversion](../bridge/defects.json)) | [`bridge/test/golden/want-message-order-inversion.json`](../bridge/test/golden/want-message-order-inversion.json) |
 | Session events carry Maki's real model name | `buggy` ([synthesized-model-name](../bridge/defects.json)) | [`bridge/test/golden/want-synthesized-model-name.json`](../bridge/test/golden/want-synthesized-model-name.json) |
+| System api_retry frames are tolerated without disturbing the transcript | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) |
+| Interrupt round trip via control_cancel_request and the interrupt route | `unverified` | [`openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md) |
+| Mid-session model switch forwards set_model / the model POST route | `unverified` | [`openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md) |
+| Mid-turn steering via an inbound user prompt while the agent runs | `unverified` | [`openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md) |
+| SDK control handshake (initialize / set_permission_mode) is sent to the child | `unverified` | [`openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md) |
+| Subagent transcript nesting via parent_tool_use_id | `unverified` | [`openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/fix-bridge-transcript-defects/evidence/cross-map.md) |
 
 ## Version matrix
 

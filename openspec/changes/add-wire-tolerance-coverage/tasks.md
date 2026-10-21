@@ -23,13 +23,13 @@
       evidence `bridge/test/golden.test.ts`. Verify:
       `cd bridge && bun test crosscheck` passes (a `verified` row must name
       an existing test or fixture).
-- [ ] 2.2 Regenerate `docs/compatibility.md` via `make compat`. Verify:
+- [x] 2.2 Regenerate `docs/compatibility.md` via `make compat`. Verify:
       the command exits 0 and the row now reads `verified` with its evidence
       link.
 
 ## 3. Wrap-up gate
 
-- [ ] 3.1 Run the full gate in one pass: `make test`, `make test-bridge`,
+- [x] 3.1 Run the full gate in one pass: `make test`, `make test-bridge`,
       `make compat`, `make lint`, and
       `openspec validate "add-wire-tolerance-coverage"`. Verify: all five
       exit 0.

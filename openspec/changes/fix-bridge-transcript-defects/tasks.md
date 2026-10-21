@@ -59,10 +59,10 @@
 - [x] 5.1 Rerun the scripted discovery pass end to end (verify:
       `bun bridge/test/discovery.ts` prints `ok` for all five scenarios and
       `0 appended`)
-- [ ] 5.2 One-pass gate: `make test`, `make test-bridge`, `make compat`,
+- [x] 5.2 One-pass gate: `make test`, `make test-bridge`, `make compat`,
       `make lint`, `openspec validate "fix-bridge-transcript-defects"` all
       exit 0 (verify: five commands in one shell pass, no failures)
-- [ ] 5.3 Archive-path reminder: this change's evidence links in
+- [x] 5.3 Archive-path reminder: this change's evidence links in
       `statuses.json` point into `openspec/changes/fix-bridge-transcript-defects/`
       and must be rewritten to the dated archive path during archive, as the
       previous change did (verify: the archive step's diff touches those

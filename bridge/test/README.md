@@ -63,6 +63,12 @@ golden freezes current behavior on purpose, and the defect goldens in
    and the regenerated `docs/compatibility.md` land in one commit, so the next
    `make compat` on a clean tree exits 0.
 
-The two seeded defects (message-order inversion, synthesized model name) are
-the loop's worked example: both are open, both carry an `expectedFailure`
-marker, and the suite stays green while they are.
+The two seeded defects (message-order inversion, synthesized model name)
+were the loop's worked example: both opened as `known` with an
+`expectedFailure` marker and are now `fixed`, markers removed, goldens
+flipped to positive assertions — and both fixes landed under
+`openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/`.
+
+Test coverage for recorded-but-unverified rows is the other branch of the
+loop, handled by the `proposing-coverage-change` skill; it ships tests and
+status flips only, never code fixes.

@@ -26,8 +26,8 @@
   },
   "maki-retry.jsonl": {
     "kind": "mixed",
-    "derivedFrom": "copy of maki-plain.jsonl with one system/api_retry frame spliced in",
-    "note": "the spliced frame is source-derived; the surrounding turn is captured"
+    "derivedFrom": "copy of maki-plain.jsonl with two system/api_retry frames spliced in",
+    "note": "the two spliced frames are source-derived (error is a plain string per the pin); the surrounding turn is captured"
   },
   "maki-stream.jsonl": {
     "kind": "authored",

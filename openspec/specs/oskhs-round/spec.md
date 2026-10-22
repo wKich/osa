@@ -2,8 +2,9 @@
 
 ## Purpose
 Runs one headless Maki round for one task inside a long-lived per-project
-OpenShell sandbox: seed the sandbox's repository once with full history, run
-each round in its own git worktree, and return a typed result, with the time
+OpenShell sandbox: keep the sandbox's repositories in sync through
+incremental git bundles, run each round in its own multi-repo workspace,
+return changes as git bundles, and report a typed result, with the time
 limit enforced inside the sandbox and no credentials or bind mounts crossing
 into it.
 

@@ -14,7 +14,8 @@ import type { RoundResult } from "./result.ts";
 import { runRound, type RoundSpec } from "./round.ts";
 
 const USAGE = `usage: oskhs worker [--round sandbox|echo] [--mirror-dir DIR] [--model SPEC]
-         [--provider NAME]... [--gateway NAME] [--agent-name NAME] [--once]
+         [--provider NAME]... [--gateway NAME] [--agent-name NAME]
+         [--internal-models] [--once]
          [--max-rounds N] [--max-per-project N] [--round-timeout SECS]
          [--heartbeat-sec SECS] [--cancel-poll-sec SECS] [--poll-sec SECS]
          [--fake-delay SECS] [--log-dir DIR]
@@ -101,6 +102,7 @@ export interface WorkerArgs {
   providers: string[];
   gateway?: string;
   agentName: string;
+  internalModels: boolean;
   once: boolean;
   pollSec: number;
   fakeDelaySec: number;
@@ -122,6 +124,7 @@ const WORKER_NUMBERS: Record<string, [keyof WorkerArgs["options"] | "pollSec" | 
 export function parseWorker(argv: string[], env: Record<string, string | undefined> = process.env): WorkerArgs {
   const values: Record<string, number> = Object.fromEntries(Object.values(WORKER_NUMBERS));
   let once = false;
+  let internalModels = false;
   let logDir = defaultLogDir(env);
   let round: WorkerArgs["round"] = "sandbox";
   const providers: string[] = [];
@@ -131,6 +134,10 @@ export function parseWorker(argv: string[], env: Record<string, string | undefin
     const a = argv[i]!;
     if (a === "--once") {
       once = true;
+      continue;
+    }
+    if (a === "--internal-models") {
+      internalModels = true;
       continue;
     }
     const v = argv[++i];
@@ -159,6 +166,7 @@ export function parseWorker(argv: string[], env: Record<string, string | undefin
     providers: providers.length ? providers : fromEnv,
     gateway: text.gateway,
     agentName: text.agentName!,
+    internalModels,
     once,
     pollSec: pollSec!,
     fakeDelaySec: fakeDelaySec!,
@@ -190,7 +198,15 @@ async function runWorker(rest: string[]): Promise<number> {
   const round: Round =
     args.round === "echo"
       ? echoRound(args.fakeDelaySec)
-      : sandboxRound({ ctx, mirrorDir: resolve(args.mirrorDir!), providers: args.providers, model: args.model, agentName: args.agentName });
+      : sandboxRound({
+          ctx,
+          mirrorDir: resolve(args.mirrorDir!),
+          providers: args.providers,
+          model: args.model,
+          agentName: args.agentName,
+          internalModels: args.internalModels,
+          stateDir: resolve(args.logDir, ".."),
+        });
   const worker = new Worker(store, round, { ...args.options, log: fileTaskLog(args.logDir), info });
   let stopping = false;
   const stop = async () => {

@@ -2,7 +2,7 @@
 
 ## 1. Derivation
 
-- [ ] 1.1 `oskhs/src/kiss/model.ts`: parse `modelProvider` → profile YAML
+- [x] 1.1 `oskhs/src/kiss/model.ts`: parse `modelProvider` → profile YAML
       (id, endpoint, rules, auth), provider name, fingerprint, Maki
       `providers.toml`, model spec; verify unit tests for OpenAI and
       Anthropic URLs with and without a path, a non-default port, missing
@@ -11,12 +11,12 @@
 
 ## 2. Sync
 
-- [ ] 2.1 Sync: import the profile when unknown; create/update/re-create
+- [x] 2.1 Sync: import the profile when unknown; create/update/re-create
       the provider by fingerprint with the key only in the child's
       environment; attach it and detach every other provider of the
       sandbox; state file 0600; verify with the recording runner (argv never
       holds the key; create vs update vs re-create; detach of extras)
-- [ ] 2.2 Sandbox round uses it: write `providers.toml`, `--model
+- [x] 2.2 Sandbox round uses it: write `providers.toml`, `--model
       kiss/<id>`, sandbox created with only the project provider; internal
       models need `--internal-models`; fallback flags; verify unit tests and
       `make test-oskhs`, `bunx tsc --noEmit -p oskhs`

@@ -68,12 +68,12 @@
 
 ## 5. Verify
 
-- [ ] 5.1 Run `make test`, `make test-bridge`, `make compat`, `make lint`,
+- [x] 5.1 Run `make test`, `make test-bridge`, `make compat`, `make lint`,
       and `openspec validate "add-live-subagent-capture"` in one pass, and
       verify all exit 0
-- [ ] 5.2 Verify `git diff --stat bridge/src` is empty, and verify the only
+- [x] 5.2 Verify `git diff --stat bridge/src` is empty, and verify the only
       `statuses.json` change is the `subagent-nesting` caveat field
-- [ ] 5.3 Add a wrap-up note naming the dated archive path each evidence file
+- [x] 5.3 Add a wrap-up note naming the dated archive path each evidence file
       must be rewritten to at archive time, and verify it covers every row
       whose evidence points into this change dir, so `crosscheck.test.ts`
       stays green after the archive commit

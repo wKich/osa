@@ -25,17 +25,17 @@
 
 ## 3. Live exit
 
-- [ ] 3.1 Dev stand: a marked task in `kiss-local-test` asking to append a
+- [x] 3.1 Dev stand: a marked task in `kiss-local-test` asking to append a
       line to `README.md` of `ascii-minecraft`; verify the MR on GitLab
       (branch, assignee `svc_kiss`, labels, description with the source),
       the task in `review` with `mrUrl`/`mrIid`, and kiss's review
       notification in the thread; record in `evidence/mr-live.md`
-- [ ] 3.2 Verify the mirror refresh (the pushed branch appears in the
+- [x] 3.2 Verify the mirror refresh (the pushed branch appears in the
       mirror after the next round's fetch) and that no oskhs process
       argument carried the token (`ps` sampled during the round)
 
 ## 4. Docs
 
-- [ ] 4.1 `docs/oskhs.md`, roadmap B1.4 done; verify
+- [x] 4.1 `docs/oskhs.md`, roadmap B1.4 done; verify
       `scripts/check-links.sh docs/oskhs.md docs/roadmap.md` and
       `openspec validate add-oskhs-merge-requests --strict`

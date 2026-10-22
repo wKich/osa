@@ -6,7 +6,7 @@ lives in [`oskhs/`](../oskhs/) as a Bun + TypeScript subproject and depends on
 kiss only through the task document in Mongo — not yet: this page tracks
 what exists today, slice by slice.
 
-**Today (B1.1a–B1.3d):** a round library with incremental git sync and
+**Today (B1.1a–B1.4):** a round library with incremental git sync and
 changes returned as a host branch (`run-round`), and a kiss queue worker
 (`worker`) that answers marked kiss tasks with Maki in the project's warm
 sandbox.
@@ -187,8 +187,10 @@ project's warm sandbox:
   `OSKHS_MIRROR_DIR`); each worktree starts from the repository's
   `branchName` when the task continues one, else the mirror's default
   branch. A missing mirror closes the task with an error naming the path.
-  In B1.3c the mirrors are made by hand (`git clone --mirror`); B1.4
-  fetches them from GitLab.
+  With `OSKHS_GITLAB_URL` and `OSKHS_GITLAB_TOKEN` set, oskhs clones a
+  missing mirror and fetches it (with pruning) before every round, over
+  HTTPS; without them it uses whatever mirrors exist and rounds stay
+  read-only.
 - **Prompt**: answer-only instructions with kiss's no-changes `[RESULT]`
   format, then kiss's task-context block — repositories, source URL, thread
   root and discussion, thread URL, the author's task line — byte for byte
@@ -196,7 +198,8 @@ project's warm sandbox:
   A follow-up uses the prompt kiss built for the sub-task.
 - **Reply**: the `Reply` field of Maki's `[RESULT]` block, parsed as kiss
   parses it; the whole answer if there is none.
-- **Read-only**: nothing is collected back; code requests are B1.4.
+- **Code requests**: see *Merge requests* below; read-only tasks
+  (`readOnly`) and follow-ups collect nothing.
 - **Model**: from the task's kiss `modelProvider` — see below; `--model` /
   `--provider` only serve a task without one.
 - **Cancel**: the round runs under `maki-oss run --timeout` with the run tag
@@ -209,9 +212,40 @@ the model endpoint for the `maki` binary and nothing else, so neither the
 kiss database nor GitLab is reachable from it.
 
 ```sh
-OSKHS_MONGO_URI=mongodb://127.0.0.1:27017/kiss-agent bun oskhs/src/cli.ts worker \
-  --mirror-dir ~/oskhs-mirrors --internal-models --agent-name svc_kiss
+export OSKHS_MONGO_URI=mongodb://127.0.0.1:27017/kiss-agent
+export OSKHS_GITLAB_URL=https://git.example.com OSKHS_GITLAB_TOKEN=…   # the bot's token
+bun oskhs/src/cli.ts worker --mirror-dir ~/oskhs-mirrors --internal-models --agent-name svc_kiss
 ```
+
+### Merge requests
+
+A first round of a task that is not `readOnly`, on a worker with GitLab
+configured, is a code round: kiss's code-or-answer instructions and its
+`[RESULT]` format (Title, Description, Branch, Labels, Reply) — the same
+text kiss gives its agent, contract-tested. If Maki changed a repository:
+
+1. Its leftovers are committed with the result's Title as the message and
+   collected as in *Changes back*.
+2. The branch is kiss's: the `/branch` directive, else the agent's proposed
+   Branch if no GitLab branch has that name, else `kiss-agent/<8 hex>`,
+   sanitized as kiss does. oskhs pushes it from the mirror and drops its
+   local `oskhs/<task-id>` ref.
+3. An MR into the round's base branch is opened (or an open one reused):
+   kiss's title and description plus `Источник задачи: <source>`, labels
+   with `ai_generated`, assigned to the token's user — the bot, which is how
+   kiss's `GitLabMRTaskSource` tracks its MRs — and the task author as
+   reviewer when they are a project member.
+4. The task gets `mrUrl`, `mrIid`, `branchName` on its repository entries,
+   `taskDescription`, `replyMessage`, and `state: review`; kiss's status
+   sync posts the MR link in the thread.
+
+A round without changes is an answer (`completed`). Review comments and
+thread instructions on the MR are not handled by oskhs yet (B3): such
+follow-ups end in `error` with a message naming oskhs.
+
+The GitLab token is the oskhs host's secret, like the Mongo URI: git gets
+it only through the environment (`GIT_CONFIG_*` → `http.extraHeader`), the
+API as a header; it is in no argv, remote URL, file, or log.
 
 ### Model and credentials
 
@@ -259,4 +293,5 @@ a real MongoDB (an ephemeral database). The recorded live runs are in
 `openspec/changes/archive/*-add-oskhs-commits-back/evidence/collect-live.md`,
 `openspec/changes/archive/*-add-oskhs-task-worker/evidence/worker-live.md`,
 `openspec/changes/archive/*-add-oskhs-sandbox-round/evidence/sandbox-round-live.md`,
-and `openspec/changes/archive/*-add-oskhs-model-credentials/evidence/model-live.md`.
+`openspec/changes/archive/*-add-oskhs-model-credentials/evidence/model-live.md`,
+and `openspec/changes/archive/*-add-oskhs-merge-requests/evidence/mr-live.md`.

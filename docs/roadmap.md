@@ -358,7 +358,9 @@ in one go; remote gateways and resumable large seeds are B5.
   their own model; the sandbox's environment holds only placeholders; a
   request with the placeholder to a non-inference path of the provider API
   is refused.
-- **B1.4 — Code changes land** (1). oskhs keeps a bare mirror per project
+- **B1.4 — Code changes land** (1). *Done 2026-10-23
+  (`add-oskhs-merge-requests`); MR !1 in the dev repository was opened by
+  oskhs and linked in the thread by kiss.* oskhs keeps a bare mirror per project
   (fetched from GitLab; B1.1 used a local clone); pushes the returned branch
   with kiss's naming; opens an MR via the GitLab API in the shape
   `GitLabMRTaskSource` expects; records it on the task as kiss records its

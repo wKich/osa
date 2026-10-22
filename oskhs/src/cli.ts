@@ -24,7 +24,8 @@ const USAGE = `usage: oskhs worker [--round sandbox|echo] [--mirror-dir DIR] [--
          [--timeout SECS] [--gateway NAME] [--task-id ID]
 
 Environment: OSKHS_MONGO_URI (worker, required), OSKHS_HOST_ID (worker),
-OSKHS_MIRROR_DIR (worker),
+OSKHS_MIRROR_DIR (worker), OSKHS_GITLAB_URL and OSKHS_GITLAB_TOKEN (worker:
+mirrors from GitLab and merge requests; without them rounds are read-only),
 OSKHS_PROVIDERS (comma-separated), OSKHS_MODEL, OSKHS_TIMEOUT, OPENSHELL_BIN,
 MAKI_OSS_BIN.`;
 
@@ -206,6 +207,10 @@ async function runWorker(rest: string[]): Promise<number> {
           agentName: args.agentName,
           internalModels: args.internalModels,
           stateDir: resolve(args.logDir, ".."),
+          gitlab:
+            process.env.OSKHS_GITLAB_URL && process.env.OSKHS_GITLAB_TOKEN
+              ? { baseUrl: process.env.OSKHS_GITLAB_URL, token: process.env.OSKHS_GITLAB_TOKEN }
+              : undefined,
         });
   const worker = new Worker(store, round, { ...args.options, log: fileTaskLog(args.logDir), info });
   let stopping = false;

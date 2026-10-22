@@ -34,18 +34,20 @@ export interface CollectSpec {
   taskId: string;
   baseTip: string; // host object id the worktree started from
   prerequisites: string[]; // host object ids synced this round
+  commitMessage?: string; // for leftovers; default names the task
 }
 
 export const hostBranch = (taskId: string) => `oskhs/${checkTaskId(taskId)}`;
 
-// $1 worktree, $2 task id, $3 bundle path, $4 base tip; prerequisite ids on
+// $1 worktree, $2 task id, $3 bundle path, $4 base tip, $5 commit message
+// (optional); prerequisite ids on
 // stdin. Prints `head <id>`, `tree <id>`, then `none`, `known` (the head is
 // already reachable from a prerequisite), or `bundle`.
-const COLLECT_SCRIPT = `wt=$1 id=$2 out=$3 base=$4
+const COLLECT_SCRIPT = `wt=$1 id=$2 out=$3 base=$4 msg=\${5:-oskhs: uncommitted changes from task $2}
 cd "$wt" || exit 1
 git add -A || exit 1
 if ! git diff --cached --quiet; then
-    git commit -q -m "oskhs: uncommitted changes from task $id" || exit 1
+    git commit -q -m "$msg" || exit 1
 fi
 head=$(git rev-parse HEAD) || exit 1
 git update-ref "refs/heads/task-$id" "$head" || exit 1
@@ -96,7 +98,7 @@ export async function collectChanges(ctx: Ctx, spec: CollectSpec): Promise<Chang
   const id = checkTaskId(spec.taskId);
   const name = `${id}-${checkSubdir(spec.key)}.bundle`;
   const out = `${OUT_DIR}/${name}`;
-  const ran = await sandboxSh(ctx, spec.sandbox, COLLECT_SCRIPT, [worktreePath(id, spec.key), id, out, spec.baseTip], {
+  const ran = await sandboxSh(ctx, spec.sandbox, COLLECT_SCRIPT, [worktreePath(id, spec.key), id, out, spec.baseTip, ...(spec.commitMessage ? [spec.commitMessage] : [])], {
     stdin: spec.prerequisites.join("\n") + "\n",
   });
   if (ran.code !== 0) throw new StageError("collect", ran.code, tail(ran.stderr));

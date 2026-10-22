@@ -2,7 +2,6 @@
 // the project's warm sandbox, one worktree per task repository, synced from
 // the host's bare mirrors; Maki's answer becomes the reply kiss posts.
 import { existsSync } from "node:fs";
-import { join } from "node:path";
 import { tail } from "../exec.ts";
 import { checkTaskId, projectName, repoSubdir, sandboxName } from "../names.ts";
 import { sandboxSh, type Ctx } from "../openshell.ts";
@@ -10,8 +9,11 @@ import { runRound, type RepoSpec } from "../round.ts";
 import { ensureSandbox } from "../sandbox.ts";
 import { ensureModelProvider, ModelError, pinSandboxProvider, planModel, providerStateFile, type KissModelProvider } from "./model.ts";
 import type { Round, RoundReply } from "../worker.ts";
-import { agentsMd, buildTaskPrompt, type PromptTask } from "./prompt.ts";
-import { replyText } from "./result.ts";
+import { agentsMd, buildCodeTaskPrompt, buildTaskPrompt, type PromptTask } from "./prompt.ts";
+import { parseResultFields, replyText } from "./result.ts";
+import { MirrorError, mirrorPath, refreshMirror } from "./mirror.ts";
+import type { GitLabConfig } from "./gitlab.ts";
+import { commitTitle, publish } from "./publish.ts";
 
 export interface SandboxRoundConfig {
   ctx: Ctx;
@@ -21,6 +23,7 @@ export interface SandboxRoundConfig {
   agentName: string; // the identity line's @name (kiss: GITLAB_USER_NAME)
   internalModels: boolean; // this gateway reaches kiss's internal models
   stateDir: string; // oskhs state: provider fingerprints
+  gitlab?: GitLabConfig; // mirrors fetched from GitLab and MRs; without it, hand-made mirrors and read-only rounds
 }
 
 // $1 Maki's config dir in the sandbox (HOME is /sandbox in the image).
@@ -34,7 +37,6 @@ interface TaskRepository {
   branchName?: string | null;
 }
 
-export const mirrorPath = (mirrorDir: string, projectPath: string) => join(mirrorDir, `${projectPath}.git`);
 
 /** The mirror's default branch: its HEAD. */
 async function defaultBranch(ctx: Ctx, mirror: string): Promise<string | null> {
@@ -56,6 +58,14 @@ export function sandboxRound(cfg: SandboxRoundConfig): Round {
     const taskRepos = (task.taskRepositories as TaskRepository[] | undefined) ?? [];
     const repos: (RepoSpec & { projectPath: string; description?: string | null })[] = [];
     for (const r of taskRepos) {
+      if (cfg.gitlab) {
+        try {
+          await refreshMirror(cfg.ctx, cfg.gitlab, cfg.mirrorDir, r.projectPath);
+        } catch (err) {
+          if (err instanceof MirrorError) return { ok: false, error: `oskhs mirror of ${r.projectPath}: ${err.message}` };
+          throw err;
+        }
+      }
       const mirror = mirrorPath(cfg.mirrorDir, r.projectPath);
       if (!existsSync(mirror)) return { ok: false, error: `oskhs has no mirror of ${r.projectPath} (expected ${mirror})` };
       const base = r.branchName || (await defaultBranch(cfg.ctx, mirror));
@@ -86,9 +96,16 @@ export function sandboxRound(cfg: SandboxRoundConfig): Round {
     } else if (!model) {
       return { ok: false, error: "the task has no model provider and the worker has no --model" };
     }
+    // Code rounds: a first round of a task that may change code, with GitLab to
+    // publish to. Follow-ups stay read-only until B3.
+    const code = !input.subTask && task.readOnly !== true && !!cfg.gitlab;
     // a follow-up's prompt was already built by kiss
-    const prompt = input.subTask ? input.prompt : buildTaskPrompt(task as unknown as PromptTask, cfg.agentName);
-    const { result } = await runRound(cfg.ctx, {
+    const prompt = input.subTask
+      ? input.prompt
+      : code
+        ? buildCodeTaskPrompt(task as unknown as PromptTask, cfg.agentName)
+        : buildTaskPrompt(task as unknown as PromptTask, cfg.agentName);
+    const { result, repos: outcomes } = await runRound(cfg.ctx, {
       sandbox,
       providers,
       taskId: checkTaskId(task._id),
@@ -96,13 +113,38 @@ export function sandboxRound(cfg: SandboxRoundConfig): Round {
       prompt,
       model,
       timeoutSec: input.timeoutSec,
-      collect: false, // B1.3c rounds are read-only; B1.4 lands changes
+      collect: code,
+      commitMessage: (answer) => commitTitle(parseResultFields(answer), String(task._id)),
       agentsMd: agentsMd(repos),
       signal,
     });
     switch (result.kind) {
-      case "answer":
-        return { ok: true, text: replyText(result.text) };
+      case "answer": {
+        const text = replyText(result.text);
+        const changed = outcomes.filter((o) => o.changes);
+        if (!code || !changed.length) return { ok: true, text };
+        const fields = parseResultFields(result.text);
+        try {
+          const mrs = await publish({
+            ctx: cfg.ctx,
+            gitlab: cfg.gitlab!,
+            mirrorDir: cfg.mirrorDir,
+            taskId: String(task._id),
+            taskPrompt: task.prompt,
+            taskBranchName: task.taskBranchName as string | null | undefined,
+            authorUsername: task.authorUsername as string | null | undefined,
+            source: task.source as string | null | undefined,
+            fields,
+            repos: changed.map((o) => {
+              const spec = repos.find((r) => r.key === o.key)!;
+              return { projectPath: spec.projectPath, base: spec.base, changes: o.changes! };
+            }),
+          });
+          return { ok: true, text, mrs, taskDescription: fields.Description?.trim() || null };
+        } catch (err) {
+          return { ok: false, error: `oskhs could not publish the changes: ${err instanceof Error ? err.message : String(err)}` };
+        }
+      }
       case "agent-error":
         return { ok: false, error: `Maki reported an error: ${result.message}` };
       case "timeout":

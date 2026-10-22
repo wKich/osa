@@ -33,6 +33,7 @@ export interface RoundSpec {
   collect: boolean; // false for read-only rounds: changes are discarded
   agentsMd?: string; // workspace-root index; default lists the repositories
   signal?: AbortSignal; // stops Maki in the sandbox (by its run tag) and the round
+  commitMessage?: (answer: string) => string | undefined; // message for leftovers, from the answer
 }
 
 export interface RepoOutcome {
@@ -155,6 +156,7 @@ export async function runRound(ctx: Ctx, spec: RoundSpec): Promise<RoundOutcome>
         taskId: spec.taskId,
         baseTip: tips[`refs/heads/${repo.base}`]!,
         prerequisites: [...new Set(Object.values(tips))],
+        commitMessage: spec.commitMessage?.(result.text),
       });
     }
     return { result, repos };

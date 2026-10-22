@@ -14,7 +14,14 @@ export interface RoundInput {
   timeoutSec: number;
 }
 
-export type RoundReply = { ok: true; text: string } | { ok: false; error: string };
+export interface MRRecord {
+  projectPath: string;
+  mrUrl: string;
+  mrIid: number;
+  branchName: string;
+}
+
+export type RoundReply = { ok: true; text: string; mrs?: MRRecord[]; taskDescription?: string | null } | { ok: false; error: string };
 
 export type Round = (input: RoundInput, signal: AbortSignal) => Promise<RoundReply>;
 
@@ -162,7 +169,11 @@ export class Worker {
         const reply = await this.runRound({ task, project, prompt: task.prompt, timeoutSec: this.opts.roundTimeoutSec }, controller.signal);
         if (controller.signal.aborted) return;
         const now = new Date();
-        if (reply.ok) {
+        if (reply.ok && reply.mrs?.length) {
+          const repos = (task.taskRepositories as Record<string, unknown>[] | undefined) ?? [];
+          await this.store.updateTask(p.unlessCancelling(id), p.reviewUpdate(now, repos, reply.mrs, reply.text, reply.taskDescription ?? null));
+          log(id, "review", { mrs: reply.mrs.map((m) => `${m.projectPath}!${m.mrIid}`) });
+        } else if (reply.ok) {
           await this.store.updateTask(p.unlessCancelling(id), p.answerUpdate(now, reply.text));
         } else {
           await this.store.updateTask(p.unlessCancelling(id), p.failureUpdate(now, reply.error));

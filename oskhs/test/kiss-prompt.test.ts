@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { agentsMd, buildTaskPrompt, RESULT_FORMAT_TASK_NO_CHANGES, taskContextBlock, type PromptTask } from "../src/kiss/prompt.ts";
-import { KNOWN_RESULT_FIELDS, parseResultFields, replyText } from "../src/kiss/result.ts";
+import { agentsMd, ANSWER_ONLY_BLOCK, buildCodeTaskPrompt, buildTaskPrompt, CODE_CHANGES_BLOCK, RESULT_FORMAT_TASK, RESULT_FORMAT_TASK_NO_CHANGES, taskContextBlock, type PromptTask } from "../src/kiss/prompt.ts";
+import { defaultMRDescription, KNOWN_RESULT_FIELDS, parseResultFields, replyText, sanitizeBranchName } from "../src/kiss/result.ts";
 
 const thread = {
   previousComments: [
@@ -54,6 +54,22 @@ describe.skipIf(!available)("kiss prompt contract", async () => {
   test.each(cases)("task context matches generateTaskPrompt: %s", (_name, task) => {
     const theirs: string = k.generateTaskPrompt(task.prompt, task.taskRepositories, "svc_kiss", undefined, task.threadContext ?? undefined, task.source ?? undefined, task.authorUsername ?? undefined, task.authorFullName ?? undefined);
     expect(theirs.slice(theirs.indexOf("**Task context:**"))).toBe(taskContextBlock(task));
+  });
+  test("code prompt blocks are kiss's own text", () => {
+    const theirs: string = k.generateTaskPrompt("x", [], "svc_kiss");
+    expect(theirs).toContain(CODE_CHANGES_BLOCK);
+    expect(theirs).toContain(ANSWER_ONLY_BLOCK);
+    expect(k.RESULT_FORMAT_TASK).toBe(RESULT_FORMAT_TASK);
+    expect(buildCodeTaskPrompt(cases[0]![1]).endsWith(taskContextBlock(cases[0]![1]))).toBe(true);
+  });
+  test("branch sanitizer and default MR description match kiss", async () => {
+    const helpers = await import(`${kiss}/src/utils/helpers.ts`);
+    const utils = await import(`${kiss}/src/services/utils.ts`);
+    for (const name of ["feat/Add README line!", "../x//y--z_", "a".repeat(300), "фича/кириллица"]) {
+      expect(sanitizeBranchName(name)).toBe(helpers.sanitizeBranchName(name));
+      expect(sanitizeBranchName(name, 48)).toBe(helpers.sanitizeBranchName(name, 48));
+    }
+    expect(defaultMRDescription("do it")).toBe(utils.generateMRDescription("do it"));
   });
   test("result format and known fields", () => {
     expect(k.RESULT_FORMAT_TASK_NO_CHANGES).toBe(RESULT_FORMAT_TASK_NO_CHANGES);

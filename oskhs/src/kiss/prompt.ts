@@ -42,7 +42,49 @@ export const RESULT_FORMAT_TASK_NO_CHANGES = [
   "Risk: low",
 ].join("\n");
 
+// kiss prompts.ts RESULT_FORMAT_TASK (BRANCH_NAME_MAX_LENGTH = 48), verbatim.
+export const BRANCH_NAME_MAX_LENGTH = 48;
+export const RESULT_FORMAT_TASK = [
+  "Status: <done | no_changes | partial | failed>",
+  "Changed: <yes/no>",
+  "Title: <MR title following the target project's CONTRIBUTING.md naming convention, max 80 chars, plain text. Leave empty for answer-only/no_changes tasks>",
+  "Description: <MR description in Russian, used as the base of the GitLab MR description. Supports multiline rich GitHub-flavored Markdown: headings, tables, lists, inline code, fenced code blocks — continue on following unindented lines. If a loaded skill prescribes an MR-description structure, follow it here. Leave empty for answer-only/no_changes tasks>",
+  "Reviewer: <optional GitLab username for the MR reviewer; omit this field unless the task explicitly instructs you how to choose a reviewer>",
+  `Branch: <suggested branch name based on CONTRIBUTING.md naming conventions, max ${BRANCH_NAME_MAX_LENGTH} chars. REQUIRED when making code changes — the agent MUST propose a branch name, not leave it empty>`,
+  "Labels: <comma-separated labels, use label taxonomy from CONTRIBUTING.md. Leave empty for answer-only/no_changes tasks>",
+  "Reply: <summary for the task author in Russian. You may use rich GitHub-flavored Markdown for a user-facing layout: headings, tables, lists, inline code, and fenced code blocks>",
+  "Risk: <low | medium | high; note the main rollout or compatibility risk>",
+].join("\n");
+
+// kiss prompts.ts GIT_PUBLISHING_INSTRUCTION, verbatim.
+export const GIT_PUBLISHING_INSTRUCTION =
+  "Do not stage (git add), commit, or push changes unless strictly necessary or the user explicitly asks for it — the orchestration system manages git publishing and creates commits/MRs automatically when needed. Do not create a Merge Request yourself (no GitLab API/MCP call, no glab/HTTP request): the orchestrator opens the MR from the branch it publishes. An MR that the orchestrator has already created may be renamed or updated when a review comment or instruction asks for it.";
+
 const resultBlock = (format: string) => `[RESULT]\n${format}\n[/RESULT]`;
+
+/** kiss's code-change branch of the response format, verbatim (generateTaskPrompt). */
+export const CODE_CHANGES_BLOCK = [
+  `**If the task requires code changes:**`,
+  `1. First, explore the codebase:`,
+  `   - Read CONTRIBUTING.md (if exists) to understand project conventions, label taxonomy, branch naming rules, and contribution guidelines.`,
+  `2. Keep changes within the requested scope.`,
+  `3. ${GIT_PUBLISHING_INSTRUCTION}`,
+  `4. When making code changes, you MUST propose a branch name in the Branch field. The branch name must be no more than ${BRANCH_NAME_MAX_LENGTH} characters. Read CONTRIBUTING.md for project-specific naming conventions. If you cannot find branch naming rules there (CONTRIBUTING.md may exist but not specify them), use these defaults: a meaningful name like \`feat/new-feature\` or \`fix/some-bug\`. Do NOT leave Branch empty for code changes.`,
+  `5. Append a result block at the very end of your response. It is parsed programmatically — use these exact field names, plain text values (no backticks), and keep the field order:`,
+  `   ` + resultBlock(RESULT_FORMAT_TASK),
+].join("\n");
+
+/** kiss's answer-only branch of the response format, verbatim. */
+export const ANSWER_ONLY_BLOCK = [
+  `**If the task is purely about answering questions, research, or analysis (NO files modified):**`,
+  `1. A [RESULT] block is mandatory at the end of this answer. Put your entire user-facing answer directly in the Reply field — this is what the user sees; do not write any user-facing text outside the block.`,
+  `2. The Reply field supports full GitHub-flavored Markdown: headings, tables, lists, inline code, and fenced code blocks.`,
+  `3. Do NOT put answer text before [RESULT]; text outside the block may be stripped by the orchestrator and become invisible to the user.`,
+  `4. Leave Title, Description, Branch, and Labels empty.`,
+  `5. Append a no-change [RESULT] block with your full answer in the Reply field:`,
+  ``,
+  `   ` + resultBlock(RESULT_FORMAT_TASK_NO_CHANGES),
+].join("\n");
 
 const formatAuthor = (c: PromptComment) => (c.fullName ? `${c.fullName} (@${c.author})` : `@${c.author}`);
 
@@ -106,6 +148,23 @@ export function taskContextBlock(task: PromptTask): string {
       .filter(Boolean),
     taskLine,
   ].join("\n\n");
+}
+
+/** A code task's prompt: kiss's code-or-answer response format, then its task context. */
+export function buildCodeTaskPrompt(task: PromptTask, agentName = "kiss"): string {
+  return [
+    `You are @${agentName} AI agent working in a repository workspace.`,
+    ``,
+    `Each repository is a git worktree with its full local history; network git (fetch, pull, push) is unavailable, and the orchestrator publishes your changes.`,
+    ``,
+    `**Response format depends on the type of task:**`,
+    ``,
+    CODE_CHANGES_BLOCK,
+    ``,
+    ANSWER_ONLY_BLOCK,
+    ``,
+    taskContextBlock(task),
+  ].join("\n");
 }
 
 /** A first round's prompt: answer-only instructions, then kiss's task context. */

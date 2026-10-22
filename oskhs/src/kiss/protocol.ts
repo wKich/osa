@@ -61,6 +61,32 @@ export function answerUpdate(now: Date, text: string): Update {
   return { $set: { state: "completed", replyMessage: text, errorMessage: null, lastMeaningfulActivityAt: now, updatedAt: now } };
 }
 
+/** kiss's mergeRequestsCreated handler: MR fields per repository, then review. */
+export function reviewUpdate(
+  now: Date,
+  repos: Doc[],
+  mrs: { projectPath: string; mrUrl: string; mrIid: number; branchName: string }[],
+  reply: string,
+  taskDescription: string | null,
+): Update {
+  const taskRepositories = repos.map((repo) => {
+    const mrPath = (repo.upstreamProjectPath as string | undefined) ?? (repo.projectPath as string);
+    const mr = mrs.find((m) => m.projectPath === mrPath);
+    return mr ? { ...repo, mrUrl: mr.mrUrl, mrIid: mr.mrIid, branchName: mr.branchName } : repo;
+  });
+  return {
+    $set: {
+      taskRepositories,
+      ...(taskDescription ? { taskDescription } : {}),
+      replyMessage: reply || null,
+      state: "review",
+      errorMessage: null,
+      lastMeaningfulActivityAt: now,
+      updatedAt: now,
+    },
+  };
+}
+
 export function failureUpdate(now: Date, message: string): Update {
   return { $set: { state: "closed", errorMessage: message, runtimeState: "failed", lastMeaningfulActivityAt: now, updatedAt: now } };
 }

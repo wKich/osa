@@ -26,6 +26,7 @@ describe.skipIf(!available)("kiss schema contract", async () => {
     ["idle", p.idleUpdate(now)],
     ["cancel finish", p.cancelFinishUpdate(now)],
     ["requeue", p.requeueUpdate(now, 1)],
+    ["review", p.reviewUpdate(now, [{ projectPath: "g/a", description: "a" }], [{ projectPath: "g/a", mrUrl: "https://x/g/a/-/merge_requests/1", mrIid: 1, branchName: "feat/x" }], "reply", "desc")],
   ];
   const subTaskUpdates: [string, p.Update][] = [
     ["claim", p.subTaskClaimUpdate(now)],

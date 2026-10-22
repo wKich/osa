@@ -68,3 +68,38 @@ export function replyText(answer: string): string {
   const reply = parseResultFields(answer).Reply;
   return reply ? reply : answer.trim();
 }
+
+/** kiss utils/helpers.ts sanitizeBranchName, verbatim. */
+export function sanitizeBranchName(name: string, maxLength = 250): string {
+  const sanitized = name
+    .replace(/[^A-Za-z0-9-_/.]/g, "-")
+    .replace(/\.{2,}/g, "-")
+    .replace(/\/{2,}/g, "/")
+    .replace(/-{2,}/g, "-")
+    .replace(/^[/_-]+|[/_-]+$/g, "");
+  return sanitized.length <= maxLength ? sanitized : sanitized.slice(0, maxLength).replace(/[_/-]+$/, "");
+}
+
+/** kiss services/utils.ts generateMRDescription, verbatim. */
+export function defaultMRDescription(prompt: string): string {
+  return `
+## 🤖 AI-Generated Merge Request
+
+### Original Request
+\`\`\`
+${prompt}
+\`\`\`
+
+### Implementation Details
+The AI analyzed the request and implemented the necessary changes following best practices.
+
+### Checklist
+- [ ] Code review completed
+- [ ] Tests passing (if applicable)
+- [ ] Documentation updated
+- [ ] No breaking changes
+
+---
+*Please review the changes carefully and provide feedback if adjustments are needed.*
+    `;
+}

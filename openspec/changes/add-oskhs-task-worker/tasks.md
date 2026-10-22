@@ -2,16 +2,16 @@
 
 ## 1. Protocol
 
-- [ ] 1.1 `oskhs/src/kiss/protocol.ts`: pure builders for the claim filter
+- [x] 1.1 `oskhs/src/kiss/protocol.ts`: pure builders for the claim filter
       and every update (claim, heartbeat, first-round result, failure,
       refusal, idle, cancel finish, requeue, close-after-losses, sub-task
       claim/complete/error/reset); verify unit tests asserting each shape and
       that the claim filter equals KHS's plus the executor clause
-- [ ] 1.2 Contract test `oskhs/test/kiss-contract.test.ts`: import kiss's
+- [x] 1.2 Contract test `oskhs/test/kiss-contract.test.ts`: import kiss's
       `AgentTask`/`AgentSubTask` from `KISS_REPO`, validate every builder's
       output with `validateSync` and the enum values; skip with a message
       when kiss is absent; verify `make test-oskhs`
-- [ ] 1.3 `oskhs/src/kiss/store.ts` over the `mongodb` driver (claim,
+- [x] 1.3 `oskhs/src/kiss/store.ts` over the `mongodb` driver (claim,
       heartbeat outcome `updated|stopped|cancelled`, cancel check, writes);
       verify an integration test against an ephemeral database on the dev
       Mongo when `OSKHS_TEST_MONGO_URI` is set, skipped otherwise

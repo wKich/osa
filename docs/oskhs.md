@@ -6,7 +6,7 @@ lives in [`oskhs/`](../oskhs/) as a Bun + TypeScript subproject and depends on
 kiss only through the task document in Mongo — not yet: this page tracks
 what exists today, slice by slice.
 
-**Today (B1.1a–B1.3c):** a round library with incremental git sync and
+**Today (B1.1a–B1.3d):** a round library with incremental git sync and
 changes returned as a host branch (`run-round`), and a kiss queue worker
 (`worker`) that answers marked kiss tasks with Maki in the project's warm
 sandbox.
@@ -197,8 +197,8 @@ project's warm sandbox:
 - **Reply**: the `Reply` field of Maki's `[RESULT]` block, parsed as kiss
   parses it; the whole answer if there is none.
 - **Read-only**: nothing is collected back; code requests are B1.4.
-- **Model**: `--model` / `OSKHS_MODEL` and `--provider` / `OSKHS_PROVIDERS`,
-  attached to the sandbox by hand for now (B1.3d derives them from kiss).
+- **Model**: from the task's kiss `modelProvider` — see below; `--model` /
+  `--provider` only serve a task without one.
 - **Cancel**: the round runs under `maki-oss run --timeout` with the run tag
   `oskhs-<task-id>`; a cancel creates `/tmp/maki-oss-stop/<tag>` in the
   sandbox, the wrapper stops Maki and its tools, and the workspace is
@@ -210,9 +210,33 @@ kiss database nor GitLab is reachable from it.
 
 ```sh
 OSKHS_MONGO_URI=mongodb://127.0.0.1:27017/kiss-agent bun oskhs/src/cli.ts worker \
-  --mirror-dir ~/oskhs-mirrors --provider maki-synthetic \
-  --model synthetic/hf:deepseek-ai/DeepSeek-V4.1-Flash-1017 --agent-name svc_kiss
+  --mirror-dir ~/oskhs-mirrors --internal-models --agent-name svc_kiss
 ```
+
+### Model and credentials
+
+Every sandbox round derives its model from the task's kiss `modelProvider`
+(`providerType` `openai` or `anthropic`, `baseUrl`, model `id`, `apiKey`,
+`isExternal`):
+
+| What | Name | Content |
+|---|---|---|
+| OpenShell profile, one per protocol and base URL | `oskhs-<protocol>-<host>-<hash>` | `protocol: rest`, `enforcement: enforce`, inference-only rules — OpenAI `POST <base>/chat/completions`, `GET <base>/models`; Anthropic `POST <base>/v1/messages`, `GET <base>/v1/models` — credential `OSKHS_MODEL_API_KEY`, binary `/usr/local/bin/maki` |
+| OpenShell provider, one per project | `oskhs-<project>` | the key, created or updated with `--credential OSKHS_MODEL_API_KEY`: the value is in the CLI's environment only, never its argv |
+| Sandbox providers | `repo-<project>` | exactly `oskhs-<project>`; anything else attached is detached |
+| Maki config | `/sandbox/.config/maki/providers.toml` | custom slug `kiss`: protocol, base URL, `api_key_env = "OSKHS_MODEL_API_KEY"`, the model; Maki runs `--model kiss/<id>` |
+
+oskhs remembers each provider's type and a truncated hash of the key in
+`<state dir>/oskhs/providers.json` (mode 0600) and re-syncs when kiss's
+record changes: a new key updates the provider, a new protocol or URL
+re-creates it. The sandbox sees only the gateway's stand-in; requests to any
+other path of the provider API are refused by the profile's rules.
+OpenShell 0.1.5 has no `--secret-material-env`; `--credential KEY` reading
+the value from the environment is its equivalent.
+
+A model with `isExternal: false` (kiss's internal models) runs only on a
+worker started with `--internal-models`, meaning its gateway reaches the
+internal network; elsewhere the task is closed with an error saying so.
 
 `--round echo` keeps B1.3b's echo (`--fake-delay SECS` makes it slow, for
 cancel and kill checks).
@@ -234,4 +258,5 @@ a real MongoDB (an ephemeral database). The recorded live runs are in
 `openspec/changes/archive/*-add-oskhs-incremental-sync/evidence/sync-live.md`,
 `openspec/changes/archive/*-add-oskhs-commits-back/evidence/collect-live.md`,
 `openspec/changes/archive/*-add-oskhs-task-worker/evidence/worker-live.md`,
-and `openspec/changes/archive/*-add-oskhs-sandbox-round/evidence/sandbox-round-live.md`.
+`openspec/changes/archive/*-add-oskhs-sandbox-round/evidence/sandbox-round-live.md`,
+and `openspec/changes/archive/*-add-oskhs-model-credentials/evidence/model-live.md`.

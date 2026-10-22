@@ -344,7 +344,10 @@ in one go; remote gateways and resumable large seeds are B5.
   **Exit:** a question in a marked dev-stand channel gets an answer produced
   by maki in a sandbox; the sandbox has no secrets in its environment and
   cannot reach the local `kiss-mongo`.
-- **B1.3d — Project model and credentials** (½–1). oskhs maps the task's
+- **B1.3d — Project model and credentials** (½–1). *Done 2026-10-23
+  (`add-oskhs-model-credentials`). OpenShell 0.1.5 has no
+  `--secret-material-env`; `--credential KEY` with the value in the CLI's
+  environment is used instead.* oskhs maps the task's
   kiss `ModelProvider` to a maki model id and syncs it into OpenShell: a
   custom profile per provider host (from `baseUrl`; `protocol: rest`,
   inference-only rules, maki-only binaries), a provider instance per project

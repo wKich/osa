@@ -4,6 +4,7 @@
 //
 //   devstand.ts mark-channel <channelId> | unmark-channel <channelId>
 //   devstand.ts insert <taskId> <threadRootPostId> "<prompt>"   # as MattermostTaskSource + startTask
+//   devstand.ts insert-project <taskId> <projectTitle> "<prompt>" # project-level marker, no channel
 //   devstand.ts cancel <taskId>                                 # as AgentRuntimeService.cancelTask
 //   devstand.ts follow-up <taskId> <subTaskId> "<prompt>"       # thread mention: sub-task + requestWake
 //   devstand.ts show <taskId>
@@ -28,6 +29,35 @@ async function channelProject(channelId: string) {
   return project;
 }
 
+// kiss's resolveModelProvider: channel ref, else project ref → the record's
+// provider plus isExternal, snapshotted on the task (key included, as kiss does)
+async function modelSnapshot(ref: string | null | undefined) {
+  const record = await db.collection("modelProviders").findOne({ name: ref ?? "default" });
+  return record ? { ...(record.provider as object), isExternal: record.isExternal ?? false } : null;
+}
+
+const baseTask = (id: string, prompt: string, project: Record<string, unknown>) => ({
+  _id: id as never,
+  prompt,
+  agentRuntime: "pi",
+  state: "processing",
+  runtimeState: "queued",
+  wakeRequestedAt: now,
+  lastExternalActivityAt: now,
+  lastMeaningfulActivityAt: now,
+  runtimeStartFailures: 0,
+  runtimeRetryAfter: null,
+  cancelRequestedAt: null,
+  cancelledAt: null,
+  projectId: project._id,
+  taskSourceId: "mattermost",
+  notificationState: "loading",
+  taskRepositories: ((project.repositories as { projectPath: string }[]) ?? []).map((r) => ({ projectPath: r.projectPath })),
+  readOnly: false,
+  createdAt: now,
+  updatedAt: now,
+});
+
 switch (cmd) {
   case "mark-channel":
   case "unmark-channel": {
@@ -44,20 +74,9 @@ switch (cmd) {
     const project = await channelProject(channelId);
     const channel = (project.channels as { channelId: string; channelName: string; executor?: string }[]).find((c) => c.channelId === channelId)!;
     await tasks.insertOne({
-      _id: id as never,
-      prompt,
-      agentRuntime: "pi",
+      ...baseTask(id, prompt, project),
       executor: channel.executor ?? project.executor ?? null,
-      state: "processing",
-      runtimeState: "queued",
-      wakeRequestedAt: now,
-      lastExternalActivityAt: now,
-      lastMeaningfulActivityAt: now,
-      runtimeStartFailures: 0,
-      runtimeRetryAfter: null,
-      cancelRequestedAt: null,
-      cancelledAt: null,
-      projectId: project._id,
+      modelProvider: await modelSnapshot((channel as { modelProviderRef?: string }).modelProviderRef ?? (project.modelProviderRef as string)),
       sourceChannelId: channelId,
       channelName: channel.channelName,
       sourceMessageId: rootPostId,
@@ -65,14 +84,16 @@ switch (cmd) {
       suppressRootStatusReactions: true,
       ackPostId: null,
       source: `https://chat.skbkontur.ru/_redirect/pl/${rootPostId}`,
-      taskSourceId: "mattermost",
-      notificationState: "loading",
-      taskRepositories: ((project.repositories as { projectPath: string }[]) ?? []).map((r) => ({ projectPath: r.projectPath })),
-      readOnly: false,
-      createdAt: now,
-      updatedAt: now,
     });
     console.log(`inserted ${id} (executor ${channel.executor ?? project.executor ?? "KHS"})`);
+    break;
+  }
+  case "insert-project": {
+    const [id, title, prompt] = args as [string, string, string];
+    const project = await projects.findOne({ title });
+    if (!project) throw new Error(`no project titled ${title}`);
+    await tasks.insertOne({ ...baseTask(id, prompt, project), executor: project.executor ?? null, modelProvider: await modelSnapshot(project.modelProviderRef as string) });
+    console.log(`inserted ${id} in ${title} (executor ${project.executor ?? "KHS"})`);
     break;
   }
   case "cancel": {
@@ -97,7 +118,7 @@ switch (cmd) {
   }
   case "show": {
     const [id] = args as [string];
-    const t = await tasks.findOne({ _id: id as never }, { projection: { prompt: 0, taskRepositories: 0 } });
+    const t = await tasks.findOne({ _id: id as never }, { projection: { prompt: 0, taskRepositories: 0, "modelProvider.apiKey": 0, "selfReviewModelProvider.apiKey": 0 } });
     const subs = await subTasks.find({ taskId: id }, { projection: { state: 1, type: 1, reply: 1, errorMessage: 1, repliedInChat: 1 } }).toArray();
     console.log(JSON.stringify({ task: t, subTasks: subs }, null, 1));
     break;

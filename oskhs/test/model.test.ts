@@ -46,7 +46,8 @@ describe("planModel", () => {
 describe.skipIf(!Bun.which("openshell"))("generated profiles lint", () => {
   test.each([["openai", openai], ["anthropic", anthropic]] as const)("%s", async (_n, mp) => {
     const file = join(mkdtempSync(join(tmpdir(), "oskhs-lint-")), "p.yaml");
-    writeFileSync(file, planModel(mp, "p").profileYaml);
+    // a fresh id: lint also refuses ids the gateway already holds
+    writeFileSync(file, planModel(mp, "p").profileYaml.replace(/^id: .*$/m, `id: oskhs-lint-${Date.now()}`));
     const out = Bun.spawnSync(["openshell", "profile", "lint", "-f", file]);
     expect(out.exitCode).toBe(0);
   });

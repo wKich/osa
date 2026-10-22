@@ -158,9 +158,11 @@ main kiss service posts Mattermost replies itself, by `notificationState`
 (`getTasksNeedingNotification`). oskhs speaks that task-document protocol —
 claim (CAS), heartbeat (`updateHeartbeatUnlessStopped`), cancellation
 (`updateFieldsUnlessCancelling`), state transitions, result fields — and
-imports no kiss code. The only kiss change is an opt-in marker: tasks marked
-for oskhs (by project or channel) are skipped by `KissHostService.claimTask`
-and are the only ones oskhs claims, so the two consumers never race.
+imports no kiss code. The kiss change is an opt-in marker: tasks marked for
+oskhs (by project or channel) are skipped by `KissHostService.claimTask` and
+are the only ones oskhs claims, so the two consumers never race; every other
+kiss reader of runtime state (reconcile, idle-stop, stale checks) respects
+the same marker (B1.3a).
 
 **Repos stay warm on the gateway; only git deltas travel.** Uploading a full
 repo per task is not viable for repos of tens of GB with history over a home
@@ -209,15 +211,26 @@ clone remains the fallback if this proves unacceptable.
 
 **Code location.** oskhs lives in this repository as a subproject. It depends
 on kiss only through the task-document contract in Mongo, not on kiss code.
-The marker check is a small change in the kiss repo.
+The kiss-side change (marker plus the readers of runtime state, B1.3a) is
+small and lives in the kiss repo.
 
-### B1 — First sandboxed task (W3+W4) — 3½–4½ sessions, five slices
+### B1 — First sandboxed task (W3+W4) — 5½–7½ sessions, eight slices
 
-- **B1.1 — One round on a warm repo sandbox** (1). Library over maki-oss:
-  seed `repo-<project>` from a local clone (once), send an incremental bundle,
-  create a task worktree, run maki headless, parse `--output-format json`
-  into a result; errors and timeouts mapped. No kiss, no Mongo. Includes one
-  run against a remote gateway to confirm upload/download over the network.
+Each slice ends in a runnable demo and fits one session. B1 uses a gateway
+co-located with oskhs (same host or cluster) and repos small enough to seed
+in one go; remote gateways and resumable large seeds are B5.
+
+- **B1.1a — Seed + one round in a worktree** (½–1). Library over maki-oss:
+  seed `repo-<project>` from a local clone (full bundle upload, then
+  `git clone` from it inside the sandbox), create a task worktree, run
+  `maki-oss run --no-sync` with `MAKI_OSS_WORKDIR` pointing at the worktree
+  and `MAKI_OSS_SANDBOX_NAME=repo-<project>`, parse `--output-format json`
+  into a result; errors and timeouts mapped. maki-oss assumes "this
+  directory is the project" (upload on create, download after run); the warm
+  sandbox sidesteps both via flags or direct `openshell` calls for git steps.
+  No kiss, no Mongo. **Exit:** `run-round <repo> "<prompt>"` on a small repo
+  and the local gateway answers from a fresh worktree.
+- **B1.1b — Incremental bundles** (½–1).
   - *Bundle policy.* Per task, required: the base branch plus the task's own
     branches (including the MR source branch — `GitLabMRTaskSource` tasks
     work on an existing MR branch, so base-only would break them).
@@ -234,29 +247,48 @@ The marker check is a small change in the kiss repo.
     HEAD or branches off it. Worktrees share one ref store, so a task can
     move refs other tasks see; oskhs only takes back `task-<id>` and
     force-resets the remote-tracking refs on the next sync.
-  **Exit:** `run-round <repo> "<prompt>"` twice in a row; the second run
-  transfers only the delta (measured); the agent can check out a delivered
-  non-base branch; works on a local and a remote gateway.
+  **Exit:** two runs in a row; the second transfers only the delta
+  (measured); the agent can check out a delivered non-base branch; a branch
+  deleted upstream disappears from the sandbox.
 - **B1.2 — Commits back as a bundle** (½). Maki's changes committed in the
   task worktree, returned as `base..task-<id>` bundle, fetched into the host
-  clone. Replaces the merge-only download, which would resurrect deleted
-  files. **Exit:** a prompt that edits, deletes, and renames files yields a
-  host branch identical to the task worktree.
-- **B1.3 — Queue worker, dev Mongo** (1). oskhs claims a marked task,
-  heartbeats, honors cancellation, runs the round, writes result + terminal
-  state; kiss posts the reply. Kiss side: marker field and the KHS skip.
-  Read-only (Q&A) tasks only; restricted-network tasks refused fail-closed.
-  **Exit:** a question in a marked dev-stand Mattermost channel gets an
-  answer produced by maki in a sandbox.
-- **B1.4 — Code changes land** (½–1). oskhs pushes the returned branch and
-  opens an MR in the shape `GitLabMRTaskSource` expects, recorded on the task
-  as kiss records its own MRs. **Exit:** a dev-stand task that asks for a code
-  change ends with an MR linked in the thread.
-- **B1.5 — Production, opt-in** (½–1). oskhs deployed near prod Mongo, KHS
-  marker check deployed, one channel marked, its tasks served by a remote
-  gateway. **Exit:** tasks in the marked prod channel run on the chosen
-  gateway; every other task still goes through KHS; prod Mongo unreachable
-  from the gateway host.
+  clone; worktree removed afterwards. Replaces the merge-only download,
+  which would resurrect deleted files. **Exit:** a prompt that edits,
+  deletes, and renames files yields a host branch identical to the task
+  worktree.
+- **B1.3a — kiss: marker and reader audit** (½–1). In the kiss repo: an
+  `executor` field on `AgentTask` set at task creation from project/channel
+  config (missing = KHS); `KissHostService.claimTask` adds
+  `executor: { $ne: 'oskhs' }`; claim index updated. Audit every kiss reader
+  of `runtimeState`, `agentHostId`, and heartbeat fields
+  (`ReconcileAgentRuntimesTask`, idle-stop such as
+  `findIdleStoppedGitLabMRTasks`, stale checks): each gets the same filter or
+  is shown safe. **Exit:** kiss's tests prove KHS and the periodic tasks
+  never claim, restart, or stop a marked task.
+- **B1.3b — Task protocol with a fake round** (1). oskhs worker against dev
+  Mongo: claim CAS with `executor: 'oskhs'`, heartbeat loop
+  (`updateHeartbeatUnlessStopped` semantics), cancellation watch, state and
+  `notificationState` transitions; contract tests against kiss's model. The
+  round is an echo. Restricted-network tasks refused fail-closed. No sandbox.
+  **Exit:** a message in a marked dev-stand channel gets the echo reply,
+  posted by kiss; cancelling mid-run ends the task cleanly.
+- **B1.3c — Real round** (½–1). Prompt built from the task the way kiss
+  builds it (including thread context); B1.1/B1.2 round replaces the echo;
+  result written in the format kiss posts from. Read-only (Q&A) tasks only.
+  **Exit:** a question in a marked dev-stand channel gets an answer produced
+  by maki in a sandbox.
+- **B1.4 — Code changes land** (1). oskhs keeps a bare mirror per project
+  (fetched from GitLab; B1.1 used a local clone); pushes the returned branch
+  with kiss's naming; opens an MR via the GitLab API in the shape
+  `GitLabMRTaskSource` expects; records it on the task as kiss records its
+  own MRs (`taskRepositories.mrIid` …) and moves the task to `review`.
+  **Exit:** a dev-stand task that asks for a code change ends with an MR
+  linked in the thread.
+- **B1.5 — Production, opt-in** (1). oskhs deployed near prod Mongo (secrets,
+  mirror volume) with a co-located gateway; the kiss marker change deployed
+  first; one channel marked whose repos seed in one go; runbook with
+  rollback = unmark the channel. **Exit:** tasks in the marked prod channel
+  run in a sandbox; every other task still goes through KHS.
 
 ### B2 — Conversations that survive (W4) — 1½–2 sessions
 
@@ -314,7 +346,20 @@ projects should be ones without LFS-tracked files the agent needs.
 edits a tracked binary, and the MR contains the new object; the second
 task on the same repo uploads no LFS objects it already sent.
 
-### B5 — Multiple gateways (W3+W4) — 1–1½ sessions
+### B5 — Remote gateways and large seeds (W3) — ½–1 session
+
+- oskhs drives a gateway on another host (home or work box) registered with
+  `openshell gateway add` over mTLS or Tailscale (A1 makes this a
+  `maki-oss gateway` command); upload/exec/download confirmed over the
+  network.
+- Resumable seed for tens-of-GB repos: the seed bundle is sent in chunks
+  that survive a dropped connection and resume where they stopped.
+
+**Exit:** a marked channel's tasks run on a remote gateway; prod Mongo is
+unreachable from that host; a large repo seeds over the uplink despite an
+interrupted transfer.
+
+### B6 — Multiple gateways (W3+W4) — 1–1½ sessions
 
 - Routing: marker grows into a selector (project/channel → gateway); a
   heartbeat registry of gateways following the `networkProxyInstances`
@@ -326,7 +371,7 @@ task on the same repo uploads no LFS objects it already sent.
 gateway fails its tasks visibly instead of stalling them; G3 demonstrably
 done.
 
-### B6 — Second agent through oskhs (W4) — ~1 session
+### B7 — Second agent through oskhs (W4) — ~1 session
 
 - Agent abstraction in oskhs (launch, resume, result parsing, session
   state) and per-task/project agent selection. Uses A5's headless round
@@ -384,7 +429,7 @@ and Mongo do not move.
 - **Warm clone = workspace PVC.** Pod rescheduling does not force a re-seed;
   seeding tens of GB is one in-cluster transfer.
 - **One warm clone per (project, gateway).** oskhs tracks tips and LFS
-  objects per pair; B5 routing picks the gateway.
+  objects per pair; B6 routing picks the gateway.
 - **oskhs needs its own storage**: a mirror PVC sized for every routed
   project's mirror and LFS store. One replica is simplest; more need
   per-replica mirrors or a shared one.
@@ -415,20 +460,21 @@ support (option B only).
 
 ```
 Track A (maki-oss):  A1 ─► A2 ─► A3 ─► A4 ─► A5
-Track B (kiss):      B1.1 ─► B1.2 ─► B1.3 ─► B1.4 ─► B1.5 ─► B2 ─► B3 ─► B4 ─► B5 ─► B6
-Cross:               A1 ─► B1.5  (remote gateway selection)
+Track B (kiss):      B1.1a ─► B1.1b ─► B1.2 ─► B1.3a ─► B1.3b ─► B1.3c ─► B1.4 ─► B1.5
+                     ─► B2 ─► B3 ─► B4 ─► B5 ─► B6 ─► B7
+Cross:               A1 ─► B5    (remote gateway selection)
                      A2 ┄► B2    (soft: session tar converges on P5's format)
-                     A5 ─► B6    (headless rounds for the second agent)
+                     A5 ─► B7    (headless rounds for the second agent)
 ```
 
-The tracks run in parallel. B1.1–B1.2 need neither kiss nor Track A (a
-remote gateway can be registered by hand with `openshell gateway`) and can
-start immediately.
+The tracks run in parallel. B1.1a–B1.2 need neither kiss nor Track A and
+can start immediately against the local gateway; B1.3a is independent work
+in the kiss repo and can run alongside them.
 
 | Track | Milestones | Sessions |
 |---|---|---|
 | A | A1 1½, A2 2–2½, A3 1½–2, A4 1, A5 ~1 | 7–8 |
-| B | B1 3½–4½, B2 1½–2, B3 2–3, B4 ½–1, B5 1–1½, B6 ~1 | 9½–13 |
+| B | B1 5½–7½, B2 1½–2, B3 2–3, B4 ½–1, B5 ½–1, B6 1–1½, B7 ~1 | 12–17 |
 
 Track B grew from the first draft's 3½–5 sessions after a kiss code read:
 the Mongo credentials force the agent and the task process apart, oskhs
@@ -446,9 +492,9 @@ large repos need warm sandboxes with git-bundle sync.
 | M3 | A2 |
 | M4 (P8 docs) | A4; docs now ship with every milestone |
 | M5 K1 (`OpenShellAgentRunner`) | replaced by the oskhs queue worker (B1.3) |
-| M6 K2 (`MakiService`) | B1.1–B1.2 (round), B2 (sessions), B3 (parity) |
-| M7 K3 / K4 | marker in B1.3, prod in B1.5, multi-gateway routing in B5 |
-| M8a / M8b | A5 / B6 |
+| M6 K2 (`MakiService`) | B1.1a–B1.2 (round), B2 (sessions), B3 (parity) |
+| M7 K3 / K4 | marker in B1.3, prod in B1.5, remote gateway in B5, multi-gateway routing in B6 |
+| M8a / M8b | A5 / B7 |
 
 ## Open questions
 
@@ -462,7 +508,7 @@ large repos need warm sandboxes with git-bundle sync.
    process today (`PiMcpBridge`); maki in the sandbox needs a reachable path
    that does not carry their secrets inside. Decide in B3.
 4. ~~**Seeding a warm sandbox**~~ — decided 2026-10-23: one-time upload over
-   the uplink (no GitLab credentials or egress in the sandbox); B1.1 makes the
+   the uplink (no GitLab credentials or egress in the sandbox); B5 makes the
    seed resumable.
 5. **Kiss restricted-network mode in prod** — is `NetworkIsolationService`
    active? oskhs refuses restricted tasks fail-closed; confirm what that means

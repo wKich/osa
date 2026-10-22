@@ -14,7 +14,11 @@ const cwd = process.env.OPENMAKI_CWD ?? process.cwd();
 let toolSeq = 0;
 const answers = new Map<string, (a: "allow" | "deny") => void>();
 
-const out = (obj: unknown) => process.stdout.write(JSON.stringify(obj) + "\n");
+const SESSION_ID = "fake-maki-session";
+const out = (obj: unknown) =>
+  process.stdout.write(
+    JSON.stringify({ ...(obj as object), session_id: SESSION_ID, uuid: crypto.randomUUID() }) + "\n",
+  );
 
 // knob so one bridge test can prove deltas reach the stream without changing
 // any existing test's frames (the real child streams only with --include-partial-messages)

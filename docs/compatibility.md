@@ -145,6 +145,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `PUT /api/experimental/session/{sessionID}/instructions/entries/{key}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `PUT /api/pty/{ptyID}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `PUT /api/session/{sessionID}/environment` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
+| `GET /auth/connect/{code}` | `served-faked` | [`openspec/changes/rebaseline-compat-iteration-3/evidence/discovery-log.md`](../openspec/changes/rebaseline-compat-iteration-3/evidence/discovery-log.md) |
 | `GET /api/session/{sessionID}/form` | `deferred` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/session/{sessionID}/message` | `deferred` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /api/session/{sessionID}/inbox` | `deferred` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
@@ -180,6 +181,9 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | Outbound control_response to the child (maki answers every inbound control_request with success/error) | `unverified` | [`openspec/changes/archive/2026-10-22-rebaseline-compat-enumeration/evidence/cross-map.md`](../openspec/changes/archive/2026-10-22-rebaseline-compat-enumeration/evidence/cross-map.md) |
 | Permission reply vocabulary beyond bare allow/deny: `updatedPermissions` -> AllowSession, deny + message -> DenyWithGuidance | `unverified` | [`openspec/changes/archive/2026-10-22-rebaseline-compat-enumeration/evidence/cross-map.md`](../openspec/changes/archive/2026-10-22-rebaseline-compat-enumeration/evidence/cross-map.md) |
 | Subagent transcript nesting via parent_tool_use_id | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — `maki-retry.jsonl` is mixed (the two spliced frames are source-derived (error is a plain string per the pin); the surrounding turn is captured); wire shape source-derived: `maki-stream.jsonl` is authored (never captured from a live streaming provider; see the shortcut note in bridge/src/translator.ts); wire shape source-derived: `maki-subagent.jsonl` is authored (never captured from a live subagent turn) |
+| Maki's per-message envelope (top-level session_id + uuid) rides every wire frame; the bridge keeps the child on its OpenCode-minted session instead of rebinding on the envelope id | `verified` | [`bridge/test/envelope.test.ts`](../bridge/test/envelope.test.ts) |
+| Prompt file/image attachments: OpenCode `files[]` -> Maki inbound `user` image blocks | `unverified` | [`openspec/changes/rebaseline-compat-iteration-3/evidence/cross-map.md`](../openspec/changes/rebaseline-compat-iteration-3/evidence/cross-map.md) |
+| Maki `system api_retry` surfaces as the pinned `session.retry.scheduled` event | `unverified` | [`openspec/changes/rebaseline-compat-iteration-3/evidence/opencode-tui-features.md`](../openspec/changes/rebaseline-compat-iteration-3/evidence/opencode-tui-features.md) |
 
 ## Version matrix
 

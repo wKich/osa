@@ -37,6 +37,13 @@ const provenance: Record<string, { kind: string; note: string }> = JSON.parse(
 // narrow it, which is what the report needs to say out loud.
 const sourceDerived = Object.entries(provenance).filter(([, p]) => p.kind !== "captured");
 
+// Whole fixture names only: `maki-stream-live` must not count as a mention of
+// the authored `maki-stream`.
+const mentions = (src: string, fixture: string) => {
+  const base = fixture.replace(/\.[^.]+$/, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^\\w-])${base}([^\\w-]|$)`).test(src);
+};
+
 const provenanceNote = (evidence: string): string => {
   if (!evidence.startsWith("bridge/test/") || evidence.includes("/fixtures/")) return "";
   let src: string;
@@ -46,7 +53,7 @@ const provenanceNote = (evidence: string): string => {
     return ""; // a missing evidence file is crosscheck.test.ts's failure to report
   }
   return sourceDerived
-    .filter(([file]) => src.includes(file.replace(/\.[^.]+$/, "")))
+    .filter(([file]) => mentions(src, file))
     .map(([file, p]) =>
       p.kind === "authored"
         ? `wire shape source-derived: \`${file}\` is ${p.kind} (${p.note})`

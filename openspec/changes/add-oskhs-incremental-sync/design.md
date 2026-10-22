@@ -58,7 +58,15 @@ makes the transfer incremental and per round.
    requirement; there is still no network endpoint.
 8. **Upload hygiene.** Bundles go to `/sandbox/.oskhs/in/<task-id>.bundle` and
    are deleted after the fetch whether it succeeded or not.
-9. **Statistics.** `SyncStats = { bundleBytes, updated[], pruned[],
+9. **No stale local branches.** Found live (evidence, 2.2): the agent's
+   `git checkout feature` DWIM created `refs/heads/feature`, which outlives
+   the worktree; once upstream moves, the next task's `git checkout feature`
+   would silently get the old copy. Worktree removal therefore also deletes
+   every `refs/heads/*` that no remaining worktree has checked out. A branch
+   another live task has checked out is kept; one it created and then left
+   is not (its commits stay reachable from that worktree's HEAD). B1.2 takes
+   `task-<id>` back before the worktree is removed.
+10. **Statistics.** `SyncStats = { bundleBytes, updated[], pruned[],
    prerequisites, full }`; `runRound` returns `{ result, sync }` and the CLI
    prints `sync` next to the result.
 

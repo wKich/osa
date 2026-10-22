@@ -2,7 +2,7 @@
 // as `is_error: true` with exit 0, so the kind comes from the result line,
 // not from the exit code alone.
 
-export type Stage = "sandbox" | "seed" | "worktree" | "run" | "parse";
+export type Stage = "sandbox" | "seed" | "sync" | "worktree" | "run" | "parse";
 
 export interface Usage {
   input_tokens?: number;

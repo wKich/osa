@@ -37,7 +37,6 @@ export const answerLine = JSON.stringify({
 
 export interface World {
   phase?: string; // sandbox phase; undefined = missing
-  seeded: boolean;
 }
 
 export function fakeCtx(world: World, override: Responder = () => undefined) {
@@ -60,12 +59,10 @@ function defaultResponse(world: World, argv: string[]): Partial<RunOutput> {
     world.phase = "Ready";
     return ok();
   }
+  // sandbox and host agree on main, so the sync moves nothing
   const s = script(argv);
-  if (s?.includes("rev-parse --git-dir")) return world.seeded ? ok() : fail(128);
-  if (s?.includes("git init -q --bare")) {
-    world.seeded = true;
-    return ok();
-  }
+  if (s?.includes("for-each-ref")) return ok("a1 refs/remotes/origin/main\n");
+  if (argv[0] === "git" && argv.includes("for-each-ref")) return ok("a1 refs/heads/main\n");
   if (isRun(argv)) return ok(answerLine + "\n");
   return ok();
 }

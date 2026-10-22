@@ -78,6 +78,16 @@ on the host but are not wanted in this round SHALL be left unchanged.
 - **WHEN** a branch delivered earlier still exists on the host but this round does not want it
 - **THEN** its sandbox ref is unchanged
 
+### Requirement: Local branches end with their worktree
+When oskhs removes a task worktree it SHALL also delete every local branch
+(`refs/heads/*`) in the sandbox repository that no remaining worktree has
+checked out, so a later task's `git checkout <branch>` resolves to the
+freshly synced remote-tracking ref rather than a copy an earlier task left.
+
+#### Scenario: Checked-out branch is cleaned up
+- **WHEN** an agent ran `git checkout feature` in its worktree and the round ends
+- **THEN** `refs/heads/feature` no longer exists, while a branch checked out in another live worktree is unchanged
+
 ### Requirement: Sync statistics in round output
 Every round's output SHALL report the sync: bundle bytes (0 when none was
 sent), refs updated, refs pruned, prerequisite count, and whether a full

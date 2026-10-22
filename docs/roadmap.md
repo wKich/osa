@@ -276,7 +276,9 @@ in one go; remote gateways and resumable large seeds are B5.
   sandbox sidesteps both via flags or direct `openshell` calls for git steps.
   No kiss, no Mongo. **Exit:** `run-round <repo> "<prompt>"` on a small repo
   and the local gateway answers from a fresh worktree.
-- **B1.1b — Incremental bundles** (½–1).
+- **B1.1b — Incremental bundles** (½–1). *Done 2026-10-23
+  (`add-oskhs-incremental-sync`); tips are read from the sandbox per ref
+  rather than recorded host-side.*
   - *Bundle policy.* Per task, required: the base branch plus the task's own
     branches (including the MR source branch — `GitLabMRTaskSource` tasks
     work on an existing MR branch, so base-only would break them).

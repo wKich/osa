@@ -1,4 +1,5 @@
-// One round: ensure + seed the warm sandbox, add a detached task worktree,
+// One round: ensure the warm sandbox, sync the round's refs, add a detached
+// task worktree,
 // run Maki headless in it through maki-oss, and remove the worktree again —
 // also after a failure (design decision 8).
 import { mkdtemp, rm } from "node:fs/promises";
@@ -8,7 +9,8 @@ import { tail } from "./exec.ts";
 import { REPO_DIR, worktreePath } from "./names.ts";
 import { sandboxSh, type Ctx } from "./openshell.ts";
 import { interpretRun, StageError, type RoundResult } from "./result.ts";
-import { ensureSandbox, seedIfNeeded } from "./seed.ts";
+import { ensureSandbox } from "./sandbox.ts";
+import { syncRefs, type SyncStats } from "./sync.ts";
 
 export interface RoundSpec {
   repo: string; // host clone the seed comes from
@@ -16,6 +18,8 @@ export interface RoundSpec {
   providers: string[];
   taskId: string;
   base: string; // branch name, delivered as refs/remotes/origin/<base>
+  branches: string[]; // the task's own branches, delivered with the base
+  allBranches: boolean; // also every other branch and tag
   prompt: string;
   model?: string;
   timeoutSec: number;
@@ -25,8 +29,16 @@ export interface RoundSpec {
 const BACKSTOP_SEC = 30;
 
 const ADD_WORKTREE = `git -C "$1" worktree add -q --detach "$2" "refs/remotes/origin/$3"`;
+// Also drops local branches no remaining worktree has checked out: an
+// agent's `git checkout <b>` creates refs/heads/<b> from origin/<b>, and a
+// later task checking out <b> would otherwise get that stale copy instead
+// of the freshly synced remote-tracking ref.
 const REMOVE_WORKTREE = `git -C "$1" worktree remove --force "$2" 2>/dev/null || rm -rf "$2"
-git -C "$1" worktree prune`;
+git -C "$1" worktree prune
+busy=$(git -C "$1" worktree list --porcelain | sed -n 's/^branch //p')
+git -C "$1" for-each-ref --format='%(refname)' refs/heads | while read -r ref; do
+    printf '%s\\n' "$busy" | grep -qxF "$ref" || git -C "$1" update-ref -d "$ref"
+done`;
 
 export async function addWorktree(ctx: Ctx, sandbox: string, taskId: string, base: string): Promise<string> {
   const path = worktreePath(taskId);
@@ -59,17 +71,24 @@ export async function runMaki(ctx: Ctx, spec: RoundSpec, workdir: string): Promi
   }
 }
 
-export async function runRound(ctx: Ctx, spec: RoundSpec): Promise<RoundResult> {
+export interface RoundOutcome {
+  result: RoundResult;
+  sync?: SyncStats; // absent when the round failed before or during the sync
+}
+
+export async function runRound(ctx: Ctx, spec: RoundSpec): Promise<RoundOutcome> {
   let added = false;
+  let sync: SyncStats | undefined;
   try {
     await ensureSandbox(ctx, spec);
-    await seedIfNeeded(ctx, spec.sandbox, spec.repo);
+    const branches = [spec.base, ...spec.branches.filter((b) => b !== spec.base)];
+    sync = await syncRefs(ctx, { repo: spec.repo, sandbox: spec.sandbox, taskId: spec.taskId, branches, allBranches: spec.allBranches });
     const workdir = await addWorktree(ctx, spec.sandbox, spec.taskId, spec.base);
     added = true;
     ctx.log(`round ${spec.taskId} in ${spec.sandbox}:${workdir}`);
-    return await runMaki(ctx, spec, workdir);
+    return { result: await runMaki(ctx, spec, workdir), sync };
   } catch (err) {
-    if (err instanceof StageError) return { kind: "failed", stage: err.stage, exitCode: err.exitCode, stderr: err.stderr };
+    if (err instanceof StageError) return { result: { kind: "failed", stage: err.stage, exitCode: err.exitCode, stderr: err.stderr }, sync };
     throw err;
   } finally {
     if (added) await removeWorktree(ctx, spec.sandbox, spec.taskId);

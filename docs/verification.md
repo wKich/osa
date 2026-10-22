@@ -9,6 +9,9 @@ with a sandbox created as shown there. The examples assume the sandbox is named
 The recorded run for this repository is in
 [`docs/verification-log.md`](verification-log.md).
 
+**Expected version: OpenShell v0.1.5.** The checklist below was last run
+against that version on 2026-10-22.
+
 ## 1. Denied egress
 
 ```sh

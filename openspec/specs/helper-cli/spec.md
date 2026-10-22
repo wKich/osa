@@ -123,6 +123,8 @@ The helper SHALL accept `--continue`, `--resume <ID>`, and `--session-id <ID>` o
 ### Requirement: Secret hygiene
 The helper SHALL refuse to pass sandbox environment variables whose names contain a credential-like underscore-separated segment (`TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL`, `API_KEY`, `ACCESS_KEY`, or `SECRET_KEY`) on every command that can create a sandbox, including `up`, bare `maki-oss`, `maki-oss maki`, and `maki-oss run`, and SHALL direct the user to `maki-oss provider add`. The check MUST run before any gateway mutation. Passing `--allow-env KEY` SHALL override the refusal for that key only.
 
+The guard SHALL cover every way the helper can write a sandbox environment variable, including `--env-from KEY[=ENVVAR]`. For a value sourced from the caller's environment, the guard SHALL check both names: the name the sandbox will hold (`KEY`) and the name the value is read from (`ENVVAR`, or `KEY` when no source name is given), because a credential-shaped value under a neutral sandbox name is the same exposure. A refusal SHALL name the flag the user actually passed, so the message matches the command rather than pointing at a flag that was not used.
+
 #### Scenario: API key through --env is refused
 - **WHEN** the user runs `maki-oss init --env ANTHROPIC_API_KEY=test`
 - **THEN** the command exits non-zero before creating the sandbox and the error explains the provider-based alternative
@@ -138,6 +140,18 @@ The helper SHALL refuse to pass sandbox environment variables whose names contai
 #### Scenario: Non-segment lookalikes pass
 - **WHEN** the user passes `--env TOKENIZERS_PARALLELISM=false`
 - **THEN** the variable is passed through without a refusal
+
+#### Scenario: API key sourced through --env-from is refused
+- **WHEN** the user runs `maki-oss init --env-from ANTHROPIC_API_KEY`
+- **THEN** the command exits non-zero before creating the sandbox, and the error names `--env-from` and explains the provider-based alternative
+
+#### Scenario: A neutral sandbox name does not launder a credential source
+- **WHEN** the user runs `maki-oss init --env-from HARMLESS_NAME=ANTHROPIC_API_KEY`
+- **THEN** the command exits non-zero before creating the sandbox, because the value is read from a credential-shaped source name
+
+#### Scenario: A non-secret variable is passed through
+- **WHEN** the user runs `maki-oss init --env-from EDITOR` with a non-credential-like `EDITOR` in the environment
+- **THEN** the sandbox receives `EDITOR` with the caller's value and no refusal is raised
 
 ### Requirement: Prerequisite diagnostics
 `maki-oss doctor` SHALL check at least: the `openshell` CLI exists, the gateway is reachable, the configured container engine is available, the configured image exists locally or is pullable, and configured policy and provider names resolve. When the `tui` setting resolves to `opencode`, it SHALL additionally check that `bun`, the `opencode` binary, and the bridge entrypoint exist, and it MUST NOT fail those checks when the setting is unset. It SHALL print one line per check and exit non-zero when any check fails.

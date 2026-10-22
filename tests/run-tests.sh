@@ -621,6 +621,45 @@ test_env_refusal_session_path() {
     assert_log_missing "create"
 }
 
+test_env_from_refusal() {
+    begin "--env-from refuses credential-like names and names the flag"
+    new_case env-from-refusal
+    run_maki init --env-from ANTHROPIC_API_KEY
+    assert_rc 1
+    assert_err_has "--env-from"
+    assert_err_has "ANTHROPIC_API_KEY"
+    assert_err_has "provider"
+    assert_log_missing "create"
+}
+
+test_env_from_laundered_source() {
+    begin "--env-from refuses a credential-shaped source behind a neutral name"
+    new_case env-from-laundered
+    run_maki init --env-from HARMLESS_NAME=ANTHROPIC_API_KEY
+    assert_rc 1
+    assert_err_has "--env-from"
+    assert_err_has "ANTHROPIC_API_KEY"
+    assert_log_missing "create"
+}
+
+test_env_from_benign() {
+    begin "--env-from passes a benign variable through to sandbox create"
+    new_case env-from-benign
+    run_maki init --env-from EDITOR
+    assert_rc 0
+    assert_log_has "--env-from"
+    assert_log_line "EDITOR"
+}
+
+test_env_from_allow_override() {
+    begin "--allow-env overrides the --env-from refusal for one key"
+    new_case env-from-allow
+    run_maki init --env-from MY_TOKEN --allow-env MY_TOKEN
+    assert_rc 0
+    assert_log_has "--env-from"
+    assert_log_line "MY_TOKEN"
+}
+
 test_session_reuse_announces_overwrite() {
     begin "reusing a sandbox announces the sync-back overwrite"
     new_case reuse-note
@@ -2464,6 +2503,10 @@ run_test test_env_refusal
 run_test test_env_refusal_session_path
 run_test test_env_allow_override
 run_test test_env_lookalike
+run_test test_env_from_refusal
+run_test test_env_from_laundered_source
+run_test test_env_from_benign
+run_test test_env_from_allow_override
 run_test test_rm_confirmation
 run_test test_doctor_missing_cli
 run_test test_doctor_gateway_down

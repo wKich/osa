@@ -105,7 +105,7 @@ An MCP server works inside the sandbox when all four hold:
    broker the refresh token, with the sandbox seeing only a placeholder. Two
    facts from the live test shape this: `maki mcp auth <server>` resolves the
    name against the *host's* `~/.config/maki/mcp.toml`, so the server must be
-   declared there first (url only), and at OpenShell v0.1.4 the gateway's
+   declared there first (url only), and at OpenShell v0.1.5 the gateway's
    refresh exchange is rejected by at least one major server's token endpoint
    (client-authentication mismatch — details in
    [`docs/verification-log.md`](verification-log.md) §5.2). OAuth-gated MCP

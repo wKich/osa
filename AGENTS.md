@@ -25,8 +25,8 @@ Never violate these, even to make a command succeed:
 
 - **No host bind mounts.** Project files move in and out through
   `openshell sandbox upload` / `download`.
-- **No secrets through `--env`.** Model and service credentials go through
-  OpenShell provider profiles (placeholder + proxy substitution); the sandbox
+- **No secrets through `--env` or `--env-from`.** Model and service credentials
+  go through OpenShell provider profiles (placeholder + proxy substitution); the sandbox
   only ever sees an opaque stand-in, never the key.
 - **Never spell the placeholder.** OpenShell's proxy rejects any request body
   containing the literal placeholder prefix with a 403, and Maki sends loaded

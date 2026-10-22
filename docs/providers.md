@@ -9,7 +9,10 @@ updates the provider instance; and can attach it to the project sandbox.
 Credential values never appear in argv, output, shell history, or files. The
 wizard exports the value only into the environment of the `openshell` child
 process, and the sandbox process still sees an opaque stand-in in place of the
-key (see the placeholder entry in [`docs/glossary.md`](glossary.md)).
+key (see the placeholder entry in [`docs/glossary.md`](glossary.md)). Never
+write a credential into the sandbox environment with `openshell sandbox create
+--env` or `--env-from`: both bypass the placeholder, and the helper refuses
+credential-like names on either path.
 
 Upstream reference: the Maki provider docs and the OpenShell profile docs are
 indexed, with the versions this repository was verified against, in

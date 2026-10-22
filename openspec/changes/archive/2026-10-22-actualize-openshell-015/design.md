@@ -159,6 +159,15 @@ widen the guard and its tests. Rollback is `OPENSHELL_VERSION=v0.1.4` on the
 host plus a revert of the docs commit; the helper change is independent of the
 version bump and can be kept or reverted on its own.
 
+## Wrap-up
+
+Evidence for this change lives in `docs/verification-log.md` as the dated
+"OpenShell v0.1.5 upgrade — 2026-10-22" entry, outside the change directory, so
+it needs no rewrite. At archive time the change moves to
+`openspec/changes/archive/2026-10-22-actualize-openshell-015/`; no file under
+`openspec/changes/actualize-openshell-015/` is cited as evidence from outside
+the change, so no evidence path needs rewriting.
+
 ## Open Questions
 
 None that change the specs, the approach, or the task breakdown. Whether to

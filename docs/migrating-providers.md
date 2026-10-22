@@ -141,7 +141,7 @@ If you need the provider behind an OAuth login:
    refresh metadata is configured for the provider (see
    [`docs/ai/references.md`](ai/references.md)).
 3. Never copy a live access token into a profile or pass it with
-   `openshell sandbox create --env`.
+   `openshell sandbox create --env` or `--env-from`.
 
 ## Security rationale
 

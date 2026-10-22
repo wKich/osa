@@ -3,6 +3,268 @@
 Recorded dry runs for this repository. Actual outputs are trimmed to the
 relevant lines.
 
+## OpenShell v0.1.5 upgrade — 2026-10-22
+
+Upgrade of the pinned OpenShell from v0.1.4 to v0.1.5 (released 2026-10-20),
+using the version-pinned install path. On macOS the install script installs the
+release's generated Homebrew formula and restarts the gateway service.
+
+### Baseline before the upgrade
+
+Recorded before touching the install, so the rollback path is known:
+
+```text
+$ openshell --version
+openshell 0.1.4
+
+$ openshell status
+  Gateway: openshell
+  Server: https://localhost:17670
+  Status: Connected
+  Authentication: Authenticated (mTLS transport)
+  Version: 0.1.4
+
+$ openshell gateway info
+  Status: healthy
+  Version: 0.1.4
+  Compute drivers:
+    docker
+      Driver version: 0.1.4
+```
+
+The baseline matches `docs/ai/references.md`'s v0.1.4 claim. Rollback is the
+same install command with `OPENSHELL_VERSION=v0.1.4`.
+
+### Install
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh \
+  | OPENSHELL_VERSION=v0.1.5 sh
+```
+
+Result: Homebrew installed `openshell 0.1.5`, restarted the local gateway, and
+re-registered it. The install script reported the listener reachable and
+`openshell status` connected.
+
+```text
+$ openshell --version
+openshell 0.1.5
+
+$ openshell status
+  Gateway: openshell
+  Server: https://localhost:17670
+  Status: Connected
+  Authentication: Authenticated (mTLS transport)
+  Version: 0.1.5
+
+$ openshell gateway info
+  Status: healthy
+  Version: 0.1.5
+  Compute drivers:
+    docker
+      Driver version: 0.1.5
+```
+
+### Version-dependent re-verification
+
+`openshell rule get` still has no JSON mode at v0.1.5: `openshell rule get
+--help` lists only `--status` and gateway flags, with no output-format option.
+The text shape is unchanged, checked against a real pending proposal drafted by
+the policy advisor from a denied request:
+
+```text
+$ openshell rule get maki-maki-openshell --status pending
+Network Rules:  (version 1, 1 chunk)
+
+  Chunk: bf801802-56a0-49b1-88ea-80937b56c883
+  Status: pending
+  Rule: allow_example_com_443
+  Binary: /usr/bin/curl
+  Confidence: 65%
+  Rationale: Allow curl to connect to example.com:443 (HTTPS).
+  Prover: prover: no new findings
+  Candidate: f76327a8bb99
+  Endpoints: example.com:443 [L4]
+  Binaries: /usr/bin/curl
+```
+
+Verdict: the `Chunk:` text parse in `maki-oss policy review` is re-confirmed;
+no parser change was needed.
+
+### Isolation checklist against v0.1.5
+
+Run with a sandbox created as `docs/verification.md` describes, substituting the
+curated DeepSeek profile for the Anthropic example (`maki-deepseek` is the
+provider available on this gateway; the policy shape is identical):
+
+```sh
+openshell sandbox create --name maki --from maki-agent:local \
+  --policy examples/policies/maki-minimal.yaml \
+  --provider maki-deepseek --detach
+```
+
+Result: `Created sandbox: maki`, phase `Ready` with `ConfigurationAccepted`.
+
+```text
+$ openshell sandbox exec -n maki --no-login-shell -- id
+uid=1500(sandbox) gid=1500(sandbox) groups=1500(sandbox)
+
+$ openshell sandbox exec -n maki --no-login-shell -- /usr/bin/curl -sS --max-time 15 https://example.com
+curl: (7) Failed to connect to example.com port 443 after 2 ms: Couldn't connect to server
+(exit 7)
+
+$ openshell sandbox exec -n maki --no-login-shell -- printenv DEEPSEEK_API_KEY
+v<revision>_DEEPSEEK_API_KEY
+(exit 0; a placeholder, never the key)
+
+$ openshell sandbox exec -n maki --no-login-shell -- ls /Users
+ls: cannot access '/Users': No such file or directory
+(exit 2)
+
+$ openshell sandbox exec -n maki --no-login-shell -- touch /usr/probe
+touch: cannot touch '/usr/probe': Permission denied
+(exit 1)
+
+$ openshell sandbox exec -n maki --no-login-shell -- sh -c 'touch /sandbox/probe && date > /tmp/probe && echo writable'
+writable
+```
+
+Effective policy and attachment (base policy carries no network rules):
+
+```text
+$ openshell policy get maki --full
+network_policies:
+  _provider_maki_deepseek:
+    name: _provider_maki_deepseek
+    endpoints:
+      - host: api.deepseek.com
+        port: 443
+        protocol: rest
+        enforcement: enforce
+        access: read-write
+    binaries:
+      - path: /usr/local/bin/maki
+
+$ openshell sandbox provider list maki
+NAME           TYPE           CREDENTIAL_KEYS   CONFIG_KEYS
+maki-deepseek  maki-deepseek  1                 0
+```
+
+Denial logs for the unlisted host, with the broker staging the DNS name rather
+than falling back to native handling:
+
+```text
+$ openshell logs maki --since 5m --source sandbox
+[1792686433.774] [sandbox] [OCSF ] [ocsf] NET:REFUSE [MED] DENIED example.com [reason:policy_dns_ineligible]
+[1792686433.774] [sandbox] [OCSF ] [ocsf] CONFIG:OBSERVATION [INFO] Policy DNS staged unapproved name example.com synthetic=198.18.0.2 for TCP policy review
+[1792686433.775] [sandbox] [WARN ] [openshell_supervisor_network::proxy] Denied staged transparent connection destination=198.18.0.2:443 reason=endpoint example.com:443 is not allowed by any policy
+[1792686433.775] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED /usr/bin/curl(0) -> example.com:443 [reason:transparent_tcp_policy_denied]
+```
+
+The same refusal line was produced again by a session launched through the
+helper (`maki-maki-openshell`), so the deny-by-default path is unchanged when
+the helper creates the sandbox.
+
+### Hostname policy and fail-closed broker
+
+The curated provider hostname still opens: a headless session through
+`maki-oss run --model deepseek/deepseek-chat` completed against
+`api.deepseek.com:443` and the stdio MCP server's REST call reached
+`api.synthetic.new`, both through the attached provider profiles. No profile
+gained a host, port, or wildcard.
+
+The unlisted hostname still denies, and the denial carries a `reason:` value
+(`policy_dns_ineligible`, `transparent_tcp_policy_denied`) as shown above. The
+broker staged the unapproved DNS name instead of forwarding it, so the refusal
+is fail-closed rather than a native-handling fallback.
+
+### Session sync-back
+
+```text
+$ maki-oss run --model deepseek/deepseek-chat "create a file named sync-probe.txt ..."
+Created sandbox 'maki-maki-openshell'...
+✓ Upload complete
+{"type":"result","subtype":"success",...,"result":"...Created `/sandbox/project/sync-probe.txt`..."}
+Downloading sandbox:/sandbox/project -> /Users/ki/Projects/experiments/maki-openshell
+✓ Download complete
+Synced sandbox changes back to /Users/ki/Projects/experiments/maki-openshell.
+```
+
+`sync-probe.txt` existed in the project root afterwards.
+
+### MCP smoke tests
+
+Both seeded servers were ready with every gate satisfied:
+
+```text
+$ maki-oss --name maki-maki-openshell mcp status
+MCP readiness for sandbox 'maki-maki-openshell':
+  context7: sandbox=ok provider=ok endpoint=ok transport=http
+  synthetic: sandbox=ok runtime=ok provider=ok transport=stdio
+(exit 0)
+```
+
+The endpoint entered the effective policy only through the attached profile:
+
+```text
+$ openshell policy get maki --full
+  _provider_mcp_context7:
+    name: _provider_mcp_context7
+    endpoints:
+      - host: mcp.context7.com
+        path: /mcp
+        port: 443
+        protocol: mcp
+        enforcement: enforce
+```
+
+`openshell policy get maki --base` printed no `mcp.context7.com` entry, so the
+base policy stayed network-free.
+
+A headless tool run listed the `context7__resolve-library-id` /
+`context7__query-docs` pair and called `synthetic__search`, which returned six
+results for `openspec`. The stdio server's REST call reached
+`api.synthetic.new` through the proxy with the placeholder substituted.
+
+### Env guard parity with `--env-from`
+
+Live checks against the upgraded gateway, in addition to the stub suite:
+
+```text
+$ EDITOR=vi maki-oss init --name envfrom-probe --env-from EDITOR
+Sandbox 'envfrom-probe' is ready. Next: maki-oss upload .
+
+$ openshell sandbox exec -n envfrom-probe --no-login-shell -- printenv EDITOR
+vi
+(exit 0)
+
+$ maki-oss init --name envfrom-refusal-probe --env-from ANTHROPIC_API_KEY
+maki-oss: refusing --env-from ANTHROPIC_API_KEY: the name looks like a credential
+...
+(exit 1)
+
+$ maki-oss init --name envfrom-launder-probe --env-from HARMLESS_NAME=ANTHROPIC_API_KEY
+maki-oss: refusing --env-from ANTHROPIC_API_KEY: the name looks like a credential
+...
+(exit 1)
+```
+
+Neither refusing run created a sandbox (`openshell sandbox list` was unchanged
+before the benign probe), so both refusals happened before any gateway
+mutation. The refusal names `--env-from`, the flag the user typed.
+
+### Cleanup
+
+The verification sandboxes (`maki`, `maki-maki-openshell`, and the
+`--env-from` probe) were deleted after the run; `openshell sandbox list`
+reported no sandboxes. The upgraded v0.1.5 CLI and gateway remain installed.
+
+### Findings
+
+No check failed. `openshell gateway info` now reports the driver and middleware
+extension versions alongside the gateway, all at 0.1.5. Nothing was added,
+widened, or relaxed to make a check pass.
+
 ## OpenShell v0.1.4 upgrade — 2026-10-20
 
 Upgrade of the pinned OpenShell from v0.1.2 to v0.1.4 (released 2026-10-13),

@@ -6,8 +6,8 @@
 # The OpenShell sandbox is the security boundary. This helper:
 #   - never bind-mounts host directories (project files move with
 #     `openshell sandbox upload` / `download`);
-#   - never passes credential-like values through `--env` (provider profiles
-#     carry credentials instead);
+#   - never passes credential-like values through `--env` or `--env-from`
+#     (provider profiles carry credentials instead);
 #   - asks for confirmation before deleting a sandbox.
 #
 # POSIX sh. See docs/helper.md for the full reference.
@@ -97,7 +97,11 @@ Common options:
   --workdir PATH   In-sandbox project directory (default: /sandbox/project)
   --env KEY=VALUE  Non-secret environment variable at creation (repeatable);
                    for provider setup, the host variable name to read
-  --allow-env KEY  Allow a credential-like key passed with --env (repeatable)
+  --env-from SPEC  Sandbox environment variable read from the caller's
+                   environment: KEY or KEY=ENVVAR (repeatable); the
+                   credential check covers the sandbox name and the source name
+  --allow-env KEY  Allow a credential-like key passed with --env or --env-from
+                   (repeatable)
   --model SPEC     Model for sessions and run (provider/model)
   --continue (-c)  Session commands: resume the most recent session in the
                     sandbox workdir (sessions live in the sandbox: they
@@ -617,12 +621,12 @@ env_key_allowed() {
     return "$allowed"
 }
 
-env_refusal() {
-    err "refusing --env $1: the name looks like a credential"
+env_refusal() { # FLAG KEY
+    err "refusing $1 $2: the name looks like a credential"
     err "  Sandbox environment variables are readable by the agent; use a provider instead:"
     err "    $PROGRAM provider add my-provider --type <profile> --from-existing"
     err "    $PROGRAM provider attach my-provider"
-    err "  If this value is genuinely not secret, repeat the key with --allow-env $1"
+    err "  If this value is genuinely not secret, repeat the key with --allow-env $2"
     exit "$EX_USAGE"
 }
 
@@ -655,7 +659,37 @@ check_env_hygiene() {
         if credential_like "$env_key" && ! env_key_allowed "$env_key"; then
             set +f
             IFS=$saved_ifs
-            env_refusal "$env_key"
+            env_refusal --env "$env_key"
+        fi
+    done
+    # shellcheck disable=SC2086
+    for env_pair in $opt_env_froms; do
+        if [ -z "$env_pair" ]; then
+            continue
+        fi
+        case $env_pair in
+            *=*) env_key=${env_pair%%=*} env_source=${env_pair#*=} ;;
+            *) env_key=$env_pair env_source=$env_pair ;;
+        esac
+        for env_name in "$env_key" "$env_source"; do
+            case $env_name in
+                [A-Za-z_][A-Za-z0-9_]*) ;;
+                *)
+                    set +f
+                    IFS=$saved_ifs
+                    die_usage "--env-from expects KEY or KEY=ENVVAR with names matching [A-Za-z_][A-Za-z0-9_]*; got '$env_pair'"
+                    ;;
+            esac
+        done
+        if credential_like "$env_key" && ! env_key_allowed "$env_key"; then
+            set +f
+            IFS=$saved_ifs
+            env_refusal --env-from "$env_key"
+        fi
+        if credential_like "$env_source" && ! env_key_allowed "$env_source"; then
+            set +f
+            IFS=$saved_ifs
+            env_refusal --env-from "$env_source"
         fi
     done
     set +f
@@ -892,6 +926,12 @@ run_sandbox_create() { # NAME
     for env_pair in $opt_envs; do
         if [ -n "$env_pair" ]; then
             set -- "$@" --env "$env_pair"
+        fi
+    done
+    # shellcheck disable=SC2086
+    for env_pair in $opt_env_froms; do
+        if [ -n "$env_pair" ]; then
+            set -- "$@" --env-from "$env_pair"
         fi
     done
     set +f
@@ -2781,6 +2821,7 @@ opt_gateway=
 opt_workdir=
 opt_providers=
 opt_envs=
+opt_env_froms=
 opt_allow_env=
 opt_credentials=
 opt_configs=
@@ -2894,6 +2935,12 @@ while [ "$OPT_I" -lt "$OPT_ARGC" ]; do
         --env)
             [ "$#" -gt 0 ] || die_usage "option --env requires a value"
             opt_envs=$(append_list "$opt_envs" "$1")
+            shift
+            OPT_I=$((OPT_I + 1))
+            ;;
+        --env-from)
+            [ "$#" -gt 0 ] || die_usage "option --env-from requires a value"
+            opt_env_froms=$(append_list "$opt_env_froms" "$1")
             shift
             OPT_I=$((OPT_I + 1))
             ;;

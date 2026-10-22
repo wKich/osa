@@ -6,10 +6,11 @@ repository exists (Phase 3). After each phase, run its `### Verify` block and
 **stop on a mismatch** — report the failing command and its output instead of
 working around it or continuing.
 
-> **Verified against OpenShell v0.1.2 and Maki v0.6.0; Maki pin updated to
-> v0.6.4 on 2026-10-20.** The Maki version
-> below is the one pinned by `examples/maki-image/Dockerfile`; re-verify after
-> either upstream publishes a release. External documentation links live only
+> **Verified against OpenShell v0.1.5 and Maki v0.6.4 on 2026-10-22.** The Maki
+> version below is the one pinned by `examples/maki-image/Dockerfile`, and the
+> OpenShell install command below pins the version `docs/ai/references.md`
+> verifies; moving either pin is the same act as re-verifying, not a separate
+> chore. External documentation links live only
 > in [`docs/ai/references.md`](references.md) — this playbook restates the
 > commands to type and points there for background.
 
@@ -86,7 +87,8 @@ one step; details in the OpenShell
 [installation doc](https://docs.nvidia.com/openshell/about/installation.md)):
 
 ```sh
-curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh
+curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh \
+  | OPENSHELL_VERSION=v0.1.5 sh
 openshell status
 ```
 

@@ -15,8 +15,9 @@ The sandbox remains the security boundary:
 
 - no host bind mounts — project files move with `openshell sandbox upload` /
   `download`;
-- credentials go through provider profiles, never `--env`;
-- `--env` refuses credential-like names unless you pass `--allow-env`;
+- credentials go through provider profiles, never `--env` or `--env-from`;
+- `--env` and `--env-from` refuse credential-like names unless you pass
+  `--allow-env`, and `--env-from` checks the source name too;
 - `rm` requires confirmation or `--yes`;
 - every gateway call uses the configured policy, and no command widens egress.
 
@@ -521,7 +522,7 @@ directory, so with fisher put the repository's `bin/` on `PATH` or set
 |---|---|
 | `openshell CLI not found on PATH` | Install OpenShell; see the [setup guide](setup-guide.md) |
 | `gateway: unreachable` | Start the gateway service, then rerun `maki-oss doctor` |
-| `refusing --env ANTHROPIC_API_KEY` | Use `provider add --from-existing` and `provider attach`, or `--allow-env KEY` for genuinely non-secret values |
+| `refusing --env ANTHROPIC_API_KEY` | Use `provider add --from-existing` and `provider attach`, or `--allow-env KEY` for genuinely non-secret values; `--env-from` refuses the sandbox name and the source name the same way |
 | `no '<slug>' credential in the maki store` | Store slug differs from the provider name | Run `maki-oss provider setup` to list the detected slugs |
 | `credential '<store>:<slug>' is 'oauth'` | OAuth login selected | Use an API-key credential; see [`docs/migrating-providers.md`](migrating-providers.md) |
 | `provider '<name>' already exists; pass --yes` | Non-TTY update needs confirmation | Rerun with `--yes` to update the provider |

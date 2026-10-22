@@ -1,7 +1,7 @@
 # Setup guide: Maki in an OpenShell sandbox
 
-> **Verified against OpenShell v0.1.4 and Maki v0.6.4 on 2026-10-20 (the
-> v0.1.4 upgrade's checks were re-run; the full dry run was not repeated).** Tested on macOS 26.5
+> **Verified against OpenShell v0.1.5 and Maki v0.6.4 on 2026-10-22 (the
+> v0.1.5 upgrade's checks were re-run; the full dry run was not repeated).** Tested on macOS 26.5
 > (Apple Silicon) with Docker Engine 29.4.0 (OrbStack). Docker Desktop 28+ is
 > the upstream-supported macOS path; Linux hosts work the same way. What the
 > dry run covered — and what it did not — is recorded in
@@ -44,7 +44,7 @@ advisor, policy prover, and the rest) is defined in
 | Requirement | Check | Expected |
 |---|---|---|
 | Docker Engine 28+ | `docker version --format '{{.Server.Version}}'` | `28.0` or later |
-| OpenShell CLI + gateway | `openshell status` | `Status: Connected`, version `0.1.4` or later |
+| OpenShell CLI + gateway | `openshell status` | `Status: Connected`, version `0.1.5` or later |
 | Host platform | `uname -m` | `arm64` on Apple Silicon; Linux amd64/arm64 also supported |
 
 **Docker Desktop settings (macOS):** OpenShell needs containers to reach the

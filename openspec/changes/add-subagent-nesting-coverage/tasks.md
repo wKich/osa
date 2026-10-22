@@ -51,7 +51,7 @@
 
 ## 4. Wrap-up gate
 
-- [ ] 4.1 Run the full gate in one pass: `make test`, `make test-bridge`,
+- [x] 4.1 Run the full gate in one pass: `make test`, `make test-bridge`,
       `make compat`, `make lint`, and
       `openspec validate "add-subagent-nesting-coverage"`. Verify: all five
       exit 0.

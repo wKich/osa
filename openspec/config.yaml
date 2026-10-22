@@ -10,8 +10,9 @@ context: |
 
   Security invariants (apply to every artifact and task):
   - The OpenShell sandbox is the security boundary. Never add host bind mounts.
-  - Never pass secrets via `openshell sandbox create --env`; credentials go
-    through OpenShell provider profiles (placeholder + proxy substitution).
+  - Never pass secrets via `openshell sandbox create --env` or `--env-from`;
+    credentials go through OpenShell provider profiles (placeholder + proxy
+    substitution).
   - Egress stays deny-by-default; every new endpoint needs a policy/profile rule.
   - Sandbox processes run as a non-root user; filesystem policy stays minimal.
   - Maki runs with provider env placeholders only; never `maki auth login`

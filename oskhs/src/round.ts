@@ -73,12 +73,10 @@ rm -rf "$ws"`;
 
 const WRITE_FILE = `mkdir -p "$1" && cat > "$1/$2"`;
 
-// $1 run tag. Kills every sandbox process that inherited it (maki-oss run
-// exports it around Maki); the same sweep maki-oss does after its timeout.
-const KILL_TAGGED = `for d in /proc/[0-9]*; do
-    if grep -qzx "MAKI_OSS_RUN_TAG=$1" "$d/environ" 2>/dev/null; then kill -KILL "\${d#/proc/}" 2>/dev/null; fi
-done
-true`;
+// $1 run tag. maki-oss's timeout wrapper watches this file and stops the
+// run itself: a separate exec cannot find the run's processes (it may not
+// read their environment), but the wrapper can.
+const STOP_RUN = `mkdir -p /tmp/maki-oss-stop && touch "/tmp/maki-oss-stop/$1"`;
 
 export const runTag = (taskId: string) => `oskhs-${taskId}`;
 
@@ -113,8 +111,8 @@ export async function runMaki(ctx: Ctx, spec: RoundSpec, workdir: string): Promi
   // shipping whatever directory oskhs happens to run in.
   const cwd = await mkdtemp(join(tmpdir(), "oskhs-run-"));
   // Killing the exec client leaves Maki running in the sandbox (OpenShell
-  // 0.1.5), so an abort stops it there by its tag; the client then returns.
-  const stop = () => void sandboxSh(ctx, spec.sandbox, KILL_TAGGED, [tag]);
+  // 0.1.5), so an abort asks the wrapper to stop it; the client then returns.
+  const stop = () => void sandboxSh(ctx, spec.sandbox, STOP_RUN, [tag]);
   spec.signal?.addEventListener("abort", stop, { once: true });
   try {
     const out = await ctx.run(argv, { env, cwd, timeoutMs: (spec.timeoutSec + BACKSTOP_SEC) * 1000 });

@@ -28,19 +28,19 @@
 
 ## 3. Live exit
 
-- [ ] 3.1 Create bare mirrors of the dev project's two repositories; delete
+- [x] 3.1 Create bare mirrors of the dev project's two repositories; delete
       the old-layout `repo-kiss-local` sandbox if any; insert a marked task
       asking about a file in one repository; run the worker; verify Maki's
       answer is the `replyMessage` and kiss posts it; record in
       `evidence/sandbox-round-live.md`
-- [ ] 3.2 Verify the sandbox environment (credential-like variables are
+- [x] 3.2 Verify the sandbox environment (credential-like variables are
       stand-ins only; no Mongo/GitLab variables) and that TCP to the kiss
       MongoDB from the sandbox fails (host gateway address and the
       `kiss-mongo` container address); record
 
 ## 4. Docs
 
-- [ ] 4.1 `docs/oskhs.md` (workspace layout, kiss round, prompt and reply,
+- [x] 4.1 `docs/oskhs.md` (workspace layout, kiss round, prompt and reply,
       mirrors, flags) and roadmap B1.3c done; verify
       `scripts/check-links.sh docs/oskhs.md docs/roadmap.md` and
       `openspec validate add-oskhs-sandbox-round --strict`

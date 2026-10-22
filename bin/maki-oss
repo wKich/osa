@@ -1294,11 +1294,22 @@ cmd_opencode_tui() {
 
 # In-sandbox wrapper for `run --timeout`: $1 tag, $2 seconds, then the
 # command. The shell's own environment predates the export, and the tag is
-# unset before the sweep, so the sweep never matches itself.
+# unset before the sweep, so the sweep never matches itself. A caller stops
+# the run early by creating /tmp/maki-oss-stop/<tag>: only this shell can
+# read its children's environment (each `sandbox exec` is its own isolation
+# domain), so the stop has to happen here.
 # shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
 RUN_TIMEOUT_WRAPPER='tag=$1; secs=$2; shift 2
+stop=/tmp/maki-oss-stop/$tag
+rm -f "$stop"
 export MAKI_OSS_RUN_TAG="$tag"
-timeout --kill-after=10 "$secs" "$@"
+timeout --kill-after=10 "$secs" "$@" &
+child=$!
+while kill -0 "$child" 2>/dev/null; do
+    if [ -e "$stop" ]; then kill -TERM "$child" 2>/dev/null; break; fi
+    sleep 1
+done
+wait "$child"
 rc=$?
 unset MAKI_OSS_RUN_TAG
 for d in /proc/[0-9]*; do
@@ -1306,6 +1317,7 @@ for d in /proc/[0-9]*; do
         kill -KILL "${d#/proc/}" 2>/dev/null
     fi
 done
+rm -f "$stop"
 exit "$rc"'
 
 cmd_run() {
@@ -1338,7 +1350,7 @@ cmd_run() {
     # exported inside the sandbox, never passed with --env.
     if [ -n "$run_timeout" ]; then
         # A caller may choose the tag (MAKI_OSS_RUN_TAG) to stop the run
-        # itself later, by killing the tagged processes in the sandbox.
+        # early through the wrapper's stop file.
         run_tag=${MAKI_OSS_RUN_TAG:-maki-oss-$$-$(date +%s)}
         set -- sh -c "$RUN_TIMEOUT_WRAPPER" maki-oss-run "$run_tag" "$run_timeout" "$@"
     fi

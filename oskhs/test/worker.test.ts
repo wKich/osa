@@ -12,6 +12,7 @@ function setup(round: Round = echoRound(), over: Partial<WorkerOptions> = {}) {
     roundTimeoutSec: 5,
     heartbeatSec: 0.05,
     cancelPollSec: 0.02,
+    abortGraceSec: 1,
     log: (taskId, event, details) => events.push({ taskId, event, details }),
     info: () => {},
     ...over,
@@ -77,6 +78,22 @@ describe("worker", () => {
     expect(Date.now() - started).toBeLessThan(1000);
     expect(store.task("t1")).toMatchObject({ runtimeState: "idle_stopped", cancelledAt: expect.any(Date), wakeRequestedAt: null });
     expect(store.task("t1").replyMessage).toBeUndefined();
+  });
+
+  test("an aborted round gets to finish its cleanup before the task is released", async () => {
+    let cleaned = false;
+    const slowStop: Round = (input, signal) =>
+      new Promise((resolve) =>
+        signal.addEventListener("abort", () => setTimeout(() => ((cleaned = true), resolve({ ok: false, error: "aborted" })), 100), { once: true }),
+      );
+    const { store, worker, events } = setup(slowStop);
+    store.tasks.set("t1", dueTask("t1"));
+    await worker.tick();
+    await until(() => events.some((e) => e.event === "round-start"));
+    store.tasks.set("t1", { ...store.task("t1"), cancelRequestedAt: new Date() });
+    await worker.drain();
+    expect(cleaned).toBe(true);
+    expect(store.task("t1")).toMatchObject({ runtimeState: "idle_stopped", cancelledAt: expect.any(Date) });
   });
 
   test("a round past its limit fails the task visibly", async () => {

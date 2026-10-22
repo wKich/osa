@@ -114,6 +114,7 @@ const WORKER_NUMBERS: Record<string, [keyof WorkerArgs["options"] | "pollSec" | 
   "--round-timeout": ["roundTimeoutSec", 600],
   "--heartbeat-sec": ["heartbeatSec", 20],
   "--cancel-poll-sec": ["cancelPollSec", 3],
+  "--abort-grace-sec": ["abortGraceSec", 30],
   "--poll-sec": ["pollSec", 2],
   "--fake-delay": ["fakeDelaySec", 0],
 };

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sandboxFor, sandboxRound } from "../src/kiss/sandboxRound.ts";
@@ -86,4 +86,29 @@ describe("sandbox round", () => {
     expect(sandboxFor({ _id: "6ab5f8ff" }, "x")).toBe("repo-6ab5f8ff");
     expect(sandboxFor(null, "p1")).toBe("repo-p1");
   });
+});
+
+test("an abort asks maki-oss's wrapper to stop the run, then the workspace goes", async () => {
+  const mirrorDir = await mirrors("g/fx", "g/two");
+  const sb = localSandbox();
+  const controller = new AbortController();
+  let release: () => void = () => {};
+  sb.onRun = () => new Promise((resolve) => (release = () => resolve({ code: 143 })));
+  sb.intercept = async (argv) => {
+    const i = argv.indexOf("-c");
+    if (argv[i + 1]?.includes("maki-oss-stop")) {
+      expect(argv.at(-1)).toBe("oskhs-ab12cd34");
+      release();
+      return { code: 0 };
+    }
+    return undefined;
+  };
+  const round = sandboxRound({ ctx: sb.ctx, mirrorDir, providers: [], agentName: "k" });
+  const pending = round({ task: task() as never, project: null, prompt: "", timeoutSec: 30 }, controller.signal);
+  const { until } = { until: async (c: () => boolean) => { while (!c()) await Bun.sleep(5); } };
+  await until(() => sb.calls.some((c) => c.argv[1] === "run"));
+  controller.abort("cancelled");
+  const reply = await pending;
+  expect(reply.ok).toBe(false);
+  expect(readdirSync(sb.path("/sandbox/tasks"))).toEqual([]);
 });

@@ -25,6 +25,7 @@ export interface WorkerOptions {
   roundTimeoutSec: number;
   heartbeatSec: number;
   cancelPollSec: number;
+  abortGraceSec: number; // how long an aborted round may take to clean up
   log: TaskLog;
   info: (msg: string) => void;
 }
@@ -222,8 +223,14 @@ export class Worker {
     const parentAborted = new Promise<RoundReply>((resolve) =>
       signal.addEventListener("abort", () => resolve({ ok: false, error: "aborted" }), { once: true }),
     );
+    const running = this.round(input, combined);
     try {
-      const reply = await Promise.race([this.round(input, combined), timedOut, parentAborted]);
+      const reply = await Promise.race([running, timedOut, parentAborted]);
+      if (combined.aborted) {
+        // let the round stop its work and clean up (the sandbox round stops
+        // Maki and removes the workspace) before the task is released
+        await Promise.race([running.catch(() => undefined), Bun.sleep(this.opts.abortGraceSec * 1000)]);
+      }
       log(id, "round-end", { subTaskId: input.subTask?._id, ok: reply.ok, ...(reply.ok ? { chars: reply.text.length } : { error: reply.error }) });
       return reply;
     } catch (err) {

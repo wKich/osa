@@ -335,7 +335,9 @@ in one go; remote gateways and resumable large seeds are B5.
   **Exit:** a message in a marked dev-stand channel gets the echo reply,
   posted by kiss; cancelling mid-run ends the task cleanly; killing oskhs
   mid-task ends with the task failed visibly or re-claimed, never hanging.
-- **B1.3c — Real round** (½–1). Prompt built from the task the way kiss
+- **B1.3c — Real round** (½–1). *Done 2026-10-23
+  (`add-oskhs-sandbox-round`); rounds became multi-repo like kiss's
+  workspace, mirrors are hand-made until B1.4.* Prompt built from the task the way kiss
   builds it (including thread context); B1.1/B1.2 round replaces the echo;
   result written in the format kiss posts from. Read-only (Q&A) tasks only.
   Uses a model provider preconfigured on the gateway by hand.

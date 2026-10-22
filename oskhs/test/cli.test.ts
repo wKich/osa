@@ -33,7 +33,7 @@ test("exit status is 0 only for an answer", () => {
 test("worker options and defaults", () => {
   const w = parseWorker(["--round", "echo", "--max-rounds", "3", "--fake-delay", "0", "--once"], { OSKHS_HOST_ID: "h1", XDG_STATE_HOME: "/s" });
   expect(w).toMatchObject({ round: "echo", once: true, fakeDelaySec: 0, pollSec: 2, logDir: "/s/oskhs/tasks" });
-  expect(w.options).toEqual({ hostId: "h1", maxRounds: 3, maxPerProject: 1, roundTimeoutSec: 600, heartbeatSec: 20, cancelPollSec: 3 });
+  expect(w.options).toEqual({ hostId: "h1", maxRounds: 3, maxPerProject: 1, roundTimeoutSec: 600, heartbeatSec: 20, cancelPollSec: 3, abortGraceSec: 30 });
   expect(parseWorker(["--round", "echo"], {}).options.hostId).toStartWith("oskhs-");
   expect(() => parseWorker([], {})).toThrow("--mirror-dir");
   const s = parseWorker(["--mirror-dir", "/m", "--model", "a/b", "--provider", "p1", "--agent-name", "svc_kiss"], { OSKHS_PROVIDERS: "x" });

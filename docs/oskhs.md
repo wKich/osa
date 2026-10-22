@@ -6,19 +6,22 @@ lives in [`oskhs/`](../oskhs/) as a Bun + TypeScript subproject and depends on
 kiss only through the task document in Mongo — not yet: this page tracks
 what exists today, slice by slice.
 
-**Today (B1.1a–B1.3b):** a round library with incremental git sync and
+**Today (B1.1a–B1.3c):** a round library with incremental git sync and
 changes returned as a host branch (`run-round`), and a kiss queue worker
-(`worker`) that speaks kiss's task-document protocol with an echo round.
+(`worker`) that answers marked kiss tasks with Maki in the project's warm
+sandbox.
 
 ## Warm repo sandboxes
 
 Each project gets one long-lived sandbox, `repo-<project>` (project = the
-repo directory's basename, lowercased, `[a-z0-9-]` only). Inside it:
+kiss project title, or for `run-round` the repo directory's basename,
+lowercased, `[a-z0-9-]` only). A repository's `<subdir>` follows kiss:
+`worktreeSubdir`, else the project path with `/` → `_`. Inside it:
 
 | Path | What |
 |---|---|
-| `/sandbox/repo` | bare repository; delivered branches under `refs/remotes/origin/*`, tags under `refs/tags/*`; `origin` points at `/oskhs-offline`, a path that never exists |
-| `/sandbox/tasks/<task-id>` | one git worktree per round on branch `task-<task-id>`, removed when the round ends |
+| `/sandbox/repos/<subdir>` | one bare repository per repository; delivered branches under `refs/remotes/origin/*`, tags under `refs/tags/*`; `origin` points at `/oskhs-offline`, a path that never exists |
+| `/sandbox/tasks/<task-id>/` | the round's workspace: one git worktree per repository at `<subdir>/` on branch `task-<task-id>`, plus an `AGENTS.md` index; Maki runs here; removed when the round ends |
 | `/sandbox/.oskhs/in`, `/sandbox/.oskhs/out` | transfer files (bundles); empty between rounds |
 
 ## Sync
@@ -43,7 +46,8 @@ Before every round oskhs syncs the refs the round needs:
 A fresh sandbox is just the case with no tips: the first round sends the
 full history of its wanted refs. The sandbox is created with `maki-oss up`,
 which never uploads a project directory. Bundles land in
-`/sandbox/.oskhs/in/<task-id>.bundle` and are deleted after the fetch.
+`/sandbox/.oskhs/in/<task-id>-<subdir>.bundle` and are deleted after the
+fetch.
 Nothing crosses through `--env` or a bind mount.
 
 Measured on the fixture: first round 115 375 bytes, the next after one
@@ -112,11 +116,12 @@ it started end there.
 
 ## Results
 
-stdout carries one JSON object: `taskId`, `sandbox`, `sync` (`bundleBytes`,
-`updated`, `pruned`, `prerequisites`, `full`, `tips`; absent if the round
-failed before the sync finished), `changes` (`null`, or `branch`, `head`,
-`base`, `commits`, `bundleBytes`, and `files` with `added`, `modified`,
-`deleted`, `renamed`), and a `kind`:
+stdout carries one JSON object: `taskId`, `sandbox`, `repos` — one entry
+per repository with `key`, `sync` (`bundleBytes`, `updated`, `pruned`,
+`prerequisites`, `full`, `tips`; absent if the round failed before that
+repository synced) and `changes` (`null`, or `branch`, `head`, `base`,
+`commits`, `bundleBytes`, and `files` with `added`, `modified`, `deleted`,
+`renamed`) — and a `kind`:
 
 | kind | fields | exit |
 |---|---|---|
@@ -172,8 +177,45 @@ requeues its stale tasks after 10 minutes and they wait for oskhs.
 one event per line (`claimed`, `round-start`, `round-end`, `cancelled`,
 `refused`, `recovered`, `requeued`, `idle`, …).
 
-The round is still an echo in B1.3b (`--fake-delay SECS` makes it slow, for
-cancel and kill checks); B1.3c runs Maki in the warm sandbox instead.
+### The sandbox round
+
+`--round sandbox` (the default) answers each task with Maki in the
+project's warm sandbox:
+
+- **Repositories** come from the task's `taskRepositories`, synced from
+  bare mirrors at `<mirror dir>/<project path>.git` (`--mirror-dir` or
+  `OSKHS_MIRROR_DIR`); each worktree starts from the repository's
+  `branchName` when the task continues one, else the mirror's default
+  branch. A missing mirror closes the task with an error naming the path.
+  In B1.3c the mirrors are made by hand (`git clone --mirror`); B1.4
+  fetches them from GitLab.
+- **Prompt**: answer-only instructions with kiss's no-changes `[RESULT]`
+  format, then kiss's task-context block — repositories, source URL, thread
+  root and discussion, thread URL, the author's task line — byte for byte
+  what kiss's own `generateTaskPrompt` renders (a contract test compares).
+  A follow-up uses the prompt kiss built for the sub-task.
+- **Reply**: the `Reply` field of Maki's `[RESULT]` block, parsed as kiss
+  parses it; the whole answer if there is none.
+- **Read-only**: nothing is collected back; code requests are B1.4.
+- **Model**: `--model` / `OSKHS_MODEL` and `--provider` / `OSKHS_PROVIDERS`,
+  attached to the sandbox by hand for now (B1.3d derives them from kiss).
+- **Cancel**: the round runs under `maki-oss run --timeout` with the run tag
+  `oskhs-<task-id>`; a cancel creates `/tmp/maki-oss-stop/<tag>` in the
+  sandbox, the wrapper stops Maki and its tools, and the workspace is
+  removed before the task is released (`--abort-grace-sec`, 30 s).
+
+The sandbox holds only the provider stand-in; its effective policy allows
+the model endpoint for the `maki` binary and nothing else, so neither the
+kiss database nor GitLab is reachable from it.
+
+```sh
+OSKHS_MONGO_URI=mongodb://127.0.0.1:27017/kiss-agent bun oskhs/src/cli.ts worker \
+  --mirror-dir ~/oskhs-mirrors --provider maki-synthetic \
+  --model synthetic/hf:deepseek-ai/DeepSeek-V4.1-Flash-1017 --agent-name svc_kiss
+```
+
+`--round echo` keeps B1.3b's echo (`--fake-delay SECS` makes it slow, for
+cancel and kill checks).
 
 ## Tests
 
@@ -188,7 +230,8 @@ validates every document the worker writes against kiss's own mongoose
 schemas (`KISS_REPO`, default the sibling checkout; skipped without it), and
 `OSKHS_TEST_MONGO_URI=mongodb://127.0.0.1:27017` runs the store tests against
 a real MongoDB (an ephemeral database). The recorded live runs are in
-`openspec/changes/archive/*-add-oskhs-round/evidence/round-live.md` and
+`openspec/changes/archive/*-add-oskhs-round/evidence/round-live.md`,
 `openspec/changes/archive/*-add-oskhs-incremental-sync/evidence/sync-live.md`,
 `openspec/changes/archive/*-add-oskhs-commits-back/evidence/collect-live.md`,
-and `openspec/changes/archive/*-add-oskhs-task-worker/evidence/worker-live.md`.
+`openspec/changes/archive/*-add-oskhs-task-worker/evidence/worker-live.md`,
+and `openspec/changes/archive/*-add-oskhs-sandbox-round/evidence/sandbox-round-live.md`.

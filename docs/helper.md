@@ -246,8 +246,13 @@ return early while the remote process keeps running (measured on OpenShell
 0.1.5), which is why the helper does not rely on them. The value must be a
 positive integer; anything else is a usage error before any gateway call.
 `MAKI_OSS_RUN_TAG` sets the tag the wrapper exports (letters, digits, `.`,
-`_`, `-`), so a caller can stop the run early by killing every sandbox
-process whose environment carries it (oskhs does this on a cancel).
+`_`, `-`). A caller stops such a run early by creating
+`/tmp/maki-oss-stop/<tag>` in the sandbox (any `sandbox exec` can): the
+wrapper notices within a second, stops Maki, and sweeps the tagged
+processes. The stop has to go through the wrapper because each
+`sandbox exec` runs in its own isolation domain: another exec can signal
+the run's processes but cannot read their environment to find them
+(measured on OpenShell 0.1.5). oskhs uses this for cancellation.
 
 ### upload / download
 

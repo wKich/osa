@@ -1,0 +1,154 @@
+# Route enumeration from the pinned OpenAPI contract
+
+Derived from `bridge/src/openapi-2.0.32.json` (OpenAPI 3.1.0) — the vendored pin, read directly rather than re-captured live (design D1). Keyed `METHOD /path`, one entry per operation the pinned contract defines for the served API surface. Paths outside `/api/` are not part of that surface and are excluded.
+
+**142 operations** · 35 rows in `bridge/compat/statuses.json` · **108 pinned operations with no row** · **1 row naming a route absent from the pin**
+
+## Pinned operations
+
+- `DELETE /api/credential/{credentialID}` — **missing a row**
+- `DELETE /api/debug/location` — **missing a row**
+- `DELETE /api/experimental/mcp/{server}` — **missing a row**
+- `DELETE /api/experimental/persistent-pty/{ptyID}` — **missing a row**
+- `DELETE /api/experimental/session/{sessionID}/instructions/entries/{key}` — **missing a row**
+- `DELETE /api/integration/{integrationID}/connect/command/{attemptID}` — **missing a row**
+- `DELETE /api/integration/{integrationID}/connect/oauth/{attemptID}` — **missing a row**
+- `DELETE /api/permission/saved/{id}` — **missing a row**
+- `DELETE /api/pty/{ptyID}` — **missing a row**
+- `DELETE /api/session/{sessionID}` — recorded
+- `DELETE /api/session/{sessionID}/form/{formID}` — **missing a row**
+- `DELETE /api/session/{sessionID}/inbox/{inboxID}` — **missing a row**
+- `DELETE /api/session/{sessionID}/revert` — **missing a row**
+- `DELETE /api/shell/{id}` — **missing a row**
+- `DELETE /api/worktree` — **missing a row**
+- `GET /api/agent` — recorded
+- `GET /api/agent/{agentID}` — **missing a row**
+- `GET /api/command` — recorded
+- `GET /api/config` — recorded
+- `GET /api/config/shell` — **missing a row**
+- `GET /api/credential` — **missing a row**
+- `GET /api/debug/location` — **missing a row**
+- `GET /api/event` — recorded
+- `GET /api/experimental/migration/v1` — recorded
+- `GET /api/experimental/persistent-pty/{ptyID}` — **missing a row**
+- `GET /api/experimental/persistent-pty/{ptyID}/connect` — **missing a row**
+- `GET /api/experimental/persistent-pty/{ptyID}/snapshot` — **missing a row**
+- `GET /api/experimental/session/stats` — **missing a row**
+- `GET /api/experimental/session/{sessionID}/export` — **missing a row**
+- `GET /api/experimental/session/{sessionID}/instructions/entries` — **missing a row**
+- `GET /api/experimental/session/{sessionID}/log` — **missing a row**
+- `GET /api/experimental/session/{sessionID}/terminal` — **missing a row**
+- `GET /api/experimental/session/{sessionID}/terminal/read` — **missing a row**
+- `GET /api/form` — recorded
+- `GET /api/fs/find` — **missing a row**
+- `GET /api/fs/list` — recorded
+- `GET /api/fs/read/*` — **missing a row**
+- `GET /api/info` — recorded
+- `GET /api/integration` — recorded
+- `GET /api/integration/{integrationID}` — **missing a row**
+- `GET /api/integration/{integrationID}/connect/command/{attemptID}` — **missing a row**
+- `GET /api/integration/{integrationID}/connect/oauth/{attemptID}` — **missing a row**
+- `GET /api/location` — recorded
+- `GET /api/mcp` — recorded
+- `GET /api/mcp/resource` — recorded
+- `GET /api/model` — recorded
+- `GET /api/model/default` — **missing a row**
+- `GET /api/permission/request` — **missing a row**
+- `GET /api/permission/saved` — **missing a row**
+- `GET /api/plugin` — recorded
+- `GET /api/project` — recorded
+- `GET /api/provider` — recorded
+- `GET /api/provider/{providerID}` — **missing a row**
+- `GET /api/pty` — **missing a row**
+- `GET /api/pty/{ptyID}` — **missing a row**
+- `GET /api/pty/{ptyID}/connect` — **missing a row**
+- `GET /api/reference` — recorded
+- `GET /api/session` — recorded
+- `GET /api/session/active` — recorded
+- `GET /api/session/{sessionID}` — recorded
+- `GET /api/session/{sessionID}/context` — **missing a row**
+- `GET /api/session/{sessionID}/diff` — **missing a row**
+- `GET /api/session/{sessionID}/form` — recorded
+- `GET /api/session/{sessionID}/form/{formID}` — **missing a row**
+- `GET /api/session/{sessionID}/inbox` — recorded
+- `GET /api/session/{sessionID}/message` — recorded
+- `GET /api/session/{sessionID}/message/{messageID}` — **missing a row**
+- `GET /api/session/{sessionID}/permission` — recorded
+- `GET /api/session/{sessionID}/permission/{requestID}` — **missing a row**
+- `GET /api/shell` — recorded
+- `GET /api/shell/{id}` — **missing a row**
+- `GET /api/shell/{id}/output` — **missing a row**
+- `GET /api/skill` — recorded
+- `GET /api/vcs` — recorded
+- `GET /api/vcs/base` — **missing a row**
+- `GET /api/vcs/branch` — **missing a row**
+- `GET /api/vcs/diff` — **missing a row**
+- `GET /api/vcs/status` — **missing a row**
+- `GET /api/websearch/provider` — **missing a row**
+- `GET /api/worktree` — **missing a row**
+- `PATCH /api/credential/{credentialID}` — **missing a row**
+- `PATCH /api/experimental/config` — **missing a row**
+- `PATCH /api/project/{projectID}` — **missing a row**
+- `PATCH /api/session/{sessionID}` — **missing a row**
+- `PATCH /api/session/{sessionID}/inbox/{inboxID}` — **missing a row**
+- `POST /api/credential` — **missing a row**
+- `POST /api/credential/{credentialID}/activate` — **missing a row**
+- `POST /api/experimental/fs/write` — **missing a row**
+- `POST /api/experimental/generate` — **missing a row**
+- `POST /api/experimental/integration/wellknown` — **missing a row**
+- `POST /api/experimental/mcp/{server}/connect` — **missing a row**
+- `POST /api/experimental/mcp/{server}/disconnect` — **missing a row**
+- `POST /api/experimental/persistent-pty/handoff` — **missing a row**
+- `POST /api/experimental/persistent-pty/shutdown` — **missing a row**
+- `POST /api/experimental/persistent-pty/{ptyID}/connect-token` — **missing a row**
+- `POST /api/experimental/session/import` — **missing a row**
+- `POST /api/experimental/session/{sessionID}/skill` — **missing a row**
+- `POST /api/experimental/session/{sessionID}/terminal` — **missing a row**
+- `POST /api/experimental/session/{sessionID}/wait` — **missing a row**
+- `POST /api/experimental/voice/session` — **missing a row**
+- `POST /api/integration/{integrationID}/connect/command` — **missing a row**
+- `POST /api/integration/{integrationID}/connect/external` — **missing a row**
+- `POST /api/integration/{integrationID}/connect/key` — **missing a row**
+- `POST /api/integration/{integrationID}/connect/oauth` — **missing a row**
+- `POST /api/integration/{integrationID}/connect/oauth/{attemptID}/complete` — **missing a row**
+- `POST /api/location/reload` — **missing a row**
+- `POST /api/pair` — **missing a row**
+- `POST /api/plugin/check` — **missing a row**
+- `POST /api/plugin/update` — **missing a row**
+- `POST /api/pty` — **missing a row**
+- `POST /api/pty/{ptyID}/connect-token` — **missing a row**
+- `POST /api/rpc/{rpcID}/{method}` — **missing a row**
+- `POST /api/session` — recorded
+- `POST /api/session/{sessionID}/agent` — recorded
+- `POST /api/session/{sessionID}/background` — **missing a row**
+- `POST /api/session/{sessionID}/command` — **missing a row**
+- `POST /api/session/{sessionID}/compact` — **missing a row**
+- `POST /api/session/{sessionID}/fork` — recorded
+- `POST /api/session/{sessionID}/form` — **missing a row**
+- `POST /api/session/{sessionID}/form/{formID}/reply` — **missing a row**
+- `POST /api/session/{sessionID}/generate` — **missing a row**
+- `POST /api/session/{sessionID}/interrupt` — **missing a row**
+- `POST /api/session/{sessionID}/model` — recorded
+- `POST /api/session/{sessionID}/move` — **missing a row**
+- `POST /api/session/{sessionID}/permission` — **missing a row**
+- `POST /api/session/{sessionID}/permission/{requestID}/reply` — recorded
+- `POST /api/session/{sessionID}/prompt` — recorded
+- `POST /api/session/{sessionID}/revert/commit` — **missing a row**
+- `POST /api/session/{sessionID}/revert/stage` — **missing a row**
+- `POST /api/session/{sessionID}/shell` — **missing a row**
+- `POST /api/session/{sessionID}/synthetic` — **missing a row**
+- `POST /api/session/{sessionID}/view` — **missing a row**
+- `POST /api/shell` — **missing a row**
+- `POST /api/vcs/init` — **missing a row**
+- `POST /api/websearch` — **missing a row**
+- `POST /api/worktree` — **missing a row**
+- `POST /api/worktree/refresh` — **missing a row**
+- `PUT /api/experimental/mcp/{server}` — **missing a row**
+- `PUT /api/experimental/persistent-pty/{ptyID}` — **missing a row**
+- `PUT /api/experimental/session/{sessionID}/instructions/entries/{key}` — **missing a row**
+- `PUT /api/pty/{ptyID}` — **missing a row**
+- `PUT /api/session/{sessionID}/environment` — **missing a row**
+
+## Rows with no pinned operation (phantom)
+
+- `GET /api/session/{sessionID}/terminal`

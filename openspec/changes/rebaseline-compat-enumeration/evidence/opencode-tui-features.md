@@ -1,0 +1,157 @@
+# OpenCode TUI features (contract 2.0.32)
+
+The OpenCode side of the cross-map. Sources: the vendored
+`bridge/src/openapi-2.0.32.json` (119 paths), the archived TUI route
+inventory (`openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/tui-route-inventory.md`,
+33 routes measured against the stub across boot/prompt/permission phases),
+and OpenCode's own docs (https://opencode.ai/docs/server/). "Measured" means
+the real TUI called it during a capture; "contract-only" means the path
+exists in the pinned spec but was never exercised by those captures.
+
+Sections marked **(+)** were added by the rebaseline enumeration (this
+change) from `packages/schema/src/session-event.ts` at tag `v2.0.32`; every
+added row cites a line at that tag.
+
+## Boot and session management
+
+| Feature | Routes | Coverage |
+| --- | --- | --- |
+| Server handshake | `GET /api/event` (`server.connected` first), `GET /api/info`, `/api/experimental/migration/v1` polling | measured |
+| Location/project | `GET /api/location`, `/api/project`, `/api/vcs` | measured (faked) |
+| Config/plugins | `GET /api/config`, `/api/plugin`, `/api/integration`, `/api/mcp`, `/api/mcp/resource`, `/api/reference`, `/api/skill`, `/api/shell`, `/api/form`, `/api/fs/list` | measured (faked) |
+| Agent/model catalogs | `GET /api/agent`, `/api/model`, `/api/provider` | measured (faked) |
+| Session list/read/delete | `GET /api/session`, `/api/session/active`, `POST /api/session`, `GET/DELETE /api/session/{id}` | measured (live) |
+| Session rename/move | `PATCH /api/session/{id}`, `POST /api/session/{id}/move` | contract-only |
+| Message history replay | `GET /api/session/{id}/message`, `.../message/{messageID}` | measured as polling only; body faked empty (deferred) |
+
+## Turn and transcript
+
+| Feature | Routes / events | Coverage |
+| --- | --- | --- |
+| Prompt submission | `POST /api/session/{id}/prompt` (`delivery: "steer"` shape) | measured (live) |
+| Turn boundaries | `session.execution.*`, `session.step.*` frames | measured (live) |
+| Assistant parts | `session.text.*`, `session.reasoning.*`, `session.tool.input.*`, `session.tool.called`, `session.tool.success/failed` | measured (live) |
+| User-role message frames | `session.inbox.enqueued` with `data.item:{type:"user",payload:{text},delivery}` (pinned live in task 2.1; see `cross-map.md`) | **defect: absent/misordered** (`message-order-inversion`) |
+| Streaming deltas | `stream_event` → `session.text.delta` etc. | implemented, not measured (maki side unverified) |
+| Model identity | model on `session.step.started`, `/api/model` list, status line | **defect: synthesized** (`synthesized-model-name`) |
+| Model switch mid-session | `POST /api/session/{id}/model` | measured as accepted; no effect behind it (maki supports `set_model`) |
+| Agent switch mid-session | `POST /api/session/{id}/agent` | measured as accepted; faked |
+| Commands palette | `GET /api/command` | measured (faked); `POST /api/session/{id}/command` contract-only |
+| Interrupt / abort | `POST /api/session/{id}/interrupt` | contract-only (maki has `control_cancel_request`) |
+| Steering (queue a message mid-turn) | inbound `user` while running | contract-only on both sides |
+| Compact / context | `POST /api/session/{id}/compact`, `GET /api/session/{id}/context` | contract-only (maki has `/compact` on its own TUI only) |
+| Revert / rewind | `POST /api/session/{id}/revert`, `/revert/stage`, `/revert/commit` | contract-only |
+| Fork | `POST /api/session/{id}/fork` | deferred (bridge answers minimal) |
+| Diff view | `GET /api/session/{id}/diff`, `/api/vcs/diff`, `/api/vcs/status` | contract-only |
+
+## Permissions
+
+| Feature | Routes / events | Coverage |
+| --- | --- | --- |
+| Ask/reply round trip | `permission.asked` / `permission.replied`, `POST /api/session/{id}/permission/{requestID}/reply` | measured (live), offline-verified |
+| Reply vocabulary | `once \| always \| reject` → maki `allow \| deny` | measured; `always` degrades to re-ask (`permission-reask` row) |
+| Saved permission rules | `GET/PUT/DELETE /api/permission/saved`, `POST /api/permission/request` | contract-only (no maki counterpart) |
+
+## Out of the bridge's scope (recorded for completeness)
+
+PTY/shell surfaces (`/api/pty/**`, `/api/shell/{id}`, persistent-pty,
+terminal snapshots), integrations/credentials OAuth flows
+(`/api/integration/{id}/connect/**`, `/api/credential/**`), voice/pair/web
+search admin (`/api/voice/session`, `/api/pair`, `/api/websearch/**`),
+experimental FS write and generate (`/api/experimental/fs/write`,
+`/api/experimental/generate`, `/api/session/{id}/generate`),
+worktrees (`/api/worktree/**`), stats/export/import
+(`/api/experimental/session/{stats,export,import}`), instructions and skills
+per session, background tasks (`/api/session/{id}/background`), inbox
+(measured as polling, body faked), forms (measured as polling, body faked).
+
+## SSE event envelopes: the pinned enumeration (+)
+
+The OpenAPI pin does not pin SSE envelopes at all (`V2EventEncoded` is an
+opaque JSON string), so the event side of the contract is enumerated from
+`packages/schema/src/session-event.ts` at tag `v2.0.32` — the bridge contract
+pin in `statuses.json` `versions`. This is the complete public manifest
+(`Definitions`, L652–L701) plus the two internal / replay-only events the
+manifest comment excludes (L704–L709). 51 types: 43 durable, 6 ephemeral,
+2 internal.
+
+`server.connected` is **not** in this file — it is the TUI's stream
+handshake, pinned separately by the live capture in
+`user-prompt-shape-live.jsonl`.
+
+| # | Event type | Durability | Pin line | Bridge emits |
+| --- | --- | --- | --- | --- |
+| 1 | `session.created` | durable | L49 | — |
+| 2 | `session.agent.selected` | durable | L70 | — |
+| 3 | `session.model.selected` | durable | L81 | — |
+| 4 | `session.moved` | durable | L92 | — |
+| 5 | `session.renamed` | durable | L102 | — |
+| 6 | `session.metadata.updated` | durable | L112 | — |
+| 7 | `session.permissions` | durable | L122 | — |
+| 8 | `session.viewed` | durable | L132 | — |
+| 9 | `session.message.content.updated` | internal / replay-only | L144 | — |
+| 10 | `session.usage.recorded` | internal / replay-only | L156 | — |
+| 11 | `session.usage.updated` | ephemeral | L168 | — |
+| 12 | `session.deleted` | durable | L178 | — |
+| 13 | `session.forked` | durable | L188 | — |
+| 14 | `session.inbox.delivered` | durable | L209 | — |
+| 15 | `session.inbox.enqueued` | durable | L216 | yes |
+| 16 | `session.inbox.cancelled` | durable | L226 | — |
+| 17 | `session.inbox.delivery.changed` | durable | L233 | — |
+| 18 | `session.execution.started` | durable | L240 | — |
+| 19 | `session.execution.succeeded` | durable | L243 | — |
+| 20 | `session.execution.failed` | durable | L247 | — |
+| 21 | `session.execution.interrupted` | durable | L254 | — |
+| 22 | `session.instructions.updated` | durable | L262 | — |
+| 23 | `session.synthetic` | durable | L280 | — |
+| 24 | `session.skill.activated` | durable | L293 | — |
+| 25 | `session.shell.started` | durable | L307 | — |
+| 26 | `session.shell.ended` | durable | L317 | — |
+| 27 | `session.step.started` | durable | L330 | yes |
+| 28 | `session.step.streamed` | durable | L346 | — |
+| 29 | `session.step.ended` | durable | L356 | yes |
+| 30 | `session.step.failed` | durable | L373 | — |
+| 31 | `session.text.started` | durable | L393 | yes |
+| 32 | `session.text.delta` | ephemeral | L405 | yes |
+| 33 | `session.text.ended` | durable | L416 | yes |
+| 34 | `session.reasoning.started` | durable | L431 | yes |
+| 35 | `session.reasoning.delta` | ephemeral | L444 | yes |
+| 36 | `session.reasoning.ended` | durable | L455 | yes |
+| 37 | `session.tool.input.started` | durable | L477 | yes |
+| 38 | `session.tool.input.delta` | ephemeral | L488 | yes |
+| 39 | `session.tool.input.ended` | durable | L497 | yes |
+| 40 | `session.tool.called` | durable | L508 | yes |
+| 41 | `session.tool.progress` | ephemeral | L521 | — |
+| 42 | `session.tool.success` | durable | L531 | yes |
+| 43 | `session.tool.failed` | durable | L552 | yes |
+| 44 | `session.retry.scheduled` | durable | L570 | — |
+| 45 | `session.compaction.started` | durable | L584 | — |
+| 46 | `session.compaction.delta` | ephemeral | L596 | — |
+| 47 | `session.compaction.ended` | durable | L605 | — |
+| 48 | `session.compaction.failed` | durable | L624 | — |
+| 49 | `session.revert.staged` | durable | L640 | — |
+| 50 | `session.revert.cleared` | durable | L644 | — |
+| 51 | `session.revert.committed` | durable | L646 | — |
+
+## Findings from the pinned re-read (this change)
+
+- **The bridge emits 15 of the 51 pinned envelopes** (the "yes" column), all
+  in the turn/transcript and permission families. The 36 unemitted ones are
+  recorded, not implemented — this change records them, it does not build
+  them.
+- **Four event names the bridge emits are absent from the pin.** `model.updated`
+  (`bridge/src/bridge.ts:200`), `permission.asked`, and `permission.replied`
+  (`bridge/src/bridge.ts:292`, `:316`) appear in no line of
+  `session-event.ts` at v2.0.32. `server.connected` is likewise not in that
+  file, but is pinned by the live TUI capture. The first three are the
+  phantom-row class on the event side: the bridge invents them to drive the
+  TUI. Recorded as a finding for the loop; no bridge source changes here
+  (this change's non-goal).
+
+## Scenario seeds taken from this inventory
+
+- interrupt round trip (`interrupt` ↔ `control_cancel_request`)
+- mid-session model switch actually switching the maki child (`set_model`)
+- message replay on session select (needs a transcript store)
+- steering a working turn (queue → inbound `user`)
+- `always` reply honoring session scope if/when maki's wire grows it

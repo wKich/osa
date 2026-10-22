@@ -60,7 +60,9 @@ contract).
   `maki-sdk-wire-features.md`, `opencode-tui-features.md`, and `cross-map.md`.
   Present upstream but missing from the matrices is a discovery finding — and
   so is staleness: a matrix row contradicting a later `statuses.json` flip
-  gets refreshed in the current change.
+  gets refreshed in the current change. A matrix row whose route or
+  capability the pinned upstream does not define is also a finding: a
+  phantom, removed or corrected rather than left standing.
 - **Pinned source beats current docs:** versionless upstream docs (the
   `opencode.ai/docs/server/` pages are newer than the pin) are a pointer to
   where to look, never a citation — derive every row from source at the tag.

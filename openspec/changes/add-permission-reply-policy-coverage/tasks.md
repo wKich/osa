@@ -26,13 +26,13 @@
       to `bridge/test/session-api.test.ts`; leave `status` at `degraded`.
       Verify: `cd bridge && bun test crosscheck` passes and the row still
       reads `degraded`.
-- [ ] 2.2 Regenerate `docs/compatibility.md` with `make compat`. Verify: the
+- [x] 2.2 Regenerate `docs/compatibility.md` with `make compat`. Verify: the
       command exits 0 and the `always` reply row now links the session-api
       test instead of the archived log.
 
 ## 3. Wrap-up gate
 
-- [ ] 3.1 Run the full gate in one pass: `make test`, `make test-bridge`,
+- [x] 3.1 Run the full gate in one pass: `make test`, `make test-bridge`,
       `make compat`, `make lint`, and
       `openspec validate "add-permission-reply-policy-coverage"`. Verify:
       all five exit 0.

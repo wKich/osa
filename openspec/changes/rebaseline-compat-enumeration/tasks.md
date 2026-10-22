@@ -49,7 +49,7 @@
 
 ## 4. Regenerate and verify
 
-- [ ] 4.1 Run `bun scripts/gen-compat.ts` and verify `make compat` exits 0
+- [x] 4.1 Run `bun scripts/gen-compat.ts` and verify `make compat` exits 0
       with the committed `docs/compatibility.md` matching the regenerated
       output, and that the report's route section grew to ~140 rows with the
       three lenses still separate

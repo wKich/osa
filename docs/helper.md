@@ -235,7 +235,16 @@ maki-oss run "fix the failing tests"
 maki-oss run --model deepseek/deepseek-chat "check the changelog"
 maki-oss run --session-id aSmokeResumeSessAbcdXy "start the migration"
 maki-oss run --resume aSmokeResumeSessAbcdXy "continue where the previous run stopped"
+maki-oss run --timeout 600 "summarize the open TODOs"
 ```
+
+`--timeout SECS` (or `MAKI_OSS_TIMEOUT`) bounds a headless run. The limit is
+enforced inside the sandbox: the exec runs `timeout --kill-after=10 SECS maki
+…`, so Maki and its children end there and the helper exits 124. The
+gateway's own `sandbox exec --timeout`, and killing the local client, both
+return early while the remote process keeps running (measured on OpenShell
+0.1.5), which is why the helper does not rely on them. The value must be a
+positive integer; anything else is a usage error before any gateway call.
 
 ### upload / download
 

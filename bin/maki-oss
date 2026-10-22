@@ -109,6 +109,8 @@ Common options:
   --resume ID (-r ID)
                     Session commands: resume a specific session by id
   --session-id ID  Session commands: write the run under a chosen session id
+  --timeout SECS   run: end Maki inside the sandbox after SECS seconds
+                   (exit 124)
   --no-sync        Session commands: skip the download back to the host on
                    exit (default: download the project and merge it in)
   --yes            Skip confirmation prompts (rm, policy approve, policy set,
@@ -343,6 +345,12 @@ resolved_model() {
 # The interactive TUI (no flag: config/env only). Unset keeps Maki's own TTY
 # session; "opencode" runs the OpenCode TUI against the local bridge. Anything
 # else is a usage error naming the key and the accepted values.
+# Positive integer seconds, or empty for no limit. `run` validates it before
+# any sandbox call so an invalid value never reaches the gateway.
+resolved_timeout() {
+    resolve_setting "$opt_timeout" "${MAKI_OSS_TIMEOUT:-}" "" ""
+}
+
 resolved_tui() {
     tui_value=$(resolve_setting "" "${MAKI_OSS_TUI:-}" "$config_tui" "")
     case $tui_value in
@@ -1284,8 +1292,29 @@ cmd_opencode_tui() {
     exit "$ot_rc"
 }
 
+# In-sandbox wrapper for `run --timeout`: $1 tag, $2 seconds, then the
+# command. The shell's own environment predates the export, and the tag is
+# unset before the sweep, so the sweep never matches itself.
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+RUN_TIMEOUT_WRAPPER='tag=$1; secs=$2; shift 2
+export MAKI_OSS_RUN_TAG="$tag"
+timeout --kill-after=10 "$secs" "$@"
+rc=$?
+unset MAKI_OSS_RUN_TAG
+for d in /proc/[0-9]*; do
+    if grep -qzx "MAKI_OSS_RUN_TAG=$tag" "$d/environ" 2>/dev/null; then
+        kill -KILL "${d#/proc/}" 2>/dev/null
+    fi
+done
+exit "$rc"'
+
 cmd_run() {
     [ "$#" -ge 1 ] || die_usage "usage: maki-oss run \"<prompt>\" [--model provider/model]"
+    run_timeout=$(resolved_timeout)
+    case $run_timeout in
+        '') ;;
+        *[!0-9]*|0*) die_usage "--timeout must be a positive number of seconds, got '$run_timeout'" ;;
+    esac
     require_openshell
     # Ensure messages go to stderr so stdout carries only Maki's output.
     ensure_project_sandbox >&2
@@ -1298,6 +1327,16 @@ cmd_run() {
     trap 'session_interrupted=1' INT TERM
     run_rc=0
     set -- maki --print --yolo --trust --output-format json
+    # The limit is enforced inside the sandbox: neither the gateway's exec
+    # --timeout nor killing the exec client stops the remote process
+    # (OpenShell 0.1.5). GNU timeout ends Maki, but Maki's tool commands run
+    # in their own sessions and outlive it, so every process that inherited
+    # the run's tag is killed afterwards. The tag is not a secret and is
+    # exported inside the sandbox, never passed with --env.
+    if [ -n "$run_timeout" ]; then
+        run_tag=maki-oss-$$-$(date +%s)
+        set -- sh -c "$RUN_TIMEOUT_WRAPPER" maki-oss-run "$run_tag" "$run_timeout" "$@"
+    fi
     if [ -n "$model" ]; then
         set -- "$@" --model "$model"
     fi
@@ -2851,6 +2890,7 @@ opt_model=
 opt_continue=0
 opt_resume=
 opt_session_id=
+opt_timeout=
 opt_attach=
 opt_help=0
 
@@ -2871,6 +2911,7 @@ for opt_trailing in "$@"; do :; done
 case ${opt_trailing:-} in
     --resume|-r) die_usage "option $opt_trailing requires a value" ;;
     --session-id) die_usage "option --session-id requires a value" ;;
+    --timeout) die_usage "option --timeout requires a value" ;;
 esac
 OPT_I=0
 while [ "$OPT_I" -lt "$OPT_ARGC" ]; do
@@ -3005,6 +3046,12 @@ while [ "$OPT_I" -lt "$OPT_ARGC" ]; do
             [ "$#" -gt 0 ] || die_usage "option $OPT requires a value"
             [ -n "$1" ] || die_usage "option $OPT requires a non-empty value"
             opt_resume=$1
+            shift
+            OPT_I=$((OPT_I + 1))
+            ;;
+        --timeout)
+            [ "$#" -gt 0 ] || die_usage "option --timeout requires a value"
+            opt_timeout=$1
             shift
             OPT_I=$((OPT_I + 1))
             ;;

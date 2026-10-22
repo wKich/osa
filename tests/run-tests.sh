@@ -66,6 +66,7 @@ new_case() {
     ERR=$CASE/err
     RUN_DIR=
     ENV_NAME=
+    ENV_TIMEOUT=
     ENV_IMAGE=
     ENV_POLICY=
     ENV_PROVIDERS=
@@ -128,6 +129,7 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         STUB_CREATE_RACE="${CREATE_RACE:-0}" \
         MAKI_OSS_SANDBOX_NAME="${ENV_NAME:-}" \
         MAKI_OSS_TUI="${ENV_TUI:-}" \
+        MAKI_OSS_TIMEOUT="${ENV_TIMEOUT:-}" \
         STUB_TUI_LOG="${TUI_LOG:-}" \
         STUB_OPENCODE_EXIT="${OPENCODE_EXIT:-}" \
         MAKI_OSS_IMAGE="${ENV_IMAGE:-}" \
@@ -1499,6 +1501,54 @@ test_run_model_flag() {
     assert_log_line "check"
 }
 
+test_run_timeout_flag() {
+    begin "run --timeout wraps Maki in an in-sandbox timeout"
+    new_case run-timeout
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+
+    run_maki run --timeout 600 "check"
+    assert_rc 0
+    assert_log_line "maki-oss-run"
+    assert_log_has "timeout --kill-after=10"
+    assert_log_has "MAKI_OSS_RUN_TAG"
+    assert_log_line "600"
+    assert_log_before "maki-oss-run" "--print"
+    assert_log_missing "--env"
+
+    # The environment variable sets the same limit.
+    reset_log
+    ENV_TIMEOUT=30
+    run_maki run "check"
+    ENV_TIMEOUT=
+    assert_rc 0
+    assert_log_line "maki-oss-run"
+    assert_log_line "30"
+
+    # Without the flag the in-sandbox argv starts with maki unchanged.
+    reset_log
+    run_maki run "check"
+    assert_rc 0
+    assert_log_line_missing "maki-oss-run"
+    assert_log_missing "MAKI_OSS_RUN_TAG"
+
+    # An invalid value is a usage error before any gateway call.
+    reset_log
+    run_maki run --timeout soon "check"
+    assert_rc 1
+    assert_err_has "--timeout must be a positive number"
+    assert_log_missing "exec"
+    reset_log
+    run_maki run --timeout 0 "check"
+    assert_rc 1
+    reset_log
+    run_maki run "check" --timeout
+    assert_rc 1
+}
+
 test_maki_resume() {
     begin "maki --continue forwards the resume flag and syncs the workspace"
     new_case maki-resume
@@ -2547,6 +2597,7 @@ run_test test_provider_setup_sigint
 run_test test_provider_setup_custom_validation
 run_test test_provider_setup_no_jq
 run_test test_run_model_flag
+run_test test_run_timeout_flag
 run_test test_maki_resume
 run_test test_run_resume_flags
 run_test test_session_flag_conflicts

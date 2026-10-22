@@ -88,6 +88,7 @@ complete -c maki-oss -l model -r -d 'Model for sessions and run (provider/model)
 complete -c maki-oss -s c -l continue -d 'Resume the most recent session in the sandbox workdir'
 complete -c maki-oss -s r -l resume -r -d 'Resume a specific session by id'
 complete -c maki-oss -l session-id -r -d 'Write the run under a chosen session id'
+complete -c maki-oss -l timeout -r -d 'run: end Maki inside the sandbox after SECS seconds'
 complete -c maki-oss -l no-sync -d 'Skip the download back to the host on exit'
 
 # image build options.

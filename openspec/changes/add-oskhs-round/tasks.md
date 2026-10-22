@@ -2,14 +2,14 @@
 
 ## 1. maki-oss run --timeout
 
-- [ ] 1.1 Add `--timeout SECS` / `MAKI_OSS_TIMEOUT` to `bin/maki-oss`: parse,
+- [x] 1.1 Add `--timeout SECS` / `MAKI_OSS_TIMEOUT` to `bin/maki-oss`: parse,
       validate as a positive integer before any sandbox call, and prefix the
       `run` exec command with `timeout --kill-after=10 SECS`; verify with
       `make lint`
-- [ ] 1.2 Add stub tests for the three helper-cli scenarios (wrapped argv,
+- [x] 1.2 Add stub tests for the three helper-cli scenarios (wrapped argv,
       invalid value refused with no stub call, unchanged argv without the
       flag); verify `make test` is green
-- [ ] 1.3 Document `--timeout` in the `usage()` text and `docs/helper.md`,
+- [x] 1.3 Document `--timeout` in the `usage()` text and `docs/helper.md`,
       including why the gateway's own exec timeout is not used (finding 6);
       verify `scripts/check-links.sh`
 

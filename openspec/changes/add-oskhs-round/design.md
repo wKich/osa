@@ -36,6 +36,11 @@ registered `maki-synthetic` provider.
    3 s **but the remote `sleep` keeps running**. Killing the exec client
    (SIGTERM) likewise leaves the remote process alive. GNU `timeout`
    (coreutils 9.4) is in the image; `pkill` is not.
+7. `timeout` alone ends Maki but not its tool commands: a `sleep 120` that
+   Maki's shell tool started survived with its own pgid and sid (Maki runs
+   tools in a new session). It did inherit an environment variable exported
+   before Maki started, and `/proc/<pid>/environ` is readable for the
+   sandbox user's own processes.
 
 ## Decisions
 
@@ -50,9 +55,11 @@ registered `maki-synthetic` provider.
    the CLI; B1.3b replaces it with kiss's task id.
 4. **Base.** The round's base defaults to the local repo's current branch,
    delivered as `origin/<branch>` by the seed. `--base` overrides.
-5. **Timeout inside the sandbox.** `maki-oss run --timeout SECS` prefixes the
-   exec'd command with `timeout --kill-after=10 SECS`, so the round dies in
-   the sandbox; exit 124 maps to the `timeout` result. oskhs additionally
+5. **Timeout inside the sandbox.** `maki-oss run --timeout SECS` runs the
+   exec'd command as `sh -c <wrapper> maki-oss-run <tag> SECS maki …`: the
+   wrapper exports `MAKI_OSS_RUN_TAG=<tag>`, runs `timeout --kill-after=10
+   SECS`, then kills every process whose environ carries the tag (finding 7),
+   so the round and its tools die in the sandbox; exit 124 maps to the `timeout` result. oskhs additionally
    kills its own client after `SECS + 30` as a backstop and reports that as
    `timeout` too. Rationale: finding 6; changing maki-oss keeps one code path
    for Maki's argv.

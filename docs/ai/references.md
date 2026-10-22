@@ -72,6 +72,13 @@ rises, swap the text parse for JSON without changing behavior.
 | Install script | [Maki install.sh](https://maki.sh/install.sh) | v0.6.4 |
 | Source repository | [tontinton/maki](https://github.com/tontinton/maki) | v0.6.4 |
 
+## OpenCode
+
+| Topic | Link | Verified against |
+|---|---|---|
+| Source repository (SSE event envelopes live in `packages/schema/src/`) | [anomalyco/opencode](https://github.com/anomalyco/opencode) | tag v2.0.32 (bridge contract pin) |
+| Server docs — versionless, newer than the pin; a pointer to where to look, never a citation | [OpenCode server docs](https://opencode.ai/docs/server/) | newer than v2.0.32 |
+
 ## Ponytail (project-local YAGNI ruleset)
 
 Used by `docs/yagni.md`; installed via the project-scoped `opencode.json`

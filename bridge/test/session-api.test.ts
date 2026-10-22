@@ -143,6 +143,63 @@ describe("session API over the spawned bridge", () => {
     expect(await waitFor(() => count(bridge, "session.execution.succeeded") >= 4, 30_000)).toBe(true);
   }, 90_000);
 
+  test("permission round trip: always allows this one call and the next call re-asks", async () => {
+    const reask = join("/tmp", `maki-oss-session-api-reask-${process.pid}.txt`);
+    writeFileSync(reask, "probe\n");
+    const asks = count(bridge, "permission.asked");
+    const successes = count(bridge, "session.tool.success");
+    const done = count(bridge, "session.execution.succeeded");
+
+    // first gated call: `always` is honored for this call only
+    await prompt(bridge, sid, "msg_sessionapi0000000005", `Use your shell tool to run exactly: rm -f ${reask} . Then reply with the single word DONE.`);
+    expect(await waitFor(() => count(bridge, "permission.asked") > asks, 30_000)).toBe(true);
+    const first = bridge.frames.filter((f) => f.type === "permission.asked").at(-1)!;
+    const reply = await post(bridge, `/api/session/${sid}/permission/${first.data.id}/reply`, { decision: "always" });
+    expect(reply.status).toBe(204);
+    expect(await waitFor(() => count(bridge, "session.tool.success") > successes, 30_000)).toBe(true);
+    expect(existsSync(reask)).toBe(false);
+    expect(await waitFor(() => count(bridge, "session.execution.succeeded") >= done + 1, 30_000)).toBe(true);
+
+    // second gated call in a new turn: nothing was cached, so the TUI is asked again
+    writeFileSync(reask, "probe\n");
+    const asks2 = count(bridge, "permission.asked");
+    const successes2 = count(bridge, "session.tool.success");
+    await prompt(bridge, sid, "msg_sessionapi0000000006", `Use your shell tool to run exactly: rm -f ${reask} . Then reply with the single word DONE.`);
+    expect(await waitFor(() => count(bridge, "permission.asked") > asks2, 30_000)).toBe(true);
+    const second = bridge.frames.filter((f) => f.type === "permission.asked").at(-1)!;
+    expect(second.data.id).not.toBe(first.data.id);
+    const reply2 = await post(bridge, `/api/session/${sid}/permission/${second.data.id}/reply`, { decision: "once" });
+    expect(reply2.status).toBe(204);
+    expect(await waitFor(() => count(bridge, "session.tool.success") > successes2, 30_000)).toBe(true);
+    expect(existsSync(reask)).toBe(false);
+    expect(await waitFor(() => count(bridge, "session.execution.succeeded") >= done + 2, 30_000)).toBe(true);
+  }, 90_000);
+
+  test("permission round trip: an invalid decision fails closed", async () => {
+    const invalid = join("/tmp", `maki-oss-session-api-invalid-${process.pid}.txt`);
+    writeFileSync(invalid, "probe\n");
+    const asks = count(bridge, "permission.asked");
+    const failedBefore = count(bridge, "session.tool.failed");
+    const done = count(bridge, "session.execution.succeeded");
+    await prompt(bridge, sid, "msg_sessionapi0000000007", `Use your shell tool to run exactly: rm -f ${invalid} . Then reply with the single word DONE.`);
+    expect(await waitFor(() => count(bridge, "permission.asked") > asks, 30_000)).toBe(true);
+    const asked = bridge.frames.filter((f) => f.type === "permission.asked").at(-1)!;
+
+    const reply = await post(bridge, `/api/session/${sid}/permission/${asked.data.id}/reply`, { decision: "yes" });
+    expect(reply.status).toBe(400);
+    expect(reply.json?._tag).toBe("InvalidRequestError");
+
+    // fail closed: the child saw deny, the target stays, the pending ask is gone
+    expect(await waitFor(() => count(bridge, "session.tool.failed") > failedBefore, 30_000)).toBe(true);
+    const failed = bridge.frames.filter((f) => f.type === "session.tool.failed").at(-1)!;
+    expect(String(failed.data?.error?.message)).toMatch(/permission denied/i);
+    expect(existsSync(invalid)).toBe(true);
+    const list = await fetch(`${bridge.base}/api/session/${sid}/permission`);
+    expect(list.status).toBe(200);
+    expect((await list.json()).data.length).toBe(0);
+    expect(await waitFor(() => count(bridge, "session.execution.succeeded") >= done + 1, 30_000)).toBe(true);
+  }, 90_000);
+
   test("delete answers 204 and the session reads back 404", async () => {
     const del = await fetch(`${bridge.base}/api/session/${sid}`, { method: "DELETE" });
     expect(del.status).toBe(204);

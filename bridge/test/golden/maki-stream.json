@@ -1,0 +1,160 @@
+[
+  {
+    "type": "session.inbox.enqueued",
+    "item": {
+      "type": "user",
+      "payload": {
+        "text": "golden prompt 1"
+      },
+      "delivery": "steer"
+    }
+  },
+  {
+    "type": "session.execution.started"
+  },
+  {
+    "type": "session.step.started",
+    "agent": "sample",
+    "model": {
+      "providerID": "maki",
+      "id": "syn:small:text"
+    }
+  },
+  {
+    "type": "session.reasoning.started",
+    "ordinal": 0
+  },
+  {
+    "type": "session.reasoning.delta",
+    "ordinal": 0,
+    "delta": "The user is asking me to simply reply with the word \"PONG\". This is a simple test or request to demonstrate that I can respond with the requested content."
+  },
+  {
+    "type": "session.reasoning.delta",
+    "ordinal": 0,
+    "delta": " I should just output \"PONG\" and nothing else, following the guidelines about being concise and not adding extra commentary."
+  },
+  {
+    "type": "session.reasoning.ended",
+    "ordinal": 0,
+    "text": "The user is asking me to simply reply with the word \"PONG\". This is a simple test or request to demonstrate that I can respond with the requested content. I should just output \"PONG\" and nothing else, following the guidelines about being concise and not adding extra commentary."
+  },
+  {
+    "type": "session.text.started",
+    "ordinal": 0
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": "PON"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": "G"
+  },
+  {
+    "type": "session.text.ended",
+    "ordinal": 0,
+    "text": "PONG"
+  },
+  {
+    "type": "session.step.ended",
+    "finish": "stop",
+    "tokens": {
+      "input": 8211,
+      "output": 61,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    }
+  },
+  {
+    "type": "session.execution.succeeded"
+  },
+  {
+    "type": "session.inbox.enqueued",
+    "item": {
+      "type": "user",
+      "payload": {
+        "text": "golden prompt 2"
+      },
+      "delivery": "steer"
+    }
+  },
+  {
+    "type": "session.execution.started"
+  },
+  {
+    "type": "session.step.started",
+    "agent": "sample",
+    "model": {
+      "providerID": "maki",
+      "id": "syn:small:text"
+    }
+  },
+  {
+    "type": "session.tool.input.started",
+    "name": "bash"
+  },
+  {
+    "type": "session.tool.input.delta",
+    "delta": "{\"command\":\"echo tool-turn-marker .\","
+  },
+  {
+    "type": "session.tool.input.delta",
+    "delta": "\"description\":\"Report tool-turn-marker\"}"
+  },
+  {
+    "type": "session.tool.input.ended",
+    "text": "{\"command\":\"echo tool-turn-marker .\",\"description\":\"Report tool-turn-marker\"}"
+  },
+  {
+    "type": "session.reasoning.started",
+    "ordinal": 0
+  },
+  {
+    "type": "session.reasoning.delta",
+    "ordinal": 0,
+    "delta": "The user is asking me to run the command `echo tool-turn-marker .` using the bash tool, and report only its output. This is a straightforward request.\n\nI need to:\n1. Use the bash tool with the command \"echo tool-turn-marker .\"\n2. Report only the output\n\nLet me do this."
+  },
+  {
+    "type": "session.reasoning.ended",
+    "ordinal": 0,
+    "text": "The user is asking me to run the command `echo tool-turn-marker .` using the bash tool, and report only its output. This is a straightforward request.\n\nI need to:\n1. Use the bash tool with the command \"echo tool-turn-marker .\"\n2. Report only the output\n\nLet me do this."
+  },
+  {
+    "type": "session.tool.called",
+    "input": {
+      "command": "echo tool-turn-marker .",
+      "description": "Report tool-turn-marker"
+    }
+  },
+  {
+    "type": "session.tool.success",
+    "content": [
+      {
+        "type": "text",
+        "text": "tool-turn-marker ."
+      }
+    ]
+  },
+  {
+    "type": "session.step.ended",
+    "finish": "stop",
+    "tokens": {
+      "input": 100,
+      "output": 122,
+      "reasoning": 0,
+      "cache": {
+        "read": 16384,
+        "write": 0
+      }
+    }
+  },
+  {
+    "type": "session.execution.succeeded"
+  }
+]

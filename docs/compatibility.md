@@ -60,8 +60,8 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | Recorded Maki turns translate to the committed golden frames | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) |
 | Failing and permission-denied tools map to session.tool.failed | `verified` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
 | Permission ask/reply round trip runs offline over the child seam | `verified` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
-| A reply of `always` is honored once; the next gated call asks again | `degraded` | [`openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/api-check.log`](../openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/api-check.log) |
-| stream_event deltas translate into part delta frames | `unverified` | [`openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/e2e-note.md`](../openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/e2e-note.md) |
+| A reply of `always` is honored once; the next gated call asks again | `degraded` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
+| stream_event deltas translate into part delta frames | `degraded` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) |
 | User prompts render before the assistant output they caused | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) |
 | Session events carry Maki's real model name | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) |
 | The location model list refreshes when the child announces, so its model stays selectable | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |

@@ -7,8 +7,9 @@
 //   UPDATE_GOLDENS=1 bun test    rewrite the committed goldens from current output
 //
 // The replay mirrors the live bridge's ordering: maki's `system.init` lands
-// when the child starts (before the first prompt), each `assistant` frame
-// opens a turn the way a prompt admission does, `result` closes it.
+// when the child starts (before the first prompt), the first part-bearing
+// frame (`assistant` or `stream_event`) opens a turn the way a prompt
+// admission does, `result` closes it.
 import { dirname } from "node:path";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -76,23 +77,27 @@ export function runFixture(name: string): SinkEvent[] {
   });
   let turn = 0;
   let turnOpen = false;
+  // live, the turn opens at prompt admission — before the child is written
+  // anything — so streamed part frames follow the turn boundary frames
+  const admit = () => {
+    if (turnOpen) return;
+    // mirror live prompt admission: the user frame is emitted at admission
+    // (bridge.ts prompt handler), before the child is written to
+    translator.beginTurn(`msg_golden${String(++turn).padStart(4, "0")}`, {
+      text: `golden prompt ${turn}`,
+      id: `msg_goldenprompt${turn}`,
+      delivery: "steer",
+    });
+    turnOpen = true;
+  };
   for (const frame of loadFixture(name)) {
-    if (frame.type === "assistant") {
-      if (!turnOpen) {
-        // mirror live prompt admission: the user frame is emitted at admission
-        // (bridge.ts prompt handler), before the child is written to
-        translator.beginTurn(`msg_golden${String(++turn).padStart(4, "0")}`, {
-          text: `golden prompt ${turn}`,
-          id: `msg_goldenprompt${turn}`,
-          delivery: "steer",
-        });
-        turnOpen = true;
-      }
+    if (frame.type === "assistant" || frame.type === "stream_event") {
+      admit();
       translator.onFrame(frame);
     } else if (frame.type === "result") {
       translator.onFrame(frame);
       turnOpen = false;
-    } else if (frame.type === "system" || frame.type === "user" || frame.type === "stream_event") {
+    } else if (frame.type === "system" || frame.type === "user") {
       translator.onFrame(frame);
     }
     // control_* and unknown types (driver.exit) are the bridge's business,

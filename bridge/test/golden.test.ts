@@ -27,7 +27,11 @@ interface Defect {
 }
 
 const defects: Defect[] = JSON.parse(readFileSync(new URL("../defects.json", import.meta.url), "utf8"));
-const FIXTURES = ["maki-plain", "maki-tool", "maki-precheck", "maki-permission"];
+// The stream fixture's `stream_event` envelope spelling is sdk_mode-string-
+// derived, never captured from a live streaming provider (shortcut comment
+// in translator.ts) — this golden pins the translation behavior, not the
+// wire shape, which is why the stream-deltas row is `degraded`.
+const FIXTURES = ["maki-plain", "maki-tool", "maki-precheck", "maki-permission", "maki-stream"];
 
 for (const name of FIXTURES) {
   test(`golden translation: ${name}`, () => {

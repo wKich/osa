@@ -103,6 +103,16 @@ turns.
   prompt before the assistant frames it caused, so the rendered conversation
   interleaves Q-A-Q-A instead of grouping all answers before all questions
 
+#### Scenario: Streamed deltas render incrementally, once
+- **WHEN** a recorded Maki fixture replays a turn whose parts arrive as
+  `stream_event` frames (`content_block_start`/`*_delta`/`content_block_stop`
+  in the sdk_mode-derived envelope) followed by the buffered `assistant`
+  message carrying the same parts
+- **THEN** the projected transcript emits each part's `started`, one delta
+  frame per streamed chunk, and `ended` carrying the full text — and the
+  buffered message adds no duplicate part frames, with `message_*` frames
+  emitting nothing
+
 ### Requirement: Tolerate recorded Maki wire frames with no OpenCode counterpart
 The bridge SHALL consume outbound Maki frames it has no OpenCode
 representation for — first among them `system{subtype:"api_retry"}` with its
@@ -123,7 +133,9 @@ replayed without those frames.
 The bridge SHALL forward each Maki `can_use_tool` control request to the TUI as
 a permission request, block that tool call until the TUI answers, and map the
 TUI's reply onto Maki's `allow`/`deny` wire answer. A reply of `always` SHALL be
-honored for that one call only; every later tool call re-prompts.
+honored for that one call only; every later tool call re-prompts. A reply whose
+decision is not `once`, `always`, or `reject` SHALL fail closed: the bridge
+answers Maki `deny`, drops the pending request, and answers the route 400.
 
 #### Scenario: User allows one call
 - **WHEN** Maki requests permission and the user answers "allow once"
@@ -138,6 +150,13 @@ honored for that one call only; every later tool call re-prompts.
 - **WHEN** the user answers "always" and a later matching tool call requests
   permission
 - **THEN** the bridge asks the TUI again rather than auto-allowing
+
+#### Scenario: An invalid reply fails closed
+- **WHEN** the TUI replies to a pending permission request with a decision
+  outside `once`/`always`/`reject`
+- **THEN** the bridge answers Maki `behavior: deny`, answers the route 400,
+  clears the pending request, and the target the tool would have touched stays
+  untouched
 
 ### Requirement: Follow the wire, not the schema, for SSE frames
 The bridge SHALL emit event frames in the format the measured server uses — bare

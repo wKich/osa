@@ -483,9 +483,13 @@ per-run tag and, when `timeout` returns, kills every process that inherited
 the tag, so the time limit is enforced inside the sandbox and ends Maki and
 its tool processes there, including ones in their own session; the helper
 SHALL then exit with `timeout`'s status (124 when the limit was hit). The tag
-SHALL be exported inside the sandbox, never passed with `--env`. An invalid value SHALL be a
-usage error before any sandbox call. Without `--timeout` the exec argv SHALL
-be unchanged.
+SHALL be exported inside the sandbox, never passed with `--env`; a caller MAY
+choose it with `MAKI_OSS_RUN_TAG` (letters, digits, `.`, `_`, `-`), and the
+wrapper SHALL stop the run early — Maki stopped, tagged processes swept, exit
+status of the stopped `timeout` — within a few seconds of a file
+`/tmp/maki-oss-stop/<tag>` appearing in the sandbox. An invalid value of either
+SHALL be a usage error before any sandbox call. Without `--timeout` the exec
+argv SHALL be unchanged.
 
 #### Scenario: Timeout wraps the in-sandbox command
 - **WHEN** the user runs `maki-oss run --timeout 600 "check"`
@@ -502,3 +506,11 @@ be unchanged.
 #### Scenario: No timeout keeps the argv
 - **WHEN** the user runs `maki-oss run "check"` without `--timeout`
 - **THEN** the exec argv after `--` starts with `maki --print`
+
+#### Scenario: Stop file ends the run
+- **WHEN** a run with `MAKI_OSS_RUN_TAG=t1` has made Maki start a two-minute shell command and another `sandbox exec` creates `/tmp/maki-oss-stop/t1`
+- **THEN** the helper returns within a few seconds and no `maki` or tool process from that run remains
+
+#### Scenario: Caller-chosen run tag
+- **WHEN** `MAKI_OSS_RUN_TAG=oskhs-t1 maki-oss run --timeout 30 "check"` runs
+- **THEN** the wrapper exports `oskhs-t1`, and a tag with a space is refused as a usage error before any sandbox call

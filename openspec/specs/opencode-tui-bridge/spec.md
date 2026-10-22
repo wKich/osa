@@ -282,6 +282,16 @@ transport mode. The report SHALL be rendered by a script from a
 machine-readable status file, and `make compat` SHALL regenerate it and exit
 non-zero when the committed report differs from the regenerated output.
 
+The route lens SHALL be enumerated from the pinned OpenAPI contract rather
+than sampled from observed traffic: every operation the pinned contract
+defines for the served API surface SHALL carry exactly one row, whatever the
+bridge does with it, so a route the bridge neither implements nor answers
+truthfully is reported rather than absent. A row SHALL NOT name a route the
+pinned contract does not define. Each enumerated row's evidence SHALL be a
+committed artifact that exists in the repository — the pinned contract itself,
+or the bridge source that answers the route — so the row is auditable without
+re-deriving it.
+
 Where a feature row's evidence depends on a fixture that was authored from the
 pinned upstream source rather than captured from a live run, the report SHALL
 say so on that row, so a reader can tell a status proved against an observed
@@ -305,6 +315,18 @@ behavior but not the upstream wire shape that behavior was given.
 - **THEN** the row links the capture, log, or test name that produced its
   status, and the version matrix names the pinned OpenCode and Maki versions
   and the sandbox transport
+
+#### Scenario: The route lens is complete against the pin
+- **WHEN** every operation the pinned OpenAPI defines for the served API
+  surface is compared with the route rows in the status file
+- **THEN** each pinned operation has exactly one row, and every row's route
+  appears in the pinned contract
+
+#### Scenario: A row is auditable without re-deriving it
+- **WHEN** a maintainer reads an enumerated route row
+- **THEN** its evidence resolves to a committed file — the pinned contract or
+  the bridge source that answers the route — rather than to a measurement that
+  would have to be repeated
 
 #### Scenario: An authored fixture is visible on the row it proves
 - **WHEN** a feature row's evidence consumes a fixture authored from the pinned
@@ -353,6 +375,11 @@ the pinned upstream source, and SHALL keep that record complete: a fixture
 without a recorded provenance, or a recorded provenance naming a fixture that
 no longer exists, fails the suite.
 
+The same loop SHALL diff its recorded matrices against the pinned upstream
+contract and source, and SHALL treat as a finding any matrix row whose route
+or capability the pinned upstream does not define, not only rows that are
+missing or that contradict a later status flip.
+
 #### Scenario: The seed entries are present
 - **WHEN** the inventory is read after this change lands
 - **THEN** it contains both archived known defects with their capture
@@ -379,3 +406,9 @@ no longer exists, fails the suite.
 - **WHEN** a later change adds a fixture to cover a recorded-but-uncovered row
 - **THEN** it records that fixture's provenance in the same change, so the
   report can keep distinguishing observed evidence from authored shapes
+
+#### Scenario: A matrix row naming an absent upstream route is a finding
+- **WHEN** the discovery diff compares a recorded route row against the pinned
+  contract and finds no such route at the pin
+- **THEN** the row is reported as a finding for removal or correction, and a
+  row is not left standing merely because no test references it

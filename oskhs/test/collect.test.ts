@@ -7,12 +7,12 @@ import { fixture, git, localSandbox, type LocalSandbox } from "./local-sandbox.t
 
 const answer = { code: 0, stdout: '{"type":"result","is_error":false,"result":"done","session_id":"S"}\n' };
 
-async function setup(agent: (wt: string, sb: LocalSandbox) => Promise<void>, over: Partial<RoundSpec> = {}) {
+async function setup(agent: (wt: string, sb: LocalSandbox) => Promise<void>, over: { branches?: string[]; collect?: boolean } = {}) {
   const repo = await fixture();
   const sb = localSandbox();
   let tree = "";
   sb.onRun = async (_argv, opts) => {
-    const wt = sb.path(opts.env!.MAKI_OSS_WORKDIR!);
+    const wt = join(sb.path(opts.env!.MAKI_OSS_WORKDIR!), "fx");
     await agent(wt, sb);
     return answer;
   };
@@ -23,7 +23,7 @@ async function setup(agent: (wt: string, sb: LocalSandbox) => Promise<void>, ove
     if (t) tree = t[1]!;
     log(m);
   };
-  const spec: RoundSpec = { repo, sandbox: "repo-fx", providers: [], taskId: "c1", base: "main", branches: [], allBranches: false, collect: true, prompt: "q", timeoutSec: 5, ...over };
+  const spec: RoundSpec = { sandbox: "repo-fx", providers: [], taskId: "c1", repos: [{ key: "fx", hostRepo: repo, base: "main", branches: over.branches ?? [], allBranches: false }], collect: over.collect ?? true, prompt: "q", timeoutSec: 5 };
   const outcome = await runRound(sb.ctx, spec);
   return { repo, sb, outcome, tree: () => tree };
 }
@@ -36,7 +36,7 @@ describe("changes back", () => {
       renameSync(join(wt, "README.md"), join(wt, "README.txt"));
     });
     expect(outcome.result.kind).toBe("answer");
-    const c = outcome.changes!;
+    const c = outcome.repos[0]!.changes!;
     expect(c.branch).toBe("oskhs/c1");
     expect(c.commits).toBe(1);
     expect(c.files).toEqual({ added: [], modified: ["calc.py"], deleted: ["data.txt"], renamed: [{ from: "README.md", to: "README.txt" }] });
@@ -44,8 +44,8 @@ describe("changes back", () => {
     expect(hostTree.startsWith(tree())).toBe(true);
     expect(await git(repo, "log", "-1", "--format=%an <%ae> %s", "oskhs/c1")).toBe("Maki (oskhs) <maki@oskhs.invalid> oskhs: uncommitted changes from task c1");
     // nothing lingers in the sandbox
-    expect(await git(sb.path("/sandbox/repo"), "for-each-ref", "--format=%(refname)", "refs/heads")).toBe("");
-    expect(await Bun.file(sb.path("/sandbox/.oskhs/out/c1.bundle")).exists()).toBe(false);
+    expect(await git(sb.path("/sandbox/repos/fx"), "for-each-ref", "--format=%(refname)", "refs/heads")).toBe("");
+    expect(await Bun.file(sb.path("/sandbox/.oskhs/out/c1-fx.bundle")).exists()).toBe(false);
   });
 
   test("the agent's own commits are kept, no oskhs commit added", async () => {
@@ -57,14 +57,14 @@ describe("changes back", () => {
       await git(wt, "add", "-A");
       await git(wt, "commit", "-qm", "two");
     });
-    expect(outcome.changes).toMatchObject({ commits: 2, files: { added: ["one.txt", "two.txt"] } });
+    expect(outcome.repos[0]!.changes).toMatchObject({ commits: 2, files: { added: ["one.txt", "two.txt"] } });
     expect(await git(repo, "log", "--format=%s", "main..oskhs/c1")).toBe("two\none");
   });
 
   test("no changes, no branch", async () => {
     const { repo, outcome } = await setup(async () => {});
     expect(outcome.result.kind).toBe("answer");
-    expect(outcome.changes).toBeNull();
+    expect(outcome.repos[0]!.changes).toBeNull();
     expect(await git(repo, "for-each-ref", "refs/heads/oskhs")).toBe("");
   });
 
@@ -72,7 +72,7 @@ describe("changes back", () => {
     const { repo, outcome } = await setup(async (wt) => {
       await git(wt, "checkout", "-q", "--detach", "refs/remotes/origin/feature");
     }, { branches: ["feature"] });
-    expect(outcome.changes).toMatchObject({ commits: 1, bundleBytes: 0, files: { added: ["notes.txt"] } });
+    expect(outcome.repos[0]!.changes).toMatchObject({ commits: 1, bundleBytes: 0, files: { added: ["notes.txt"] } });
     expect(await git(repo, "rev-parse", "oskhs/c1")).toBe(await git(repo, "rev-parse", "feature"));
   });
 
@@ -80,20 +80,20 @@ describe("changes back", () => {
     const repo = await fixture();
     const sb = localSandbox();
     sb.onRun = async (_argv, opts) => {
-      writeFileSync(join(sb.path(opts.env!.MAKI_OSS_WORKDIR!), "x.txt"), "x\n");
+      writeFileSync(join(sb.path(opts.env!.MAKI_OSS_WORKDIR!), "fx/x.txt"), "x\n");
       return answer;
     };
     sb.intercept = async (argv) => {
       if (!argv.includes("download")) return undefined;
       // the sandbox hands back a bundle that also carries another ref
       const dir = argv.at(-1)!;
-      const sbRepo = sb.path("/sandbox/repo");
+      const sbRepo = sb.path("/sandbox/repos/fx");
       await git(sbRepo, "update-ref", "refs/heads/sneaky", "refs/heads/task-c2");
-      await git(sbRepo, "bundle", "create", "-q", join(dir, "c2.bundle"), "refs/heads/task-c2", "refs/heads/sneaky", "^refs/remotes/origin/main");
+      await git(sbRepo, "bundle", "create", "-q", join(dir, "c2-fx.bundle"), "refs/heads/task-c2", "refs/heads/sneaky", "^refs/remotes/origin/main");
       return { code: 0 };
     };
-    const spec: RoundSpec = { repo, sandbox: "repo-fx", providers: [], taskId: "c2", base: "main", branches: [], allBranches: false, collect: true, prompt: "q", timeoutSec: 5 };
-    const { result, changes } = await runRound(sb.ctx, spec);
+    const spec: RoundSpec = { sandbox: "repo-fx", providers: [], taskId: "c2", repos: [{ key: "fx", hostRepo: repo, base: "main", branches: [], allBranches: false }], collect: true, prompt: "q", timeoutSec: 5 };
+    const { result, repos: [{ changes } = { changes: null }] } = await runRound(sb.ctx, spec);
     expect(result).toMatchObject({ kind: "failed", stage: "collect" });
     expect(changes).toBeNull();
     expect(await git(repo, "for-each-ref", "--format=%(refname)", "refs/heads")).toBe("refs/heads/feature\nrefs/heads/main");
@@ -101,7 +101,7 @@ describe("changes back", () => {
 
   test("read-only rounds skip collection", async () => {
     const { repo, sb, outcome } = await setup(async (wt) => writeFileSync(join(wt, "calc.py"), "changed\n"), { collect: false });
-    expect(outcome.changes).toBeNull();
+    expect(outcome.repos[0]!.changes).toBeNull();
     expect(await git(repo, "for-each-ref", "refs/heads/oskhs")).toBe("");
     expect(sb.calls.some((c) => c.argv.includes("download"))).toBe(false);
   });
@@ -110,11 +110,11 @@ describe("changes back", () => {
     const repo = await fixture();
     const sb = localSandbox();
     sb.onRun = async (_argv, opts) => {
-      writeFileSync(join(sb.path(opts.env!.MAKI_OSS_WORKDIR!), "calc.py"), "changed\n");
+      writeFileSync(join(sb.path(opts.env!.MAKI_OSS_WORKDIR!), "fx/calc.py"), "changed\n");
       return { code: 124 };
     };
-    const spec: RoundSpec = { repo, sandbox: "repo-fx", providers: [], taskId: "c3", base: "main", branches: [], allBranches: false, collect: true, prompt: "q", timeoutSec: 5 };
-    const { result, changes } = await runRound(sb.ctx, spec);
+    const spec: RoundSpec = { sandbox: "repo-fx", providers: [], taskId: "c3", repos: [{ key: "fx", hostRepo: repo, base: "main", branches: [], allBranches: false }], collect: true, prompt: "q", timeoutSec: 5 };
+    const { result, repos: [{ changes } = { changes: null }] } = await runRound(sb.ctx, spec);
     expect(result.kind).toBe("timeout");
     expect(changes).toBeNull();
     expect(await git(repo, "for-each-ref", "refs/heads/oskhs")).toBe("");

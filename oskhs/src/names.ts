@@ -24,9 +24,25 @@ export function checkTaskId(id: string): string {
   return id;
 }
 
-// Sandbox layout (design decision 2).
-export const REPO_DIR = "/sandbox/repo";
+// Sandbox layout: one bare repository per kiss repository, one workspace per
+// round with a worktree per repository (B1.3c, add-oskhs-sandbox-round).
+export const REPOS_DIR = "/sandbox/repos";
 export const TASKS_DIR = "/sandbox/tasks";
 export const IN_DIR = "/sandbox/.oskhs/in";
 export const OUT_DIR = "/sandbox/.oskhs/out";
-export const worktreePath = (taskId: string) => `${TASKS_DIR}/${checkTaskId(taskId)}`;
+
+const SUBDIR = /^[A-Za-z0-9._-]+$/;
+
+/** Repository subdirectories become sandbox paths and file names. */
+export function checkSubdir(subdir: string): string {
+  if (!SUBDIR.test(subdir) || subdir === "." || subdir === "..") throw new Error(`invalid repository subdir '${subdir}'`);
+  return subdir;
+}
+
+/** kiss's rule: `worktreeSubdir`, else the project path with `/` → `_`. */
+export const repoSubdir = (projectPath: string, worktreeSubdir?: string | null) =>
+  checkSubdir(worktreeSubdir || projectPath.replace(/\//g, "_"));
+
+export const repoDir = (subdir: string) => `${REPOS_DIR}/${checkSubdir(subdir)}`;
+export const workspacePath = (taskId: string) => `${TASKS_DIR}/${checkTaskId(taskId)}`;
+export const worktreePath = (taskId: string, subdir: string) => `${workspacePath(taskId)}/${checkSubdir(subdir)}`;

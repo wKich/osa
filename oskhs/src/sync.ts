@@ -7,12 +7,13 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tail } from "./exec.ts";
-import { IN_DIR, REPO_DIR, checkTaskId } from "./names.ts";
+import { IN_DIR, checkSubdir, checkTaskId, repoDir } from "./names.ts";
 import { sandboxSh, upload, type Ctx } from "./openshell.ts";
 import { StageError } from "./result.ts";
 
 export interface SyncSpec {
-  repo: string; // host repository: local clone (B1.1) or bare mirror (B1.4)
+  repo: string; // host repository: local clone (B1.1) or bare mirror
+  key: string; // repository subdir: /sandbox/repos/<key>
   sandbox: string;
   taskId: string;
   branches: string[]; // base first, then the task's own branches
@@ -127,9 +128,9 @@ async function hostHas(ctx: Ctx, repo: string, ids: string[]): Promise<Set<strin
   return presentIds(out.stdout);
 }
 
-async function sandboxHas(ctx: Ctx, sandbox: string, ids: string[]): Promise<Set<string>> {
+async function sandboxHas(ctx: Ctx, sandbox: string, dir: string, ids: string[]): Promise<Set<string>> {
   if (!ids.length) return new Set();
-  const out = await sandboxSh(ctx, sandbox, BATCH_CHECK, [REPO_DIR], { stdin: ids.join("\n") + "\n" });
+  const out = await sandboxSh(ctx, sandbox, BATCH_CHECK, [dir], { stdin: ids.join("\n") + "\n" });
   if (out.code !== 0) throw new StageError("sync", out.code, tail(out.stderr));
   return presentIds(out.stdout);
 }
@@ -143,11 +144,11 @@ async function sendBundle(ctx: Ctx, spec: SyncSpec, refs: string[], prereqs: str
     const made = await ctx.run(["git", "-C", spec.repo, "bundle", "create", "-q", file, "--stdin"], { stdin: revs });
     if (made.code !== 0) throw new StageError("sync", made.code, tail(made.stderr));
     const bytes = (await stat(file)).size;
-    const dest = `${IN_DIR}/${checkTaskId(spec.taskId)}.bundle`;
+    const dest = `${IN_DIR}/${checkTaskId(spec.taskId)}-${checkSubdir(spec.key)}.bundle`;
     const up = await upload(ctx, spec.sandbox, file, dest);
     if (up.code !== 0) throw new StageError("sync", up.code, tail(up.stderr + up.stdout));
     const refspecs = refs.map((ref) => `+${ref}:${toSandboxRef(ref)}`);
-    const fetched = await sandboxSh(ctx, spec.sandbox, FETCH_SCRIPT, [REPO_DIR, dest, ...refspecs]);
+    const fetched = await sandboxSh(ctx, spec.sandbox, FETCH_SCRIPT, [repoDir(spec.key), dest, ...refspecs]);
     return { bytes, ok: fetched.code === 0, stderr: tail(fetched.stderr) };
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -155,7 +156,8 @@ async function sendBundle(ctx: Ctx, spec: SyncSpec, refs: string[], prereqs: str
 }
 
 export async function syncRefs(ctx: Ctx, spec: SyncSpec): Promise<SyncStats> {
-  const opened = await sandboxSh(ctx, spec.sandbox, OPEN_SCRIPT, [REPO_DIR]);
+  const dir = repoDir(spec.key);
+  const opened = await sandboxSh(ctx, spec.sandbox, OPEN_SCRIPT, [dir]);
   if (opened.code !== 0) throw new StageError("seed", opened.code, tail(opened.stderr));
   const sandbox = parseRefs(opened.stdout);
   const host = await hostRefs(ctx, spec.repo);
@@ -165,7 +167,7 @@ export async function syncRefs(ctx: Ctx, spec: SyncSpec): Promise<SyncStats> {
 
   // Rewinds: the new tip is already in the sandbox, so no bundle can carry
   // it (design decision 6); update-ref moves it directly.
-  const present = await sandboxHas(ctx, spec.sandbox, [...new Set(plan.changed.map((ref) => host.get(ref)!))]);
+  const present = await sandboxHas(ctx, spec.sandbox, dir, [...new Set(plan.changed.map((ref) => host.get(ref)!))]);
   const rewinds = plan.changed.filter((ref) => present.has(host.get(ref)!));
   const send = plan.changed.filter((ref) => !present.has(host.get(ref)!));
 
@@ -188,11 +190,11 @@ export async function syncRefs(ctx: Ctx, spec: SyncSpec): Promise<SyncStats> {
     ...plan.prune.map((sref) => `delete ${sref}`),
   ];
   if (commands.length) {
-    const out = await sandboxSh(ctx, spec.sandbox, UPDATE_REFS, [REPO_DIR], { stdin: commands.join("\n") + "\n" });
+    const out = await sandboxSh(ctx, spec.sandbox, UPDATE_REFS, [dir], { stdin: commands.join("\n") + "\n" });
     if (out.code !== 0) throw new StageError("sync", out.code, tail(out.stderr));
   }
   stats.updated = plan.changed.map(toSandboxRef);
   stats.pruned = plan.prune;
-  ctx.log(`sync ${spec.sandbox}: ${stats.bundleBytes} bytes, ${stats.updated.length} updated, ${stats.pruned.length} pruned${stats.full ? " (full)" : ""}`);
+  ctx.log(`sync ${spec.sandbox}/${spec.key}: ${stats.bundleBytes} bytes, ${stats.updated.length} updated, ${stats.pruned.length} pruned${stats.full ? " (full)" : ""}`);
   return stats;
 }

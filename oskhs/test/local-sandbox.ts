@@ -14,7 +14,7 @@ export interface LocalSandbox {
   calls: Call[];
   root: string; // host directory standing in for /sandbox
   path: (sandboxPath: string) => string;
-  sh: (script: string) => Promise<RunOutput>; // run in the sandbox repo dir
+  sh: (script: string) => Promise<RunOutput>; // run at the sandbox root
   /** Called for every maki-oss run; return its output. */
   onRun: (argv: string[], opts: RunOpts) => Promise<Partial<RunOutput>>;
   /** Runs before the default handling; a returned output replaces it. */
@@ -30,7 +30,7 @@ export function localSandbox(): LocalSandbox {
     calls,
     root,
     path,
-    sh: (script) => spawnRunner(["sh", "-c", script], { cwd: path("/sandbox/repo") }),
+    sh: (script) => spawnRunner(["sh", "-c", script], { cwd: root }),
     onRun: async () => ({ code: 0, stdout: answerLine + "\n" }),
     intercept: async () => undefined,
   };

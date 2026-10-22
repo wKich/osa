@@ -1,17 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { checkTaskId, newTaskId, projectName, sandboxName, worktreePath } from "../src/names.ts";
+import { checkTaskId, newTaskId, projectName, repoSubdir, sandboxName, worktreePath } from "../src/names.ts";
 import { interpretRun } from "../src/result.ts";
 import { runRound, type RoundSpec } from "../src/round.ts";
 import { answerLine, fail, fakeCtx, isRun, isUp, script, type Call } from "./fake.ts";
 
 const spec = (over: Partial<RoundSpec> = {}): RoundSpec => ({
-  repo: "/host/fx",
   sandbox: "repo-fx",
   providers: ["maki-synthetic"],
   taskId: "t1",
-  base: "main",
-  branches: [],
-  allBranches: false,
+  repos: [{ key: "fx", hostRepo: "/host/fx", base: "main", branches: [], allBranches: false }],
   collect: false,
   prompt: "What is the secret word?",
   timeoutSec: 60,
@@ -29,7 +26,10 @@ describe("names", () => {
   });
   test("task ids are path-safe", () => {
     expect(newTaskId(1700000000000)).toMatch(/^t1700000000000-[0-9a-f]{4}$/);
-    expect(worktreePath("t1")).toBe("/sandbox/tasks/t1");
+    expect(worktreePath("t1", "fx")).toBe("/sandbox/tasks/t1/fx");
+    expect(repoSubdir("g/sub/a")).toBe("g_sub_a");
+    expect(repoSubdir("g/a", "custom")).toBe("custom");
+    expect(() => repoSubdir("..")).toThrow();
     expect(() => checkTaskId("../x")).toThrow();
     expect(() => checkTaskId("")).toThrow();
   });
@@ -62,16 +62,16 @@ describe("round", () => {
     expect(run.opts.env).toMatchObject({ MAKI_OSS_SANDBOX_NAME: "repo-fx", MAKI_OSS_WORKDIR: "/sandbox/tasks/t1" });
     expect(run.opts.timeoutMs).toBe(90_000);
     const add = calls[index(calls, scriptHas("worktree add"))]!.argv;
-    expect(add.slice(-4)).toEqual(["/sandbox/repo", "/sandbox/tasks/t1", "main", "t1"]);
+    expect(add.slice(-4)).toEqual(["/sandbox/repos/fx", "/sandbox/tasks/t1/fx", "main", "t1"]);
     expect(script(add)).toContain(`-B "task-$4"`);
-    expect(index(calls, scriptHas("worktree remove"))).toBeGreaterThan(index(calls, isRun));
+    expect(calls.findLastIndex((c) => scriptHas("worktree remove")(c.argv))).toBeGreaterThan(index(calls, isRun));
   });
 
   test("the worktree is removed after a failed run", async () => {
     const { ctx, calls } = fakeCtx({ phase: "Ready" }, (argv) => (isRun(argv) ? fail(3, "gateway down") : undefined));
     const { result: r } = await runRound(ctx, spec());
     expect(r).toMatchObject({ kind: "failed", stage: "run", exitCode: 3 });
-    expect(index(calls, scriptHas("worktree remove"))).toBeGreaterThan(index(calls, isRun));
+    expect(calls.findLastIndex((c) => scriptHas("worktree remove")(c.argv))).toBeGreaterThan(index(calls, isRun));
   });
 
   test("a failed worktree add skips maki and removal", async () => {
@@ -79,7 +79,7 @@ describe("round", () => {
     const { result: r } = await runRound(ctx, spec());
     expect(r).toMatchObject({ kind: "failed", stage: "worktree" });
     expect(index(calls, isRun)).toBe(-1);
-    expect(index(calls, scriptHas("worktree remove"))).toBe(-1);
+    expect(calls.filter((c) => scriptHas("worktree remove")(c.argv)).length).toBe(2); // before and after
   });
 });
 

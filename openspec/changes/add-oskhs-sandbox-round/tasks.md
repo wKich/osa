@@ -2,10 +2,10 @@
 
 ## 1. Multi-repo workspace
 
-- [ ] 1.1 `names.ts`: `repoDir(subdir)`, `workspacePath(taskId)`,
+- [x] 1.1 `names.ts`: `repoDir(subdir)`, `workspacePath(taskId)`,
       `worktreePath(taskId, subdir)`, `repoSubdir(projectPath, worktreeSubdir?)`
       with validation; verify unit tests
-- [ ] 1.2 Sync and collect take the repository dir and a per-repository
+- [x] 1.2 Sync and collect take the repository dir and a per-repository
       bundle name; `runRound` loops repositories (sync, worktree, collect),
       writes `AGENTS.md`, removes leftovers before and everything after;
       outcome `{ result, repos: [{ key, sync, changes }] }`; CLI prints

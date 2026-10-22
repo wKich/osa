@@ -7,7 +7,7 @@ import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { tail } from "./exec.ts";
-import { OUT_DIR, checkTaskId, worktreePath } from "./names.ts";
+import { OUT_DIR, checkSubdir, checkTaskId, worktreePath } from "./names.ts";
 import { download, sandboxSh, type Ctx } from "./openshell.ts";
 import { StageError } from "./result.ts";
 
@@ -29,6 +29,7 @@ export interface Changes {
 
 export interface CollectSpec {
   repo: string; // host repository the branch lands in
+  key: string; // repository subdir in the workspace
   sandbox: string;
   taskId: string;
   baseTip: string; // host object id the worktree started from
@@ -93,13 +94,14 @@ async function git(ctx: Ctx, repo: string, args: string[], stdin?: string) {
 
 export async function collectChanges(ctx: Ctx, spec: CollectSpec): Promise<Changes | null> {
   const id = checkTaskId(spec.taskId);
-  const out = `${OUT_DIR}/${id}.bundle`;
-  const ran = await sandboxSh(ctx, spec.sandbox, COLLECT_SCRIPT, [worktreePath(id), id, out, spec.baseTip], {
+  const name = `${id}-${checkSubdir(spec.key)}.bundle`;
+  const out = `${OUT_DIR}/${name}`;
+  const ran = await sandboxSh(ctx, spec.sandbox, COLLECT_SCRIPT, [worktreePath(id, spec.key), id, out, spec.baseTip], {
     stdin: spec.prerequisites.join("\n") + "\n",
   });
   if (ran.code !== 0) throw new StageError("collect", ran.code, tail(ran.stderr));
   const { head, tree, mode } = parseCollectOutput(ran.stdout);
-  ctx.log(`collect ${id}: head ${head.slice(0, 12)} tree ${tree.slice(0, 12)} (${mode})`);
+  ctx.log(`collect ${id}/${spec.key}: head ${head.slice(0, 12)} tree ${tree.slice(0, 12)} (${mode})`);
   if (mode === "none") return null;
 
   const ref = `refs/heads/${hostBranch(id)}`;
@@ -114,7 +116,7 @@ export async function collectChanges(ctx: Ctx, spec: CollectSpec): Promise<Chang
     try {
       const got = await download(ctx, spec.sandbox, out, dir);
       if (got.code !== 0) throw new StageError("collect", got.code, tail(got.stderr + got.stdout));
-      const file = join(dir, `${id}.bundle`);
+      const file = join(dir, name);
       bundleBytes = (await stat(file)).size;
       await git(ctx, spec.repo, ["bundle", "verify", "-q", file]);
       const heads = (await git(ctx, spec.repo, ["bundle", "list-heads", file])).split("\n").filter(Boolean);

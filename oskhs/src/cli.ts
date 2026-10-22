@@ -210,21 +210,19 @@ export async function main(argv: string[]): Promise<number> {
     if (err instanceof UsageError) return console.error(`oskhs: ${err.message}`), 1;
     throw err;
   }
+  const project = projectName(repo);
   const spec: RoundSpec = {
-    repo,
-    sandbox: sandboxName(projectName(repo)),
+    sandbox: sandboxName(project),
     providers: args.providers,
     taskId: args.taskId ?? newTaskId(),
-    base,
-    branches: args.branches,
-    allBranches: args.allBranches,
+    repos: [{ key: project, hostRepo: repo, base, branches: args.branches, allBranches: args.allBranches }],
     collect: args.collect,
     prompt: args.prompt,
     model: args.model,
     timeoutSec: args.timeoutSec,
   };
-  const { result, sync, changes } = await runRound(ctx, spec);
-  console.log(JSON.stringify({ taskId: spec.taskId, sandbox: spec.sandbox, ...result, sync, changes }));
+  const { result, repos } = await runRound(ctx, spec);
+  console.log(JSON.stringify({ taskId: spec.taskId, sandbox: spec.sandbox, ...result, repos }));
   return exitCode(result);
 }
 

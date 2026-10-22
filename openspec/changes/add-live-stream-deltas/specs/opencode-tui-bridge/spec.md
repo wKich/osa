@@ -40,10 +40,13 @@ and print a warning. Bridge logs MUST NOT contain credential material.
 ### Requirement: Translate the prompt into an OpenCode transcript
 The bridge SHALL accept a prompt on the OpenCode prompt endpoint and emit SSE
 event frames covering reasoning, text, tool, step, and execution boundaries as
-Maki reports them, for both streamed and non-streamed Maki output. The
-transcript SHALL be causally ordered: a frame representing the user's prompt
-precedes every assistant frame the prompt caused, within a turn and across
-turns.
+Maki reports them, for both streamed and non-streamed Maki output. Streamed
+parts SHALL be rendered from the child's `stream_event` frames as they arrive,
+whether the delta variant is carried on the frame itself or nested in a
+`content_block_delta` wrapper with its own `delta.type` (the captured wire
+shape). The transcript SHALL be causally ordered: a frame representing the
+user's prompt precedes every assistant frame the prompt caused, within a turn
+and across turns.
 
 #### Scenario: Plain text turn renders
 - **WHEN** the user submits a prompt and Maki returns an assistant text part
@@ -74,14 +77,21 @@ turns.
   interleaves Q-A-Q-A instead of grouping all answers before all questions
 
 #### Scenario: Streamed deltas render incrementally, once
-- **WHEN** a recorded Maki fixture replays a turn whose parts arrive as
-  `stream_event` frames (`content_block_start`/`*_delta`/`content_block_stop`
-  in the sdk_mode-derived envelope) followed by the buffered `assistant`
-  message carrying the same parts
+- **WHEN** a recorded Maki turn replays whose parts arrive as `stream_event`
+  frames (`content_block_start`, then `content_block_delta` frames carrying
+  `text_delta` / `thinking_delta` / `input_json_delta` on `event.delta.type`,
+  then `content_block_stop`) followed by the buffered `assistant` message
+  carrying the same parts
 - **THEN** the projected transcript emits each part's `started`, one delta
   frame per streamed chunk, and `ended` carrying the full text — and the
   buffered message adds no duplicate part frames, with `message_*` frames
   emitting nothing
+
+#### Scenario: The authored delta spelling still renders
+- **WHEN** a fixture replays the same parts with the delta variant on the frame
+  itself (`subtype`) and a flat `delta` string
+- **THEN** the projected transcript emits the same started/delta/ended sequence,
+  so neither accepted spelling depends on the other
 
 #### Scenario: Deltas reach the stream through the shipped bridge
 - **WHEN** a child that emits `stream_event` frames is run behind the bridge

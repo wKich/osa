@@ -1,0 +1,327 @@
+[
+  {
+    "type": "session.inbox.enqueued",
+    "item": {
+      "type": "user",
+      "payload": {
+        "text": "golden prompt 1"
+      },
+      "delivery": "steer"
+    }
+  },
+  {
+    "type": "session.execution.started"
+  },
+  {
+    "type": "session.step.started",
+    "agent": "sample",
+    "model": {
+      "providerID": "hf:deepseek-ai",
+      "id": "DeepSeek-V4.1-Flash-1017"
+    }
+  },
+  {
+    "type": "session.reasoning.started",
+    "ordinal": 0
+  },
+  {
+    "type": "session.reasoning.delta",
+    "ordinal": 0,
+    "delta": "The"
+  },
+  {
+    "type": "session.reasoning.delta",
+    "ordinal": 0,
+    "delta": " user asks"
+  },
+  {
+    "type": "session.reasoning.delta",
+    "ordinal": 0,
+    "delta": " for a description"
+  },
+  {
+    "type": "session.reasoning.delta",
+    "ordinal": 0,
+    "delta": " of the ocean in"
+  },
+  {
+    "type": "session.reasoning.delta",
+    "ordinal": 0,
+    "delta": " one short paragraph, then reply"
+  },
+  {
+    "type": "session.reasoning.delta",
+    "ordinal": 0,
+    "delta": " DONE. Simple"
+  },
+  {
+    "type": "session.reasoning.delta",
+    "ordinal": 0,
+    "delta": ". No tools needed."
+  },
+  {
+    "type": "session.reasoning.ended",
+    "ordinal": 0,
+    "text": "The user asks for a description of the ocean in one short paragraph, then reply DONE. Simple. No tools needed."
+  },
+  {
+    "type": "session.text.started",
+    "ordinal": 0
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": "The ocean is a"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " vast, restless"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " expanse"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " of salt water"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " that covers"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " most"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " of the"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " planet, shifting"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " from"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " glass"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": "y calm"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " to"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " towering"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " waves under"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " the"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " wind's"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " hand"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": ". Its surface gl"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": "itters"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " with sunlight"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " by"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " day and mirrors"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " moonlight"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " by"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " night, while beneath"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " lies"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " a"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " dark, te"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": "eming world of currents"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": ", reefs,"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " and creatures"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " beyond"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " count"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": ". It"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " shapes"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " weather"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": ", carries"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " ships"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " across"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " continents, and holds"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " a depth"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " and"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " silence that still"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " resist"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " full"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": " understanding"
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": ".\n\nDONE"
+  },
+  {
+    "type": "session.text.ended",
+    "ordinal": 0,
+    "text": "The ocean is a vast, restless expanse of salt water that covers most of the planet, shifting from glassy calm to towering waves under the wind's hand. Its surface glitters with sunlight by day and mirrors moonlight by night, while beneath lies a dark, teeming world of currents, reefs, and creatures beyond count. It shapes weather, carries ships across continents, and holds a depth and silence that still resist full understanding.\n\nDONE"
+  },
+  {
+    "type": "session.step.ended",
+    "finish": "stop",
+    "tokens": {
+      "input": 4882,
+      "output": 115,
+      "reasoning": 0,
+      "cache": {
+        "read": 640,
+        "write": 0
+      }
+    }
+  },
+  {
+    "type": "session.execution.succeeded"
+  }
+]

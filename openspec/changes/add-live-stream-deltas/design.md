@@ -10,19 +10,22 @@ child argv the bridge builds (`bridge/src/maki.ts:28`) is
 model, with no such flag, and a grep across `bridge/`, `scripts/`, `bin/`,
 `docs/`, `Makefile` finds no mention of it anywhere in the repository.
 
-Downstream of that gate everything is already in place: `translator.ts:131`
-dispatches `stream_event`, and `:204-243` handles `content_block_start`,
-`text_delta`, `thinking_delta`, and `input_json_delta`, emitting
-`session.text.delta` / `session.reasoning.delta` / `session.tool.input.delta`
-and suppressing duplicates from the buffered message. The spec requirement at
-`opencode-tui-bridge/spec.md:70` already commits to "both streamed and
-non-streamed Maki output."
+Downstream of that gate the buffered path is already in place, but the delta
+path is not what the change assumed. `translator.ts:131` dispatches
+`stream_event`, and `:204-243` handles `content_block_start`, `text_delta`,
+`thinking_delta`, and `input_json_delta` — in the spelling the authored fixture
+uses (variant on the frame, flat `delta`). The live capture this change took
+(2026-10-23, `evidence/stream-live.jsonl`) shows Maki nests every delta in
+`content_block_delta` with the variant on `event.delta.type`. So the real gap
+is two things: the missing flag, and a translator that recognizes the envelope
+the flag actually produces.
 
 So the gap is one missing flag in one argv, plus the absence of any test that
-looks at that argv at all. `childArgv` is exported from `maki.ts:31` with the
-comment "exported so the shape can be asserted without spawning," and
-`grep childArgv` across `bridge/` and `scripts/` returns only its definition
-and its one call site — nothing asserts it.
+looks at that argv at all, plus one envelope spelling the translator does not
+recognize. `childArgv` is exported from `maki.ts:31` with the comment
+"exported so the shape can be asserted without spawning," and `grep childArgv`
+across `bridge/` and `scripts/` returned only its definition and its one call
+site — nothing asserted it.
 
 See proposal.md for why; this document is only how the flag is added and
 proved.
@@ -33,13 +36,16 @@ proved.
 
 - The child is asked for partial output, so the existing translator path can
   receive deltas in a real session.
+- The translator renders the envelope that request actually produces, so the
+  flag adds deltas instead of replacing correct text with empty parts.
 - The flags the spec names are asserted by a test, not just written down.
 - A bridge-level test fails if the flag is ever dropped.
 - `stream-deltas` records what this change proved and what it did not.
 
 **Non-Goals:**
 
-- Changing `bridge/src/translator.ts`. It already handles the envelopes.
+- Changing the translator beyond accepting the captured envelope: no new frame
+  types, no bridge-side synthesis of deltas from a buffered message.
 - Forcing the observation to succeed. The gated run in D4 decides the
   outcome: if `synthetic/hf:deepseek-ai/DeepSeek-V4.1-Flash-1017` does not
   stream, the change records that narrower claim rather than reaching for a
@@ -50,17 +56,24 @@ proved.
 
 ## Decisions
 
-### D1 — One flag, no other source change
+### D1 — One flag, plus the envelope it reaches
 
-`SDK_FLAGS` gains `--include-partial-messages`. That is the entire
-`bridge/src` change, which keeps it reviewable in one line and means the
-behavior it unlocks was already built and already golden-tested — this change
-connects an existing wire to an existing consumer.
+`SDK_FLAGS` gains `--include-partial-messages`. On the first live run this
+turned out to be necessary but not sufficient: the child streamed frames in a
+spelling the translator did not recognize, so content blocks opened and closed
+with empty text and the buffered message was suppressed as duplicate. The
+translator therefore accepts the captured envelope too — one branch in
+`handleStreamEvent` that reads `content_block_delta` and takes the variant
+from `event.delta.type`, with the payload read from the nested `delta`.
 
 **Alternative considered:** implement streaming by emitting deltas from the
 buffered `assistant` message on the bridge side. Rejected — it would invent a
 shape Maki does not send, it would still show nothing until the model's text
 arrives, and it would put translation logic where the wire already speaks.
+
+**Alternative considered:** ship the flag alone and fix the envelope in a
+follow-up. Rejected — the flag makes real streaming output worse, not better,
+so it ships with the branch that makes it correct.
 
 ### D2 — The scripted child gains one knob, gated behind an env var
 
@@ -74,8 +87,10 @@ child that streams *whenever the flag is present* would change the frame
 stream in `session-api.test.ts` and `contract.test.ts` for reasons unrelated to
 what those tests assert. That is an unknown blast radius across existing
 captures and assertions, paid for a proof the argv test already makes directly.
-The knob keeps every existing test's frames byte-identical and scopes the new
-behavior to the one test that asks for it.
+The knob emits the spelling the live capture shows (`content_block_delta`
+with `event.delta.type`), so the bridge-level test exercises the real envelope
+rather than the authored one. The knob keeps every existing test's frames
+byte-identical and scopes the new behavior to the one test that asks for it.
 
 The property that dropping the flag fails a test is carried by the argv
 assertion (D3), which is the more direct proof anyway: it inspects what the
@@ -97,12 +112,11 @@ suite checked that wording before.
 
 ### D4 — `stream-deltas` follows the observation, not the fixture
 
-After this change the request is made and the translation is proven, but no
-live run has shown deltas arriving. The change therefore runs one gated
-observation — `maki -p --input-format stream-json --output-format stream-json
---include-partial-messages -m synthetic/hf:deepseek-ai/DeepSeek-V4.1-Flash-1017`
-inside the sandbox, on the already-registered `maki-synthetic` profile, whose
-egress rule already exists — and the capture decides:
+The change runs one gated observation — `maki -p --input-format stream-json
+--output-format stream-json --include-partial-messages -m
+synthetic/hf:deepseek-ai/DeepSeek-V4.1-Flash-1017` inside the sandbox, on the
+already-registered `maki-synthetic` profile, whose egress rule already exists —
+and the capture decides:
 
 - **deltas observed** → the row flips to `verified` with the capture as
   evidence, because the claim is now an observation rather than a fixture.
@@ -110,13 +124,15 @@ egress rule already exists — and the capture decides:
   from "the provider never streams" to this specific model, which is a smaller
   and more accurate claim than the one the archived `e2e-note.md` left behind.
 
-Neither branch invents a status: `verified` for this row would otherwise be
-exactly the self-confirming claim the provenance work exists to expose, and
-the gate costs one sandbox run either way.
+The observation returned the first branch. It also returned something the
+branch did not anticipate: the deltas arrive in an envelope the translator
+dropped (D1), so replaying the capture before fixing it produced empty parts.
+The capture therefore became a committed fixture and golden — its shape is
+what the tests must replay — instead of only an evidence file.
 
-**Alternative considered:** flip it to `verified` now, since the golden and the
-new bridge test both pass. Rejected for the reason above — both tests feed the
-bridge a child we control, so neither observes a real model streaming.
+**Alternative considered:** flip it to `verified` on the strength of the
+fixture golden alone. Rejected — a fixture we author cannot observe a real
+model streaming; the capture is what earns the flip.
 
 **Why no new credential or network rule:** the observation names a different
 *model* on the *same* registered profile, and every profile in
@@ -127,18 +143,21 @@ it conflated a model choice with a provider and network choice.
 
 ### D5 — No `bridge/defects.json` entry
 
-A defect entry needs a capture that reproduces the failure, and reproducing
-this one needs a streaming model the suite cannot reach. Recorded instead as
-coverage that this change enables, per the classification note in the
-proposal.
+A defect entry needs a capture that reproduces a failure a user could hit. The
+envelope gap was unobservable until this change made a streaming turn reachable
+and did not exist in any shipped configuration (the flag was never passed), so
+the capture belongs to this change as fixture and evidence rather than to the
+inventory. Had the flag been shipped alone, the gap would have been a defect;
+D1 is why it is not.
 
 ### D6 — Sequencing with the open capture change
 
 `add-live-subagent-capture` is open and also writes `bridge/compat/statuses.json`
 (a different row: the `subagent-nesting` caveat) and
 `bridge/test/golden.test.ts`. This change writes `statuses.json` (the
-`stream-deltas` note), `bridge/src/maki.ts`, `bridge/test/fake-maki.ts`, and a
-test. Different rows, no shared file between them except `statuses.json`.
+`stream-deltas` row), `bridge/src/maki.ts`, `bridge/src/translator.ts`,
+`bridge/test/fake-maki.ts`, fixtures and goldens. Different rows, no shared
+file between them except `statuses.json` and `golden.test.ts`.
 
 They can be worked in either order, but not interleaved — each should regenerate
 `docs/compatibility.md` from its own completed edit, and each carries its own
@@ -149,10 +168,13 @@ keeps the bookkeeping linear.
 
 - **[The flag spelling is wrong or ignored]** → Pinned `sdk_mode.rs` opens with
   `cli.warn_ignored_flags()`, so an unknown flag warns and is dropped instead
-  of failing. Task 1 verifies the spelling against the installed binary and
-  captures stderr before any source edit, and falls back to the prompt-text
-  route only if the flag turns out not to exist. Same gate the capture change
-  uses for its own flag.
+  of failing. Task 1 verified the spelling against the installed 0.6.4 binary
+  before any source edit: the flag is listed and accepted without a warning.
+- **[The wire envelope differs from the authored fixture]** → This risk
+  materialized: the live capture nests the variant in `content_block_delta`,
+  which the translator dropped, so passing the flag alone would have emptied
+  streamed parts. D1 accepts the captured envelope, and D4 commits the capture
+  as the fixture the tests replay, so the suite now fails on a regression here.
 - **[More frames per message than before]** → Real OpenCode clients are built
   for this shape — it is what a streaming server sends. It also *reduces* the
   idle-stall exposure the heartbeat requirement exists for, since a long
@@ -166,20 +188,21 @@ keeps the bookkeeping linear.
   non-duplication, not chunk counts.
 - **[`fake-maki` drifting from the real wire by gaining behavior]** → The knob
   means the scripted child does exactly what it did before unless a test asks
-  for more, and the emitted shapes mirror the ones the archived fixtures and
-  `StreamSynth` in the pinned source already spell.
+  for more, and its frames now use the captured spelling rather than a second
+  guess.
 
 ## Migration Plan
 
-One commit: the flag, the argv assertion, the scripted-child knob plus its
-test, the two spec deltas, the `stream-deltas` note, and the regenerated
+One commit: the flag, the translator's envelope branch, the argv assertion,
+the scripted-child knob plus its test, the capture fixture, provenance entry
+and golden, the two spec deltas, the `stream-deltas` row, and the regenerated
 report. The suite gates it — `make test`, `make test-bridge`, `make compat`.
-Rollback is a revert to one line in `SDK_FLAGS`, and with it the new test and
-assertion, since they describe the flag's presence.
+Rollback is a revert to one line in `SDK_FLAGS` plus the envelope branch, and
+with them the new test and assertion, since they describe the flag's presence.
 
 ## Open Questions
 
-None that change the specs, the approach, or the task breakdown. Whether a
-real streaming model produces the sequence the translator expects is the
-question this change deliberately leaves to a later, credential-backed change,
-and D4 keeps the status honest until it is answered.
+None. The question this change deferred — whether a real streaming model
+produces the sequence the translator expects — is answered by
+`evidence/stream-live.jsonl`: it does, in a nested envelope now accepted and
+pinned by a committed fixture.

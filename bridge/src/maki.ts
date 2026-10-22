@@ -25,7 +25,7 @@ export interface MakiOptions {
   onExit: (code: number | null) => void;
 }
 
-const SDK_FLAGS = ["-p", "--input-format", "stream-json", "--output-format", "stream-json"];
+const SDK_FLAGS = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--include-partial-messages"];
 
 /** argv for the child; exported so the shape can be asserted without spawning */
 export function childArgv(opts: MakiOptions, env: Record<string, string | undefined> = process.env): string[] {

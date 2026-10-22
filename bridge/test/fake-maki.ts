@@ -16,6 +16,21 @@ const answers = new Map<string, (a: "allow" | "deny") => void>();
 
 const out = (obj: unknown) => process.stdout.write(JSON.stringify(obj) + "\n");
 
+// knob so one bridge test can prove deltas reach the stream without changing
+// any existing test's frames (the real child streams only with --include-partial-messages)
+const streaming = process.env.FAKE_MAKI_STREAM === "1";
+
+/** the captured stream_event spelling (maki-stream-live.jsonl), before the buffered message */
+function streamText(text: string): void {
+  out({ type: "stream_event", event: { type: "message_start", message: { role: "assistant", content: [] } } });
+  out({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } });
+  for (const delta of [text.slice(0, 3), text.slice(3)]) {
+    out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: delta } } });
+  }
+  out({ type: "stream_event", event: { type: "content_block_stop", index: 0 } });
+  out({ type: "stream_event", event: { type: "message_stop" } });
+}
+
 out({ type: "system", subtype: "init", session_id: "fake-maki-session", cwd, model: "synthetic/fake", tools: ["Bash"] });
 
 function replyTool(toolUseID: string, command: string, isError: boolean, content: string): void {
@@ -71,6 +86,7 @@ for await (const chunk of Bun.stdin.stream()) {
       const exact = /run exactly: (.+?) \./.exec(text);
       if (!exact && !/\b(false|rm)\b/.test(text)) {
         // plain prompt: an assistant text turn, no tool call
+        if (streaming) streamText("PONG");
         out({
           type: "assistant",
           message: { role: "assistant", content: [{ type: "text", text: "PONG" }] },

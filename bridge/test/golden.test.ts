@@ -27,16 +27,19 @@ interface Defect {
 }
 
 const defects: Defect[] = JSON.parse(readFileSync(new URL("../defects.json", import.meta.url), "utf8"));
-// The stream fixture's `stream_event` envelope spelling is sdk_mode-string-
-// derived, never captured from a live streaming provider (shortcut comment
-// in translator.ts) — this golden pins the translation behavior, not the
-// wire shape, which is why the stream-deltas row is `degraded`.
+// The stream fixtures: maki-stream is sdk_mode-string-derived (authored), and
+// maki-stream-live is the captured wire envelope — together they pin the
+// translation behavior, which is what the stream-deltas row claims.
 const FIXTURES = [
   "maki-plain",
   "maki-tool",
   "maki-precheck",
   "maki-permission",
   "maki-stream",
+  // live counterpart (add-live-stream-deltas): one real streaming turn through
+  // bridge/test/capture-stream.sh; the authored fixture above stays for the
+  // tool-input edges a single text turn does not reproduce
+  "maki-stream-live",
   // subagent-nesting row evidence: the flagged frames' shape is source-pinned
   // from sdk_mode.rs v0.6.4, never captured from a live subagent turn; the
   // rendering pinned here is inline flattening in the owning transcript, not

@@ -202,14 +202,20 @@ export class Translator {
   }
 
   // ---------- `stream_event` deltas (enhancement, cost 6) ----------
-  // sdk_mode names the variants but their shapes are unverified on the wire:
-  // shortcut: several envelope spellings are accepted and unknown ones are
-  // dropped — with the buffered path as the floor, a wrong guess degrades to
-  // buffering, not a broken transcript. Upgrade after capturing a streaming
-  // provider's stream_event frames.
+  // Two spellings reach here: the authored fixture puts the variant on the
+  // frame (`subtype`) with a flat `delta`, while the live wire (captured
+  // 2026-10-23, fixture maki-stream-live.jsonl) wraps it in
+  // `content_block_delta` with the variant on `event.delta.type`. Both are
+  // accepted; unknown variants are dropped and the buffered message is the
+  // floor, so a wrong guess degrades to buffering rather than losing text.
+  // shortcut: tool_use input deltas are still not observed live (the captured
+  // turn was text-only); maki-stream.jsonl authors that block. Extend after a
+  // tool-streaming capture.
   private handleStreamEvent(frame: AnyObj): void {
     const ev = frame.event ?? frame.data ?? frame;
-    const kind = frame.subtype ?? ev?.type ?? ev?.subtype;
+    const payload = ev?.delta ?? ev;
+    let kind = frame.subtype ?? ev?.type ?? ev?.subtype;
+    if (kind === "content_block_delta") kind = payload?.type;
     switch (kind) {
       case "content_block_start": {
         const block = ev?.content_block ?? ev ?? {};
@@ -227,7 +233,7 @@ export class Translator {
       case "thinking_delta":
       case "text_delta": {
         const partKind: PartKind = kind === "thinking_delta" ? "reasoning" : "text";
-        const delta = String(ev?.delta ?? ev?.[`${partKind}_delta`] ?? "");
+        const delta = String(payload?.text ?? payload?.thinking ?? (typeof payload === "string" ? payload : ""));
         const state = this.openStreamPart(partKind);
         state.text += delta;
         this.emit(`session.${partKind}.delta`, { ordinal: state.ordinal, delta });
@@ -238,7 +244,7 @@ export class Translator {
         // part renders it instead
         const state = this.openStreamPart("tool");
         if (!state.id) break;
-        const delta = String(ev?.partial_json ?? ev?.delta ?? "");
+        const delta = String(payload?.partial_json ?? "");
         state.text += delta;
         this.emit("session.tool.input.delta", { id: state.id, delta });
         break;

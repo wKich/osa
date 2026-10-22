@@ -4,7 +4,7 @@
 // git runs for real. This tests the sync scripts' semantics, not only argv.
 import { cpSync, mkdirSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { spawnRunner, type RunOpts, type RunOutput, type Runner } from "../src/exec.ts";
 import type { Ctx } from "../src/openshell.ts";
 import { answerLine, type Call } from "./fake.ts";
@@ -17,6 +17,8 @@ export interface LocalSandbox {
   sh: (script: string) => Promise<RunOutput>; // run in the sandbox repo dir
   /** Called for every maki-oss run; return its output. */
   onRun: (argv: string[], opts: RunOpts) => Promise<Partial<RunOutput>>;
+  /** Runs before the default handling; a returned output replaces it. */
+  intercept: (argv: string[]) => Promise<Partial<RunOutput> | undefined>;
 }
 
 export function localSandbox(): LocalSandbox {
@@ -30,10 +32,11 @@ export function localSandbox(): LocalSandbox {
     path,
     sh: (script) => spawnRunner(["sh", "-c", script], { cwd: path("/sandbox/repo") }),
     onRun: async () => ({ code: 0, stdout: answerLine + "\n" }),
+    intercept: async () => undefined,
   };
   const run: Runner = async (argv, opts = {}) => {
     calls.push({ argv, opts });
-    const out = await dispatch(argv, opts);
+    const out = (await sb.intercept(argv)) ?? (await dispatch(argv, opts));
     return { code: 0, stdout: "", stderr: "", timedOut: false, ...out };
   };
   async function dispatch(argv: string[], opts: RunOpts): Promise<Partial<RunOutput>> {
@@ -43,6 +46,11 @@ export function localSandbox(): LocalSandbox {
         const [local, dest] = argv.slice(-2) as [string, string];
         mkdirSync(dirname(path(dest)), { recursive: true });
         cpSync(local, path(dest));
+        return { code: 0 };
+      }
+      if (argv.includes("download")) {
+        const [src, dir] = argv.slice(-2) as [string, string];
+        cpSync(path(src), join(dir, basename(src)));
         return { code: 0 };
       }
       const c = argv.indexOf("-c");

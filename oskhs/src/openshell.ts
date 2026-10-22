@@ -25,6 +25,11 @@ export function upload(ctx: Ctx, sandbox: string, local: string, dest: string): 
   return ctx.run([...base(ctx), "sandbox", "upload", "--no-git-ignore", sandbox, local, dest]);
 }
 
+/** Download one sandbox file into an existing host directory (keeps its basename). */
+export function download(ctx: Ctx, sandbox: string, path: string, dir: string): Promise<RunOutput> {
+  return ctx.run([...base(ctx), "sandbox", "download", sandbox, path, dir.endsWith("/") ? dir : `${dir}/`]);
+}
+
 export async function sandboxPhase(ctx: Ctx, sandbox: string): Promise<string | undefined> {
   const out = await ctx.run([...base(ctx), "sandbox", "list", "--output", "json"]);
   if (out.code !== 0) throw new Error(`cannot list sandboxes (exit ${out.code}): ${out.stderr.trim()}`);

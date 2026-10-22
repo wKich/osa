@@ -25,6 +25,7 @@ export interface SyncStats {
   pruned: string[]; // sandbox refnames deleted
   prerequisites: number;
   full: boolean; // the bundle carried no prerequisites after a failed fetch
+  tips: Record<string, string>; // host refname -> object id for every wanted ref, as synced
 }
 
 export type RefMap = Map<string, string>; // refname -> object id
@@ -45,6 +46,7 @@ export function toHostRef(sandboxRef: string): string | undefined {
 }
 
 export interface SyncPlan {
+  wanted: string[]; // host refnames this round needs
   changed: string[]; // host refnames whose sandbox tip differs
   prune: string[]; // sandbox refnames to delete
   candidates: string[]; // sandbox tips that may serve as prerequisites
@@ -64,7 +66,7 @@ export function planSync(host: RefMap, sandbox: RefMap, spec: Pick<SyncSpec, "br
     // tags are only managed in all-branches mode; branches always
     if (href.startsWith("refs/heads/") || spec.allBranches) prune.push(sref);
   }
-  return { changed, prune: prune.sort(), candidates: [...new Set(sandbox.values())].sort() };
+  return { wanted: [...wanted].sort(), changed, prune: prune.sort(), candidates: [...new Set(sandbox.values())].sort() };
 }
 
 export function parseRefs(text: string): RefMap {
@@ -87,8 +89,8 @@ export function presentIds(batchCheck: string): Set<string> {
 }
 
 // $1 repo. Creates the bare repository with the offline origin (design
-// decision 7: the URL is an absolute path under the read-only root), then
-// prints the tips oskhs manages.
+// decision 7: the URL is an absolute path under the read-only root) and the
+// commit identity worktree commits need, then prints the tips oskhs manages.
 const OPEN_SCRIPT = `repo=$1
 if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
     rm -rf "$repo"
@@ -96,6 +98,8 @@ if ! git -C "$repo" rev-parse --git-dir >/dev/null 2>&1; then
 fi
 git -C "$repo" config remote.origin.url /oskhs-offline || exit 1
 git -C "$repo" config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*' || exit 1
+git -C "$repo" config user.name 'Maki (oskhs)' || exit 1
+git -C "$repo" config user.email maki@oskhs.invalid || exit 1
 git -C "$repo" for-each-ref --format='%(objectname) %(refname)' refs/remotes/origin refs/tags`;
 
 const BATCH_CHECK = `git -C "$1" cat-file --batch-check='%(objectname) %(objecttype)'`;
@@ -156,7 +160,8 @@ export async function syncRefs(ctx: Ctx, spec: SyncSpec): Promise<SyncStats> {
   const sandbox = parseRefs(opened.stdout);
   const host = await hostRefs(ctx, spec.repo);
   const plan = planSync(host, sandbox, spec);
-  const stats: SyncStats = { bundleBytes: 0, updated: [], pruned: [], prerequisites: 0, full: false };
+  const tips = Object.fromEntries(plan.wanted.map((ref) => [ref, host.get(ref)!]));
+  const stats: SyncStats = { bundleBytes: 0, updated: [], pruned: [], prerequisites: 0, full: false, tips };
 
   // Rewinds: the new tip is already in the sandbox, so no bundle can carry
   // it (design decision 6); update-ref moves it directly.

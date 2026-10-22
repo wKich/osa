@@ -298,7 +298,8 @@ in one go; remote gateways and resumable large seeds are B5.
   **Exit:** two runs in a row; the second transfers only the delta
   (measured); the agent can check out a delivered non-base branch; a branch
   deleted upstream disappears from the sandbox.
-- **B1.2 — Commits back as a bundle** (½). Maki's changes committed in the
+- **B1.2 — Commits back as a bundle** (½). *Done 2026-10-23
+  (`add-oskhs-commits-back`); host branch `oskhs/<task-id>`.* Maki's changes committed in the
   task worktree, returned as `base..task-<id>` bundle, fetched into the host
   clone; worktree removed afterwards. Replaces the merge-only download,
   which would resurrect deleted files. **Exit:** a prompt that edits,

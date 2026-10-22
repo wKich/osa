@@ -12,6 +12,7 @@ describe("planSync", () => {
   test("only wanted refs whose tip differs", () => {
     const sb = m({ "refs/remotes/origin/main": "a1", "refs/remotes/origin/feature": "f1" });
     expect(planSync(host, sb, { branches: ["main", "feature"], allBranches: false })).toEqual({
+      wanted: ["refs/heads/feature", "refs/heads/main"],
       changed: ["refs/heads/main"],
       prune: [],
       candidates: ["a1", "f1"],
@@ -51,7 +52,8 @@ describe("syncRefs against real git", () => {
     expect(await git(sb.path("/sandbox/repo"), "rev-parse", "refs/remotes/origin/main")).toBe(await git(repo, "rev-parse", "main"));
     const uploads = sb.calls.filter((c) => c.argv.includes("upload")).length;
     const third = await syncRefs(sb.ctx, spec(repo));
-    expect(third).toEqual({ bundleBytes: 0, updated: [], pruned: [], prerequisites: 0, full: false });
+    expect(third).toMatchObject({ bundleBytes: 0, updated: [], pruned: [], prerequisites: 0, full: false });
+    expect(third.tips).toEqual({ "refs/heads/main": await git(repo, "rev-parse", "main") });
     expect(sb.calls.filter((c) => c.argv.includes("upload")).length).toBe(uploads);
     // uploaded bundles do not linger
     expect(readdirSync(sb.path("/sandbox/.oskhs/in"))).toEqual([]);
@@ -148,7 +150,7 @@ describe("round over the local sandbox", () => {
       sawWorktree = (await Bun.file(join(sb.path(opts.env!.MAKI_OSS_WORKDIR!), "README.md")).exists());
       return { code: 0, stdout: '{"type":"result","is_error":false,"result":"ok","session_id":"S"}\n' };
     };
-    const spec: RoundSpec = { repo, sandbox: "repo-fx", providers: [], taskId: "r1", base: "main", branches: ["feature"], allBranches: false, prompt: "q", timeoutSec: 5 };
+    const spec: RoundSpec = { repo, sandbox: "repo-fx", providers: [], taskId: "r1", base: "main", branches: ["feature"], allBranches: false, collect: false, prompt: "q", timeoutSec: 5 };
     const { result, sync } = await runRound(sb.ctx, spec);
     expect(result.kind).toBe("answer");
     expect(sawWorktree).toBe(true);
@@ -167,7 +169,7 @@ describe("round over the local sandbox", () => {
       await git(sb.path(opts.env!.MAKI_OSS_WORKDIR!), "checkout", "-q", "feature");
       return { code: 0, stdout: '{"type":"result","is_error":false,"result":"ok","session_id":"S"}\n' };
     };
-    const spec: RoundSpec = { repo, sandbox: "repo-fx", providers: [], taskId: "r3", base: "main", branches: ["feature"], allBranches: false, prompt: "q", timeoutSec: 5 };
+    const spec: RoundSpec = { repo, sandbox: "repo-fx", providers: [], taskId: "r3", base: "main", branches: ["feature"], allBranches: false, collect: false, prompt: "q", timeoutSec: 5 };
     expect((await runRound(sb.ctx, spec)).result.kind).toBe("answer");
     expect(await git(sbRepo, "for-each-ref", "--format=%(refname)", "refs/heads")).toBe("refs/heads/main");
   });
@@ -175,7 +177,7 @@ describe("round over the local sandbox", () => {
   test("an unknown branch fails the round at the sync stage", async () => {
     const repo = await fixture();
     const sb = localSandbox();
-    const spec: RoundSpec = { repo, sandbox: "repo-fx", providers: [], taskId: "r2", base: "main", branches: ["nope"], allBranches: false, prompt: "q", timeoutSec: 5 };
+    const spec: RoundSpec = { repo, sandbox: "repo-fx", providers: [], taskId: "r2", base: "main", branches: ["nope"], allBranches: false, collect: false, prompt: "q", timeoutSec: 5 };
     const { result } = await runRound(sb.ctx, spec);
     expect(result).toMatchObject({ kind: "failed", stage: "sync" });
   });

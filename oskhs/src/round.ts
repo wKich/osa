@@ -11,6 +11,7 @@ import { sandboxSh, type Ctx } from "./openshell.ts";
 import { interpretRun, StageError, type RoundResult } from "./result.ts";
 import { ensureSandbox } from "./sandbox.ts";
 import { syncRefs, type SyncStats } from "./sync.ts";
+import { collectChanges, type Changes } from "./collect.ts";
 
 export interface RoundSpec {
   repo: string; // host clone the seed comes from
@@ -20,6 +21,7 @@ export interface RoundSpec {
   base: string; // branch name, delivered as refs/remotes/origin/<base>
   branches: string[]; // the task's own branches, delivered with the base
   allBranches: boolean; // also every other branch and tag
+  collect: boolean; // false for read-only rounds: changes are discarded
   prompt: string;
   model?: string;
   timeoutSec: number;
@@ -28,7 +30,8 @@ export interface RoundSpec {
 // The client backstop fires only if the in-sandbox timeout never returns.
 const BACKSTOP_SEC = 30;
 
-const ADD_WORKTREE = `git -C "$1" worktree add -q --detach "$2" "refs/remotes/origin/$3"`;
+// $1 repo, $2 path, $3 base, $4 task id. -B resets a re-run task's branch.
+const ADD_WORKTREE = `git -C "$1" worktree add -q -B "task-$4" "$2" "refs/remotes/origin/$3"`;
 // Also drops local branches no remaining worktree has checked out: an
 // agent's `git checkout <b>` creates refs/heads/<b> from origin/<b>, and a
 // later task checking out <b> would otherwise get that stale copy instead
@@ -42,7 +45,7 @@ done`;
 
 export async function addWorktree(ctx: Ctx, sandbox: string, taskId: string, base: string): Promise<string> {
   const path = worktreePath(taskId);
-  const out = await sandboxSh(ctx, sandbox, ADD_WORKTREE, [REPO_DIR, path, base]);
+  const out = await sandboxSh(ctx, sandbox, ADD_WORKTREE, [REPO_DIR, path, base, taskId]);
   if (out.code !== 0) throw new StageError("worktree", out.code, tail(out.stderr));
   return path;
 }
@@ -74,6 +77,7 @@ export async function runMaki(ctx: Ctx, spec: RoundSpec, workdir: string): Promi
 export interface RoundOutcome {
   result: RoundResult;
   sync?: SyncStats; // absent when the round failed before or during the sync
+  changes: Changes | null; // null when nothing was collected
 }
 
 export async function runRound(ctx: Ctx, spec: RoundSpec): Promise<RoundOutcome> {
@@ -86,9 +90,19 @@ export async function runRound(ctx: Ctx, spec: RoundSpec): Promise<RoundOutcome>
     const workdir = await addWorktree(ctx, spec.sandbox, spec.taskId, spec.base);
     added = true;
     ctx.log(`round ${spec.taskId} in ${spec.sandbox}:${workdir}`);
-    return { result: await runMaki(ctx, spec, workdir), sync };
+    const result = await runMaki(ctx, spec, workdir);
+    if (result.kind !== "answer" || !spec.collect) return { result, sync, changes: null };
+    // collected before the worktree (and its branch) is removed
+    const changes = await collectChanges(ctx, {
+      repo: spec.repo,
+      sandbox: spec.sandbox,
+      taskId: spec.taskId,
+      baseTip: sync.tips[`refs/heads/${spec.base}`]!,
+      prerequisites: [...new Set(Object.values(sync.tips))],
+    });
+    return { result, sync, changes };
   } catch (err) {
-    if (err instanceof StageError) return { result: { kind: "failed", stage: err.stage, exitCode: err.exitCode, stderr: err.stderr }, sync };
+    if (err instanceof StageError) return { result: { kind: "failed", stage: err.stage, exitCode: err.exitCode, stderr: err.stderr }, sync, changes: null };
     throw err;
   } finally {
     if (added) await removeWorktree(ctx, spec.sandbox, spec.taskId);

@@ -12,6 +12,7 @@ const spec = (over: Partial<RoundSpec> = {}): RoundSpec => ({
   base: "main",
   branches: [],
   allBranches: false,
+  collect: false,
   prompt: "What is the secret word?",
   timeoutSec: 60,
   ...over,
@@ -61,7 +62,8 @@ describe("round", () => {
     expect(run.opts.env).toMatchObject({ MAKI_OSS_SANDBOX_NAME: "repo-fx", MAKI_OSS_WORKDIR: "/sandbox/tasks/t1" });
     expect(run.opts.timeoutMs).toBe(90_000);
     const add = calls[index(calls, scriptHas("worktree add"))]!.argv;
-    expect(add.slice(-3)).toEqual(["/sandbox/repo", "/sandbox/tasks/t1", "main"]);
+    expect(add.slice(-4)).toEqual(["/sandbox/repo", "/sandbox/tasks/t1", "main", "t1"]);
+    expect(script(add)).toContain(`-B "task-$4"`);
     expect(index(calls, scriptHas("worktree remove"))).toBeGreaterThan(index(calls, isRun));
   });
 

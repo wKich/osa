@@ -8,7 +8,7 @@ import type { RoundResult } from "./result.ts";
 import { runRound, type RoundSpec } from "./round.ts";
 
 const USAGE = `usage: oskhs run-round <repo> "<prompt>" [--model SPEC] [--base BRANCH]
-         [--branch NAME]... [--all-branches] [--provider NAME]...
+         [--branch NAME]... [--all-branches] [--no-changes] [--provider NAME]...
          [--timeout SECS] [--gateway NAME] [--task-id ID]
 
 Environment: OSKHS_PROVIDERS (comma-separated), OSKHS_MODEL, OSKHS_TIMEOUT,
@@ -23,6 +23,7 @@ export interface RunRoundArgs {
   base?: string;
   branches: string[];
   allBranches: boolean;
+  collect: boolean;
   providers: string[];
   timeoutSec: number;
   gateway?: string;
@@ -34,6 +35,7 @@ export function parseRunRound(argv: string[], env: Record<string, string | undef
   const providers: string[] = [];
   const branches: string[] = [];
   let allBranches = false;
+  let collect = true;
   const opts: Record<string, string> = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
@@ -45,6 +47,7 @@ export function parseRunRound(argv: string[], env: Record<string, string | undef
     if (a === "--provider") providers.push(value());
     else if (a === "--branch") branches.push(value());
     else if (a === "--all-branches") allBranches = true;
+    else if (a === "--no-changes") collect = false;
     else if (["--model", "--base", "--timeout", "--gateway", "--task-id"].includes(a)) opts[a.slice(2)] = value();
     else if (a === "--") positional.push(...argv.slice(i + 1)), (i = argv.length);
     else if (a.startsWith("--")) throw new UsageError(`unknown option: ${a}`);
@@ -61,6 +64,7 @@ export function parseRunRound(argv: string[], env: Record<string, string | undef
     base: opts.base,
     branches,
     allBranches,
+    collect,
     providers: providers.length ? providers : fromEnv,
     timeoutSec: Number(timeoutRaw),
     gateway: opts.gateway,
@@ -114,12 +118,13 @@ export async function main(argv: string[]): Promise<number> {
     base,
     branches: args.branches,
     allBranches: args.allBranches,
+    collect: args.collect,
     prompt: args.prompt,
     model: args.model,
     timeoutSec: args.timeoutSec,
   };
-  const { result, sync } = await runRound(ctx, spec);
-  console.log(JSON.stringify({ taskId: spec.taskId, sandbox: spec.sandbox, ...result, sync }));
+  const { result, sync, changes } = await runRound(ctx, spec);
+  console.log(JSON.stringify({ taskId: spec.taskId, sandbox: spec.sandbox, ...result, sync, changes }));
   return exitCode(result);
 }
 

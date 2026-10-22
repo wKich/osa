@@ -6,8 +6,8 @@ lives in [`oskhs/`](../oskhs/) as a Bun + TypeScript subproject and depends on
 kiss only through the task document in Mongo — not yet: this page tracks
 what exists today, slice by slice.
 
-**Today (B1.1a–B1.1b):** a round library with incremental git sync and a
-`run-round` CLI. No kiss, no Mongo.
+**Today (B1.1a–B1.2):** a round library with incremental git sync, changes
+returned as a host branch, and a `run-round` CLI. No kiss, no Mongo.
 
 ## Warm repo sandboxes
 
@@ -17,7 +17,7 @@ repo directory's basename, lowercased, `[a-z0-9-]` only). Inside it:
 | Path | What |
 |---|---|
 | `/sandbox/repo` | bare repository; delivered branches under `refs/remotes/origin/*`, tags under `refs/tags/*`; `origin` points at `/oskhs-offline`, a path that never exists |
-| `/sandbox/tasks/<task-id>` | one detached git worktree per round, removed when the round ends |
+| `/sandbox/tasks/<task-id>` | one git worktree per round on branch `task-<task-id>`, removed when the round ends |
 | `/sandbox/.oskhs/in`, `/sandbox/.oskhs/out` | transfer files (bundles); empty between rounds |
 
 ## Sync
@@ -59,8 +59,33 @@ commit 1 040 bytes.
   has no GitLab egress anyway.
 - Worktrees share one ref store. oskhs owns `refs/remotes/origin/*` and
   `refs/tags/*` (force-reset on the next sync) and, when a round's worktree
-  is removed, deletes every local branch no remaining worktree has checked
-  out, so the next task never checks out a stale copy.
+  is removed (after its changes were collected), deletes every local branch
+  no remaining worktree has checked out, so the next task never checks out
+  a stale copy.
+
+## Changes back
+
+After a round that answered, oskhs collects what the agent changed before
+removing the worktree:
+
+1. In the worktree: `git add -A` (`.gitignore` applies) and, if anything is
+   staged, one commit `oskhs: uncommitted changes from task <id>` on the
+   current HEAD. Commits the agent made itself are kept as they are. The
+   sandbox repository's identity is `Maki (oskhs) <maki@oskhs.invalid>`.
+2. `task-<id>` is pointed at the worktree's final HEAD — whatever branch the
+   agent ended on.
+3. If that differs from the base, the sandbox bundles `task-<id>` with the
+   host's own synced object ids as prerequisites; oskhs downloads it,
+   checks it (`git bundle verify`, exactly one advertised ref), and fetches
+   it with `fetch.fsckObjects` into the host repository as
+   `refs/heads/oskhs/<task-id>`. A head the host already has (the agent only
+   checked out a delivered commit) is set directly, without a bundle.
+
+Bundles carry deletions and renames, unlike `maki-oss download`, which
+merges files and would bring deleted ones back. Anything unexpected fails
+the round with stage `collect` and leaves the host's refs as they were.
+Rounds that did not answer collect nothing; `--no-changes` disables
+collection for read-only rounds.
 
 ## Running a round
 
@@ -72,7 +97,8 @@ bun oskhs/src/cli.ts run-round ~/src/myrepo "Where is the retry logic?"
 
 Options: `--model SPEC`, `--base BRANCH` (default: the local clone's current
 branch), `--branch NAME` (repeatable: the task's own branches, delivered with
-the base), `--all-branches` (every branch and tag), `--provider NAME` (repeatable; replaces `OSKHS_PROVIDERS`),
+the base), `--all-branches` (every branch and tag), `--no-changes` (discard the
+worktree's changes), `--provider NAME` (repeatable; replaces `OSKHS_PROVIDERS`),
 `--timeout SECS` (default 600, or `OSKHS_TIMEOUT`), `--gateway NAME`,
 `--task-id ID`. `OPENSHELL_BIN` and `MAKI_OSS_BIN` override the CLIs used.
 
@@ -86,15 +112,17 @@ it started end there.
 ## Results
 
 stdout carries one JSON object: `taskId`, `sandbox`, `sync` (`bundleBytes`,
-`updated`, `pruned`, `prerequisites`, `full`; absent if the round failed
-before the sync finished), and a `kind`:
+`updated`, `pruned`, `prerequisites`, `full`, `tips`; absent if the round
+failed before the sync finished), `changes` (`null`, or `branch`, `head`,
+`base`, `commits`, `bundleBytes`, and `files` with `added`, `modified`,
+`deleted`, `renamed`), and a `kind`:
 
 | kind | fields | exit |
 |---|---|---|
 | `answer` | `text`, `sessionId`, `durationMs`, `numTurns`, `usage` | 0 |
 | `agent-error` | `message`, `sessionId` — Maki reported an error (it exits 0 for provider errors) | 4 |
 | `timeout` | `seconds` | 4 |
-| `failed` | `stage` (`sandbox`, `seed`, `sync`, `worktree`, `run`, `parse`), `exitCode`, `stderr` | 3 |
+| `failed` | `stage` (`sandbox`, `seed`, `sync`, `worktree`, `run`, `parse`, `collect`), `exitCode`, `stderr` | 3 |
 
 Usage errors exit 1. Progress lines go to stderr with an `oskhs:` prefix.
 
@@ -107,4 +135,5 @@ prunes, rewinds, untrusted tips, the full-bundle fallback) are tested
 without a gateway. `oskhs/test/make-fixture.sh DIR` builds the two-branch fixture the
 live checks use; the recorded live runs are in
 `openspec/changes/archive/*-add-oskhs-round/evidence/round-live.md` and
-`openspec/changes/archive/*-add-oskhs-incremental-sync/evidence/sync-live.md`.
+`openspec/changes/archive/*-add-oskhs-incremental-sync/evidence/sync-live.md`,
+and `openspec/changes/archive/*-add-oskhs-commits-back/evidence/collect-live.md`.

@@ -39,6 +39,11 @@
     "derivedFrom": "tontinton/maki src/sdk_mode.rs @ v0.6.4 (parent_tool_use_id on assistant/user frames)",
     "note": "never captured from a live subagent turn"
   },
+  "maki-subagent-live.jsonl": {
+    "kind": "captured",
+    "derivedFrom": "bridge/test/capture-subagent.sh (maki 0.6.4 in maki-agent:local, maki-synthetic profile)",
+    "note": "live capture of one subagent turn: Task call, flagged subagent Bash call and tool_result"
+  },
   "maki-tool.jsonl": {
     "kind": "captured",
     "derivedFrom": "openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/maki-tool.jsonl (byte-identical)",

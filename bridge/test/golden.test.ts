@@ -43,6 +43,10 @@ const FIXTURES = [
   // OpenCode-style child-session separation (add-subagent-nesting-coverage,
   // design decision 1)
   "maki-subagent",
+  // live counterpart (add-live-subagent-capture): one real Maki subagent turn
+  // captured through bridge/test/capture-subagent.sh — the authored fixture
+  // stays for the edges a single run does not reproduce
+  "maki-subagent-live",
 ];
 
 for (const name of FIXTURES) {

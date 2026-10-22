@@ -49,7 +49,7 @@ kiss repo survey (same date).
 
 ## Milestones
 
-### M0 — De-risking spikes (no shipped code) — ½+½ sessions, both tracks
+### M0 — De-risking spikes (no shipped code) — ½ (A) + ½–1 (B) sessions
 
 - **P0** — Answer two unknowns inside one container: (a) does `maki --resume`
   survive a cwd mismatch or absence (session header records absolute cwd);
@@ -58,10 +58,13 @@ kiss repo survey (same date).
 - **K0** — Verify kiss's swap points with its existing mocks: the
   `createAgentModelRuntime` factory (currently ignores its `runtime` arg) and
   the concrete `DockerAgentRunner` injection into `KissHostService`; run the
-  claim CAS against a dev Mongo from a second process.
+  claim CAS against a dev Mongo from a second process. Prove the host/sandbox
+  split (see M5): a host-side `TaskExecutor` drives an agent process inside
+  a sandbox via `exec`, with no Mongo connectivity from the sandbox.
 
 **Exit:** written answers for (a)/(b); M2 attach model chosen or rejected;
-factory swap proven. P5 sizing depends on P0a; M3 honesty depends on it.
+factory swap proven; host/sandbox split shape chosen. P5 sizing depends on
+P0a; M3 honesty depends on it.
 
 ### M1 — Multi-gateway foundation (W1) — 1½ sessions
 
@@ -121,19 +124,33 @@ with `--continue` each time, caveats printed by the command itself.
 **Exit:** G1 + G2 demonstrably done; a new user performs the full flow from
 docs alone.
 
-### M5 — oskhs prototype, dev stand (W3) — 1 session
+### M5 — oskhs prototype, dev stand (W3) — 2–3 sessions
+
+A drop-in runner swap is not enough. `DockerAgentRunner` boots the kiss image
+with `MONGO_CONNECTION_STRING` in its env; the in-container task process
+loads every other secret from `SecretStore` and runs Pi in-process. Running
+that image in a sandbox puts the database URI inside it (violates G5), and
+provider-profile placeholder substitution cannot protect it — Mongo's wire
+protocol is not HTTP. The task process must therefore stay host-side.
 
 - **K1** — `OpenShellAgentRunner` implementing kiss's de-facto runner surface
   (`healthCheck`, `getRunningCount`, `getMaxConcurrent`, `runTask`,
   `inspectTask`, `cleanup`): per-task sandbox named `kiss-task-<id>`,
   clone-from-git (no bind mounts — `GIT_CACHE_DIR`/`/logs` mounts do not
   exist here), restricted-network tasks refused fail-closed. `KissHostService`
-  already accepts a runner by constructor.
+  already accepts a runner by constructor. `runTask` starts a host-side
+  `TaskExecutor` (holds Mongo, secrets, MCP) and a sandbox that holds only
+  the agent and the project clone; the executor reaches the agent through
+  `sandbox exec`/upload/download.
 
 **Exit:** a dev-stand kiss task executes end-to-end in a sandbox on a local
-gateway; prod untouched; reply lands in Mongo as with the docker runner.
+gateway; the sandbox has no Mongo URI and no egress to Mongo; prod
+untouched; reply lands in Mongo as with the docker runner.
 
-### M6 — maki as a kiss runtime (W4) — 1–2 sessions
+### M6 — maki as a kiss runtime (W4) — 2–3 sessions
+
+M5 and M6 are one design: once the agent runs in the sandbox and the
+executor on the host, the runner and the runtime are designed together.
 
 - **K2** — `MakiService implements IAgentModelRuntime` with its own
   `runtime: 'maki'` + formatVersion (never masquerade as Pi; the session
@@ -142,12 +159,19 @@ gateway; prod untouched; reply lands in Mongo as with the docker runner.
   GridFS tar; `restoreSession` = download + import; idle-stop honors
   `idleTtlMs`; between rounds the orchestrator drives `AgentSubTask` input
   exactly as today.
+- Size drivers: the interface has 14 members, including `fork` (self-review),
+  `switchModelProvider`, `ensureSkills`, MCP servers, and `getPerfMetrics`
+  (reference: `PiService` is ~1.4k lines); `'pi'` is hardcoded in
+  `resolveAgentSessionInfo` and in the `AgentTask` session schema enum; the
+  factory ignores its `runtime` argument.
+- Depends on P5 (M3, Track A) for the export format. If M3 lags, start with a
+  minimal Maki-state tar and converge on P5 later.
 
 **Exit:** a Mattermost thread drives multi-round maki work in a persistent
 sandbox; container loss recovers the conversation from GridFS; M3 transfer
 serves as the disaster-recovery story.
 
-### M7 — Affinity and production shape (W3+W4) — 1–1½ sessions
+### M7 — Affinity and production shape (W3+W4) — 1½–2 sessions
 
 - **K3** — Claim affinity: extend `claimTask` with an optional runner
   selector (project/channel → gateway tag) and a heartbeat registry doc,
@@ -155,12 +179,13 @@ serves as the disaster-recovery story.
   exists, an oskhs poller competes for *every* queued task — dev stand only.
 - **K4** — Deployment: cloud-side adapter holding the Mongo URI, registered
   to the home OpenShell gateway with `--remote` (mTLS or Tailscale); secrets
-  only via kiss's `SecretStore`; docs.
+  only via kiss's `SecretStore`; docs. K3 is cheap (the `NetworkProxyInstance`
+  model is ~40 lines); K4 is the bulk.
 
 **Exit:** a named channel's tasks route to a chosen gateway; prod Mongo never
 reachable from home networks; G3 demonstrably done.
 
-### M8 — Additional coding agents (W5 + W4 generalization) — 2 sessions, splittable
+### M8 — Additional coding agents (W5 + W4 generalization) — 2 sessions, splittable (~1 + ~1)
 
 - **M8a — maki-oss side:** an agent manifest (state dir, launch flags,
   resume flags) so attach/export/transfer work beyond maki; image variants
@@ -182,10 +207,24 @@ and one runs rounds through oskhs; G4 demonstrably done.
 Track A (maki-oss):  M0a ─► M1 ─► M2 ─► M3 ─► M4 ─► (M8a)
 Track B (kiss):      M0b ─► M5 ─► M6 ─► M7 ─► (M8b)
 Cross:              M1 ─► M5 (runner uses gateway selection)
+                    M3 ┄► M6  (soft: saveSession reuses the P5 export format)
                     M3 + M6 ─► M8  (export format + runtime factory are its inputs)
 ```
 
-Track A and Track B run in parallel; neither blocks the other until M8.
+Track A and Track B run in parallel. Exception: M6's `saveSession` builds on
+P5 (M3), so M3 ─► M6 is a soft dependency (M6 can start with its own
+minimal tar). Otherwise neither blocks the other until M8.
+
+Track B sizing (revised 2026-10-22 after a kiss code read): M0b ½–1, M5 2–3,
+M6 2–3, M7 1½–2, M8b ~1 — about 7–9½ sessions, up from 3½–5. The increase is
+almost entirely the host/sandbox split forced by Mongo credentials (M5).
+
+**Code location.** Track B starts as a subproject in this repository for the
+dev-stand prototype (M5–M6), depending on kiss through a path/git dependency
+(kiss is not a published package). It reaches into kiss internals
+(`KissHostService`, `AgentTask`, `IAgentModelRuntime`, `TaskExecutor`), so
+it breaks when those change; before M7 the runner and runtime are expected to
+move into the kiss repo.
 Fastest path to the original work→home question: M0a → M1 → M3 (attach, M2,
 can slip behind transfer if needed — transfer does not depend on it).
 
@@ -205,6 +244,11 @@ can slip behind transfer if needed — transfer does not depend on it).
 
 - Gateway host must be always-on (laptop lid kills everything else).
 - Claim CAS has no host filter before K3: never point a prototype at prod.
+- The kiss task image expects a Mongo URI in its env; any shortcut that runs
+  it unchanged in a sandbox leaks database credentials. Not allowed even on
+  the dev stand.
+- A Track B subproject here tracks unpublished kiss internals; drift breaks
+  it until it moves into kiss.
 - Merge-only transfer never propagates deletions — documented, accepted.
 - Session archives older than kiss's 30-day purge are not durable history;
   Maki's own state in the sandbox plus P5 export are the long-lived copies.

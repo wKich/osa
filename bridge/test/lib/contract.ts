@@ -91,11 +91,12 @@ export interface WireCheck {
   frames: Record<string, any>[];
 }
 
-/** raw SSE bytes: every line a bare `data:` frame, first frame server.connected */
+/** raw SSE bytes: `data:` frames plus the `:` comments the wire carries
+ * (heartbeat keepalives — mapping-table.md §0), first frame server.connected */
 export function checkRawSse(raw: string): WireCheck {
   const failures: string[] = [];
   const lines = raw.split("\n").filter((l) => l.length);
-  const bad = lines.filter((l) => !l.startsWith("data: "));
+  const bad = lines.filter((l) => !l.startsWith("data: ") && !l.startsWith(":"));
   if (bad.length) failures.push(`non-data SSE lines: ${JSON.stringify(bad.slice(0, 3))}`);
   const frames: Record<string, any>[] = [];
   for (const l of lines) {

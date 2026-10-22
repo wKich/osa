@@ -48,7 +48,9 @@ describe("live bridge", () => {
   let bridge: BridgeHandle;
 
   beforeAll(async () => {
-    bridge = await startBridge();
+    // a short keepalive interval so the idle-gap test observes one heartbeat
+    // without waiting out the production 15s
+    bridge = await startBridge({ SSE_HEARTBEAT_MS: "300" });
   });
   afterAll(async () => {
     await bridge?.stop();
@@ -86,6 +88,25 @@ describe("live bridge", () => {
     expect(wire.failures).toEqual([]);
     expect(wire.frames[0]?.type).toBe("server.connected");
     expect(checkIdPatterns(bridge.frames)).toEqual([]);
+
+    // the announcement invalidates the TUI's boot-time model list, and the
+    // refetched list must name the announced model (its submit gate checks it)
+    expect(bridge.frames.some((f) => f.type === "model.updated")).toBe(true);
+    const models = (await (await fetch(`${bridge.base}/api/model`)).json()).data;
+    expect(models.some((m: any) => m.providerID === "synthetic" && m.id === "fake")).toBe(true);
+  });
+
+  // without a comment the client aborts after 45 silent seconds and re-boots
+  // (defect tui-sse-idle-reconnect-drops-next-turn)
+  test("an idle stream keeps sending heartbeat comments", async () => {
+    const heartbeats = () => (bridge.rawSse().match(/: heartbeat/g) ?? []).length;
+    const before = heartbeats();
+    expect(await waitFor(() => heartbeats() > before, 5_000)).toBe(true);
+    // comments are comments: they keep the link alive without becoming frames
+    const wire = checkRawSse(bridge.rawSse());
+    expect(wire.failures).toEqual([]);
+    expect(wire.frames[0]?.type).toBe("server.connected");
+    expect(bridge.frames[0]?.type).toBe("server.connected");
   });
 
   test("every logged live body validates; no unhandled route", () => {

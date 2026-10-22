@@ -18,5 +18,11 @@
       "fixture": "maki-plain",
       "want": "golden/want-synthesized-model-name.json"
     }
+  },
+  {
+    "id": "tui-sse-idle-reconnect-drops-next-turn",
+    "title": "GET /api/event sends nothing during an idle gap, so the TUI auto-reconnects and re-boots, dropping the composer's next submit (permission turn never posts)",
+    "status": "fixed",
+    "capture": "bridge/test/captures/defect-tui-sse-idle-reconnect-drops-next-turn.jsonl"
   }
 ]

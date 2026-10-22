@@ -41,6 +41,7 @@
   "features": [
     { "id": "sse-handshake", "title": "SSE stream starts with server.connected", "status": "verified", "evidence": "bridge/test/contract.test.ts" },
     { "id": "sse-bare-data-frames", "title": "SSE frames are bare data: lines (no event:/id: lines)", "status": "verified", "evidence": "bridge/test/contract.test.ts" },
+    { "id": "sse-idle-keepalive", "title": "SSE stream survives idle gaps: the TUI does not auto-reconnect mid-session", "status": "verified", "evidence": "bridge/test/contract.test.ts", "defect": "tui-sse-idle-reconnect-drops-next-turn" },
     { "id": "minted-id-patterns", "title": "Minted ids match the OpenCode patterns (evt_/ses_/msg_/per_)", "status": "verified", "evidence": "bridge/test/contract.test.ts" },
     { "id": "durable-envelope", "title": "Durable events carry a complete durable envelope keyed to the session", "status": "verified", "evidence": "bridge/test/contract.test.ts" },
     { "id": "openapi-contract", "title": "Response bodies validate against the vendored OpenAPI 2.0.32", "status": "verified", "evidence": "bridge/test/contract.test.ts" },
@@ -52,6 +53,7 @@
     { "id": "stream-deltas", "title": "stream_event deltas translate into part delta frames", "status": "unverified", "evidence": "openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/e2e-note.md" },
     { "id": "transcript-order", "title": "User prompts render before the assistant output they caused", "status": "verified", "evidence": "bridge/test/golden.test.ts", "defect": "message-order-inversion" },
     { "id": "model-identity", "title": "Session events carry Maki's real model name", "status": "verified", "evidence": "bridge/test/golden.test.ts", "defect": "synthesized-model-name" },
+    { "id": "model-list-refresh", "title": "The location model list refreshes when the child announces, so its model stays selectable", "status": "verified", "evidence": "bridge/test/contract.test.ts" },
     { "id": "api-retry-tolerance", "title": "System api_retry frames are tolerated without disturbing the transcript", "status": "verified", "evidence": "bridge/test/golden.test.ts" },
     { "id": "interrupt-round-trip", "title": "Interrupt round trip via control_cancel_request and the interrupt route", "status": "unverified", "evidence": "openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md" },
     { "id": "mid-session-model-switch", "title": "Mid-session model switch forwards set_model / the model POST route", "status": "unverified", "evidence": "openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md" },

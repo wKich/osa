@@ -13,6 +13,7 @@
 //   OPENMAKI_SANDBOX=<name>    project sandbox (required unless MAKI_CHILD_CMD)
 //   BRIDGE_LOG=<file.jsonl>    request/response log (optional, redacted)
 //   BRIDGE_SSE_LOG=<file>      emitted SSE frames (optional, redacted)
+//   SSE_HEARTBEAT_MS=<ms>      idle-keepalive comment interval (default 15000)
 //
 // The helper sets these (bin/maki-oss OpenCode mode) and attaches the TUI with
 // `opencode --server http://127.0.0.1:$PORT`.
@@ -55,6 +56,13 @@ interface BridgeSession {
 const sessions = new Map<string, BridgeSession>();
 
 // ---------- SSE fan-out (design decision 4: bare `data:` frames) ----------
+// Idle keepalive: the client aborts an event stream it has heard nothing
+// from for 45s ("Event stream stalled", opencode 2.0.32) and re-boots on the
+// reconnect, so each stream sends the real server's `: heartbeat` comment well
+// inside that window (evidence: mapping-table.md §0, defect
+// tui-sse-idle-reconnect-drops-next-turn)
+const HEARTBEAT_MS = Number(process.env.SSE_HEARTBEAT_MS) || 15_000;
+const HEARTBEAT = ": heartbeat\n\n";
 const subscribers = new Set<ReadableStreamDefaultController<Uint8Array>>();
 const seenFrames: { id: string; event: string; data: AnyObj }[] = [];
 let durableSeq = 0;
@@ -88,7 +96,9 @@ function openEventStream(): Response {
     appendFileSync(SSE_LOG, JSON.stringify({ ts: new Date().toISOString(), id: connected.id, event: "server.connected", data: connected }) + "\n");
   }
   const enc = new TextEncoder();
+  const beat = enc.encode(HEARTBEAT);
   let ctrl: ReadableStreamDefaultController<Uint8Array> | undefined;
+  let hb: ReturnType<typeof setInterval> | undefined;
   const stream = new ReadableStream<Uint8Array>({
     start(c) {
       ctrl = c;
@@ -98,8 +108,11 @@ function openEventStream(): Response {
       c.enqueue(enc.encode(`data: ${JSON.stringify(connected)}\n\n`));
       const replay = seenFrames.map((f) => `data: ${JSON.stringify(f.data)}\n\n`).join("");
       if (replay) c.enqueue(enc.encode(replay));
+      hb = setInterval(() => {
+        try { c.enqueue(beat); } catch { clearInterval(hb!); subscribers.delete(c); }
+      }, HEARTBEAT_MS);
     },
-    cancel() { if (ctrl) subscribers.delete(ctrl); },
+    cancel() { if (hb) clearInterval(hb); if (ctrl) subscribers.delete(ctrl); },
   });
   return new Response(stream, { headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } });
 }
@@ -181,6 +194,10 @@ function createSession(body: AnyObj): { status: number; payload: any } {
     model: () => s.model,
     onInit: (info) => {
       s.makiSessionID = info.sessionID;
+      // the TUI read the model list at boot, before this child existed, and
+      // gates the composer on the selected model being in that list — so the
+      // announcement has to invalidate it or every later submit is refused
+      emit("model.updated", { sessionID: id });
       // design decision 5: the helper-supplied sandbox workdir is canonical
       // and maki's own cwd confirms it; a drift means the transport and the
       // helper disagree and every location answer would be wrong

@@ -1,18 +1,27 @@
 #!/usr/bin/env bun
-// oskhs CLI. Today: `run-round <repo> "<prompt>"` (roadmap B1.1a).
+// oskhs CLI: `run-round <repo> "<prompt>"` (B1.1–B1.2) and `worker`, the kiss
+// queue worker (B1.3b).
+import { hostname } from "node:os";
 import { resolve } from "node:path";
+import { MongoTaskStore } from "./kiss/store.ts";
+import { defaultLogDir, fileTaskLog } from "./tasklog.ts";
+import { echoRound, Worker, type WorkerOptions } from "./worker.ts";
 import { spawnRunner, type Runner } from "./exec.ts";
 import { newTaskId, projectName, sandboxName } from "./names.ts";
 import type { Ctx } from "./openshell.ts";
 import type { RoundResult } from "./result.ts";
 import { runRound, type RoundSpec } from "./round.ts";
 
-const USAGE = `usage: oskhs run-round <repo> "<prompt>" [--model SPEC] [--base BRANCH]
+const USAGE = `usage: oskhs worker [--once] [--max-rounds N] [--max-per-project N]
+         [--round-timeout SECS] [--heartbeat-sec SECS] [--cancel-poll-sec SECS]
+         [--poll-sec SECS] [--fake-delay SECS] [--log-dir DIR]
+       oskhs run-round <repo> "<prompt>" [--model SPEC] [--base BRANCH]
          [--branch NAME]... [--all-branches] [--no-changes] [--provider NAME]...
          [--timeout SECS] [--gateway NAME] [--task-id ID]
 
-Environment: OSKHS_PROVIDERS (comma-separated), OSKHS_MODEL, OSKHS_TIMEOUT,
-OPENSHELL_BIN, MAKI_OSS_BIN.`;
+Environment: OSKHS_MONGO_URI (worker, required), OSKHS_HOST_ID (worker),
+OSKHS_PROVIDERS (comma-separated), OSKHS_MODEL, OSKHS_TIMEOUT, OPENSHELL_BIN,
+MAKI_OSS_BIN.`;
 
 export class UsageError extends Error {}
 
@@ -81,8 +90,99 @@ async function currentBranch(run: Runner, repo: string): Promise<string> {
   return out.stdout.trim();
 }
 
+export interface WorkerArgs {
+  once: boolean;
+  pollSec: number;
+  fakeDelaySec: number;
+  logDir: string;
+  options: Omit<WorkerOptions, "log" | "info">;
+}
+
+const WORKER_NUMBERS: Record<string, [keyof WorkerArgs["options"] | "pollSec" | "fakeDelaySec", number]> = {
+  "--max-rounds": ["maxRounds", 2],
+  "--max-per-project": ["maxPerProject", 1],
+  "--round-timeout": ["roundTimeoutSec", 600],
+  "--heartbeat-sec": ["heartbeatSec", 20],
+  "--cancel-poll-sec": ["cancelPollSec", 3],
+  "--poll-sec": ["pollSec", 2],
+  "--fake-delay": ["fakeDelaySec", 0],
+};
+
+export function parseWorker(argv: string[], env: Record<string, string | undefined> = process.env): WorkerArgs {
+  const values: Record<string, number> = Object.fromEntries(Object.values(WORKER_NUMBERS));
+  let once = false;
+  let logDir = defaultLogDir(env);
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i]!;
+    if (a === "--once") {
+      once = true;
+      continue;
+    }
+    const v = argv[++i];
+    if (v === undefined) throw new UsageError(`option ${a} requires a value`);
+    if (a === "--log-dir") logDir = v;
+    else if (WORKER_NUMBERS[a]) {
+      const n = Number(v);
+      const [key] = WORKER_NUMBERS[a]!;
+      if (!Number.isFinite(n) || n < 0 || (n === 0 && key !== "fakeDelaySec")) throw new UsageError(`${a} must be a positive number, got '${v}'`);
+      values[key] = n;
+    } else throw new UsageError(`unknown option: ${a}`);
+  }
+  if (values.heartbeatSec! >= 300) throw new UsageError("--heartbeat-sec must stay well inside kiss's 10-minute dead-runtime timeout");
+  const { pollSec, fakeDelaySec, ...rest } = values;
+  return {
+    once,
+    pollSec: pollSec!,
+    fakeDelaySec: fakeDelaySec!,
+    logDir,
+    options: { hostId: env.OSKHS_HOST_ID || `oskhs-${hostname()}`, ...(rest as Omit<WorkerArgs["options"], "hostId">) },
+  };
+}
+
+async function runWorker(rest: string[]): Promise<number> {
+  let args: WorkerArgs;
+  try {
+    args = parseWorker(rest);
+  } catch (err) {
+    if (err instanceof UsageError) return console.error(`oskhs: ${err.message}\n${USAGE}`), 1;
+    throw err;
+  }
+  const uri = process.env.OSKHS_MONGO_URI;
+  if (!uri) return console.error("oskhs: OSKHS_MONGO_URI is not set"), 2;
+  const store = await MongoTaskStore.connect(uri);
+  const info = (msg: string) => console.error(`oskhs: ${msg}`);
+  const worker = new Worker(store, echoRound(args.fakeDelaySec), { ...args.options, log: fileTaskLog(args.logDir), info });
+  let stopping = false;
+  const stop = async () => {
+    if (stopping) return;
+    stopping = true;
+    info("shutting down: aborting rounds and requeuing their tasks");
+    await worker.shutdown();
+    await store.close();
+    process.exit(0);
+  };
+  process.on("SIGINT", stop);
+  process.on("SIGTERM", stop);
+  info(`worker ${args.options.hostId} started (rounds ≤ ${args.options.maxRounds}, per project ≤ ${args.options.maxPerProject}, logs in ${args.logDir})`);
+  await worker.recover();
+  for (;;) {
+    if (stopping) return 0;
+    let claimed = false;
+    try {
+      claimed = await worker.tick();
+    } catch (err) {
+      info(`claim failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (args.once && !claimed && worker.running === 0) break;
+    if (!claimed) await Bun.sleep(args.pollSec * 1000);
+  }
+  await store.close();
+  return 0;
+}
+
 export async function main(argv: string[]): Promise<number> {
   const [cmd, ...rest] = argv;
+  if (cmd === "worker") return runWorker(rest);
   if (cmd !== "run-round") {
     console.error(cmd && cmd !== "help" && cmd !== "--help" ? `unknown command: ${cmd}\n${USAGE}` : USAGE);
     return cmd === "help" || cmd === "--help" ? 0 : 1;

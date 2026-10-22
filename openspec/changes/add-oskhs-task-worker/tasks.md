@@ -18,15 +18,15 @@
 
 ## 2. Worker
 
-- [ ] 2.1 `oskhs/src/worker.ts`: claim loop with caps, per-task flow
+- [x] 2.1 `oskhs/src/worker.ts`: claim loop with caps, per-task flow
       (refuse / first round / sub-tasks / idle), heartbeat + cancel watch with
       `AbortSignal`, round timeout, graceful shutdown; `echoRound`; verify
       with an in-memory store fake: answer, follow-up, unsupported sub-task,
       restricted refusal, cancel mid-round, timeout, project cap
-- [ ] 2.2 Restart recovery and `oskhs/src/tasklog.ts`; verify unit tests for
+- [x] 2.2 Restart recovery and `oskhs/src/tasklog.ts`; verify unit tests for
       requeue, close-after-losses, sub-task reset, and log contents (no
       credential-looking strings)
-- [ ] 2.3 CLI `oskhs worker [--once] [--max-rounds N] [--max-per-project N]
+- [x] 2.3 CLI `oskhs worker [--once] [--max-rounds N] [--max-per-project N]
       [--round-timeout S] [--heartbeat-sec S] [--cancel-poll-sec S]
       [--fake-delay S]`; verify `make test-oskhs`, `bunx tsc --noEmit -p oskhs`
 

@@ -1315,6 +1315,9 @@ cmd_run() {
         '') ;;
         *[!0-9]*|0*) die_usage "--timeout must be a positive number of seconds, got '$run_timeout'" ;;
     esac
+    case ${MAKI_OSS_RUN_TAG:-} in
+        *[!A-Za-z0-9._-]*) die_usage "MAKI_OSS_RUN_TAG may only contain letters, digits, '.', '_', and '-'" ;;
+    esac
     require_openshell
     # Ensure messages go to stderr so stdout carries only Maki's output.
     ensure_project_sandbox >&2
@@ -1334,7 +1337,9 @@ cmd_run() {
     # the run's tag is killed afterwards. The tag is not a secret and is
     # exported inside the sandbox, never passed with --env.
     if [ -n "$run_timeout" ]; then
-        run_tag=maki-oss-$$-$(date +%s)
+        # A caller may choose the tag (MAKI_OSS_RUN_TAG) to stop the run
+        # itself later, by killing the tagged processes in the sandbox.
+        run_tag=${MAKI_OSS_RUN_TAG:-maki-oss-$$-$(date +%s)}
         set -- sh -c "$RUN_TIMEOUT_WRAPPER" maki-oss-run "$run_tag" "$run_timeout" "$@"
     fi
     if [ -n "$model" ]; then

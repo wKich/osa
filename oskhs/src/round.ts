@@ -32,6 +32,7 @@ export interface RoundSpec {
   timeoutSec: number;
   collect: boolean; // false for read-only rounds: changes are discarded
   agentsMd?: string; // workspace-root index; default lists the repositories
+  signal?: AbortSignal; // stops Maki in the sandbox (by its run tag) and the round
 }
 
 export interface RepoOutcome {
@@ -72,6 +73,15 @@ rm -rf "$ws"`;
 
 const WRITE_FILE = `mkdir -p "$1" && cat > "$1/$2"`;
 
+// $1 run tag. Kills every sandbox process that inherited it (maki-oss run
+// exports it around Maki); the same sweep maki-oss does after its timeout.
+const KILL_TAGGED = `for d in /proc/[0-9]*; do
+    if grep -qzx "MAKI_OSS_RUN_TAG=$1" "$d/environ" 2>/dev/null; then kill -KILL "\${d#/proc/}" 2>/dev/null; fi
+done
+true`;
+
+export const runTag = (taskId: string) => `oskhs-${taskId}`;
+
 export function defaultAgentsMd(repos: RepoSpec[]): string {
   const lines = ["# Workspace repositories", "", "Each repository is a git worktree in its own subdirectory.", ""];
   for (const r of repos) lines.push(`- \`${r.key}/\` — base branch \`${r.base}\``);
@@ -94,17 +104,24 @@ export async function runMaki(ctx: Ctx, spec: RoundSpec, workdir: string): Promi
   const argv = [ctx.makiOss, "run", "--no-sync", "--timeout", String(spec.timeoutSec)];
   if (spec.model) argv.push("--model", spec.model);
   argv.push("--", spec.prompt);
-  const env: Record<string, string> = { MAKI_OSS_SANDBOX_NAME: spec.sandbox, MAKI_OSS_WORKDIR: workdir };
+  const tag = runTag(spec.taskId);
+  const env: Record<string, string> = { MAKI_OSS_SANDBOX_NAME: spec.sandbox, MAKI_OSS_WORKDIR: workdir, MAKI_OSS_RUN_TAG: tag };
   if (spec.providers.length) env.MAKI_OSS_PROVIDERS = spec.providers.join(",");
   if (ctx.gateway) env.MAKI_OSS_GATEWAY = ctx.gateway;
   // An empty cwd: if the sandbox vanished mid-round, maki-oss would recreate
   // it and upload its cwd — an empty directory fails that upload instead of
   // shipping whatever directory oskhs happens to run in.
   const cwd = await mkdtemp(join(tmpdir(), "oskhs-run-"));
+  // Killing the exec client leaves Maki running in the sandbox (OpenShell
+  // 0.1.5), so an abort stops it there by its tag; the client then returns.
+  const stop = () => void sandboxSh(ctx, spec.sandbox, KILL_TAGGED, [tag]);
+  spec.signal?.addEventListener("abort", stop, { once: true });
   try {
     const out = await ctx.run(argv, { env, cwd, timeoutMs: (spec.timeoutSec + BACKSTOP_SEC) * 1000 });
+    if (spec.signal?.aborted) return { kind: "failed", stage: "run", exitCode: out.code, stderr: "aborted" };
     return interpretRun(out, spec.timeoutSec);
   } finally {
+    spec.signal?.removeEventListener("abort", stop);
     await rm(cwd, { recursive: true, force: true });
   }
 }
@@ -127,6 +144,7 @@ export async function runRound(ctx: Ctx, spec: RoundSpec): Promise<RoundOutcome>
     const index = await sandboxSh(ctx, spec.sandbox, WRITE_FILE, [workdir, "AGENTS.md"], { stdin: spec.agentsMd ?? defaultAgentsMd(spec.repos) });
     if (index.code !== 0) throw new StageError("worktree", index.code, tail(index.stderr));
     ctx.log(`round ${spec.taskId} in ${spec.sandbox}:${workdir} (${keys.join(", ")})`);
+    if (spec.signal?.aborted) return { result: { kind: "failed", stage: "run", exitCode: 0, stderr: "aborted" }, repos };
     const result = await runMaki(ctx, spec, workdir);
     if (result.kind !== "answer" || !spec.collect) return { result, repos };
     // collected before the worktrees (and their branches) are removed

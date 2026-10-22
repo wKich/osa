@@ -5,21 +5,25 @@ import { hostname } from "node:os";
 import { resolve } from "node:path";
 import { MongoTaskStore } from "./kiss/store.ts";
 import { defaultLogDir, fileTaskLog } from "./tasklog.ts";
-import { echoRound, Worker, type WorkerOptions } from "./worker.ts";
+import { echoRound, Worker, type Round, type WorkerOptions } from "./worker.ts";
+import { sandboxRound } from "./kiss/sandboxRound.ts";
 import { spawnRunner, type Runner } from "./exec.ts";
 import { newTaskId, projectName, sandboxName } from "./names.ts";
 import type { Ctx } from "./openshell.ts";
 import type { RoundResult } from "./result.ts";
 import { runRound, type RoundSpec } from "./round.ts";
 
-const USAGE = `usage: oskhs worker [--once] [--max-rounds N] [--max-per-project N]
-         [--round-timeout SECS] [--heartbeat-sec SECS] [--cancel-poll-sec SECS]
-         [--poll-sec SECS] [--fake-delay SECS] [--log-dir DIR]
+const USAGE = `usage: oskhs worker [--round sandbox|echo] [--mirror-dir DIR] [--model SPEC]
+         [--provider NAME]... [--gateway NAME] [--agent-name NAME] [--once]
+         [--max-rounds N] [--max-per-project N] [--round-timeout SECS]
+         [--heartbeat-sec SECS] [--cancel-poll-sec SECS] [--poll-sec SECS]
+         [--fake-delay SECS] [--log-dir DIR]
        oskhs run-round <repo> "<prompt>" [--model SPEC] [--base BRANCH]
          [--branch NAME]... [--all-branches] [--no-changes] [--provider NAME]...
          [--timeout SECS] [--gateway NAME] [--task-id ID]
 
 Environment: OSKHS_MONGO_URI (worker, required), OSKHS_HOST_ID (worker),
+OSKHS_MIRROR_DIR (worker),
 OSKHS_PROVIDERS (comma-separated), OSKHS_MODEL, OSKHS_TIMEOUT, OPENSHELL_BIN,
 MAKI_OSS_BIN.`;
 
@@ -91,6 +95,12 @@ async function currentBranch(run: Runner, repo: string): Promise<string> {
 }
 
 export interface WorkerArgs {
+  round: "sandbox" | "echo";
+  mirrorDir?: string;
+  model?: string;
+  providers: string[];
+  gateway?: string;
+  agentName: string;
   once: boolean;
   pollSec: number;
   fakeDelaySec: number;
@@ -112,6 +122,10 @@ export function parseWorker(argv: string[], env: Record<string, string | undefin
   const values: Record<string, number> = Object.fromEntries(Object.values(WORKER_NUMBERS));
   let once = false;
   let logDir = defaultLogDir(env);
+  let round: WorkerArgs["round"] = "sandbox";
+  const providers: string[] = [];
+  const text: Record<string, string | undefined> = { mirrorDir: env.OSKHS_MIRROR_DIR, model: env.OSKHS_MODEL, agentName: "kiss" };
+  const TEXT: Record<string, string> = { "--mirror-dir": "mirrorDir", "--model": "model", "--gateway": "gateway", "--agent-name": "agentName" };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a === "--once") {
@@ -121,6 +135,11 @@ export function parseWorker(argv: string[], env: Record<string, string | undefin
     const v = argv[++i];
     if (v === undefined) throw new UsageError(`option ${a} requires a value`);
     if (a === "--log-dir") logDir = v;
+    else if (a === "--round") {
+      if (v !== "sandbox" && v !== "echo") throw new UsageError(`--round must be sandbox or echo, got '${v}'`);
+      round = v;
+    } else if (a === "--provider") providers.push(v);
+    else if (TEXT[a]) text[TEXT[a]!] = v;
     else if (WORKER_NUMBERS[a]) {
       const n = Number(v);
       const [key] = WORKER_NUMBERS[a]!;
@@ -129,8 +148,16 @@ export function parseWorker(argv: string[], env: Record<string, string | undefin
     } else throw new UsageError(`unknown option: ${a}`);
   }
   if (values.heartbeatSec! >= 300) throw new UsageError("--heartbeat-sec must stay well inside kiss's 10-minute dead-runtime timeout");
+  if (round === "sandbox" && !text.mirrorDir) throw new UsageError("--round sandbox needs --mirror-dir (or OSKHS_MIRROR_DIR)");
   const { pollSec, fakeDelaySec, ...rest } = values;
+  const fromEnv = (env.OSKHS_PROVIDERS ?? "").split(",").map((x) => x.trim()).filter(Boolean);
   return {
+    round,
+    mirrorDir: text.mirrorDir,
+    model: text.model,
+    providers: providers.length ? providers : fromEnv,
+    gateway: text.gateway,
+    agentName: text.agentName!,
     once,
     pollSec: pollSec!,
     fakeDelaySec: fakeDelaySec!,
@@ -151,7 +178,19 @@ async function runWorker(rest: string[]): Promise<number> {
   if (!uri) return console.error("oskhs: OSKHS_MONGO_URI is not set"), 2;
   const store = await MongoTaskStore.connect(uri);
   const info = (msg: string) => console.error(`oskhs: ${msg}`);
-  const worker = new Worker(store, echoRound(args.fakeDelaySec), { ...args.options, log: fileTaskLog(args.logDir), info });
+  const repoRoot = resolve(import.meta.dir, "../..");
+  const ctx: Ctx = {
+    run: spawnRunner,
+    openshell: process.env.OPENSHELL_BIN ?? "openshell",
+    makiOss: process.env.MAKI_OSS_BIN ?? `${repoRoot}/bin/maki-oss`,
+    gateway: args.gateway,
+    log: info,
+  };
+  const round: Round =
+    args.round === "echo"
+      ? echoRound(args.fakeDelaySec)
+      : sandboxRound({ ctx, mirrorDir: resolve(args.mirrorDir!), providers: args.providers, model: args.model, agentName: args.agentName });
+  const worker = new Worker(store, round, { ...args.options, log: fileTaskLog(args.logDir), info });
   let stopping = false;
   const stop = async () => {
     if (stopping) return;
@@ -163,7 +202,7 @@ async function runWorker(rest: string[]): Promise<number> {
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
-  info(`worker ${args.options.hostId} started (rounds ≤ ${args.options.maxRounds}, per project ≤ ${args.options.maxPerProject}, logs in ${args.logDir})`);
+  info(`worker ${args.options.hostId} started (${args.round} round, rounds ≤ ${args.options.maxRounds}, per project ≤ ${args.options.maxPerProject}, logs in ${args.logDir})`);
   await worker.recover();
   for (;;) {
     if (stopping) return 0;

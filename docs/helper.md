@@ -245,6 +245,9 @@ gateway's own `sandbox exec --timeout`, and killing the local client, both
 return early while the remote process keeps running (measured on OpenShell
 0.1.5), which is why the helper does not rely on them. The value must be a
 positive integer; anything else is a usage error before any gateway call.
+`MAKI_OSS_RUN_TAG` sets the tag the wrapper exports (letters, digits, `.`,
+`_`, `-`), so a caller can stop the run early by killing every sandbox
+process whose environment carries it (oskhs does this on a cancel).
 
 ### upload / download
 

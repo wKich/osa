@@ -25,13 +25,19 @@ export interface SubTaskDoc {
 
 export type HeartbeatOutcome = "updated" | "stopped" | "cancelled";
 
+export interface ProjectDoc {
+  _id: unknown;
+  title?: string | null;
+  networkRestrictionProfileId?: unknown;
+}
+
 export interface TaskStore {
   claim(hostId: string, saturatedProjects: unknown[]): Promise<TaskDoc | null>;
   heartbeat(taskId: string): Promise<HeartbeatOutcome>;
   isCancelling(taskId: string): Promise<boolean>;
   /** Applies `update` when `filter` matches; true if it did. */
   updateTask(filter: p.Doc, update: p.Update): Promise<boolean>;
-  restriction(projectId: unknown): Promise<unknown>;
+  project(projectId: unknown): Promise<ProjectDoc | null>;
   claimSubTask(taskId: string): Promise<SubTaskDoc | null>;
   updateSubTask(subTaskId: string, update: p.Update): Promise<void>;
   resetSubTasks(taskId: string): Promise<number>;
@@ -84,10 +90,9 @@ export class MongoTaskStore implements TaskStore {
     return (await this.tasks.updateOne(filter, update)).matchedCount > 0;
   }
 
-  async restriction(projectId: unknown): Promise<unknown> {
+  async project(projectId: unknown): Promise<ProjectDoc | null> {
     if (projectId === null || projectId === undefined) return null;
-    const project = await this.db.collection(p.PROJECTS).findOne({ _id: projectId as never }, { projection: { networkRestrictionProfileId: 1 } });
-    return project?.networkRestrictionProfileId ?? null;
+    return this.db.collection<ProjectDoc>(p.PROJECTS).findOne({ _id: projectId as never }, { projection: { title: 1, networkRestrictionProfileId: 1 } });
   }
 
   async claimSubTask(taskId: string): Promise<SubTaskDoc | null> {

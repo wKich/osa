@@ -31,11 +31,16 @@ test("exit status is 0 only for an answer", () => {
 });
 
 test("worker options and defaults", () => {
-  const w = parseWorker(["--max-rounds", "3", "--fake-delay", "0", "--once"], { OSKHS_HOST_ID: "h1", XDG_STATE_HOME: "/s" });
-  expect(w).toMatchObject({ once: true, fakeDelaySec: 0, pollSec: 2, logDir: "/s/oskhs/tasks" });
+  const w = parseWorker(["--round", "echo", "--max-rounds", "3", "--fake-delay", "0", "--once"], { OSKHS_HOST_ID: "h1", XDG_STATE_HOME: "/s" });
+  expect(w).toMatchObject({ round: "echo", once: true, fakeDelaySec: 0, pollSec: 2, logDir: "/s/oskhs/tasks" });
   expect(w.options).toEqual({ hostId: "h1", maxRounds: 3, maxPerProject: 1, roundTimeoutSec: 600, heartbeatSec: 20, cancelPollSec: 3 });
-  expect(parseWorker([], {}).options.hostId).toStartWith("oskhs-");
-  expect(() => parseWorker(["--max-rounds", "0"], {})).toThrow("positive");
-  expect(() => parseWorker(["--heartbeat-sec", "600"], {})).toThrow("dead-runtime");
+  expect(parseWorker(["--round", "echo"], {}).options.hostId).toStartWith("oskhs-");
+  expect(() => parseWorker([], {})).toThrow("--mirror-dir");
+  const s = parseWorker(["--mirror-dir", "/m", "--model", "a/b", "--provider", "p1", "--agent-name", "svc_kiss"], { OSKHS_PROVIDERS: "x" });
+  expect(s).toMatchObject({ round: "sandbox", mirrorDir: "/m", model: "a/b", providers: ["p1"], agentName: "svc_kiss" });
+  expect(parseWorker([], { OSKHS_MIRROR_DIR: "/m", OSKHS_PROVIDERS: "a,b" })).toMatchObject({ mirrorDir: "/m", providers: ["a", "b"], agentName: "kiss" });
+  expect(() => parseWorker(["--round", "fast"], {})).toThrow("sandbox or echo");
+  expect(() => parseWorker(["--round", "echo", "--max-rounds", "0"], {})).toThrow("positive");
+  expect(() => parseWorker(["--round", "echo", "--heartbeat-sec", "600"], {})).toThrow("dead-runtime");
   expect(() => parseWorker(["--nope", "1"], {})).toThrow("unknown option");
 });

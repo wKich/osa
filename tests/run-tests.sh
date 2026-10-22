@@ -67,6 +67,7 @@ new_case() {
     RUN_DIR=
     ENV_NAME=
     ENV_TIMEOUT=
+    ENV_RUN_TAG=
     ENV_IMAGE=
     ENV_POLICY=
     ENV_PROVIDERS=
@@ -130,6 +131,7 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         MAKI_OSS_SANDBOX_NAME="${ENV_NAME:-}" \
         MAKI_OSS_TUI="${ENV_TUI:-}" \
         MAKI_OSS_TIMEOUT="${ENV_TIMEOUT:-}" \
+        MAKI_OSS_RUN_TAG="${ENV_RUN_TAG:-}" \
         STUB_TUI_LOG="${TUI_LOG:-}" \
         STUB_OPENCODE_EXIT="${OPENCODE_EXIT:-}" \
         MAKI_OSS_IMAGE="${ENV_IMAGE:-}" \
@@ -1534,6 +1536,19 @@ test_run_timeout_flag() {
     assert_rc 0
     assert_log_line_missing "maki-oss-run"
     assert_log_missing "MAKI_OSS_RUN_TAG"
+
+    # A caller-chosen tag names the run's processes in the sandbox.
+    reset_log
+    ENV_RUN_TAG=oskhs-t1
+    run_maki run --timeout 30 "check"
+    assert_rc 0
+    assert_log_line "oskhs-t1"
+    ENV_RUN_TAG='bad tag'
+    reset_log
+    run_maki run --timeout 30 "check"
+    assert_rc 1
+    assert_log_missing "exec"
+    ENV_RUN_TAG=
 
     # An invalid value is a usage error before any gateway call.
     reset_log

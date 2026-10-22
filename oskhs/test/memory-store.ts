@@ -73,8 +73,9 @@ export class MemoryStore implements TaskStore {
     this.apply(this.tasks, doc, update);
     return true;
   }
-  async restriction(projectId: unknown): Promise<unknown> {
-    return this.projects.get(String(projectId))?.networkRestrictionProfileId ?? null;
+  async project(projectId: unknown) {
+    const doc = this.projects.get(String(projectId));
+    return doc ? { _id: projectId, ...doc } : null;
   }
   async claimSubTask(taskId: string): Promise<SubTaskDoc | null> {
     const doc = this.first(this.subTasks, p.pendingSubTask(taskId), Object.keys(p.SUBTASK_SORT));

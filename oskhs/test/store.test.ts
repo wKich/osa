@@ -69,11 +69,12 @@ describe.skipIf(!base)("MongoTaskStore", () => {
     expect(await sub.findOne({ _id: "s1" as never })).toMatchObject({ state: "completed", reply: "r" });
   });
 
-  test("restriction lookup", async () => {
+  test("project lookup", async () => {
     const id = new ObjectId();
-    await admin.db(dbName).collection(p.PROJECTS).insertOne({ _id: id, networkRestrictionProfileId: new ObjectId() });
-    expect(await store.restriction(id)).not.toBeNull();
-    expect(await store.restriction(new ObjectId())).toBeNull();
-    expect(await store.restriction(null)).toBeNull();
+    await admin.db(dbName).collection(p.PROJECTS).insertOne({ _id: id, title: "kiss-local", networkRestrictionProfileId: new ObjectId(), channels: [] });
+    expect(await store.project(id)).toMatchObject({ title: "kiss-local", networkRestrictionProfileId: expect.anything() });
+    expect(await store.project(id)).not.toHaveProperty("channels");
+    expect(await store.project(new ObjectId())).toBeNull();
+    expect(await store.project(null)).toBeNull();
   });
 });

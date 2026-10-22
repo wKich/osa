@@ -3,11 +3,12 @@
 // follow-up, and writes results the way kiss's in-container executor does.
 // The round itself is injected; this slice ships `echoRound`.
 import * as p from "./kiss/protocol.ts";
-import type { SubTaskDoc, TaskDoc, TaskStore } from "./kiss/store.ts";
+import type { ProjectDoc, SubTaskDoc, TaskDoc, TaskStore } from "./kiss/store.ts";
 import type { TaskLog } from "./tasklog.ts";
 
 export interface RoundInput {
   task: TaskDoc;
+  project: ProjectDoc | null;
   prompt: string;
   subTask?: SubTaskDoc;
   timeoutSec: number;
@@ -148,7 +149,8 @@ export class Worker {
       }
     }, this.opts.cancelPollSec * 1000);
     try {
-      if (await this.store.restriction(task.projectId)) {
+      const project = await this.store.project(task.projectId);
+      if (project?.networkRestrictionProfileId) {
         await this.store.updateTask(own, p.refusalUpdate(new Date(), p.RESTRICTED_MESSAGE));
         log(id, "refused", { reason: "restricted-network" });
         return;
@@ -156,7 +158,7 @@ export class Worker {
       // we own the task now, so any processing sub-task is an orphan of a lost round
       await this.store.resetSubTasks(id);
       if (task.state === "processing") {
-        const reply = await this.runRound({ task, prompt: task.prompt, timeoutSec: this.opts.roundTimeoutSec }, controller.signal);
+        const reply = await this.runRound({ task, project, prompt: task.prompt, timeoutSec: this.opts.roundTimeoutSec }, controller.signal);
         if (controller.signal.aborted) return;
         const now = new Date();
         if (reply.ok) {
@@ -176,7 +178,7 @@ export class Worker {
           continue;
         }
         const reply = await this.runRound(
-          { task, prompt: sub.prompt, subTask: sub, timeoutSec: this.opts.roundTimeoutSec },
+          { task, project, prompt: sub.prompt, subTask: sub, timeoutSec: this.opts.roundTimeoutSec },
           controller.signal,
         );
         if (controller.signal.aborted) return;

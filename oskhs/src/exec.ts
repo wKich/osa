@@ -7,6 +7,7 @@ export interface RunOpts {
   cwd?: string;
   stdin?: string;
   timeoutMs?: number; // client-side backstop; the child is killed on expiry
+  signal?: AbortSignal; // kills the local child; a remote process needs its own stop
 }
 
 export interface RunOutput {
@@ -27,6 +28,9 @@ export const spawnRunner: Runner = async (argv, opts = {}) => {
     stderr: "pipe",
   });
   let timedOut = false;
+  const onAbort = () => proc.kill("SIGTERM");
+  if (opts.signal?.aborted) onAbort();
+  else opts.signal?.addEventListener("abort", onAbort, { once: true });
   const timer = opts.timeoutMs
     ? setTimeout(() => {
         timedOut = true;
@@ -39,6 +43,7 @@ export const spawnRunner: Runner = async (argv, opts = {}) => {
     proc.exited,
   ]);
   if (timer) clearTimeout(timer);
+  opts.signal?.removeEventListener("abort", onAbort);
   return { code, stdout, stderr, timedOut };
 };
 

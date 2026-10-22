@@ -14,15 +14,15 @@
 
 ## 2. kiss round
 
-- [ ] 2.1 `kiss/prompt.ts` (task-context port + answer-only instructions)
+- [x] 2.1 `kiss/prompt.ts` (task-context port + answer-only instructions)
       and `kiss/result.ts` (Reply parser); verify unit tests and a contract
       test against kiss's `generateTaskPrompt`, `RESULT_FORMAT_TASK_NO_CHANGES`
       and `parsePromptResult` (skipped without `KISS_REPO`)
-- [ ] 2.2 `kiss/sandboxRound.ts`: task → round spec (sandbox name from the
+- [x] 2.2 `kiss/sandboxRound.ts`: task → round spec (sandbox name from the
       project title, repositories and bases from mirrors, prompt, read-only)
       → `RoundReply`; store returns the project title; verify with the
       local-sandbox runner (answer, missing mirror, agent error)
-- [ ] 2.3 Worker CLI: `--round sandbox|echo` (default sandbox), `--mirror-dir`,
+- [x] 2.3 Worker CLI: `--round sandbox|echo` (default sandbox), `--mirror-dir`,
       `--model`, `--provider`, `--gateway`; verify `make test-oskhs` and
       `bunx tsc --noEmit -p oskhs`
 

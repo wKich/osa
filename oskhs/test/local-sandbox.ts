@@ -25,6 +25,7 @@ export function localSandbox(): LocalSandbox {
   const root = mkdtempSync(join(tmpdir(), "oskhs-local-sb-"));
   const path = (p: string) => (p.startsWith("/sandbox") ? join(root, p.slice("/sandbox".length)) : p);
   const calls: Call[] = [];
+  const ready = new Set(["repo-fx"]); // `maki-oss up` adds the sandbox it creates
   const sb: LocalSandbox = {
     ctx: undefined as unknown as Ctx,
     calls,
@@ -41,7 +42,7 @@ export function localSandbox(): LocalSandbox {
   };
   async function dispatch(argv: string[], opts: RunOpts): Promise<Partial<RunOutput>> {
     if (argv[0] === "openshell") {
-      if (argv.includes("list")) return { code: 0, stdout: JSON.stringify({ sandboxes: [{ name: "repo-fx", phase: "Ready" }] }) };
+      if (argv.includes("list")) return { code: 0, stdout: JSON.stringify({ sandboxes: [...ready].map((name) => ({ name, phase: "Ready" })) }) };
       if (argv.includes("upload")) {
         const [local, dest] = argv.slice(-2) as [string, string];
         mkdirSync(dirname(path(dest)), { recursive: true });
@@ -61,7 +62,10 @@ export function localSandbox(): LocalSandbox {
       }
       throw new Error(`unexpected openshell call: ${argv.join(" ")}`);
     }
-    if (argv[0] === "maki-oss") return argv[1] === "run" ? sb.onRun(argv, opts) : { code: 0 };
+    if (argv[0] === "maki-oss") {
+      if (argv[1] === "up") ready.add(opts.env!.MAKI_OSS_SANDBOX_NAME!);
+      return argv[1] === "run" ? sb.onRun(argv, opts) : { code: 0 };
+    }
     return spawnRunner(argv, opts); // host-side git
   }
   sb.ctx = { run, openshell: "openshell", makiOss: "maki-oss", log: () => {} };

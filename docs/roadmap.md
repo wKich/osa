@@ -211,7 +211,7 @@ clone remains the fallback if this proves unacceptable.
 on kiss only through the task-document contract in Mongo, not on kiss code.
 The marker check is a small change in the kiss repo.
 
-### B1 — First sandboxed task (W3+W4) — 3½–4½ sessions, five slices
+### B1 — First sandboxed task (W3+W4) — 4–5½ sessions, six slices
 
 - **B1.1 — One round on a warm repo sandbox** (1). Library over maki-oss:
   seed `repo-<project>` from a local clone (once), send an incremental bundle,
@@ -257,6 +257,30 @@ The marker check is a small change in the kiss repo.
   gateway. **Exit:** tasks in the marked prod channel run on the chosen
   gateway; every other task still goes through KHS; prod Mongo unreachable
   from the gateway host.
+- **B1.6 — git LFS** (½–1). Bundles carry only LFS pointers, and the sandbox
+  has no GitLab egress, so oskhs ships LFS objects next to the bundle:
+  - *In:* `git lfs fetch` in oskhs's mirror for the refs the task receives
+    (tip objects only, not all history); the missing set is a difference of
+    sha256 oids against what the sandbox already has; a tar of missing
+    objects is uploaded into `.git/lfs/objects/`; worktrees are created with
+    `GIT_LFS_SKIP_SMUDGE=1`, then `git lfs checkout` fills them offline.
+  - *Out:* commits that touch tracked files store objects locally (the clean
+    filter needs no network); objects referenced by `base..task-<id>` come
+    back as a tar next to `out.bundle`; oskhs runs `git lfs push` before
+    `git push`.
+  - *Bookkeeping:* oskhs records LFS oids per sandbox next to the ref tips.
+  - *Agent view:* older commits show LFS pointer files, not content
+    (history, blame, and diff on code still work).
+  - *Image:* `git-lfs` added to the sandbox image.
+  - *Opt-in alternative for very large LFS projects (not built here):* the
+    sandbox fetches LFS directly from GitLab with a project-scoped read-only
+    deploy token through a provider profile and an LFS-only egress rule —
+    data skips the uplink. Needs verification that placeholder substitution
+    works for LFS Basic auth and that egress can be scoped to the project's
+    LFS paths.
+  **Exit:** a task on an LFS repo sees real file content in its worktree,
+  edits a tracked binary, and the MR contains the new object; the second
+  task on the same repo uploads no LFS objects it already sent.
 
 ### B2 — Conversations that survive (W4) — 1½–2 sessions
 
@@ -305,11 +329,87 @@ done.
 **Exit:** a non-maki agent runs rounds through oskhs; with A5, G4
 demonstrably done.
 
+### Future — in-cluster gateway on Kubernetes (not scheduled)
+
+A potential design, recorded for later; no milestone owns it yet. Source:
+OpenShell's Kubernetes Setup, Installation, Architecture, and Gateways docs
+(read 2026-10-22, not verified in this repository).
+
+**How OpenShell runs on Kubernetes.** The gateway is installed in the cluster
+with the Helm chart (`oci://ghcr.io/nvidia/openshell/helm-chart`): a
+StatefulSet with SQLite on a PVC by default, or a Deployment with external
+PostgreSQL for more than one replica. Its Kubernetes compute driver creates a
+`Sandbox` resource per sandbox; each sandbox is a supervisor pod (outbound
+session to the gateway, policy enforcement) paired over mTLS with a workload
+pod (the agent), in `server.sandboxNamespace`. A NetworkPolicy lets only the
+supervisor reach the workload and denies connections the workload initiates;
+the workspace PVC preserves `/sandbox` across pod restarts. Clients register
+the gateway with `openshell gateway add`, over mTLS (chart-generated
+`openshell-client-tls`) plus OIDC or a trusted access proxy for user auth.
+
+**Shape.** A cluster gateway is one more gateway next to the home box; oskhs
+and Mongo do not move.
+
+```
+┌─ prod k8s cluster ─────────────────────────────────────────────────────────┐
+│ ns kiss                                                                    │
+│  ├─ kiss (unchanged; KHS skips marked tasks) ──► Mattermost                │
+│  ├─ MongoDB (+GridFS)                                                      │
+│  └─ oskhs (Deployment, 1 replica)                                          │
+│       Mongo URI + GitLab token                                             │
+│       mirror PVC: bare mirror + LFS store per project ◄── fetch ── GitLab  │
+│       state: tips + LFS oids per (project, gateway)                        │
+│         │ in-cluster, no uplink                  │ --remote                │
+│         ▼                                        │                         │
+│ ns openshell: gateway (StatefulSet+SQLite | Deployment+Postgres)           │
+│         │ Kubernetes compute driver              │                         │
+│         ▼                                        │                         │
+│ ns sandboxes (NetworkPolicy-enforcing CNI required)                        │
+│  ├─ repo-<project-A>: supervisor pod ◄mTLS► workload pod (maki, worktrees) │
+│  │                    workspace PVC = warm clone (+LFS)                    │
+│  └─ repo-<project-B> …                           │                         │
+└──────────────────────────────────────────────────┼─────────────────────────┘
+                                                   │ deltas over uplink
+┌─ home box ───────────────────────────────────────▼─────────────────────────┐
+│ gateway (Docker driver) ──► repo-<project-A> (its own warm clone)          │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+- **Warm clone = workspace PVC.** Pod rescheduling does not force a re-seed;
+  seeding tens of GB is one in-cluster transfer.
+- **One warm clone per (project, gateway).** oskhs tracks tips and LFS
+  objects per pair; B4 routing picks the gateway.
+- **oskhs needs its own storage**: a mirror PVC sized for every routed
+  project's mirror and LFS store. One replica is simplest; more need
+  per-replica mirrors or a shared one.
+- **Bundles stay** although bandwidth is no longer the reason: they keep the
+  GitLab token out of the sandbox and give every gateway one code path.
+
+**Task layout options.**
+
+- **A — shared sandbox per project** (the Track B design). Works with the
+  documented OpenShell API and is the same code as on the home gateway.
+  Weak isolation between tasks; a project's concurrent tasks share one pod's
+  CPU/memory and scale up, not out. Default.
+- **B — golden PVC + per-task copy.** A golden PVC holds the warm clone
+  (synced by bundles); each task gets its own sandbox whose workspace PVC is
+  restored from a CSI VolumeSnapshot of it — copy-on-write on most storage
+  backends, near-instant regardless of repo size. Per-task isolation and
+  horizontal scaling. Unverified: whether OpenShell lets a sandbox's
+  workspace PVC come from a snapshot (sandbox templates are the place to
+  look), and whether the StorageClass supports snapshots.
+
+**Prerequisites to confirm.** CNI enforces egress NetworkPolicy (otherwise
+sandboxes bypass the supervisor); Agent Sandbox controller and CRDs
+installable (cluster-admin); Kubernetes 1.29+; what happens to the workspace
+PVC when a sandbox is deleted (decides re-seed cost); StorageClass snapshot
+support (option B only).
+
 ## Sequencing
 
 ```
 Track A (maki-oss):  A1 ─► A2 ─► A3 ─► A4 ─► A5
-Track B (kiss):      B1.1 ─► B1.2 ─► B1.3 ─► B1.4 ─► B1.5 ─► B2 ─► B3 ─► B4 ─► B5
+Track B (kiss):      B1.1 ─► B1.2 ─► B1.3 ─► B1.4 ─► B1.5 ─► B1.6 ─► B2 ─► B3 ─► B4 ─► B5
 Cross:               A1 ─► B1.5  (remote gateway selection)
                      A2 ┄► B2    (soft: session tar converges on P5's format)
                      A5 ─► B5    (headless rounds for the second agent)
@@ -322,7 +422,7 @@ start immediately.
 | Track | Milestones | Sessions |
 |---|---|---|
 | A | A1 1½, A2 2–2½, A3 1½–2, A4 1, A5 ~1 | 7–8 |
-| B | B1 3½–4½, B2 1½–2, B3 2–3, B4 1–1½, B5 ~1 | 9–12 |
+| B | B1 4–5½, B2 1½–2, B3 2–3, B4 1–1½, B5 ~1 | 9½–13 |
 
 Track B grew from the first draft's 3½–5 sessions after a kiss code read:
 the Mongo credentials force the agent and the task process apart, oskhs
@@ -346,20 +446,18 @@ large repos need warm sandboxes with git-bundle sync.
 
 ## Open questions
 
-1. **Where oskhs runs** — near Mongo (default: credentials never leave the
-   cloud, gateways reached with `--remote`) or next to a gateway (Mongo must
-   be reachable from that host). Confirm before B1.5.
-2. **Repo size shape** — is the size mostly git history (bundles solve it)
-   or the working tree itself (binaries, LFS, vendored data)? The latter
-   needs sparse checkout or a shared object store per worktree, and LFS its
-   own path. Answer before B1.1 is sized for real repos.
+1. ~~**Where oskhs runs**~~ — decided 2026-10-23: near Mongo; credentials
+   never leave the cloud, gateways reached with `--remote`.
+2. **Repo size shape** — answered 2026-10-23: both large history and large
+   working trees (binaries, LFS). Bundles cover history; LFS needs its own
+   path (B1.6); vendored non-LFS binaries travel once at seed time, then as
+   deltas.
 3. **MCP from the sandbox** — kiss's project MCP servers run in the task
    process today (`PiMcpBridge`); maki in the sandbox needs a reachable path
    that does not carry their secrets inside. Decide in B3.
-4. **Seeding a warm sandbox** — one-time upload over the uplink, or an
-   in-sandbox clone with a read-only GitLab token via provider profile and a
-   GitLab egress rule (data skips the uplink, sandbox gains a stand-in and an
-   egress rule). Decide in B1.1.
+4. ~~**Seeding a warm sandbox**~~ — decided 2026-10-23: one-time upload over
+   the uplink (no GitLab credentials or egress in the sandbox); B1.1 makes the
+   seed resumable.
 5. **Kiss restricted-network mode in prod** — is `NetworkIsolationService`
    active? oskhs refuses restricted tasks fail-closed; confirm what that means
    for marked channels before B1.5.

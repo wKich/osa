@@ -6,8 +6,9 @@ lives in [`oskhs/`](../oskhs/) as a Bun + TypeScript subproject and depends on
 kiss only through the task document in Mongo — not yet: this page tracks
 what exists today, slice by slice.
 
-**Today (B1.1a–B1.2):** a round library with incremental git sync, changes
-returned as a host branch, and a `run-round` CLI. No kiss, no Mongo.
+**Today (B1.1a–B1.3b):** a round library with incremental git sync and
+changes returned as a host branch (`run-round`), and a kiss queue worker
+(`worker`) that speaks kiss's task-document protocol with an echo round.
 
 ## Warm repo sandboxes
 
@@ -126,6 +127,54 @@ failed before the sync finished), `changes` (`null`, or `branch`, `head`,
 
 Usage errors exit 1. Progress lines go to stderr with an `oskhs:` prefix.
 
+## The kiss worker
+
+`oskhs worker` claims kiss tasks marked `executor: 'oskhs'` (kiss sets the
+marker from the Mattermost channel or project; KHS never claims those) and
+runs them the way kiss's own task container does. It needs
+`OSKHS_MONGO_URI`; that URI stays in the oskhs host process and never
+reaches a sandbox.
+
+```sh
+OSKHS_MONGO_URI=mongodb://127.0.0.1:27017/kiss-agent bun oskhs/src/cli.ts worker
+```
+
+Per claimed task:
+
+1. **Claim** — KHS's claim filter plus `executor: 'oskhs'`: `runtimeState:
+   running`, `agentHostId` (`OSKHS_HOST_ID`, default `oskhs-<hostname>`),
+   heartbeat, wake cleared. Projects at `--max-per-project` (default 1 — one
+   sandbox per project) are skipped; at most `--max-rounds` (default 2) run.
+2. **Refuse** a project with a network restriction profile: closed with a
+   visible error, never claimed again.
+3. **First round** of a `processing` task: the answer becomes `replyMessage`
+   with `state: completed`; a failure or timeout (`--round-timeout`, default
+   600 s) closes the task with `errorMessage`. kiss's status sync posts
+   either into the Mattermost thread.
+4. **Follow-ups**: every pending `thread_instruction` sub-task is answered
+   (`reply`, `completed`) and kiss posts it; other sub-task types end in
+   `error` with a message naming oskhs.
+5. **Idle**: `runtimeState: idle_stopped`. The next mention wakes the task
+   again.
+
+While a round runs the worker heartbeats every `--heartbeat-sec` (20 s;
+kiss treats a runtime as dead after 10 minutes) and checks for a cancel
+every `--cancel-poll-sec` (3 s). A cancel aborts the round and finishes the
+cancel as kiss's `markCancelFinished` does; no result is written.
+
+**Recovery.** On start the worker requeues every task it still holds as
+`running` (a crash or `kill -9` left it there); the third loss closes the
+task with an error instead. SIGINT/SIGTERM abort rounds and requeue their
+tasks without counting a loss. If oskhs stays down, kiss's reconcile
+requeues its stale tasks after 10 minutes and they wait for oskhs.
+
+**Logs.** `${XDG_STATE_HOME:-~/.local/state}/oskhs/tasks/<task-id>.jsonl`,
+one event per line (`claimed`, `round-start`, `round-end`, `cancelled`,
+`refused`, `recovered`, `requeued`, `idle`, …).
+
+The round is still an echo in B1.3b (`--fake-delay SECS` makes it slow, for
+cancel and kill checks); B1.3c runs Maki in the warm sandbox instead.
+
 ## Tests
 
 `make test-oskhs` runs the offline suite: a recording command runner for
@@ -133,7 +182,13 @@ argv shape, and a local-sandbox runner that executes the in-sandbox git
 scripts with real git against a temp directory, so sync semantics (deltas,
 prunes, rewinds, untrusted tips, the full-bundle fallback) are tested
 without a gateway. `oskhs/test/make-fixture.sh DIR` builds the two-branch fixture the
-live checks use; the recorded live runs are in
+live checks use, and `oskhs/test/live/devstand.ts` writes kiss-shaped tasks,
+cancels, and follow-ups into the kiss local stack. `kiss-contract.test.ts`
+validates every document the worker writes against kiss's own mongoose
+schemas (`KISS_REPO`, default the sibling checkout; skipped without it), and
+`OSKHS_TEST_MONGO_URI=mongodb://127.0.0.1:27017` runs the store tests against
+a real MongoDB (an ephemeral database). The recorded live runs are in
 `openspec/changes/archive/*-add-oskhs-round/evidence/round-live.md` and
 `openspec/changes/archive/*-add-oskhs-incremental-sync/evidence/sync-live.md`,
-and `openspec/changes/archive/*-add-oskhs-commits-back/evidence/collect-live.md`.
+`openspec/changes/archive/*-add-oskhs-commits-back/evidence/collect-live.md`,
+and `openspec/changes/archive/*-add-oskhs-task-worker/evidence/worker-live.md`.

@@ -321,7 +321,9 @@ in one go; remote gateways and resumable large seeds are B5.
   marks a stale oskhs task `failed`, oskhs's claim (which accepts `failed`)
   re-claims it — both sides must agree on that. **Exit:** kiss's tests prove
   KHS and the periodic tasks never claim, restart, or stop a marked task.
-- **B1.3b — Task protocol with a fake round** (1). oskhs worker against dev
+- **B1.3b — Task protocol with a fake round** (1). *Done 2026-10-23
+  (`add-oskhs-task-worker`); thread follow-ups (`thread_instruction`
+  sub-tasks) are answered too, so a woken task never loops on reconcile.* oskhs worker against dev
   Mongo: claim CAS with `executor: 'oskhs'`, heartbeat loop
   (`updateHeartbeatUnlessStopped` semantics), cancellation watch, state and
   `notificationState` transitions; contract tests against kiss's model. The

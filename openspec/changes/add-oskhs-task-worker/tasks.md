@@ -32,22 +32,22 @@
 
 ## 3. Live exit (dev stand, kiss on `feat/oskhs-executor-marker`)
 
-- [ ] 3.1 Mark the dev channel's project task path: create a marked
+- [x] 3.1 Mark the dev channel's project task path: create a marked
       Mattermost-shaped task on a real thread of the dev channel; run the
       worker; verify `completed` + `replyMessage` + `idle_stopped` and the
       orchestrator log shows the thread reply posted; record in
       `evidence/worker-live.md`
-- [ ] 3.2 Cancel mid-round (`--fake-delay 60`, then the fields kiss's
+- [x] 3.2 Cancel mid-round (`--fake-delay 60`, then the fields kiss's
       `cancelTask` writes); verify `cancelledAt`, `idle_stopped`, no reply,
       within seconds
-- [ ] 3.3 Kill the worker (SIGKILL) mid-round, restart it; verify the task is
+- [x] 3.3 Kill the worker (SIGKILL) mid-round, restart it; verify the task is
       requeued, re-claimed, and completed, and the task log shows `recovered`
-- [ ] 3.4 Follow-up: add a pending `thread_instruction` sub-task and wake the
+- [x] 3.4 Follow-up: add a pending `thread_instruction` sub-task and wake the
       task as kiss does; verify the sub-task `completed` with a reply and kiss
       posts it
 
 ## 4. Docs
 
-- [ ] 4.1 `docs/oskhs.md` (worker, protocol, recovery, logs, configuration)
+- [x] 4.1 `docs/oskhs.md` (worker, protocol, recovery, logs, configuration)
       and roadmap B1.3b done; verify `scripts/check-links.sh docs/oskhs.md
       docs/roadmap.md` and `openspec validate add-oskhs-task-worker --strict`

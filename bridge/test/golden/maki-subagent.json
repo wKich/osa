@@ -1,0 +1,143 @@
+[
+  {
+    "type": "session.inbox.enqueued",
+    "item": {
+      "type": "user",
+      "payload": {
+        "text": "golden prompt 1"
+      },
+      "delivery": "steer"
+    }
+  },
+  {
+    "type": "session.execution.started"
+  },
+  {
+    "type": "session.step.started",
+    "agent": "sample",
+    "model": {
+      "providerID": "maki",
+      "id": "syn:small:text"
+    }
+  },
+  {
+    "type": "session.reasoning.started",
+    "ordinal": 0
+  },
+  {
+    "type": "session.reasoning.delta",
+    "ordinal": 0,
+    "delta": "The user is asking me to run the command `echo tool-turn-marker .` using the bash tool, and report only its output. This is a straightforward request.\n\nI need to:\n1. Use the bash tool with the command \"echo tool-turn-marker .\"\n2. Report only the output\n\nLet me do this."
+  },
+  {
+    "type": "session.reasoning.ended",
+    "ordinal": 0,
+    "text": "The user is asking me to run the command `echo tool-turn-marker .` using the bash tool, and report only its output. This is a straightforward request.\n\nI need to:\n1. Use the bash tool with the command \"echo tool-turn-marker .\"\n2. Report only the output\n\nLet me do this."
+  },
+  {
+    "type": "session.tool.input.started",
+    "name": "bash"
+  },
+  {
+    "type": "session.tool.input.ended",
+    "text": "{\"command\":\"echo tool-turn-marker .\",\"description\":\"Report tool-turn-marker\"}"
+  },
+  {
+    "type": "session.tool.called",
+    "input": {
+      "command": "echo tool-turn-marker .",
+      "description": "Report tool-turn-marker"
+    }
+  },
+  {
+    "type": "session.text.started",
+    "ordinal": 0
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": "I'm running the sub-task the parent delegated and reporting back."
+  },
+  {
+    "type": "session.text.ended",
+    "ordinal": 0,
+    "text": "I'm running the sub-task the parent delegated and reporting back."
+  },
+  {
+    "type": "session.tool.input.started",
+    "name": "bash"
+  },
+  {
+    "type": "session.tool.input.ended",
+    "text": "{\"command\":\"echo subagent-marker .\",\"description\":\"Report subagent-marker\"}"
+  },
+  {
+    "type": "session.tool.called",
+    "input": {
+      "command": "echo subagent-marker .",
+      "description": "Report subagent-marker"
+    }
+  },
+  {
+    "type": "session.tool.success",
+    "content": [
+      {
+        "type": "text",
+        "text": "subagent-marker ."
+      }
+    ]
+  },
+  {
+    "type": "session.tool.success",
+    "content": [
+      {
+        "type": "text",
+        "text": "tool-turn-marker ."
+      }
+    ]
+  },
+  {
+    "type": "session.reasoning.started",
+    "ordinal": 1
+  },
+  {
+    "type": "session.reasoning.delta",
+    "ordinal": 1,
+    "delta": "The command output is just `'tool-turn-marker .'` on a single line."
+  },
+  {
+    "type": "session.reasoning.ended",
+    "ordinal": 1,
+    "text": "The command output is just `'tool-turn-marker .'` on a single line."
+  },
+  {
+    "type": "session.text.started",
+    "ordinal": 1
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 1,
+    "delta": "{'type': 'text', 'text': 'tool-turn-marker .'}"
+  },
+  {
+    "type": "session.text.ended",
+    "ordinal": 1,
+    "text": "{'type': 'text', 'text': 'tool-turn-marker .'}"
+  },
+  {
+    "type": "session.step.ended",
+    "finish": "stop",
+    "tokens": {
+      "input": 100,
+      "output": 122,
+      "reasoning": 0,
+      "cache": {
+        "read": 16384,
+        "write": 0
+      }
+    }
+  },
+  {
+    "type": "session.execution.succeeded"
+  }
+]

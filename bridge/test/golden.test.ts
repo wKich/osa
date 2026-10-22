@@ -31,7 +31,19 @@ const defects: Defect[] = JSON.parse(readFileSync(new URL("../defects.json", imp
 // derived, never captured from a live streaming provider (shortcut comment
 // in translator.ts) — this golden pins the translation behavior, not the
 // wire shape, which is why the stream-deltas row is `degraded`.
-const FIXTURES = ["maki-plain", "maki-tool", "maki-precheck", "maki-permission", "maki-stream"];
+const FIXTURES = [
+  "maki-plain",
+  "maki-tool",
+  "maki-precheck",
+  "maki-permission",
+  "maki-stream",
+  // subagent-nesting row evidence: the flagged frames' shape is source-pinned
+  // from sdk_mode.rs v0.6.4, never captured from a live subagent turn; the
+  // rendering pinned here is inline flattening in the owning transcript, not
+  // OpenCode-style child-session separation (add-subagent-nesting-coverage,
+  // design decision 1)
+  "maki-subagent",
+];
 
 for (const name of FIXTURES) {
   test(`golden translation: ${name}`, () => {

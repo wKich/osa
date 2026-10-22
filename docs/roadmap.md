@@ -200,9 +200,45 @@ construction, and the GitLab token never enters the sandbox.
 ```
 
 Secrets: Mongo URI and GitLab token live only with oskhs; the model key only
-in the OpenShell provider profile. oskhs runs near Mongo (cloud) by default
-and drives remote gateways; running it next to a gateway would put the Mongo
-URI on that host (open question 1).
+in an OpenShell provider record on the gateway. oskhs runs near Mongo (cloud)
+and drives remote gateways (decided; running it next to a gateway would put
+the Mongo URI on that host).
+
+**Model credentials.** kiss configures a `ModelProvider` per project in Mongo
+(`apiKey`, `baseUrl`, `providerType`, `isExternal`). OpenShell keeps the key
+out of the sandbox; it does not stop the agent from *using* the key through
+the allowed endpoint. Source: OpenShell Providers, Profiles, Inference,
+Workspaces, and Security best-practices docs (read 2026-10-23, not yet
+verified here).
+
+- *What OpenShell guarantees.* The sandbox sees only a placeholder; the
+  supervisor proxy substitutes the real key in headers, Basic auth, query, or
+  path (bodies only when enabled) and only for the host/port/path the
+  credential is bound to — anything else gets 403
+  `credential_endpoint_mismatch`; unknown or expired placeholders fail
+  closed. A base-URL env var never widens the binding: any host other than
+  the stock profiles' needs a custom profile declaring it. Listing never
+  shows values; `--secret-material-env` keeps the key out of the process
+  table; detach stops resolution; each round is a new process, so rotation
+  applies on the next round.
+- *What it does not cover.* (1) The agent can spend the key freely through
+  the bound endpoint — any model, any volume, and with `access: full` any of
+  that API's endpoints. (2) The model endpoint is a data channel by design;
+  every egress rule stays as narrow as possible. (3) The key is stored on
+  every gateway serving the project, and mTLS operators can read it via
+  `GetProviderCredentials` — a home gateway holds prod keys readable by its
+  admin. (4) Internal models (`isExternal: false`) are reachable only from
+  gateways on that network.
+- *oskhs controls.* One custom profile per provider host, derived from
+  `baseUrl`: `protocol: rest`, inference-only `rules` (for example
+  `POST …/chat/completions`, `POST …/messages`, `GET …/models`) instead of
+  `access: full`, binaries limited to maki. One provider instance per
+  (project, gateway), created by oskhs from Mongo with
+  `--secret-material-env`, attached only to `repo-<project>`, re-synced when
+  kiss's config changes (B1.3d). Separate keys per gateway with
+  provider-side spend limits where available (B5). Routing respects which
+  gateways can reach internal models; workspaces per project considered at
+  B6. Per-task short-lived keys are a later option (open question 9).
 
 **Accepted trade-off:** tasks of one project share a sandbox, each in its own
 worktree. Isolation between them is weaker (same project's code, same model
@@ -214,11 +250,20 @@ on kiss only through the task-document contract in Mongo, not on kiss code.
 The kiss-side change (marker plus the readers of runtime state, B1.3a) is
 small and lives in the kiss repo.
 
-### B1 — First sandboxed task (W3+W4) — 5½–7½ sessions, eight slices
+### B1 — First sandboxed task (W3+W4) — 6–8½ sessions, nine slices
 
 Each slice ends in a runnable demo and fits one session. B1 uses a gateway
 co-located with oskhs (same host or cluster) and repos small enough to seed
 in one go; remote gateways and resumable large seeds are B5.
+
+- *Dev stand.* kiss's local stack (`scripts/start-local.sh` in the kiss repo:
+  mongo, orchestrator, KHS, admin, restored from a DB dump with tokens and
+  model providers) is the test environment for B1.3a–B1.4. The OpenShell
+  gateway runs on the same host, so "the sandbox cannot reach Mongo" is a
+  real check against the local `kiss-mongo` container.
+- *In scope.* Mattermost questions (B1.3c) and Mattermost code requests
+  (B1.4). *Out of scope until B3:* tasks created from GitLab MRs
+  (`GitLabMRTaskSource`), explore/read-only mode switching, attachments.
 
 - **B1.1a — Seed + one round in a worktree** (½–1). Library over maki-oss:
   seed `repo-<project>` from a local clone (full bundle upload, then
@@ -263,20 +308,40 @@ in one go; remote gateways and resumable large seeds are B5.
   of `runtimeState`, `agentHostId`, and heartbeat fields
   (`ReconcileAgentRuntimesTask`, idle-stop such as
   `findIdleStoppedGitLabMRTasks`, stale checks): each gets the same filter or
-  is shown safe. **Exit:** kiss's tests prove KHS and the periodic tasks
-  never claim, restart, or stop a marked task.
+  is shown safe. Decide recovery ownership: if `ReconcileAgentRuntimesTask`
+  marks a stale oskhs task `failed`, oskhs's claim (which accepts `failed`)
+  re-claims it — both sides must agree on that. **Exit:** kiss's tests prove
+  KHS and the periodic tasks never claim, restart, or stop a marked task.
 - **B1.3b — Task protocol with a fake round** (1). oskhs worker against dev
   Mongo: claim CAS with `executor: 'oskhs'`, heartbeat loop
   (`updateHeartbeatUnlessStopped` semantics), cancellation watch, state and
   `notificationState` transitions; contract tests against kiss's model. The
   round is an echo. Restricted-network tasks refused fail-closed. No sandbox.
+  Also: a timeout per round; caps on concurrent rounds per sandbox and per
+  oskhs; per-task logs (oskhs events, later sandbox logs and maki's JSON
+  transcript) findable by task id; on restart, oskhs resolves its own
+  in-flight tasks instead of leaving them `running`.
   **Exit:** a message in a marked dev-stand channel gets the echo reply,
-  posted by kiss; cancelling mid-run ends the task cleanly.
+  posted by kiss; cancelling mid-run ends the task cleanly; killing oskhs
+  mid-task ends with the task failed visibly or re-claimed, never hanging.
 - **B1.3c — Real round** (½–1). Prompt built from the task the way kiss
   builds it (including thread context); B1.1/B1.2 round replaces the echo;
   result written in the format kiss posts from. Read-only (Q&A) tasks only.
+  Uses a model provider preconfigured on the gateway by hand.
   **Exit:** a question in a marked dev-stand channel gets an answer produced
-  by maki in a sandbox.
+  by maki in a sandbox; the sandbox has no secrets in its environment and
+  cannot reach the local `kiss-mongo`.
+- **B1.3d — Project model and credentials** (½–1). oskhs maps the task's
+  kiss `ModelProvider` to a maki model id and syncs it into OpenShell: a
+  custom profile per provider host (from `baseUrl`; `protocol: rest`,
+  inference-only rules, maki-only binaries), a provider instance per project
+  created with `--secret-material-env`, attached only to `repo-<project>`,
+  re-synced when kiss's config changes; an egress rule for the provider host.
+  Projects with internal models run only where the gateway reaches them.
+  **Exit:** two marked projects with different providers each answer with
+  their own model; the sandbox's environment holds only placeholders; a
+  request with the placeholder to a non-inference path of the provider API
+  is refused.
 - **B1.4 — Code changes land** (1). oskhs keeps a bare mirror per project
   (fetched from GitLab; B1.1 used a local clone); pushes the returned branch
   with kiss's naming; opens an MR via the GitLab API in the shape
@@ -288,7 +353,8 @@ in one go; remote gateways and resumable large seeds are B5.
   mirror volume) with a co-located gateway; the kiss marker change deployed
   first; one channel marked whose repos seed in one go; runbook with
   rollback = unmark the channel. **Exit:** tasks in the marked prod channel
-  run in a sandbox; every other task still goes through KHS.
+  run in a sandbox; every other task still goes through KHS; the sandbox
+  holds only placeholders and cannot reach prod Mongo.
 
 ### B2 — Conversations that survive (W4) — 1½–2 sessions
 
@@ -354,6 +420,10 @@ task on the same repo uploads no LFS objects it already sent.
   network.
 - Resumable seed for tens-of-GB repos: the seed bundle is sent in chunks
   that survive a dropped connection and resume where they stopped.
+- Keys on remote hosts: the project's model key now lives on that gateway
+  and is readable by its mTLS operators. Each gateway gets its own key, with
+  provider-side spend limits where available, so revoking one gateway is a
+  key rotation.
 
 **Exit:** a marked channel's tasks run on a remote gateway; prod Mongo is
 unreachable from that host; a large repo seeds over the uplink despite an
@@ -364,7 +434,12 @@ interrupted transfer.
 - Routing: marker grows into a selector (project/channel → gateway); a
   heartbeat registry of gateways following the `networkProxyInstances`
   precedent (TTL heartbeat, ~40-line model); warm sandboxes per
-  (project, gateway).
+  (project, gateway). Routing honors network reach: projects with internal
+  models (`isExternal: false`) go only to gateways that can reach them.
+- OpenShell workspaces per project: providers and sandboxes isolated per
+  project, oskhs as Workspace Admin in each. Creating workspaces needs a
+  Platform Admin and the docs do not describe machine identities — decide
+  here whether to adopt.
 - Hardening and docs: gateway loss handling, operator playbook.
 
 **Exit:** two channels route to two different gateways; stopping one
@@ -460,7 +535,7 @@ support (option B only).
 
 ```
 Track A (maki-oss):  A1 ─► A2 ─► A3 ─► A4 ─► A5
-Track B (kiss):      B1.1a ─► B1.1b ─► B1.2 ─► B1.3a ─► B1.3b ─► B1.3c ─► B1.4 ─► B1.5
+Track B (kiss):      B1.1a ─► B1.1b ─► B1.2 ─► B1.3a ─► B1.3b ─► B1.3c ─► B1.3d ─► B1.4 ─► B1.5
                      ─► B2 ─► B3 ─► B4 ─► B5 ─► B6 ─► B7
 Cross:               A1 ─► B5    (remote gateway selection)
                      A2 ┄► B2    (soft: session tar converges on P5's format)
@@ -474,7 +549,7 @@ in the kiss repo and can run alongside them.
 | Track | Milestones | Sessions |
 |---|---|---|
 | A | A1 1½, A2 2–2½, A3 1½–2, A4 1, A5 ~1 | 7–8 |
-| B | B1 5½–7½, B2 1½–2, B3 2–3, B4 ½–1, B5 ½–1, B6 1–1½, B7 ~1 | 12–17 |
+| B | B1 6–8½, B2 1½–2, B3 2–3, B4 ½–1, B5 ½–1, B6 1–1½, B7 ~1 | 12½–18 |
 
 Track B grew from the first draft's 3½–5 sessions after a kiss code read:
 the Mongo credentials force the agent and the task process apart, oskhs
@@ -518,6 +593,11 @@ large repos need warm sandboxes with git-bundle sync.
    naming), transfer must normalize or document the constraint; P0a answers
    Maki's behavior, A2 owns the policy.
 8. **opencode attach story** — local-only vs in-sandbox server (A5).
+9. **Per-task model keys** — kiss or an LLM proxy in front of the providers
+   issues a short-lived virtual key per task with a budget; OpenShell's
+   dynamic credentials (`token_grant` / `refresh` in profiles) deliver it.
+   A leaked or misused key dies with the task, and per-task cost accounting
+   comes for free. Needs that proxy; revisit after B5.
 
 ## Carried risks
 

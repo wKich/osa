@@ -139,6 +139,11 @@ turn's assistant message id and continuing the turn's part ordinals, and their
 `session.tool.failed`. Subagent frames SHALL neither close nor restart the
 turn; the run's single terminal `result` frame ends it.
 
+The `parent_tool_use_id` wire shape this rendering depends on SHALL be
+confirmed against a capture of a live subagent turn, not solely against a
+fixture authored by reading the pinned Maki source; until such a capture
+exists the row proving it carries the `contract-only` caveat.
+
 #### Scenario: Subagent parts render inline, in arrival order
 - **WHEN** the child emits `assistant` frames carrying `parent_tool_use_id`
   interleaved with unflagged parent frames within one run
@@ -158,6 +163,14 @@ turn; the run's single terminal `result` frame ends it.
 - **THEN** exactly one `session.step.ended` and one
   `session.execution.succeeded` follow, and no subagent frame emitted before
   it ends the turn early
+
+#### Scenario: The nesting shape is observed, not inferred
+- **WHEN** a live Maki subagent turn is captured and compared with the
+  fixture the golden projects
+- **THEN** the captured frames carry `parent_tool_use_id` where the pinned
+  source says they do, and the provenance record for that fixture says
+  `captured` — or the comparison records where the real shape differs and the
+  golden follows the capture rather than the reading of the source
 
 ### Requirement: Round-trip tool permissions
 The bridge SHALL forward each Maki `can_use_tool` control request to the TUI as

@@ -22,8 +22,8 @@ the sandbox.
   `bridge/`): a round library and a `run-round <repo> "<prompt>"` CLI.
   - *Seed:* ensure the sandbox `repo-<project>` exists (created through
     `maki-oss up`, never with a project upload); if it holds no clone yet,
-    upload a full `git bundle --all` of the local repo and `git clone` from it
-    inside the sandbox; delete the uploaded bundle afterwards.
+    upload a full git bundle of the local repo's branches and tags and fetch it
+    into a bare repository inside the sandbox; delete the bundle afterwards.
   - *Round:* `git worktree add --detach /sandbox/tasks/<task-id> <base>`, run
     `maki-oss run --no-sync --timeout <secs>` with `MAKI_OSS_WORKDIR` set to
     the worktree and `MAKI_OSS_SANDBOX_NAME=repo-<project>`, parse Maki's

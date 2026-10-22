@@ -265,7 +265,8 @@ in one go; remote gateways and resumable large seeds are B5.
   (B1.4). *Out of scope until B3:* tasks created from GitLab MRs
   (`GitLabMRTaskSource`), explore/read-only mode switching, attachments.
 
-- **B1.1a — Seed + one round in a worktree** (½–1). Library over maki-oss:
+- **B1.1a — Seed + one round in a worktree** (½–1). *Done 2026-10-23
+  (`add-oskhs-round`; [docs/oskhs.md](oskhs.md)).* Library over maki-oss:
   seed `repo-<project>` from a local clone (full bundle upload, then
   `git clone` from it inside the sandbox), create a task worktree, run
   `maki-oss run --no-sync` with `MAKI_OSS_WORKDIR` pointing at the worktree

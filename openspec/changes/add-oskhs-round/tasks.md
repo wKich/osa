@@ -15,48 +15,48 @@
 
 ## 2. oskhs round library
 
-- [ ] 2.1 Scaffold `oskhs/` (package.json, tsconfig matching `bridge/`,
+- [x] 2.1 Scaffold `oskhs/` (package.json, tsconfig matching `bridge/`,
       `src/`, `test/`) and a `make test-oskhs` target; verify
       `make test-oskhs` runs an empty suite green
-- [ ] 2.2 `src/exec.ts`: the single command-runner seam (argv, env, stdin,
+- [x] 2.2 `src/exec.ts`: the single command-runner seam (argv, env, stdin,
       timeout) and `src/openshell.ts` helpers for sandbox exec/upload with no
       `--env`; verify by unit test that no built argv contains `--env`
-- [ ] 2.3 `src/names.ts`: project/sandbox/task-id naming; verify unit tests
+- [x] 2.3 `src/names.ts`: project/sandbox/task-id naming; verify unit tests
       for sanitizing (`My_Repo.v2` → `my-repo-v2`) and id shape
-- [ ] 2.4 `src/seed.ts`: ensure sandbox (`maki-oss up`), detect clone, full
+- [x] 2.4 `src/seed.ts`: ensure sandbox (`maki-oss up`), detect clone, full
       bundle upload + clone + bundle removal, cleanup on failure; verify the
       three seeding scenarios with the recording runner
-- [ ] 2.5 `src/result.ts`: parse Maki's JSON line into `RoundResult`; verify
+- [x] 2.5 `src/result.ts`: parse Maki's JSON line into `RoundResult`; verify
       unit tests for answer, agent-error with exit 0, missing line, timeout
       (124), helper failure
-- [ ] 2.6 `src/round.ts`: worktree add → `maki-oss run` → worktree remove in
+- [x] 2.6 `src/round.ts`: worktree add → `maki-oss run` → worktree remove in
       `finally`; verify the worktree scenario with the recording runner,
       including removal after a failed run
-- [ ] 2.7 `src/cli.ts run-round <repo> "<prompt>" [--model] [--base]
+- [x] 2.7 `src/cli.ts run-round <repo> "<prompt>" [--model] [--base]
       [--provider] [--timeout] [--gateway]`: prints the result JSON, exits 0
       only for `answer`; verify a unit test of argument parsing and the exit
       mapping
 
 ## 3. Live exit
 
-- [ ] 3.1 Create a fixture repo with `oskhs/test/make-fixture.sh` and run
+- [x] 3.1 Create a fixture repo with `oskhs/test/make-fixture.sh` and run
       `run-round` against the local gateway with a question about a file;
       verify the answer is correct, the sandbox `repo-<project>` holds
       `/sandbox/repo`, and `/sandbox/tasks/<id>` is gone; save the transcript
       to `evidence/round-live.md`
-- [ ] 3.2 Run a second round on the same repo; verify no bundle upload is
+- [x] 3.2 Run a second round on the same repo; verify no bundle upload is
       recorded (log shows reuse) and it answers
-- [ ] 3.3 Run a round with `--timeout 5` and a prompt that keeps Maki busy;
+- [x] 3.3 Run a round with `--timeout 5` and a prompt that keeps Maki busy;
       verify the result is `timeout` and `ps` in the sandbox shows no
       leftover `maki` process; record in `evidence/round-live.md`
-- [ ] 3.4 Verify the sandbox environment holds no credential values:
+- [x] 3.4 Verify the sandbox environment holds no credential values:
       `openshell sandbox exec … env` filtered for key-like names shows only
       provider stand-ins; record the redacted check
 
 ## 4. Docs
 
-- [ ] 4.1 `docs/oskhs.md` (what oskhs is today, sandbox layout, run-round
+- [x] 4.1 `docs/oskhs.md` (what oskhs is today, sandbox layout, run-round
       usage, results) and glossary entries for warm repo sandbox, task
       worktree, round; verify `scripts/check-links.sh`
-- [ ] 4.2 Mark B1.1a done in `docs/roadmap.md` with a pointer to this
+- [x] 4.2 Mark B1.1a done in `docs/roadmap.md` with a pointer to this
       change; verify `openspec validate add-oskhs-round --strict`

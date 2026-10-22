@@ -16,7 +16,8 @@ Start here:
 
 Supporting docs: `docs/setup-guide.md` (full walkthrough),
 `docs/verification.md` (isolation checklist), `docs/glossary.md` (vocabulary),
-`docs/verification-log.md` (dry-run record). Canonical configuration lives in
+`docs/verification-log.md` (dry-run record), `docs/oskhs.md` (kiss
+adapter, Track B). Canonical configuration lives in
 `examples/`; docs reference those files instead of duplicating them.
 
 ## Security invariants

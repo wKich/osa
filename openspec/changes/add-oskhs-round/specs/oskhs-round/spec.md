@@ -7,23 +7,25 @@ oskhs SHALL keep one sandbox per project named `repo-<project>`, where
 `<project>` is the repo directory's basename lowercased with every character
 outside `[a-z0-9-]` replaced by `-`. When the sandbox is missing, oskhs SHALL
 create it through `maki-oss up` with the configured providers and SHALL NOT
-upload a project directory. When the sandbox holds no clone at
-`/sandbox/repo`, oskhs SHALL create a full git bundle of the local repo
-(`--all`), upload it with `openshell sandbox upload --no-git-ignore`, clone
-it inside the sandbox, and delete the uploaded bundle. A failed seed SHALL
-leave no partial clone behind. Seeding MUST NOT pass any `--env` value and
+upload a project directory. When the sandbox holds no repository at
+`/sandbox/repo`, oskhs SHALL create a full git bundle of the local repo's
+branches and tags, upload it with `openshell sandbox upload --no-git-ignore`,
+fetch it inside the sandbox into a bare repository at `/sandbox/repo` with
+branches under `refs/remotes/origin/*`, and delete the uploaded bundle. The
+sandbox repository SHALL have no remote URL. A failed seed SHALL
+leave no partial repository behind. Seeding MUST NOT pass any `--env` value and
 MUST NOT use a bind mount.
 
 #### Scenario: First round seeds the sandbox
 - **WHEN** `run-round <repo> "<prompt>"` runs and no `repo-<project>` sandbox exists
-- **THEN** the recorded calls create the sandbox with `maki-oss up`, upload a bundle, run `git clone` inside the sandbox, and remove the uploaded bundle, before any worktree is added
+- **THEN** the recorded calls create the sandbox with `maki-oss up`, upload a bundle, fetch it into a bare repository inside the sandbox, and remove the uploaded bundle, before any worktree is added
 
 #### Scenario: Seeded sandbox is reused
 - **WHEN** `repo-<project>` exists and `/sandbox/repo` is a git repository
 - **THEN** no bundle is created or uploaded
 
-#### Scenario: Failed clone leaves nothing behind
-- **WHEN** the in-sandbox `git clone` fails
+#### Scenario: Failed seed leaves nothing behind
+- **WHEN** the in-sandbox fetch from the bundle fails
 - **THEN** the result is `failed` with stage `seed`, and oskhs removes `/sandbox/repo` so the next round seeds again
 
 ### Requirement: Round in a fresh task worktree

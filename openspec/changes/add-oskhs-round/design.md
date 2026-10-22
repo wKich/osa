@@ -46,10 +46,16 @@ registered `maki-synthetic` provider.
 
 1. **Stack.** Bun + TypeScript, `oskhs/` beside `bridge/`, same tsconfig and
    test runner. B1.3b needs a Mongo driver, which rules out POSIX sh.
-2. **Sandbox layout.** Clone at `/sandbox/repo`; task worktrees at
-   `/sandbox/tasks/<task-id>`; transfer files under `/sandbox/.oskhs/in` and
-   `/sandbox/.oskhs/out`. The seed bundle is deleted after the clone, so
-   `origin` points at a missing file and network git has nothing to reach.
+2. **Sandbox layout.** A bare repository at `/sandbox/repo`, filled by
+   `git fetch <bundle> '+refs/heads/*:refs/remotes/origin/*'` (plus tags)
+   rather than `git clone`: no branch is checked out by the repository
+   itself, so any delivered branch can be checked out in a task worktree, no
+   working tree is duplicated, and there is no remote URL at all. Task
+   worktrees at `/sandbox/tasks/<task-id>`; transfer files under
+   `/sandbox/.oskhs/in` and `/sandbox/.oskhs/out`. The seed bundle is
+   deleted after the fetch. The host side bundles `--branches --tags` (local
+   branches), not `--all`, so a host clone's own remote-tracking refs are not
+   shipped twice.
 3. **Names.** Project = sanitized basename of the repo directory (lowercase,
    `[a-z0-9-]`); sandbox `repo-<project>`. Task id = `t<unix-ms>-<4 hex>` for
    the CLI; B1.3b replaces it with kiss's task id.

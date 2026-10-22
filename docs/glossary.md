@@ -71,3 +71,12 @@ reference pack.
   server's `command` array names exists in the sandbox. A missing runtime is
   reported with `maki-oss image build` as the fix; the helper never installs a
   runtime or package into a running sandbox.
+- **oskhs** — the host-side adapter (`oskhs/`) that runs kiss agent rounds in
+  OpenShell sandboxes; holds every database and GitLab credential outside
+  the sandbox ([docs/oskhs.md](oskhs.md)).
+- **Warm repo sandbox** — the long-lived per-project sandbox `repo-<project>`
+  holding a bare repository seeded once with full history; rounds reuse it.
+- **Task worktree** — the detached git worktree `/sandbox/tasks/<task-id>`
+  a single round runs in; removed when the round ends.
+- **Round** — one headless Maki run for one task in its task worktree,
+  ending in a typed result (`answer`, `agent-error`, `timeout`, `failed`).

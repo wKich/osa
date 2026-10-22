@@ -1,16 +1,26 @@
 # maki-oss development tasks.
 #
 #   make test          stub-backed suite (no Docker, no gateway, no network)
+#   make test-oskhs    oskhs round library suite (bun, no gateway)
 #   make lint          shellcheck + fish syntax checks
 #   make lint-profiles lint every example provider profile with the real CLI
 #   make install-fish  symlink the fish plugin into the user's config
 
 SHELL := /bin/sh
 
-.PHONY: test test-bridge test-ui compat compat-drift lint lint-profiles install-fish
+.PHONY: test test-oskhs test-bridge test-ui compat compat-drift lint lint-profiles install-fish
 
 test:
 	tests/run-tests.sh
+
+# Offline oskhs suite: round library over a recording runner. No Docker,
+# gateway, or network. Skips with a message when bun is absent.
+test-oskhs:
+	@if command -v bun >/dev/null 2>&1; then \
+		cd oskhs && bun test; \
+	else \
+		echo 'bun not found; skipping oskhs test suite'; \
+	fi
 
 # Offline bridge suite: goldens, contract/wire rules, session API over a
 # spawned bridge. No Docker, gateway, or network. Skips with a message when

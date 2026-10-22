@@ -169,7 +169,7 @@
     { "id": "interrupt-round-trip", "title": "Interrupt round trip via the inbound control_request `interrupt` subtype and the interrupt route", "status": "unverified", "evidence": "openspec/changes/rebaseline-compat-enumeration/evidence/cross-map.md" },
     { "id": "control-response-emission", "title": "Outbound control_response to the child (maki answers every inbound control_request with success/error)", "status": "unverified", "evidence": "openspec/changes/rebaseline-compat-enumeration/evidence/cross-map.md" },
     { "id": "permission-reply-vocabulary", "title": "Permission reply vocabulary beyond bare allow/deny: `updatedPermissions` -> AllowSession, deny + message -> DenyWithGuidance", "status": "unverified", "evidence": "openspec/changes/rebaseline-compat-enumeration/evidence/cross-map.md" },
-    { "id": "subagent-nesting", "title": "Subagent transcript nesting via parent_tool_use_id", "status": "verified", "evidence": "bridge/test/golden.test.ts" }
+    { "id": "subagent-nesting", "title": "Subagent transcript nesting via parent_tool_use_id", "status": "verified", "evidence": "bridge/test/golden.test.ts", "caveat": "contract-only" }
   ],
   "versions": [
     { "component": "OpenCode (pinned contract)", "value": "2.0.32", "evidence": "bridge/src/openapi-2.0.32.json" },

@@ -3,7 +3,7 @@
 // stays a human edit, but it must stay consistent: verified statuses name an
 // existing test or fixture, every evidence key resolves, inventory entries
 // name an existing capture, and expected-failure markers pair with open
-// entries in both directions.
+// entries in both directions, and every fixture carries a recorded provenance.
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "bun:test";
@@ -49,6 +49,32 @@ test("every verified feature names an existing test or fixture", () => {
     .filter((f) => !isTestOrFixture(f.evidence))
     .map((f) => `${f.evidence} (feature ${f.id})`);
   expect(bad).toEqual([]);
+});
+
+// Fixture provenance (add-evidence-strength-tier): the record must stay
+// complete in both directions, so a new fixture can never silently inherit
+// the stronger `captured` claim, and a removed fixture cannot leave a ghost.
+test("every fixture has a provenance entry, and every entry names a fixture", () => {
+  const dir = path("bridge/test/fixtures");
+  const onDisk = readdirSync(dir)
+    .filter((f) => f !== "provenance.json")
+    .sort();
+  const provenance: Record<string, { kind: string }> = JSON.parse(
+    readFileSync(path("bridge/test/fixtures/provenance.json"), "utf8"),
+  );
+
+  const unlisted = onDisk.filter((f) => !(f in provenance));
+  expect(unlisted, "fixtures with no provenance entry").toEqual([]);
+
+  const stale = Object.keys(provenance)
+    .filter((f) => !onDisk.includes(f))
+    .sort();
+  expect(stale, "provenance entries naming a missing fixture").toEqual([]);
+
+  const badKind = Object.entries(provenance)
+    .filter(([, v]) => !["captured", "authored", "mixed"].includes(v.kind))
+    .map(([f, v]) => `${f}: kind ${v.kind}`);
+  expect(badKind, "provenance entries with an unknown kind").toEqual([]);
 });
 
 test("every inventory entry names an existing capture", () => {

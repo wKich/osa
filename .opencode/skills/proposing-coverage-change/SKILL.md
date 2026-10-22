@@ -27,6 +27,8 @@ test seam demands one, and then design.md says why.
 4. **Tasks,** each naming its verification:
    - a `bridge/test/fake-maki.ts` fixture for the wire shape under test
      (e.g. `result` error subtypes, `system api_retry`, `stream_event`);
+     a file added under `bridge/test/fixtures/` also records its kind
+     (`captured`/`authored`/`mixed`) in `provenance.json`, or the suite fails;
    - a golden (semantic projection) or session-api/contract test asserting
      it end to end;
    - the statuses row moves `unverified`/`deferred` → `verified` with the

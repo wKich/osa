@@ -2,7 +2,9 @@
 // Render docs/compatibility.md from the machine-readable status file and the
 // defect inventory (design decision 4): a feature whose inventory entry is
 // still open is forced to `buggy`, so the report cannot disagree with the
-// inventory. Every row must carry an evidence key.
+// inventory. Every row must carry an evidence key. A feature row whose
+// evidence reaches a fixture authored from the pin (provenance.json) gets a
+// provenance note in its Evidence cell; no status ever changes for it.
 //
 //   bun scripts/gen-compat.ts           write docs/compatibility.md
 //   bun scripts/gen-compat.ts --check   exit 1 when the committed file differs
@@ -28,6 +30,31 @@ const statuses = JSON.parse(read("bridge/compat/statuses.json"));
 const defects: Defect[] = JSON.parse(read("bridge/defects.json"));
 const isOpen = (id: string) => defects.some((d) => d.id === id && d.status === "known");
 
+const provenance: Record<string, { kind: string; note: string }> = JSON.parse(
+  read("bridge/test/fixtures/provenance.json"),
+);
+// A captured fixture adds nothing to the claim; only authored/mixed shapes
+// narrow it, which is what the report needs to say out loud.
+const sourceDerived = Object.entries(provenance).filter(([, p]) => p.kind !== "captured");
+
+const provenanceNote = (evidence: string): string => {
+  if (!evidence.startsWith("bridge/test/") || evidence.includes("/fixtures/")) return "";
+  let src: string;
+  try {
+    src = read(evidence);
+  } catch {
+    return ""; // a missing evidence file is crosscheck.test.ts's failure to report
+  }
+  return sourceDerived
+    .filter(([file]) => src.includes(file.replace(/\.[^.]+$/, "")))
+    .map(([file, p]) =>
+      p.kind === "authored"
+        ? `wire shape source-derived: \`${file}\` is ${p.kind} (${p.note})`
+        : `\`${file}\` is ${p.kind} (${p.note})`,
+    )
+    .join("; ");
+};
+
 const failures: string[] = [];
 const need = (cond: boolean, msg: string) => {
   if (!cond) failures.push(msg);
@@ -45,6 +72,9 @@ for (const f of statuses.features as EvidenceRow[]) {
       defects.some((d) => d.id === f.defect),
       `feature ${f.id}: unknown inventory entry ${f.defect}`,
     );
+  }
+  if (f.caveat !== undefined) {
+    need(typeof f.caveat === "string" && f.caveat.length > 0, `feature ${f.id}: caveat must be a non-empty string`);
   }
 }
 for (const v of statuses.versions as EvidenceRow[]) {
@@ -101,7 +131,9 @@ for (const f of statuses.features) {
   const status = forced
     ? `\`buggy\` ([${f.defect}](../bridge/defects.json))`
     : `\`${f.status}\``;
-  lines.push(`| ${md(f.title)} | ${status} | ${link(f.evidence)} |`);
+  const caveat = f.caveat ? ` (${md(f.caveat)})` : "";
+  const note = provenanceNote(f.evidence);
+  lines.push(`| ${md(f.title)} | ${status}${caveat} | ${link(f.evidence)}${note ? ` — ${note}` : ""} |`);
 }
 lines.push("");
 

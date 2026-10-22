@@ -101,6 +101,8 @@ contract).
   existing route row on this rule alone — record the mismatch as a finding.
   The `contract-only` caveat lives in the evidence matrix's coverage column,
   not in `statuses.json`.
+- New fixture → a `bridge/test/fixtures/provenance.json` entry in the same change
+  (`captured`|`authored`|`mixed`): an unlisted fixture fails `crosscheck.test.ts`, and the note prints on the row.
 - Verify nothing: `verified` requires a test or fixture path as evidence
   (`bridge/test/crosscheck.test.ts` enforces it).
 

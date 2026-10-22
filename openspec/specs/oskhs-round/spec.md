@@ -1,7 +1,11 @@
 # oskhs-round Specification
 
 ## Purpose
-TBD - created by archiving change add-oskhs-round. Update Purpose after archive.
+Runs one headless Maki round for one task inside a long-lived per-project
+OpenShell sandbox: seed the sandbox's repository once with full history, run
+each round in its own git worktree, and return a typed result, with the time
+limit enforced inside the sandbox and no credentials or bind mounts crossing
+into it.
 
 ## Requirements
 

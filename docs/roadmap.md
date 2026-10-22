@@ -305,7 +305,12 @@ in one go; remote gateways and resumable large seeds are B5.
   which would resurrect deleted files. **Exit:** a prompt that edits,
   deletes, and renames files yields a host branch identical to the task
   worktree.
-- **B1.3a — kiss: marker and reader audit** (½–1). In the kiss repo: an
+- **B1.3a — kiss: marker and reader audit** (½–1). *Done 2026-10-23 in
+  the kiss repo, branch `feat/oskhs-executor-marker` (OpenSpec change
+  `add-oskhs-executor-marker`, not yet merged): `executor: 'oskhs'` on
+  `AgentTask`, resolved from channel then project for Mattermost tasks;
+  only `KissHostService.claimTask` needed the filter; recovery is shared —
+  reconcile requeues a stale marked task and oskhs re-claims it.* In the kiss repo: an
   `executor` field on `AgentTask` set at task creation from project/channel
   config (missing = KHS); `KissHostService.claimTask` adds
   `executor: { $ne: 'oskhs' }`; claim index updated. Audit every kiss reader

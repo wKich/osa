@@ -29,6 +29,16 @@ describe("gitlab client", () => {
     expect(err.message).toContain("401");
     expect(err.message).not.toContain("wrong-token-value");
   });
+  test("MR creation retries while GitLab does not see the pushed branch yet", async () => {
+    gl.late.remaining = 2;
+    const api = new GitLab({ baseUrl: gl.url, token: TOKEN, mrRetryDelaysMs: [1, 1] });
+    const mr = await api.createMR("g/fx", { title: "t", description: "d", source: "late/branch", target: "main", labels: [] });
+    expect(mr.iid).toBe(gl.mrs.at(-1)!.iid);
+    gl.late.remaining = 3;
+    const err = (await new GitLab({ baseUrl: gl.url, token: TOKEN, mrRetryDelaysMs: [1, 1] }).createMR("g/fx", { title: "t", description: "d", source: "late/2", target: "main", labels: [] }).catch((e) => e)) as Error;
+    expect(err.message).toContain("does not exist");
+    gl.late.remaining = 0;
+  });
   test("git auth goes by environment only", () => {
     const env = gitAuthEnv(TOKEN);
     expect(env.GIT_CONFIG_KEY_0).toBe("http.extraHeader");
@@ -91,7 +101,7 @@ describe("code round end to end", () => {
     await worker.drain();
     const task = store.task("t1");
     expect(task).toMatchObject({ state: "review", runtimeState: "idle_stopped", replyMessage: "Готово, MR создан.", taskDescription: "Добавлена строка." });
-    expect(task.taskRepositories).toEqual([{ projectPath: "g/fx", description: "fixture", mrUrl: "https://gitlab.test/g/fx/-/merge_requests/1", mrIid: 1, branchName: "docs/oskhs-readme" }]);
+    expect(task.taskRepositories).toEqual([{ projectPath: "g/fx", description: "fixture", mrUrl: gl.mrs.at(-1)!.web_url, mrIid: gl.mrs.at(-1)!.iid, branchName: "docs/oskhs-readme" }]);
     expect(gl.mrs.at(-1)).toMatchObject({ project: "g/fx", title: "docs: note oskhs in README", source_branch: "docs/oskhs-readme", target_branch: "main", labels: "docs,ai_generated", assignee_id: 14134, reviewer_ids: [7] });
     expect(gl.mrs.at(-1)!.description).toBe("Добавлена строка.\n\nИсточник задачи: https://chat/x");
     const remote = join(remoteDir, "g/fx.git");
@@ -124,5 +134,98 @@ describe("code round end to end", () => {
     const reply = await round({ task: dueTask("t3", { taskRepositories: [{ projectPath: "g/fx" }] }) as never, project: null, prompt: "", timeoutSec: 30 }, new AbortController().signal);
     expect(reply.ok).toBe(false);
     expect((reply as { error: string }).error).toContain("oskhs could not publish the changes");
+  });
+
+  const answerWith = (fields: string) => ({ code: 0, stdout: JSON.stringify({ type: "result", is_error: false, result: `[RESULT]\n${fields}\n[/RESULT]`, session_id: "S" }) + "\n" });
+
+  async function followUpSetup(edit: (ws: string) => void, fields: string, task: Record<string, unknown>) {
+    const remoteDir = await remotes();
+    const sb = localSandbox();
+    sb.onRun = async (_argv, opts) => {
+      edit(sb.path(opts.env!.MAKI_OSS_WORKDIR!));
+      return answerWith(fields);
+    };
+    const round = sandboxRound({ ctx: sb.ctx, mirrorDir: mkdtempSync(join(tmpdir(), "oskhs-mirrors-")), providers: [], model: "m/x", agentName: "svc_kiss", internalModels: true, stateDir: mkdtempSync(join(tmpdir(), "oskhs-state-")), gitlab: { baseUrl: gl.url, token: TOKEN, gitBaseUrl: remoteDir } });
+    const store = new MemoryStore();
+    store.tasks.set("f1", dueTask("f1", task));
+    store.subTasks.set("s1", { _id: "s1", taskId: "f1", type: "thread_instruction", prompt: "сохрани в файл", state: "pending", createdAt: new Date(1) });
+    const worker = new Worker(store, round, { hostId: "h", maxRounds: 1, maxPerProject: 1, roundTimeoutSec: 30, heartbeatSec: 5, cancelPollSec: 1, abortGraceSec: 5, log: () => {}, info: () => {} });
+    await worker.tick();
+    await worker.drain();
+    return { store, remote: join(remoteDir, "g/fx.git"), sb };
+  }
+
+  test("a follow-up on a question task opens the task's first MR", async () => {
+    const { store, remote, sb } = await followUpSetup(
+      (ws) => writeFileSync(join(ws, "g_fx/roadmap.md"), "# Roadmap\n"),
+      "Status: done\nChanged: yes\nTitle: docs: add roadmap\nDescription: Роадмэп.\nBranch: docs/roadmap\nCommit: docs: роадмэп\nReply: Сохранил.",
+      { state: "completed", runtimeState: "failed", replyMessage: "answer", taskRepositories: [{ projectPath: "g/fx" }] },
+    );
+    const task = store.task("f1");
+    expect(task).toMatchObject({ state: "review", replyMessage: null, taskDescription: "Роадмэп." });
+    expect(task.taskRepositories).toEqual([{ projectPath: "g/fx", mrUrl: gl.mrs.at(-1)!.web_url, mrIid: gl.mrs.at(-1)!.iid, branchName: "docs/roadmap" }]);
+    expect(await git(remote, "log", "-1", "--format=%s", "docs/roadmap")).toBe("docs: роадмэп");
+    const head = await git(remote, "rev-parse", "docs/roadmap");
+    expect(store.subTasks.get("s1")).toMatchObject({ state: "completed", reply: `Сохранил.\n\nCommit [${head.slice(0, 8)}](${gl.url}/g/fx/-/commit/${head})` });
+    for (const c of sb.calls) expect(c.argv.join(" ")).not.toContain(TOKEN);
+  });
+
+  test("a follow-up on an open MR commits onto its branch, no new MR", async () => {
+    const { store: first, remote } = await followUpSetup(
+      (ws) => writeFileSync(join(ws, "g_fx/a.txt"), "a\n"),
+      "Status: done\nChanged: yes\nTitle: feat: a\nBranch: feat/ab\nReply: a",
+      { state: "completed", runtimeState: "failed", taskRepositories: [{ projectPath: "g/fx" }] },
+    );
+    const repos = first.task("f1").taskRepositories as { mrIid: number; branchName: string }[];
+    const before = gl.mrs.length;
+    const firstHead = await git(remote, "rev-parse", "feat/ab");
+    // the same task, now in review, gets another instruction; its remote is reused
+    const sb = localSandbox();
+    sb.onRun = async (_argv, opts) => {
+      expect(await git(join(sb.path(opts.env!.MAKI_OSS_WORKDIR!), "g_fx"), "rev-parse", "HEAD")).toBe(firstHead);
+      writeFileSync(join(sb.path(opts.env!.MAKI_OSS_WORKDIR!), "g_fx/b.txt"), "b\n");
+      return answerWith("Status: done\nChanged: yes\nCommit: feat: b\nReply: b добавлен");
+    };
+    const round = sandboxRound({ ctx: sb.ctx, mirrorDir: mkdtempSync(join(tmpdir(), "oskhs-mirrors-")), providers: [], model: "m/x", agentName: "k", internalModels: true, stateDir: mkdtempSync(join(tmpdir(), "oskhs-state-")), gitlab: { baseUrl: gl.url, token: TOKEN, gitBaseUrl: remote.replace(/\/g\/fx\.git$/, "") } });
+    const sub = { _id: "s2", taskId: "f1", type: "thread_instruction", prompt: "ещё b", state: "processing" };
+    const reply = await round({ task: { ...first.task("f1"), state: "review" } as never, project: null, prompt: "ещё b", subTask: sub as never, timeoutSec: 30 }, new AbortController().signal);
+    expect(gl.mrs.length).toBe(before);
+    expect(await git(remote, "log", "--format=%s", "feat/ab")).toStartWith("feat: b\nfeat: a");
+    const head = await git(remote, "rev-parse", "feat/ab");
+    expect(reply).toEqual({ ok: true, text: `b добавлен\n\nCommit [${head.slice(0, 8)}](${gl.url}/g/fx/-/commit/${head})`, mrs: [], taskDescription: null });
+    expect(repos[0]!.branchName).toBe("feat/ab");
+  });
+
+  test("a follow-up on a merged MR answers and pushes nothing", async () => {
+    const { store: first, remote } = await followUpSetup(
+      (ws) => writeFileSync(join(ws, "g_fx/m.txt"), "m\n"),
+      "Status: done\nChanged: yes\nTitle: feat: m\nBranch: feat/m\nReply: m",
+      { state: "completed", runtimeState: "failed", taskRepositories: [{ projectPath: "g/fx" }] },
+    );
+    gl.mrs.at(-1)!.state = "merged";
+    const head = await git(remote, "rev-parse", "feat/m");
+    const sb = localSandbox();
+    sb.onRun = async (_argv, opts) => {
+      writeFileSync(join(sb.path(opts.env!.MAKI_OSS_WORKDIR!), "g_fx/n.txt"), "n\n");
+      return answerWith("Status: done\nChanged: yes\nReply: сделал");
+    };
+    const round = sandboxRound({ ctx: sb.ctx, mirrorDir: mkdtempSync(join(tmpdir(), "oskhs-mirrors-")), providers: [], model: "m/x", agentName: "k", internalModels: true, stateDir: mkdtempSync(join(tmpdir(), "oskhs-state-")), gitlab: { baseUrl: gl.url, token: TOKEN, gitBaseUrl: remote.replace(/\/g\/fx\.git$/, "") } });
+    const sub = { _id: "s3", taskId: "f1", type: "thread_instruction", prompt: "ещё", state: "processing" };
+    const reply = await round({ task: first.task("f1") as never, project: null, prompt: "ещё", subTask: sub as never, timeoutSec: 30 }, new AbortController().signal);
+    expect(reply).toEqual({ ok: true, text: "сделал\n\n⚠️ MR уже влит — отвечаю на вопрос без внесения изменений." });
+    expect(await git(remote, "rev-parse", "feat/m")).toBe(head);
+  });
+
+  test("edits behind a no-changes report are not published", async () => {
+    const before = gl.mrs.length;
+    const { store, remote } = await followUpSetup(
+      (ws) => writeFileSync(join(ws, "g_fx/scratch.txt"), "tmp\n"),
+      "Status: no_changes\nChanged: no\nReply: только ответ",
+      { state: "completed", runtimeState: "failed", taskRepositories: [{ projectPath: "g/fx" }] },
+    );
+    expect(gl.mrs.length).toBe(before);
+    expect(store.task("f1")).toMatchObject({ state: "completed" });
+    expect(store.subTasks.get("s1")).toMatchObject({ reply: "только ответ" });
+    expect(await git(remote, "for-each-ref", "--format=%(refname)", "refs/heads")).toBe("refs/heads/feature\nrefs/heads/main");
   });
 });

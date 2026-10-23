@@ -7,14 +7,25 @@ export interface GitLabConfig {
   baseUrl: string; // e.g. https://git.skbkontur.ru
   token: string;
   gitBaseUrl?: string; // where repositories are fetched from; default baseUrl (tests use a local dir)
+  mrRetryDelaysMs?: number[]; // default kiss's MR_CREATE_RETRY_DELAYS
 }
+
+/** kiss GitlabService: a just-pushed branch reaches the MR endpoint late (400 "source_branch does not exist"). */
+export const MR_CREATE_RETRY_DELAYS_MS = [5_000, 10_000, 20_000, 40_000, 45_000];
 
 export interface MergeRequest {
   iid: number;
   web_url: string;
 }
 
-export class GitLabError extends Error {}
+export class GitLabError extends Error {
+  constructor(
+    message: string,
+    readonly status?: number,
+  ) {
+    super(message);
+  }
+}
 
 /** git reads this as `-c http.extraHeader=…` without it ever touching argv. */
 export function gitAuthEnv(token: string): Record<string, string> {
@@ -41,7 +52,7 @@ export class GitLab {
     const text = await res.text();
     if (!res.ok) {
       const detail = text.split(this.cfg.token).join("<token>").slice(0, 300);
-      throw new GitLabError(`GitLab ${method} ${path.split("?")[0]} → ${res.status}: ${detail}`);
+      throw new GitLabError(`GitLab ${method} ${path.split("?")[0]} → ${res.status}: ${detail}`, res.status);
     }
     return (text ? JSON.parse(text) : null) as T;
   }
@@ -83,11 +94,16 @@ export class GitLab {
     return mrs[0] ?? null;
   }
 
+  async mrState(projectPath: string, iid: number): Promise<string> {
+    const mr = await this.call<{ state: string }>("GET", `/projects/${GitLab.project(projectPath)}/merge_requests/${iid}`);
+    return mr.state;
+  }
+
   async createMR(
     projectPath: string,
     mr: { title: string; description: string; source: string; target: string; labels: string[]; assigneeId?: number; reviewerIds?: number[] },
   ): Promise<MergeRequest> {
-    return this.call("POST", `/projects/${GitLab.project(projectPath)}/merge_requests`, {
+    const body = {
       title: mr.title,
       description: mr.description,
       source_branch: mr.source,
@@ -95,6 +111,16 @@ export class GitLab {
       labels: mr.labels.join(","),
       ...(mr.assigneeId ? { assignee_id: mr.assigneeId } : {}),
       ...(mr.reviewerIds?.length ? { reviewer_ids: mr.reviewerIds } : {}),
-    });
+    };
+    // kiss: retry any 400 except a moved project, which no wait fixes
+    for (const delay of [...(this.cfg.mrRetryDelaysMs ?? MR_CREATE_RETRY_DELAYS_MS), null]) {
+      try {
+        return await this.call<MergeRequest>("POST", `/projects/${GitLab.project(projectPath)}/merge_requests`, body);
+      } catch (err) {
+        if (delay === null || !(err instanceof GitLabError) || err.status !== 400 || /moved projects?/i.test(err.message)) throw err;
+        await Bun.sleep(delay);
+      }
+    }
+    throw new Error("unreachable");
   }
 }

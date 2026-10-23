@@ -39,8 +39,8 @@ export async function refreshMirror(ctx: Ctx, gitlab: GitLabConfig, mirrorDir: s
  * To the URL, not `origin`: a mirror's origin has `mirror = true`, which
  * refuses a push with a refspec.
  */
-export async function pushBranch(ctx: Ctx, gitlab: GitLabConfig, mirror: string, projectPath: string, localRef: string, branch: string): Promise<void> {
+export async function pushBranch(ctx: Ctx, gitlab: GitLabConfig, mirror: string, projectPath: string, localRef: string, branch: string, force = false): Promise<void> {
   const env = gitAuthEnv(gitlab.token);
-  await git(ctx, ["-C", mirror, "push", "-q", repoUrl(gitlab, projectPath), `${localRef}:refs/heads/${branch}`], env, `pushing ${branch}`);
+  await git(ctx, ["-C", mirror, "push", "-q", repoUrl(gitlab, projectPath), `${force ? "+" : ""}${localRef}:refs/heads/${branch}`], env, `pushing ${branch}`);
   await git(ctx, ["-C", mirror, "update-ref", "-d", localRef], env, `dropping ${localRef}`);
 }

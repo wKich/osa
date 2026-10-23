@@ -19,7 +19,7 @@ export interface MRRecord {
 
 export interface PublishRepo {
   projectPath: string;
-  base: string;
+  target: string; // the merge request's target branch
   changes: Changes;
 }
 
@@ -34,6 +34,7 @@ export interface PublishInput {
   source?: string | null;
   fields: Record<string, string>; // the [RESULT] fields
   repos: PublishRepo[];
+  branch?: string; // the task's existing MR branch: pushed to as is (kiss force-pushes), no new name
 }
 
 export const fallbackBranch = () => `kiss-agent/${randomUUID().slice(0, 8)}`;
@@ -62,10 +63,12 @@ export const commitTitle = (fields: Record<string, string>, taskId: string) => f
 
 export async function publish(input: PublishInput): Promise<MRRecord[]> {
   const api = new GitLab(input.gitlab);
-  const branch = await chooseBranch(input.taskBranchName, input.fields.Branch, async (b) => {
-    for (const r of input.repos) if (await api.branchExists(r.projectPath, b)) return true;
-    return false;
-  });
+  const branch =
+    input.branch ??
+    (await chooseBranch(input.taskBranchName, input.fields.Branch, async (b) => {
+      for (const r of input.repos) if (await api.branchExists(r.projectPath, b)) return true;
+      return false;
+    }));
   const me = await api.currentUser();
   const reviewer = input.authorUsername ? await api.userId(input.authorUsername.replace(/^@/, "")) : null;
   const title = commitTitle(input.fields, input.taskId);
@@ -77,17 +80,17 @@ export async function publish(input: PublishInput): Promise<MRRecord[]> {
   for (const repo of input.repos) {
     const step = (what: string) => `${repo.projectPath}: ${what}`;
     try {
-      await pushBranch(input.ctx, input.gitlab, mirrorPath(input.mirrorDir, repo.projectPath), repo.projectPath, `refs/heads/${repo.changes.branch}`, branch);
+      await pushBranch(input.ctx, input.gitlab, mirrorPath(input.mirrorDir, repo.projectPath), repo.projectPath, `refs/heads/${repo.changes.branch}`, branch, !!input.branch);
     } catch (err) {
       throw new Error(step(`push of ${branch} failed: ${err instanceof Error ? err.message : String(err)}`));
     }
     try {
       const reviewerIds = reviewer && (await api.isMember(repo.projectPath, reviewer)) ? [reviewer] : undefined;
       const mr =
-        (await api.findOpenMR(repo.projectPath, branch, repo.base)) ??
-        (await api.createMR(repo.projectPath, { title, description, source: branch, target: repo.base, labels, assigneeId: me.id, reviewerIds }));
+        (await api.findOpenMR(repo.projectPath, branch, repo.target)) ??
+        (await api.createMR(repo.projectPath, { title, description, source: branch, target: repo.target, labels, assigneeId: me.id, reviewerIds }));
       records.push({ projectPath: repo.projectPath, mrUrl: mr.web_url, mrIid: mr.iid, branchName: branch });
-      input.ctx.log(`MR !${mr.iid} for ${repo.projectPath} (${branch} → ${repo.base})`);
+      input.ctx.log(`MR !${mr.iid} for ${repo.projectPath} (${branch} → ${repo.target})`);
     } catch (err) {
       throw new Error(step(`merge request failed: ${err instanceof Error ? err.message : String(err)}`));
     }

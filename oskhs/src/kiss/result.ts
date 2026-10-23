@@ -63,6 +63,14 @@ export function parseResultFields(result: string): Record<string, string> {
   return fields;
 }
 
+/** kiss's no-changes flags (GitLabAgent run and sub-task): such a round publishes nothing. */
+export function reportedNoChanges(fields: Record<string, string>): boolean {
+  const status = fields.Status?.trim().toLowerCase();
+  const changed = fields.Changed?.trim().toLowerCase();
+  return status === "no_changes" || changed === "no" || !!changed?.startsWith("no;");
+}
+
+
 /** The text to post: the Reply field, else the whole answer. */
 export function replyText(answer: string): string {
   const reply = parseResultFields(answer).Reply;

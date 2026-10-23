@@ -199,7 +199,7 @@ project's warm sandbox:
 - **Reply**: the `Reply` field of Maki's `[RESULT]` block, parsed as kiss
   parses it; the whole answer if there is none.
 - **Code requests**: see *Merge requests* below; read-only tasks
-  (`readOnly`) and follow-ups collect nothing.
+  (`readOnly`) collect nothing.
 - **Model**: from the task's kiss `modelProvider` — see below; `--model` /
   `--provider` only serve a task without one.
 - **Cancel**: the round runs under `maki-oss run --timeout` with the run tag
@@ -239,9 +239,29 @@ text kiss gives its agent, contract-tested. If Maki changed a repository:
    `taskDescription`, `replyMessage`, and `state: review`; kiss's status
    sync posts the MR link in the thread.
 
-A round without changes is an answer (`completed`). Review comments and
-thread instructions on the MR are not handled by oskhs yet (B3): such
-follow-ups end in `error` with a message naming oskhs.
+MR creation retries an HTTP 400 with kiss's delays (5, 10, 20, 40, 45 s):
+GitLab's MR endpoint can miss a branch pushed a moment earlier. A moved
+project is not retried.
+
+A round without changes is an answer (`completed`), and so is one whose
+`[RESULT]` reports none (`Status: no_changes`, `Changed: no`): its edits are
+dropped, as kiss drops them.
+
+Thread follow-ups (`thread_instruction`) are code rounds too, as in kiss:
+
+- A repository with an MR works on the MR's branch; the follow-up's commits
+  are force-pushed there, and the reply ends with kiss's
+  `Commit [<8 hex>](<url>)` links. Leftover edits are committed with the
+  `Commit` field, else `Title`, else kiss's default title.
+- A changed repository without an MR gets one on the task's branch — so a
+  follow-up after a question round opens the task's first MR; the task goes
+  to `review` with `replyMessage` cleared (the sub-task carries the reply).
+- When every MR is merged or closed, the follow-up only answers, ending
+  with kiss's "MR уже влит/закрыт" warning.
+
+MR review comments and other sub-task types are not handled by oskhs yet
+(B3): they end in `error` with a message naming oskhs. Commits carry
+oskhs's author, not the requester as co-author (kiss sets `--author`).
 
 The GitLab token is the oskhs host's secret, like the Mongo URI: git gets
 it only through the environment (`GIT_CONFIG_*` → `http.extraHeader`), the

@@ -194,6 +194,14 @@ export class Worker {
           controller.signal,
         );
         if (controller.signal.aborted) return;
+        if (reply.ok && reply.mrs?.length) {
+          // kiss: the follow-up's MR moves the task to review; the sub-task carries the reply
+          const repos = (task.taskRepositories as Record<string, unknown>[] | undefined) ?? [];
+          const update = p.reviewUpdate(new Date(), repos, reply.mrs, "", reply.taskDescription ?? null);
+          await this.store.updateTask(p.unlessCancelling(id), update);
+          task.taskRepositories = update.$set!.taskRepositories;
+          log(id, "review", { subTaskId: sub._id, mrs: reply.mrs.map((m) => `${m.projectPath}!${m.mrIid}`) });
+        }
         await this.store.updateSubTask(
           sub._id,
           reply.ok ? p.subTaskCompleteUpdate(new Date(), reply.text) : p.subTaskErrorUpdate(new Date(), reply.error),

@@ -10,9 +10,9 @@ import { ensureSandbox } from "../sandbox.ts";
 import { ensureModelProvider, ModelError, pinSandboxProvider, planModel, providerStateFile, type KissModelProvider } from "./model.ts";
 import type { Round, RoundReply } from "../worker.ts";
 import { agentsMd, buildCodeTaskPrompt, buildTaskPrompt, type PromptTask } from "./prompt.ts";
-import { parseResultFields, replyText } from "./result.ts";
+import { parseResultFields, replyText, reportedNoChanges } from "./result.ts";
 import { MirrorError, mirrorPath, refreshMirror } from "./mirror.ts";
-import type { GitLabConfig } from "./gitlab.ts";
+import { GitLab, type GitLabConfig } from "./gitlab.ts";
 import { commitTitle, publish } from "./publish.ts";
 
 export interface SandboxRoundConfig {
@@ -35,6 +35,24 @@ interface TaskRepository {
   worktreeSubdir?: string | null;
   description?: string | null;
   branchName?: string | null;
+  mrIid?: number | null;
+}
+
+/** kiss GitLabAgent: a follow-up on a merged or closed MR answers without pushing. */
+export const terminalNote = (label: string) => `⚠️ MR уже ${label} — отвечаю на вопрос без внесения изменений.`;
+const FOLLOW_UP_COMMIT = "AI Agent: автоматические изменения";
+
+/** kiss getMRsTerminalState: terminal only when every MR is; an unreadable state counts as open. */
+async function terminalLabel(api: GitLab, mrs: { projectPath: string; mrIid: number }[]): Promise<string | null> {
+  let merged = false;
+  let closed = false;
+  for (const mr of mrs) {
+    const state = await api.mrState(mr.projectPath, mr.mrIid).catch(() => "opened");
+    if (state === "merged") merged = true;
+    else if (state === "closed") closed = true;
+    else return null;
+  }
+  return merged && !closed ? "влит" : "закрыт";
 }
 
 
@@ -56,7 +74,7 @@ export function sandboxRound(cfg: SandboxRoundConfig): Round {
   return async (input, signal): Promise<RoundReply> => {
     const { task } = input;
     const taskRepos = (task.taskRepositories as TaskRepository[] | undefined) ?? [];
-    const repos: (RepoSpec & { projectPath: string; description?: string | null })[] = [];
+    const repos: (RepoSpec & { projectPath: string; description?: string | null; target: string })[] = [];
     for (const r of taskRepos) {
       if (cfg.gitlab) {
         try {
@@ -68,9 +86,11 @@ export function sandboxRound(cfg: SandboxRoundConfig): Round {
       }
       const mirror = mirrorPath(cfg.mirrorDir, r.projectPath);
       if (!existsSync(mirror)) return { ok: false, error: `oskhs has no mirror of ${r.projectPath} (expected ${mirror})` };
-      const base = r.branchName || (await defaultBranch(cfg.ctx, mirror));
-      if (!base) return { ok: false, error: `oskhs cannot read the default branch of ${mirror}` };
-      repos.push({ key: repoSubdir(r.projectPath, r.worktreeSubdir), hostRepo: mirror, base, branches: [], allBranches: false, projectPath: r.projectPath, description: r.description });
+      // a repository with an MR works on the MR's branch, which targets the default branch
+      const target = (!r.mrIid && r.branchName) || (await defaultBranch(cfg.ctx, mirror));
+      if (!target) return { ok: false, error: `oskhs cannot read the default branch of ${mirror}` };
+      const base = r.mrIid && r.branchName ? r.branchName : target;
+      repos.push({ key: repoSubdir(r.projectPath, r.worktreeSubdir), hostRepo: mirror, base, target, branches: [], allBranches: false, projectPath: r.projectPath, description: r.description });
     }
     const sandbox = sandboxFor(input.project, String(task.projectId ?? task._id));
     const mp = task.modelProvider as KissModelProvider | null | undefined;
@@ -96,9 +116,13 @@ export function sandboxRound(cfg: SandboxRoundConfig): Round {
     } else if (!model) {
       return { ok: false, error: "the task has no model provider and the worker has no --model" };
     }
-    // Code rounds: a first round of a task that may change code, with GitLab to
-    // publish to. Follow-ups stay read-only until B3.
-    const code = !input.subTask && task.readOnly !== true && !!cfg.gitlab;
+    // Code rounds: a task that may change code, with GitLab to publish to.
+    // A follow-up commits onto the task's MR branch (kiss: a thread instruction
+    // after a Q&A round opens the first MR) — unless every MR is merged or
+    // closed, then it only answers.
+    const withMR = taskRepos.filter((r) => r.mrIid && r.branchName) as (TaskRepository & { mrIid: number; branchName: string })[];
+    const terminal = input.subTask && withMR.length && cfg.gitlab ? await terminalLabel(new GitLab(cfg.gitlab), withMR) : null;
+    const code = task.readOnly !== true && !!cfg.gitlab && !terminal;
     // a follow-up's prompt was already built by kiss
     const prompt = input.subTask
       ? input.prompt
@@ -114,18 +138,23 @@ export function sandboxRound(cfg: SandboxRoundConfig): Round {
       model,
       timeoutSec: input.timeoutSec,
       collect: code,
-      commitMessage: (answer) => commitTitle(parseResultFields(answer), String(task._id)),
+      commitMessage: (answer) => {
+        const fields = parseResultFields(answer);
+        return input.subTask ? fields.Commit?.trim() || fields.Title?.trim() || FOLLOW_UP_COMMIT : commitTitle(fields, String(task._id));
+      },
       agentsMd: agentsMd(repos),
       signal,
     });
     switch (result.kind) {
       case "answer": {
         const text = replyText(result.text);
-        const changed = outcomes.filter((o) => o.changes);
-        if (!code || !changed.length) return { ok: true, text };
         const fields = parseResultFields(result.text);
+        if (terminal) return { ok: true, text: `${text}\n\n${terminalNote(terminal)}` };
+        const changed = outcomes.filter((o) => o.changes);
+        if (!code || !changed.length || reportedNoChanges(fields)) return { ok: true, text };
+        let mrs;
         try {
-          const mrs = await publish({
+          mrs = await publish({
             ctx: cfg.ctx,
             gitlab: cfg.gitlab!,
             mirrorDir: cfg.mirrorDir,
@@ -135,15 +164,26 @@ export function sandboxRound(cfg: SandboxRoundConfig): Round {
             authorUsername: task.authorUsername as string | null | undefined,
             source: task.source as string | null | undefined,
             fields,
+            branch: withMR[0]?.branchName,
             repos: changed.map((o) => {
               const spec = repos.find((r) => r.key === o.key)!;
-              return { projectPath: spec.projectPath, base: spec.base, changes: o.changes! };
+              return { projectPath: spec.projectPath, target: spec.target, changes: o.changes! };
             }),
           });
-          return { ok: true, text, mrs, taskDescription: fields.Description?.trim() || null };
         } catch (err) {
           return { ok: false, error: `oskhs could not publish the changes: ${err instanceof Error ? err.message : String(err)}` };
         }
+        const fresh = mrs.filter((m) => !withMR.some((r) => r.projectPath === m.projectPath));
+        const taskDescription = fields.Description?.trim() || null;
+        if (!input.subTask) return { ok: true, text, mrs, taskDescription };
+        // kiss: a follow-up's reply links the commits it pushed
+        const links = changed
+          .map((o) => {
+            const projectPath = repos.find((r) => r.key === o.key)!.projectPath;
+            return `Commit [${o.changes!.head.slice(0, 8)}](${cfg.gitlab!.baseUrl.replace(/\/+$/, "")}/${projectPath}/-/commit/${o.changes!.head})`;
+          })
+          .join(", ");
+        return { ok: true, text: text ? `${text}\n\n${links}` : links, mrs: fresh, taskDescription };
       }
       case "agent-error":
         return { ok: false, error: `Maki reported an error: ${result.message}` };

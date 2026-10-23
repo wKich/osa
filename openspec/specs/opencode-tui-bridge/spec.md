@@ -94,6 +94,14 @@ and across turns.
 - **THEN** the bridge emits the matching `session.step.ended` with usage and
   finish status, and `session.execution.succeeded` or `session.execution.failed`
 
+#### Scenario: A failed turn reports the failure, not success
+- **WHEN** the `result` frame carries the pinned error subtype
+  `error_during_execution` (`is_error: true`, its `result` field carrying the
+  failure message)
+- **THEN** the turn's parts still render, `session.step.ended` carries
+  `finish: "error"`, and `session.execution.failed` carries the wire's
+  message — with no `session.execution.succeeded` for that turn
+
 #### Scenario: Event stream opens correctly
 - **WHEN** the TUI connects to the event stream
 - **THEN** the first frame is `server.connected` and subsequent frames follow

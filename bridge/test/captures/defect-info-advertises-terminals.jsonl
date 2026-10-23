@@ -1,0 +1,1 @@
+{"ts":"2026-10-23T16:50:37.335Z","method":"GET","path":"/api/info","query":{},"body":{},"resp":{"version":"2.0.32","pid":0,"urls":["sample"],"paths":{"tmp":"sample"}},"matched":true,"status":200}

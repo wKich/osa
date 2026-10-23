@@ -24,5 +24,23 @@
     "title": "GET /api/event sends nothing during an idle gap, so the TUI auto-reconnects and re-boots, dropping the composer's next submit (permission turn never posts)",
     "status": "fixed",
     "capture": "bridge/test/captures/defect-tui-sse-idle-reconnect-drops-next-turn.jsonl"
+  },
+  {
+    "id": "fs-list-reads-host-directory",
+    "title": "GET /api/fs/list lists the host directory the client names in location[directory] (and any absolute `path`) instead of the sandbox workdir: the bridge reads a host path on the client's behalf",
+    "status": "known",
+    "capture": "bridge/test/captures/defect-fs-list-reads-host-directory.jsonl"
+  },
+  {
+    "id": "boot-lists-phantom-rows",
+    "title": "Boot list routes answer synthesized `sample` rows the TUI renders as real: a connected MCP server, MCP resources, a running shell, an active server plugin, a reference alias, a server command whose pick POSTs session.command, and a `sample` agent with a `sample` permission rule",
+    "status": "known",
+    "capture": "bridge/test/captures/defect-boot-lists-phantom-rows.jsonl"
+  },
+  {
+    "id": "info-advertises-terminals",
+    "title": "GET /api/info omits capabilities.persistentPty, so the TUI offers /terminal and the Terminals tab although the bridge serves no persistent PTY, and reports pid 0 and a non-URL `urls: [\"sample\"]`",
+    "status": "known",
+    "capture": "bridge/test/captures/defect-info-advertises-terminals.jsonl"
   }
 ]

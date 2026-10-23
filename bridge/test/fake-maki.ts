@@ -10,9 +10,15 @@
 // Behavior per prompt: commands containing `rm` go through a
 // `can_use_tool` control request (answered by the bridge); every other
 // command runs immediately. Tool results and the turn `result` follow.
+import { appendFileSync } from "node:fs";
+
 const cwd = process.env.OPENMAKI_CWD ?? process.cwd();
 let toolSeq = 0;
 const answers = new Map<string, (a: "allow" | "deny") => void>();
+
+// opt-in inbound trace so a test can prove which frames the bridge sent the
+// child (e.g. that an agent selection sends no control frame)
+const trace = process.env.FAKE_MAKI_TRACE;
 
 const SESSION_ID = "fake-maki-session";
 const out = (obj: unknown, after?: () => void) =>
@@ -86,6 +92,7 @@ for await (const chunk of Bun.stdin.stream()) {
     if (!line) continue;
     let frame: any;
     try { frame = JSON.parse(line); } catch { continue; }
+    if (trace) appendFileSync(trace, JSON.stringify(frame) + "\n");
     if (frame.type === "control_response") {
       answers.get(String(frame.response?.request_id ?? ""))?.(frame.response?.behavior === "deny" ? "deny" : "allow");
       continue;

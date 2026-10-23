@@ -30,14 +30,17 @@ function parseModel(raw: unknown): { providerID: string; id: string } | undefine
 // durable events carry {aggregateID, seq, version}; versions are binary-derived
 // (spike stub measurement), delta/permission events are ephemeral
 const DURABLE_VERSION: Record<string, number> = {
-  "session.execution.started": 1, "session.execution.succeeded": 1,
+  "session.execution.started": 1, "session.execution.succeeded": 1, "session.execution.interrupted": 1,
   "session.step.started": 1, "session.step.ended": 1,
   "session.reasoning.started": 1, "session.reasoning.ended": 1,
   "session.text.started": 1, "session.text.ended": 1,
   "session.tool.input.started": 1, "session.tool.input.ended": 1,
   "session.tool.called": 1, "session.tool.success": 2, "session.tool.failed": 2,
   "session.retry.scheduled": 1,
+  "session.inbox.delivered": 1, "session.inbox.delivery.changed": 1, "session.inbox.cancelled": 1,
 };
+
+type UserPrompt = { text: string; id: string; delivery: string; files?: AnyObj[] };
 
 // maki's tool names are PascalCase (Bash, Read, TodoWrite); the OpenCode side
 // spells them lowerCamel (mapping-table.md §3)
@@ -53,6 +56,11 @@ export class Translator {
   private hooks: TranslatorHooks;
   private am = ""; // the turn's minted assistant message id
   private turnOpen = false;
+  private interruptRequested = false;
+  // prompts admitted while a turn runs: the pinned child answers each stdin
+  // prompt in its own run after the current one (sdk_mode.rs v0.6.4 L701,
+  // L763), so their turns start in order as results land
+  private queued: { am: string; user?: UserPrompt }[] = [];
   // the model the child last announced (system.init / assistant.model);
   // synthesized defaults serve only until then (design decision 3)
   private announced?: { providerID: string; id: string };
@@ -70,6 +78,21 @@ export class Translator {
     return this.am;
   }
 
+  /** a turn has begun and its result has not arrived */
+  get inTurn(): boolean {
+    return this.turnOpen;
+  }
+
+  /** the TUI interrupted this turn: its error result ends it as interrupted */
+  markInterrupted(): void {
+    if (this.turnOpen) this.interruptRequested = true;
+  }
+
+  /** the child acked a model switch: it is the model from now on */
+  announceModel(model: { providerID: string; id: string }): void {
+    this.announced = model;
+  }
+
   /** the child's announced model, or undefined before the first announcement */
   get announcedModel(): { providerID: string; id: string } | undefined {
     return this.announced;
@@ -81,22 +104,46 @@ export class Translator {
 
   /** prompt accepted: turn boundary frames (mapping-table.md §2). The user
    * prompt representation is emitted here, at admission, because maki never
-   * echoes plain user text (cross-map.md pinned shape). */
-  beginTurn(assistantMessageID: string, user?: { text: string; id: string; delivery: string }): void {
+   * echoes plain user text (cross-map.md pinned shape). Returns the delivery
+   * the item really gets: a prompt admitted mid-turn waits for the running
+   * turn, so a `steer` is reported as `queue`. */
+  beginTurn(assistantMessageID: string, user?: UserPrompt): string | undefined {
+    if (this.turnOpen) {
+      if (user) {
+        this.enqueue(assistantMessageID, user);
+        if (user.delivery !== "queue") {
+          this.hooks.sink.emit("session.inbox.delivery.changed",
+            { sessionID: this.hooks.sessionID, inboxID: user.id, delivery: "queue" }, DURABLE_VERSION["session.inbox.delivery.changed"]);
+        }
+      }
+      this.queued.push({ am: assistantMessageID, user });
+      return user ? "queue" : undefined;
+    }
+    // shortcut: the real server also emits session.inbox.delivered once the
+    // runner consumes the item; omitted for an item that starts at once (no
+    // consumer needs it) and emitted for a queued one, which stays pending in
+    // OpenCode's inbox model until delivered or cancelled
+    if (user) this.enqueue(assistantMessageID, user);
+    this.startTurn(assistantMessageID);
+    return user?.delivery;
+  }
+
+  private enqueue(am: string, user: UserPrompt): void {
+    this.hooks.sink.emit("session.inbox.enqueued", {
+      sessionID: this.hooks.sessionID,
+      assistantMessageID: am,
+      inboxID: user.id,
+      item: { type: "user", payload: user.files?.length ? { text: user.text, files: user.files } : { text: user.text }, delivery: user.delivery },
+    }, 1);
+  }
+
+  private startTurn(assistantMessageID: string): void {
     this.am = assistantMessageID;
     this.turnOpen = true;
+    this.interruptRequested = false;
     this.counts = { reasoning: 0, text: 0, tool: 0 };
     this.streamCursor = { reasoning: 0, text: 0, tool: 0 };
     this.streamed = new Map();
-    if (user) {
-      // shortcut: the real server also emits session.inbox.delivered once the
-      // runner consumes the item; omitted (no consumer needs it yet) — add it
-      // when a TUI behavior is proven to depend on it
-      this.emit("session.inbox.enqueued", {
-        inboxID: user.id,
-        item: { type: "user", payload: { text: user.text }, delivery: user.delivery },
-      }, 1);
-    }
     this.emitExec("session.execution.started", {});
     this.emit("session.step.started", {
       sessionID: this.hooks.sessionID,
@@ -107,11 +154,23 @@ export class Translator {
     });
   }
 
-  /** maki died with a turn in flight: fail the execution instead of a stuck spinner */
+  /** the running turn ended: the next queued prompt's run begins */
+  private startNext(): void {
+    const next = this.queued.shift();
+    if (!next) return;
+    if (next.user) this.emitExec("session.inbox.delivered", { inboxID: next.user.id });
+    this.startTurn(next.am);
+  }
+
+  /** maki died with a turn in flight: fail the execution instead of a stuck
+   * spinner, and cancel what was queued behind it (no child will answer it) */
   abortTurn(message: string): void {
     if (!this.turnOpen) return;
     this.turnOpen = false;
     this.emitExec("session.execution.failed", { error: { type: "Error", message } });
+    for (const q of this.queued.splice(0)) {
+      if (q.user) this.emitExec("session.inbox.cancelled", { inboxID: q.user.id });
+    }
   }
 
   onFrame(frame: AnyObj): void {
@@ -329,12 +388,17 @@ export class Translator {
     if (typeof frame.total_cost_usd === "number" && frame.total_cost_usd > 0) data.cost = frame.total_cost_usd;
     this.emit("session.step.ended", data);
     if (ok) this.emitExec("session.execution.succeeded", {});
+    // maki reports a cancelled run as an error result (sdk_mode.rs v0.6.4
+    // L1168–L1172); after an interrupt that is the pinned interrupted end
+    // (session-event.ts v2.0.32 Execution.Interrupted), not a failure
+    else if (this.interruptRequested) this.emitExec("session.execution.interrupted", { reason: "user" });
     else {
       this.emitExec("session.execution.failed", {
         error: { type: "Error", message: String(frame.result ?? frame.subtype ?? "maki turn failed") },
       });
     }
     this.hooks.onResult?.(frame);
+    this.startNext();
   }
 
   /** part/step frames carry the turn's assistant message id */

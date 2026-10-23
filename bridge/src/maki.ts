@@ -39,10 +39,16 @@ export function childArgv(opts: MakiOptions, env: Record<string, string | undefi
   return [openshell, "sandbox", "exec", "-n", name, "--no-login-shell", "--workdir", opts.cwd, "--", "maki", "-p", "--trust", ...SDK_FLAGS.slice(1), ...model];
 }
 
+export interface ImageBlock {
+  type: "image";
+  source: { type: "base64"; media_type: string; data: string };
+}
+
 export class MakiSession {
   private child: ChildProcessWithoutNullStreams;
   private buf = "";
   private dead = false;
+  private controlSeq = 0;
 
   constructor(opts: MakiOptions) {
     const argv = childArgv(opts);
@@ -65,12 +71,38 @@ export class MakiSession {
     return !this.dead && this.child.exitCode === null && !this.child.killed;
   }
 
-  prompt(text: string): void {
-    this.write({ type: "user", message: { role: "user", content: [{ type: "text", text }] } });
+  // image blocks ride after the text block in the same content array, the
+  // stream-json shape the pinned child decodes (sdk_mode.rs v0.6.4 L807–L816)
+  prompt(text: string, images: ImageBlock[] = []): void {
+    this.write({ type: "user", message: { role: "user", content: [{ type: "text", text }, ...images] } });
   }
 
-  answer(requestID: string, behavior: "allow" | "deny"): void {
-    this.write({ type: "control_response", response: { request_id: requestID, behavior } });
+  // the pinned decoder (sdk_mode.rs v0.6.4 L918–L927) reads `allow` plus an
+  // `updatedPermissions` key as AllowSession and `deny` plus a non-empty
+  // `message` as DenyWithGuidance; a bare behavior is AllowOnce / Deny
+  answer(requestID: string, behavior: "allow" | "deny", extra: { updatedPermissions?: unknown[]; message?: string } = {}): void {
+    this.write({ type: "control_response", response: { request_id: requestID, behavior, ...extra } });
+  }
+
+  // the pinned wire cancels a run with inbound control_request/interrupt
+  // (sdk_mode.rs v0.6.4 L840–L843), not control_cancel_request, which only
+  // denies one pending ask; maki acks with a control_response, then ends the
+  // run with an error result
+  interrupt(): string {
+    return this.control("interrupt", {});
+  }
+
+  // inbound control_request/set_model (sdk_mode.rs v0.6.4 L861–L874): maki
+  // resolves the spec through its model policy and acks success or error
+  setModel(spec: string): string {
+    return this.control("set_model", { model: spec });
+  }
+
+  /** writes one bridge-originated control request; returns its request_id */
+  private control(subtype: string, fields: Record<string, unknown>): string {
+    const requestID = `bridge_${subtype}_${++this.controlSeq}`;
+    this.write({ type: "control_request", request_id: requestID, request: { subtype, ...fields } });
+    return requestID;
   }
 
   kill(): void {

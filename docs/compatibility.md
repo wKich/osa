@@ -4,13 +4,7 @@ Generated from `bridge/compat/statuses.json` and `bridge/defects.json` by `scrip
 
 ## Burndown
 
-Reachable surface: **32 of 143 routes** (10 `served-live`, 21 `served-faked`, 1 `deferred`, 0 `unhandled`) and **30 of 31 features** (23 `verified`, 1 `unverified`, 6 `degraded` (2 pin-blocked), 0 `buggy`). Out of scope: 111 routes, 1 feature. Open defects: **0**.
-
-Next (first 3 of 5 reachable, unblocked, not `verified`; ids match the feature tables):
-
-1. `permission-reask` — A reply of `always` is honored once; the next gated call asks again (`degraded`)
-2. `mid-turn-steering` — Mid-turn steering via an inbound user prompt while the agent runs (`unverified`)
-3. `interrupt-round-trip` — Interrupt is accepted and answered `interrupted:false`; the Maki child is never cancelled (no `control_request`/`interrupt` is sent) (`degraded`)
+Reachable surface: **32 of 143 routes** (10 `served-live`, 21 `served-faked`, 1 `deferred`, 0 `unhandled`) and **30 of 32 features** (26 `verified`, 0 `unverified`, 4 `degraded` (4 pin-blocked), 0 `buggy`). Out of scope: 111 routes, 2 features. Open defects: **0**.
 
 ## Served routes
 
@@ -57,6 +51,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 
 | Route | Status | Evidence |
 | --- | --- | --- |
+| `POST /api/session/{sessionID}/interrupt` | `served-live` | [`bridge/test/interrupt.test.ts`](../bridge/test/interrupt.test.ts) |
 | `DELETE /api/credential/{credentialID}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `DELETE /api/debug/location` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `DELETE /api/experimental/mcp/{server}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
@@ -145,7 +140,6 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `POST /api/session/{sessionID}/form` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/session/{sessionID}/form/{formID}/reply` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/session/{sessionID}/generate` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
-| `POST /api/session/{sessionID}/interrupt` | `served-faked` | [`bridge/test/interrupt.test.ts`](../bridge/test/interrupt.test.ts) |
 | `POST /api/session/{sessionID}/move` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/session/{sessionID}/permission` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/session/{sessionID}/revert/commit` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
@@ -196,23 +190,24 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | `model-identity` | Session events carry Maki's real model name | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
 | `model-list-refresh` | The location model list refreshes when the child announces, so its model stays selectable | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
 | `api-retry-tolerance` | System api_retry frames are tolerated without disturbing the transcript | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
-| `control-response-emission` | Every answered permission ask writes one bare control_response naming Maki's request id | `verified` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
+| `mid-session-model-switch` | Mid-session model selection is forwarded as `set_model`; the child's success ack moves the reported model (`model.updated`), a refused model leaves the announced one | `verified` | [`bridge/test/model-switch.test.ts`](../bridge/test/model-switch.test.ts) |
+| `interrupt-round-trip` | Interrupt cancels an in-flight turn via `control_request`/`interrupt` and ends it `session.execution.interrupted`; an idle session answers `interrupted:false` | `verified` | [`bridge/test/interrupt.test.ts`](../bridge/test/interrupt.test.ts) |
+| `control-response-emission` | Every answered permission ask writes one control_response naming Maki's request id | `verified` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
+| `permission-reply-vocabulary` | Permission answers use the pinned vocabulary: `once` → bare allow, `always` → allow + `updatedPermissions` (AllowSession), `reject` → deny, plus `message` as DenyWithGuidance when a reason is given | `verified` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
 | `subagent-nesting` | Subagent transcript nesting via parent_tool_use_id | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
 | `maki-wire-envelope` | Maki's per-message envelope (top-level session_id + uuid) rides every wire frame; the bridge keeps the child on its OpenCode-minted session instead of rebinding on the envelope id | `verified` | [`bridge/test/envelope.test.ts`](../bridge/test/envelope.test.ts) |
 | `retry-scheduled` | Maki `system api_retry` surfaces as the pinned `session.retry.scheduled` event | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
-| `mid-turn-steering` | Mid-turn steering via an inbound user prompt while the agent runs | `unverified` | [`openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md) |
-| `permission-reask` | A reply of `always` is honored once; the next gated call asks again | `degraded` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
-| `agent-switch-state` | Session agent selection is recorded and reported while the Maki child is not re-tasked (the pinned wire has no set_agent) | `degraded` · pin-blocked | [`bridge/test/agent-switch.test.ts`](../bridge/test/agent-switch.test.ts) |
-| `mid-session-model-switch` | Mid-session model selection is accepted but the Maki child is not re-tasked (no set_model is sent); the announced model is still reported | `degraded` · pin-blocked | [`bridge/test/model-switch.test.ts`](../bridge/test/model-switch.test.ts) |
-| `interrupt-round-trip` | Interrupt is accepted and answered `interrupted:false`; the Maki child is never cancelled (no `control_request`/`interrupt` is sent) | `degraded` | [`bridge/test/interrupt.test.ts`](../bridge/test/interrupt.test.ts) |
-| `permission-reply-vocabulary` | Permission answers use Maki's bare allow/deny; the session-scoped (`updatedPermissions`) and guidance (`message`) shapes are not sent | `degraded` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
-| `prompt-attachments` | Prompt attachments are accepted but dropped: `files[]` is not forwarded, so the child receives only the prompt text | `degraded` | [`bridge/test/prompt-attachments.test.ts`](../bridge/test/prompt-attachments.test.ts) |
+| `permission-reask` | `always` becomes Maki's session-scoped allow (the bridge caches nothing); it is not saved for the project as the TUI's copy says — the pinned SDK decoder has no project/global answer (sdk_mode.rs v0.6.4 L918–L927) | `degraded` · pin-blocked | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
+| `agent-switch-state` | Session agent selection is recorded and reported while the Maki child is not re-tasked — the pinned inbound control subtypes are `initialize`, `interrupt`, `set_permission_mode`, `set_model`, with no `set_agent` (sdk_mode.rs v0.6.4 L818–L880) | `degraded` · pin-blocked | [`bridge/test/agent-switch.test.ts`](../bridge/test/agent-switch.test.ts) |
+| `mid-turn-steering` | A prompt sent while a turn runs is admitted and queued: its turn starts after the running turn's result, and a `steer` is reported as `queue` (`session.inbox.delivery.changed`) — the pinned SDK sends each stdin `user` to the session's input queue, answered by its own later run, never into the running one (sdk_mode.rs v0.6.4 L682–L702, L763) | `degraded` · pin-blocked | [`bridge/test/steering.test.ts`](../bridge/test/steering.test.ts) |
+| `prompt-attachments` | Image attachments (`data:image/png\|jpeg\|gif\|webp`) reach the child as base64 image blocks and are reported as inline files; PDF and other data URIs are dropped — the pinned inbound `user` decodes only text and image blocks (sdk_mode.rs v0.6.4 L786–L816) | `degraded` · pin-blocked | [`bridge/test/prompt-attachments.test.ts`](../bridge/test/prompt-attachments.test.ts) |
 
-### Out of scope (1)
+### Out of scope (2)
 
 | Id | Feature | Status | Evidence |
 | --- | --- | --- | --- |
-| `sdk-control-handshake` | SDK control handshake (initialize / set_permission_mode) is sent to the child | `unverified` | [`openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md) |
+| `sdk-control-handshake` | SDK control handshake (`initialize` / `set_permission_mode`) is not sent: the pinned child serves control requests without it (sdk_mode.rs v0.6.4 L818–L827) and no TUI behavior depends on it — record, don't build | `unverified` | [`openspec/changes/archive/2026-10-23-add-interrupt-forwarding/evidence/cross-map.md`](../openspec/changes/archive/2026-10-23-add-interrupt-forwarding/evidence/cross-map.md) |
+| `prompt-file-mentions` | `file://` attachments (@-mentions) are not read or forwarded: the bridge reads no host path on a client's behalf; the mention stays in the prompt text and Maki reads its own sandbox workdir | `unverified` | [`bridge/test/prompt-attachments.test.ts`](../bridge/test/prompt-attachments.test.ts) |
 
 ### Fixture provenance
 

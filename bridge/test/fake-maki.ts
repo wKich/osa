@@ -15,6 +15,23 @@ import { appendFileSync } from "node:fs";
 const cwd = process.env.OPENMAKI_CWD ?? process.cwd();
 let toolSeq = 0;
 const answers = new Map<string, (a: "allow" | "deny") => void>();
+// Maki's AllowSession: an `allow` carrying `updatedPermissions` adds a session
+// rule for the call's generalized scope (maki-agent permissions.rs v0.6.4
+// apply_decision L685, generalize_bash_segment L1047–L1059: `<word> *`), and a
+// later call inside a rule runs without asking
+const sessionRules = new Set<string>();
+const askedCommands = new Map<string, string>();
+const generalize = (command: string) => {
+  const word = command.trim().split(/\s+/)[0] ?? "";
+  return /^[A-Za-z0-9_.:\/@+-]+$/.test(word) ? `${word} *` : command;
+};
+// the run in flight, so an inbound control_request/interrupt can cancel it the
+// way the pinned child does (ack, then an error result for the cancelled run)
+let current: { proc?: { kill(): void }; cancelled: boolean } | undefined;
+// an interrupt that lands before its run starts is kept, as the pinned
+// bounded(1) cancel channel keeps it for the run that picks it up
+// (maki-agent headless.rs v0.6.4 L335, L366–L374)
+let pendingCancel = false;
 
 // opt-in trace so a test can prove which frames the bridge sent the child
 // (e.g. that an agent selection sends no control frame); the child's own
@@ -22,7 +39,11 @@ const answers = new Map<string, (a: "allow" | "deny") => void>();
 const trace = process.env.FAKE_MAKI_TRACE;
 
 const SESSION_ID = "fake-maki-session";
+// the model a set_model switched to; assistant frames then name it, as the
+// pinned child's do (AssistantMessage.model)
+let switchedModel: string | undefined;
 const out = (obj: unknown, after?: () => void) => {
+  if (switchedModel && (obj as any).type === "assistant") (obj as any).message.model = switchedModel;
   // child -> bridge asks are traced too, so a test can pair the bridge's answer
   // with the request_id the child sent
   if (trace && (obj as any).type === "control_request") {
@@ -55,7 +76,7 @@ function streamText(text: string): void {
 
 out({ type: "system", subtype: "init", session_id: "fake-maki-session", cwd, model: "synthetic/fake", tools: ["Bash"] });
 
-function replyTool(toolUseID: string, command: string, isError: boolean, content: string): void {
+function toolFrames(toolUseID: string, command: string, isError: boolean, content: string): void {
   out({
     type: "assistant",
     message: { role: "assistant", content: [{ type: "tool_use", id: toolUseID, name: "Bash", input: { command } }] },
@@ -64,31 +85,62 @@ function replyTool(toolUseID: string, command: string, isError: boolean, content
     type: "user",
     message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseID, content, is_error: isError }] },
   });
+}
+
+const success = () =>
   out({ type: "result", subtype: "success", result: "ok", usage: { input_tokens: 1, output_tokens: 1 }, total_cost_usd: 0 });
+
+// a cancelled run ends with the pinned error subtype (sdk_mode.rs v0.6.4
+// L1168–L1172, L996–L1000)
+const cancelledResult = () =>
+  out({ type: "result", subtype: "error_during_execution", is_error: true, result: "", usage: { input_tokens: 1, output_tokens: 0 }, total_cost_usd: 0 });
+
+function replyTool(toolUseID: string, command: string, isError: boolean, content: string): void {
+  toolFrames(toolUseID, command, isError, content);
+  success();
 }
 
 async function runCommand(command: string): Promise<void> {
+  const run: { proc?: { kill(): void }; cancelled: boolean } = { cancelled: false };
+  current = run;
+  try {
+    await runTool(command, run);
+  } finally {
+    if (current === run) current = undefined;
+  }
+}
+
+async function runTool(command: string, run: { proc?: { kill(): void }; cancelled: boolean }): Promise<void> {
   const toolUseID = `toolu_fake${String(++toolSeq).padStart(6, "0")}`;
   let answer: "allow" | "deny" = "allow";
-  if (/\brm\b/.test(command)) {
+  if (/\brm\b/.test(command) && !sessionRules.has(generalize(command))) {
     const requestID = `req_fake${String(toolSeq).padStart(10, "0")}`;
     out({
       type: "control_request",
       request_id: requestID,
       request: { subtype: "can_use_tool", tool_name: "Bash", tool_use_id: toolUseID, input: { command } },
     });
+    askedCommands.set(requestID, command);
     answer = await new Promise((resolve) => answers.set(requestID, resolve));
   }
   if (answer === "deny") {
-    replyTool(toolUseID, command, true, "Permission denied: rejected by the user");
+    toolFrames(toolUseID, command, true, "Permission denied: rejected by the user");
+    // the denial goes back to the model before the run ends, so an interrupt
+    // written right after a deny still lands on this run
+    await Bun.sleep(100);
+    if (run.cancelled) cancelledResult();
+    else success();
     return;
   }
   const proc = Bun.spawn(["/bin/sh", "-c", command], { stdout: "pipe", stderr: "pipe" });
+  run.proc = proc;
   const code = await proc.exited;
-  if (code === 0) replyTool(toolUseID, command, false, "ok");
+  if (run.cancelled) cancelledResult();
+  else if (code === 0) replyTool(toolUseID, command, false, "ok");
   else replyTool(toolUseID, command, true, `Exit code: ${code}`);
 }
 
+let runs: Promise<void> = Promise.resolve();
 let buf = "";
 for await (const chunk of Bun.stdin.stream()) {
   buf += new TextDecoder().decode(chunk, { stream: true });
@@ -101,32 +153,74 @@ for await (const chunk of Bun.stdin.stream()) {
     try { frame = JSON.parse(line); } catch { continue; }
     if (trace) appendFileSync(trace, JSON.stringify(frame) + "\n");
     if (frame.type === "control_response") {
-      answers.get(String(frame.response?.request_id ?? ""))?.(frame.response?.behavior === "deny" ? "deny" : "allow");
+      const requestID = String(frame.response?.request_id ?? "");
+      const command = askedCommands.get(requestID);
+      if (command !== undefined && frame.response?.behavior === "allow" && frame.response?.updatedPermissions !== undefined) {
+        sessionRules.add(generalize(command));
+      }
+      answers.get(requestID)?.(frame.response?.behavior === "deny" ? "deny" : "allow");
+      continue;
+    }
+    if (frame.type === "control_request" && frame.request?.subtype === "set_model") {
+      // the pinned resolution: a string spec is resolved and policy-checked,
+      // anything refused acks an error (sdk_mode.rs v0.6.4 L861–L874); here a
+      // bare id or a provider this child knows resolves, any other provider
+      // (the TUI's synthesized "sample", "invalid") is refused
+      const model = frame.request.model;
+      const provider = typeof model === "string" && model.includes("/") ? model.slice(0, model.indexOf("/")) : "";
+      if (typeof model === "string" && model && (provider === "" || provider === "synthetic" || provider === "maki-test")) {
+        switchedModel = model;
+        out({ type: "control_response", response: { subtype: "success", request_id: frame.request_id, response: {} } });
+      } else {
+        out({ type: "control_response", response: { subtype: "error", request_id: frame.request_id, error: "invalid or disallowed model" } });
+      }
+      continue;
+    }
+    if (frame.type === "control_request" && frame.request?.subtype === "interrupt") {
+      out({ type: "control_response", response: { subtype: "success", request_id: frame.request_id, response: {} } });
+      if (current) {
+        current.cancelled = true;
+        current.proc?.kill();
+      } else {
+        pendingCancel = true;
+      }
       continue;
     }
     if (frame.type === "user" && Array.isArray(frame.message?.content)) {
-      const text = frame.message.content.find((p: any) => p?.type === "text")?.text ?? "";
-      if (crash) {
-        // exit inside the write callback so the frame is flushed before the
-        // process goes away (process.exit does not drain buffered stdout)
-        out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "PONG" }] } }, () => process.exit(1));
-        continue;
-      }
-      const exact = /run exactly: (.+?) \./.exec(text);
-      if (!exact && !/\b(false|rm)\b/.test(text)) {
-        // plain prompt: an assistant text turn, no tool call
-        if (streaming) streamText("PONG");
-        out({
-          type: "assistant",
-          message: { role: "assistant", content: [{ type: "text", text: "PONG" }] },
-        });
-        out({ type: "result", subtype: "success", result: "ok", usage: { input_tokens: 1, output_tokens: 1 }, total_cost_usd: 0 });
-        continue;
-      }
-      void runCommand(exact ? exact[1] : text).catch((err) => {
-        console.error(`[fake-maki] ${err}`);
-        process.exit(1);
-      });
+      // the pinned headless session runs one stdin prompt at a time, each to
+      // its own result (maki-agent headless.rs v0.6.4 L365)
+      const prompt = frame;
+      runs = runs.then(() => answerPrompt(prompt));
     }
   }
+}
+
+async function answerPrompt(frame: any): Promise<void> {
+  if (pendingCancel) {
+    pendingCancel = false;
+    cancelledResult();
+    return;
+  }
+  const text = frame.message.content.find((p: any) => p?.type === "text")?.text ?? "";
+  if (crash) {
+    // exit inside the write callback so the frame is flushed before the
+    // process goes away (process.exit does not drain buffered stdout)
+    out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "PONG" }] } }, () => process.exit(1));
+    return;
+  }
+  const exact = /run exactly: (.+?) \./.exec(text);
+  if (!exact && !/\b(false|rm)\b/.test(text)) {
+    // plain prompt: an assistant text turn, no tool call
+    if (streaming) streamText("PONG");
+    out({
+      type: "assistant",
+      message: { role: "assistant", content: [{ type: "text", text: "PONG" }] },
+    });
+    out({ type: "result", subtype: "success", result: "ok", usage: { input_tokens: 1, output_tokens: 1 }, total_cost_usd: 0 });
+    return;
+  }
+  await runCommand(exact ? exact[1] : text).catch((err) => {
+    console.error(`[fake-maki] ${err}`);
+    process.exit(1);
+  });
 }

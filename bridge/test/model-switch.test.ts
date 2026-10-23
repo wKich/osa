@@ -1,8 +1,9 @@
-// Mid-session model-switch tests over the black-box bridge (spec "Accept
-// mid-session model selection without retasking the child"): the TUI's model
-// POST is accepted, the child is not re-tasked (the pinned wire's `set_model`
-// is never sent), and the child's announced model is still what the session
-// and its following step frames report. One spawned bridge with the scripted
+// Mid-session model-switch tests over the black-box bridge (spec "Forward
+// mid-session model selection to the Maki child"): the TUI's model POST is
+// forwarded as the pinned wire's inbound `control_request`/`set_model`
+// (sdk_mode.rs v0.6.4 L861–L874), and only the child's success ack changes the
+// model the session and its following step frames report; a rejected model
+// leaves the announced one in place. One spawned bridge with the scripted
 // child on MAKI_CHILD_CMD; no Docker, gateway, network, or real Maki process.
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -31,9 +32,21 @@ function inboundFrames(): any[] {
     .filter((f) => f.dir !== "out");
 }
 
+const setModels = () => inboundFrames().filter((f) => f.type === "control_request" && f.request?.subtype === "set_model");
+const modelUpdates = (b: BridgeHandle, sid: string) => b.frames.filter((f) => f.type === "model.updated" && f.data?.sessionID === sid).length;
+
 describe("mid-session model switch over the spawned bridge", () => {
   let bridge: BridgeHandle;
   let sid: string;
+
+  const sessionModel = async () => (await (await fetch(`${bridge.base}/api/session/${sid}`)).json()).data.model;
+
+  async function turnStepModel() {
+    const done = bridge.frames.filter((f) => f.type === "session.execution.succeeded").length;
+    expect((await post(bridge, `/api/session/${sid}/prompt`, { text: "Reply with the word PONG only.", delivery: "steer" })).status).toBe(200);
+    expect(await waitFor(() => bridge.frames.filter((f) => f.type === "session.execution.succeeded").length > done, 30_000)).toBe(true);
+    return bridge.frames.filter((f) => f.type === "session.step.started" && f.data?.sessionID === sid).at(-1)!.data?.model;
+  }
 
   beforeAll(async () => {
     rmSync(tracePath, { force: true });
@@ -45,6 +58,8 @@ describe("mid-session model switch over the spawned bridge", () => {
     });
     expect(res.status).toBe(200);
     sid = (await res.json()).data.id;
+    // system.init arrives asynchronously; wait for the bridge's announcement
+    expect(await waitFor(() => modelUpdates(bridge, sid) === 1, 10_000)).toBe(true);
   });
 
   afterAll(async () => {
@@ -52,41 +67,70 @@ describe("mid-session model switch over the spawned bridge", () => {
     rmSync(tracePath, { force: true });
   });
 
-  test("the switch is accepted and the announced model is still reported", async () => {
-    // system.init arrives asynchronously; wait for the bridge's announcement
-    // frame before comparing, so the assertion cannot race child startup
-    expect(await waitFor(() => bridge.frames.some((f) => f.type === "model.updated" && f.data?.sessionID === sid), 10_000)).toBe(true);
+  test("a selection is forwarded as set_model and the acked model is reported", async () => {
+    expect(await sessionModel()).toEqual({ providerID: "synthetic", id: "fake" });
 
-    const announced = { providerID: "synthetic", id: "fake" };
-    const before = await (await fetch(`${bridge.base}/api/session/${sid}`)).json();
-    expect(before.data.model).toEqual(announced);
+    const res = await post(bridge, `/api/session/${sid}/model`, { model: { providerID: "maki-test", id: "switched" } });
+    expect(res.status).toBe(204);
 
-    expect((await post(bridge, `/api/session/${sid}/model`, { model: { providerID: "maki", id: "switched" } })).status).toBe(204);
+    expect(await waitFor(() => setModels().length === 1, 5_000)).toBe(true);
+    const [sent] = setModels();
+    expect(Object.keys(sent).sort()).toEqual(["request", "request_id", "type"]);
+    expect(sent.request).toEqual({ subtype: "set_model", model: "maki-test/switched" });
 
-    const read = await (await fetch(`${bridge.base}/api/session/${sid}`)).json();
-    expect(read.data.model).toEqual(announced);
+    // the child's ack is what moves the reported model, announced to the TUI
+    expect(await waitFor(() => modelUpdates(bridge, sid) === 2, 5_000)).toBe(true);
+    const switched = { providerID: "maki-test", id: "switched" };
+    expect(await sessionModel()).toEqual(switched);
     const list = await (await fetch(`${bridge.base}/api/session`)).json();
-    expect(list.data.find((s: any) => s.id === sid)?.model).toEqual(announced);
-
-    const done = bridge.frames.filter((f) => f.type === "session.execution.succeeded").length;
-    expect((await post(bridge, `/api/session/${sid}/prompt`, { text: "Reply with the word PONG only.", delivery: "steer" })).status).toBe(200);
-    expect(await waitFor(() => bridge.frames.filter((f) => f.type === "session.execution.succeeded").length > done, 30_000)).toBe(true);
-
-    const step = bridge.frames.filter((f) => f.type === "session.step.started").at(-1)!;
-    expect(step.data?.model).toEqual(announced);
+    expect(list.data.find((s: any) => s.id === sid)?.model).toEqual(switched);
+    expect(await turnStepModel()).toEqual(switched);
   }, 60_000);
 
+  test("a model under the bridge's bare-id provider is sent as the bare id", async () => {
+    expect((await post(bridge, `/api/session/${sid}/model`, { model: { providerID: "maki", id: "bare-model" } })).status).toBe(204);
+    expect(await waitFor(() => setModels().length === 2, 5_000)).toBe(true);
+    expect(setModels()[1].request).toEqual({ subtype: "set_model", model: "bare-model" });
+    expect(await waitFor(() => modelUpdates(bridge, sid) === 3, 5_000)).toBe(true);
+    expect(await sessionModel()).toEqual({ providerID: "maki", id: "bare-model" });
+  }, 30_000);
+
+  test("a model the child rejects leaves the announced model in place", async () => {
+    const before = await sessionModel();
+    const updates = modelUpdates(bridge, sid);
+    expect((await post(bridge, `/api/session/${sid}/model`, { model: { providerID: "invalid", id: "nope" } })).status).toBe(204);
+    expect(await waitFor(() => setModels().length === 3, 5_000)).toBe(true);
+    // give the error ack time to arrive; it must not move the model
+    await new Promise((r) => setTimeout(r, 300));
+    expect(await sessionModel()).toEqual(before);
+    expect(modelUpdates(bridge, sid)).toBe(updates);
+    expect(await turnStepModel()).toEqual(before);
+  }, 60_000);
+
+  test("re-posting the model already reported sends nothing", async () => {
+    const before = setModels().length;
+    const current = await sessionModel();
+    expect((await post(bridge, `/api/session/${sid}/model`, { model: current })).status).toBe(204);
+    await new Promise((r) => setTimeout(r, 300));
+    expect(setModels().length).toBe(before);
+    expect(await sessionModel()).toEqual(current);
+  }, 30_000);
+
+  test("a selection without a provider and model is refused and sends nothing", async () => {
+    const before = setModels().length;
+    const res = await post(bridge, `/api/session/${sid}/model`, { model: { id: "only-id" } });
+    expect(res.status).toBe(400);
+    expect(res.json?._tag).toBe("InvalidRequestError");
+    expect(setModels().length).toBe(before);
+  }, 30_000);
+
   test("an unknown session is not a silent success and no model-control frame is sent", async () => {
+    const before = inboundFrames().length;
     const unknown = "ses_modelunknown0000001";
     const res = await post(bridge, `/api/session/${unknown}/model`, { model: { providerID: "maki", id: "switched" } });
     expect(res.status).toBe(404);
     expect(res.json?._tag).toBe("SessionNotFoundError");
     expect((await fetch(`${bridge.base}/api/session/${unknown}`)).status).toBe(404);
-
-    // the scripted child saw the turn, never a model-control frame
-    const inbound = inboundFrames();
-    expect(inbound.some((f) => f.type === "user")).toBe(true);
-    expect(inbound.filter((f) => f.type === "control_request")).toEqual([]);
-    expect(inbound.some((f) => JSON.stringify(f).includes("set_model"))).toBe(false);
+    expect(inboundFrames().length).toBe(before);
   }, 30_000);
 });

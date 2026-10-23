@@ -1,9 +1,11 @@
-// Prompt-attachment coverage over the black-box bridge (spec "Accept prompt
-// attachments without claiming they were delivered"): the TUI's `files[]` body
-// is admitted, the response and inbox item carry only the text, and the Maki
-// child receives only the text block — no image block, no attachment URI. One
-// spawned bridge with the scripted child on MAKI_CHILD_CMD; no Docker, gateway,
-// network, or real Maki process.
+// Prompt-attachment forwarding over the black-box bridge (spec "Forward image
+// attachments to the Maki child"): a `files[]` image data URI becomes a base64
+// image block on the child's inbound `user` frame (sdk_mode.rs v0.6.4 L688,
+// L807–L816; media types per maki-providers types.rs L30–L35) and is reported
+// as an inline file on the admitted prompt and its inbox item. What the pinned
+// wire cannot carry (PDF and other data URIs) and what the bridge must not read
+// (host `file://` paths) is not forwarded. One spawned bridge with the scripted
+// child on MAKI_CHILD_CMD; no Docker, gateway, network, or real Maki process.
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,9 +13,11 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { startBridge, waitFor, type BridgeHandle } from "./lib/bridge.ts";
 
 const tracePath = join(tmpdir(), `maki-oss-prompt-attachments-trace-${process.pid}.jsonl`);
-const ATTACHMENT_URI = "file:///tmp/cat.png";
+// a 1x1 PNG
+const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+const PDF = Buffer.from("%PDF-1.4 not forwarded").toString("base64");
+const FILE_URI = "file:///tmp/maki-oss-prompt-attachments-secret.txt";
 const PROMPT_TEXT = "What is in this image?";
-const USER_MSG_ID = "msg_promptattach0000001";
 
 function post(b: BridgeHandle, path: string, body: unknown): Promise<{ status: number; json: any }> {
   return fetch(b.base + path, {
@@ -35,6 +39,11 @@ function inboundFrames(): any[] {
 }
 
 const succeeded = (b: BridgeHandle) => b.frames.filter((f) => f.type === "session.execution.succeeded").length;
+const inbox = (b: BridgeHandle, id: string) =>
+  b.frames.filter((frame) => frame.type === "session.inbox.enqueued" && frame.data?.inboxID === id);
+/** the child's inbound `user` frame for one prompt text */
+const userFrame = (text: string) =>
+  inboundFrames().filter((f) => f.type === "user" && f.message?.content?.some((p: any) => p?.type === "text" && p.text === text));
 
 describe("prompt attachments over the spawned bridge", () => {
   let bridge: BridgeHandle;
@@ -60,46 +69,61 @@ describe("prompt attachments over the spawned bridge", () => {
     rmSync(tracePath, { force: true });
   });
 
-  test("an attachment-bearing prompt is admitted with text only", async () => {
+  async function send(id: string, text: string, files?: unknown[]) {
     const done = succeeded(bridge);
-    const res = await post(bridge, `/api/session/${sid}/prompt`, {
-      id: USER_MSG_ID,
-      text: PROMPT_TEXT,
-      files: [{ uri: ATTACHMENT_URI, name: "cat.png" }],
-      delivery: "steer",
-    });
-
+    const res = await post(bridge, `/api/session/${sid}/prompt`, { id, text, ...(files ? { files } : {}), delivery: "steer" });
     expect(res.status).toBe(200);
-    expect(res.json?.data).toMatchObject({
-      id: USER_MSG_ID,
-      sessionID: sid,
-      type: "user",
-      payload: { text: PROMPT_TEXT },
-      delivery: "steer",
-    });
-    // the route accepted the field but does not report it as delivered
-    expect(res.json?.data?.payload).toEqual({ text: PROMPT_TEXT });
-
-    const inbox = (f: BridgeHandle) =>
-      f.frames.filter((frame) => frame.type === "session.inbox.enqueued" && frame.data?.inboxID === USER_MSG_ID);
-    expect(await waitFor(() => inbox(bridge).length === 1, 10_000)).toBe(true);
-    expect(inbox(bridge)[0]!.data?.item).toEqual({
-      type: "user",
-      payload: { text: PROMPT_TEXT },
-      delivery: "steer",
-    });
-
+    expect(await waitFor(() => inbox(bridge, id).length === 1, 10_000)).toBe(true);
     expect(await waitFor(() => succeeded(bridge) > done, 30_000)).toBe(true);
+    expect(await waitFor(() => userFrame(text).length === 1, 5_000)).toBe(true);
+    return res;
+  }
 
-    // the wire half: one text block, nothing the attachment could ride on
-    const inbound = inboundFrames();
-    const userFrames = inbound.filter(
-      (frame) => frame.type === "user" && frame.message?.content?.some((part: any) => part?.type === "text" && part.text === PROMPT_TEXT),
-    );
-    expect(userFrames).toHaveLength(1);
-    expect(userFrames[0]!.message.content).toEqual([{ type: "text", text: PROMPT_TEXT }]);
-    expect(userFrames[0]!.message.content.some((part: any) => part?.type === "image")).toBe(false);
-    expect(JSON.stringify(inbound)).not.toContain(ATTACHMENT_URI);
+  test("an image data URI reaches the child as a base64 image block", async () => {
+    const id = "msg_promptattach0000001";
+    const res = await send(id, PROMPT_TEXT, [
+      { uri: `data:image/png;base64,${PNG}`, name: "cat.png" },
+      { uri: `data:application/pdf;base64,${PDF}`, name: "doc.pdf" },
+      { uri: FILE_URI, name: "secret.txt" },
+    ]);
+
+    // only what was delivered is reported, as the pinned inline file shape
+    const delivered = { text: PROMPT_TEXT, files: [{ data: PNG, mime: "image/png", source: { type: "inline" }, name: "cat.png" }] };
+    expect(res.json?.data).toMatchObject({ id, sessionID: sid, type: "user", delivery: "steer" });
+    expect(res.json?.data?.payload).toEqual(delivered);
+    expect(inbox(bridge, id)[0]!.data?.item).toEqual({ type: "user", payload: delivered, delivery: "steer" });
+
+    // the wire half: the text block, then the image block Maki decodes
+    const [frame] = userFrame(PROMPT_TEXT);
+    expect(frame.message.content).toEqual([
+      { type: "text", text: PROMPT_TEXT },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: PNG } },
+    ]);
+    // the PDF has no block on the pinned wire, and no host file is read
+    const wire = JSON.stringify(inboundFrames());
+    expect(wire).not.toContain(PDF);
+    expect(wire).not.toContain(FILE_URI);
+    expect(wire).not.toContain("secret.txt");
+  }, 60_000);
+
+  test("unsupported or malformed image URIs are dropped, never forwarded raw", async () => {
+    const text = "Describe these.";
+    const res = await send("msg_promptattach0000002", text, [
+      { uri: `data:image/bmp;base64,${PNG}` },
+      { uri: "data:image/png;base64,not base64!" },
+      { uri: `data:image/png,${PNG}` },
+      { name: "no-uri.png" },
+    ]);
+    expect(res.json?.data?.payload).toEqual({ text });
+    expect(userFrame(text)[0].message.content).toEqual([{ type: "text", text }]);
+  }, 60_000);
+
+  test("a prompt without files keeps the text-only payload and frame", async () => {
+    const text = "plain prompt";
+    const res = await send("msg_promptattach0000003", text);
+    expect(res.json?.data?.payload).toEqual({ text });
+    expect(inbox(bridge, "msg_promptattach0000003")[0]!.data?.item?.payload).toEqual({ text });
+    expect(userFrame(text)[0].message.content).toEqual([{ type: "text", text }]);
   }, 60_000);
 
   test("an unknown session is not a silent success", async () => {
@@ -107,7 +131,7 @@ describe("prompt attachments over the spawned bridge", () => {
     const before = inboundFrames().length;
     const res = await post(bridge, `/api/session/${unknown}/prompt`, {
       text: PROMPT_TEXT,
-      files: [{ uri: ATTACHMENT_URI, name: "cat.png" }],
+      files: [{ uri: `data:image/png;base64,${PNG}`, name: "cat.png" }],
       delivery: "steer",
     });
     expect(res.status).toBe(404);

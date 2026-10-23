@@ -143,36 +143,48 @@ describe("session API over the spawned bridge", () => {
     expect(await waitFor(() => count(bridge, "session.execution.succeeded") >= 4, 30_000)).toBe(true);
   }, 90_000);
 
-  test("permission round trip: always allows this one call and the next call re-asks", async () => {
+  test("permission round trip: always becomes the child's session rule and the bridge caches nothing", async () => {
     const reask = join("/tmp", `maki-oss-session-api-reask-${process.pid}.txt`);
+    // fresh sessions: the session rule lives in one child and must not leak
+    // into this file's other permission tests
+    const fresh = async () => (await post(bridge, "/api/session", { location: { directory: bridge.workdir } })).json.data.id as string;
+    const sidA = await fresh();
     writeFileSync(reask, "probe\n");
     const asks = count(bridge, "permission.asked");
     const successes = count(bridge, "session.tool.success");
     const done = count(bridge, "session.execution.succeeded");
 
-    // first gated call: `always` is honored for this call only
-    await prompt(bridge, sid, "msg_sessionapi0000000005", `Use your shell tool to run exactly: rm -f ${reask} . Then reply with the single word DONE.`);
+    // first gated call: `always` is forwarded as Maki's session-scoped allow
+    await prompt(bridge, sidA, "msg_sessionapi0000000005", `Use your shell tool to run exactly: rm -f ${reask} . Then reply with the single word DONE.`);
     expect(await waitFor(() => count(bridge, "permission.asked") > asks, 30_000)).toBe(true);
     const first = bridge.frames.filter((f) => f.type === "permission.asked").at(-1)!;
-    const reply = await post(bridge, `/api/session/${sid}/permission/${first.data.id}/reply`, { decision: "always" });
+    const reply = await post(bridge, `/api/session/${sidA}/permission/${first.data.id}/reply`, { decision: "always" });
     expect(reply.status).toBe(204);
     expect(await waitFor(() => count(bridge, "session.tool.success") > successes, 30_000)).toBe(true);
     expect(existsSync(reask)).toBe(false);
     expect(await waitFor(() => count(bridge, "session.execution.succeeded") >= done + 1, 30_000)).toBe(true);
 
-    // second gated call in a new turn: nothing was cached, so the TUI is asked again
+    // a matching call in the same session: the child's rule covers it, so no
+    // ask reaches the TUI and the tool runs
     writeFileSync(reask, "probe\n");
     const asks2 = count(bridge, "permission.asked");
     const successes2 = count(bridge, "session.tool.success");
-    await prompt(bridge, sid, "msg_sessionapi0000000006", `Use your shell tool to run exactly: rm -f ${reask} . Then reply with the single word DONE.`);
-    expect(await waitFor(() => count(bridge, "permission.asked") > asks2, 30_000)).toBe(true);
-    const second = bridge.frames.filter((f) => f.type === "permission.asked").at(-1)!;
-    expect(second.data.id).not.toBe(first.data.id);
-    const reply2 = await post(bridge, `/api/session/${sid}/permission/${second.data.id}/reply`, { decision: "once" });
-    expect(reply2.status).toBe(204);
+    await prompt(bridge, sidA, "msg_sessionapi0000000006", `Use your shell tool to run exactly: rm -f ${reask} . Then reply with the single word DONE.`);
     expect(await waitFor(() => count(bridge, "session.tool.success") > successes2, 30_000)).toBe(true);
     expect(existsSync(reask)).toBe(false);
     expect(await waitFor(() => count(bridge, "session.execution.succeeded") >= done + 2, 30_000)).toBe(true);
+    expect(count(bridge, "permission.asked")).toBe(asks2);
+
+    // another session (another child) asks again: the bridge cached nothing
+    const sidB = await fresh();
+    writeFileSync(reask, "probe\n");
+    await prompt(bridge, sidB, "msg_sessionapi0000000007", `Use your shell tool to run exactly: rm -f ${reask} . Then reply with the single word DONE.`);
+    expect(await waitFor(() => count(bridge, "permission.asked") > asks2, 30_000)).toBe(true);
+    const second = bridge.frames.filter((f) => f.type === "permission.asked").at(-1)!;
+    expect(second.data.sessionID).toBe(sidB);
+    expect((await post(bridge, `/api/session/${sidB}/permission/${second.data.id}/reply`, { decision: "once" })).status).toBe(204);
+    expect(await waitFor(() => count(bridge, "session.execution.succeeded") >= done + 3, 30_000)).toBe(true);
+    expect(existsSync(reask)).toBe(false);
   }, 90_000);
 
   test("permission round trip: an invalid decision fails closed", async () => {

@@ -154,35 +154,6 @@ and across turns.
   frames, and removing the partial-message request from the child's flags
   fails this scenario
 
-### Requirement: Accept prompt attachments without claiming they were delivered
-The bridge SHALL accept a prompt whose request carries `files[]` (OpenCode's
-`PromptInput.FileAttachment` with `uri` and optional `name`) and admit it like
-any other prompt: `200` with the admitted `Session.Inbox.User`, and one
-`session.inbox.enqueued` user item. Because the bridge does not build the Maki
-inbound image blocks the pinned wire accepts, it MUST NOT claim the attachment
-was delivered: the response's `payload` and the enqueued user item SHALL carry
-only the prompt text, with no `files`, and the Maki child SHALL receive only a
-text content block — no image block and no attachment URI. An unknown session
-SHALL answer `404` `SessionNotFoundError` and write no frame to any child.
-
-#### Scenario: An attachment-bearing prompt is admitted with text only
-- **WHEN** the TUI submits a prompt whose body carries prompt text and one
-  `files[]` entry naming a URI
-- **THEN** the route answers `200`, the response's admitted user payload
-  carries the text and no `files`, and the `session.inbox.enqueued` item
-  carries the same text-only payload
-
-#### Scenario: The child receives no attachment
-- **WHEN** an attachment-bearing prompt is admitted
-- **THEN** the Maki child receives one `user` frame whose content is exactly
-  the prompt text block, with no image content block and no attachment URI
-
-#### Scenario: An unknown session is not a silent success
-- **WHEN** an attachment-bearing prompt names a session the bridge does not
-  know
-- **THEN** the route answers `404` with `_tag: "SessionNotFoundError"` and no
-  frame is written to any child
-
 ### Requirement: Fail an in-flight turn when the Maki child exits
 The bridge SHALL end a turn that is in flight when its Maki child process
 exits unexpectedly — crash, kill, or exit without a `result` frame — by
@@ -284,46 +255,6 @@ exists the row proving it carries the `contract-only` caveat.
   source says they do, and the provenance record for that fixture says
   `captured` — or the comparison records where the real shape differs and the
   golden follows the capture rather than the reading of the source
-
-### Requirement: Round-trip tool permissions
-The bridge SHALL forward each Maki `can_use_tool` control request to the TUI as
-a permission request, block that tool call until the TUI answers, and map the
-TUI's reply onto Maki's `allow`/`deny` wire answer. Each answer SHALL be
-written to the child exactly once per ask and SHALL name the `request_id` Maki
-sent; the bridge SHALL send the bare `behavior` and no richer permission
-fields. A reply of `always` SHALL be honored for that one call only; every
-later tool call re-prompts. A reply whose decision is not `once`, `always`, or
-`reject` SHALL fail closed: the bridge answers Maki `deny`, drops the pending
-request, and answers the route 400.
-
-#### Scenario: User allows one call
-- **WHEN** Maki requests permission and the user answers "allow once"
-- **THEN** the bridge answers Maki `behavior: allow` and the tool executes
-
-#### Scenario: User rejects
-- **WHEN** the user rejects the request
-- **THEN** the bridge answers Maki `behavior: deny` and Maki reports the call
-  as rejected
-
-#### Scenario: Always re-prompts the next call
-- **WHEN** the user answers "always" and a later matching tool call requests
-  permission
-- **THEN** the bridge asks the TUI again rather than auto-allowing
-
-#### Scenario: An invalid reply fails closed
-- **WHEN** the TUI replies to a pending permission request with a decision
-  outside `once`/`always`/`reject`
-- **THEN** the bridge answers Maki `behavior: deny`, answers the route 400,
-  clears the pending request, and the target the tool would have touched stays
-  untouched
-
-#### Scenario: The wire answer names Maki's request and stays bare
-- **WHEN** the TUI answers a pending permission request with any of `once`,
-  `always`, `reject`, or an invalid decision
-- **THEN** the child receives exactly one `control_response` named by the
-  `request_id` Maki sent, carrying only `request_id` and `behavior` — `allow`
-  for `once`/`always`, `deny` for `reject`/invalid, with no
-  `updatedPermissions` or `message` field
 
 ### Requirement: Follow the wire, not the schema, for SSE frames
 The bridge SHALL emit event frames in the format the measured server uses — bare
@@ -660,55 +591,205 @@ result of the selection.
 - **THEN** it answers `404` with `_tag: "SessionNotFoundError"` and records no
   selection
 
-### Requirement: Accept mid-session model selection without retasking the child
-The bridge SHALL accept the OpenCode model-selection route for an open session
-and answer `204` for a selection that names a provider and a model. The bridge
-MUST answer `404` `SessionNotFoundError` for an unknown session instead of
-recording a selection. The model the Maki child announced on `system.init`
-SHALL remain the model reported on the session object, on the session list,
-and on every `session.step.started` frame emitted after the selection. Because
-the pinned Maki wire's inbound `set_model` subtype is not sent by the bridge,
-the bridge MUST NOT claim that the switch took effect: the child keeps the
-model it started with, and no model-control frame reaches it as a result of
-the selection.
+### Requirement: Forward an interrupt to the Maki child
+The bridge SHALL answer `POST /api/session/{sessionID}/interrupt` for an open
+session. When a turn is in flight, it MUST write one `control_request` with
+subtype `interrupt` (the pinned Maki wire's cancellation message) to that
+session's child and answer `200` with `interrupted` set to `true`. When no turn
+is in flight, it MUST answer `200` with `interrupted` set to `false` and write
+nothing to the child. A permission ask still pending when the interrupt arrives
+MUST be answered `deny` before the interrupt is written and reported to the TUI
+as `permission.replied` with reply `reject`. The interrupted turn's result
+SHALL end the execution with `session.execution.interrupted` and reason
+`user`, never `session.execution.succeeded` or `session.execution.failed`.
+The bridge MUST answer `404` `SessionNotFoundError` for an unknown session.
 
-#### Scenario: The switch is accepted and the announced model is still reported
-- **WHEN** the TUI posts a model to an open session and then submits a prompt
-- **THEN** the route answers `204`, the session read and session list still
-  report the model the child announced, and the next `session.step.started`
-  carries that same model
+#### Scenario: An idle session is a no-op
+- **WHEN** the TUI interrupts a session with no turn in flight
+- **THEN** the route answers `200` with `{interrupted:false}` and no frame is
+  written to the child
 
-#### Scenario: The child is not re-tasked
-- **WHEN** a model selection is accepted for an open session
-- **THEN** the Maki child receives no `set_model` or other model-control frame
-  and the transcript makes no claim that the running model changed
+#### Scenario: An in-flight turn is cancelled
+- **WHEN** the TUI interrupts a session whose turn is still running
+- **THEN** the route answers `200` with `{interrupted:true}`, the child
+  receives exactly one `control_request` with subtype `interrupt`, and the turn
+  ends with one `session.execution.interrupted` frame with reason `user` and
+  neither a succeeded nor a failed execution frame
+
+#### Scenario: A parked permission ask is settled first
+- **WHEN** the TUI interrupts a turn that is waiting on a permission ask
+- **THEN** the child receives a `deny` answer for that ask before the
+  `interrupt` request, the TUI sees `permission.replied` with reply `reject`,
+  and the session's pending permission list is empty
+
+#### Scenario: The session keeps working
+- **WHEN** a new prompt is sent after an interrupted turn
+- **THEN** the turn runs to `session.execution.succeeded` and a later interrupt
+  of the idle session answers `{interrupted:false}`
+
+#### Scenario: An unknown session is not a silent success
+- **WHEN** the interrupt route names a session the bridge does not know
+- **THEN** it answers `404` with `_tag: "SessionNotFoundError"` and no frame is
+  written to any child
+
+### Requirement: Round-trip tool permissions in Maki's answer vocabulary
+The bridge SHALL forward each Maki `can_use_tool` control request to the TUI as
+a permission request, block that tool call until the TUI answers, and map the
+TUI's reply onto the pinned Maki answer. Each answer SHALL be written to the
+child exactly once per ask and SHALL name the `request_id` Maki sent. A reply
+of `once` SHALL be a bare `allow`. A reply of `always` SHALL be an `allow`
+carrying `updatedPermissions`, which Maki applies as a session-scoped rule; the
+bridge SHALL NOT cache the decision itself. A reply of `reject` SHALL be a
+`deny`, carrying the reply's `message` when it is a non-empty string. The
+permission request SHALL list the tool name in `save`, the patterns the TUI
+names under "Always allow". A reply whose decision is not `once`, `always`, or
+`reject` SHALL fail closed: the bridge answers Maki with a bare `deny`, drops
+the pending request, and answers the route 400.
+
+#### Scenario: User allows one call
+- **WHEN** Maki requests permission and the user answers "allow once"
+- **THEN** the bridge answers Maki `behavior: allow` and the tool executes
+
+#### Scenario: User rejects
+- **WHEN** the user rejects the request
+- **THEN** the bridge answers Maki `behavior: deny` and Maki reports the call
+  as rejected
+
+#### Scenario: Always becomes Maki's session rule
+- **WHEN** the user answers "always"
+- **THEN** the child receives `behavior: allow` with `updatedPermissions`, a
+  later matching call in that Maki session is not asked again, and a gated call
+  in another session still reaches the TUI
+
+#### Scenario: A rejection reason reaches the model
+- **WHEN** the user rejects with a non-empty `message`
+- **THEN** the child receives `behavior: deny` with that `message`; an empty
+  or null `message` leaves a bare `deny`
+
+#### Scenario: An invalid reply fails closed
+- **WHEN** the TUI replies to a pending permission request with a decision
+  outside `once`/`always`/`reject`
+- **THEN** the bridge answers Maki `behavior: deny`, answers the route 400,
+  clears the pending request, and the target the tool would have touched stays
+  untouched
+
+#### Scenario: The wire answer names Maki's request
+- **WHEN** the TUI answers a pending permission request
+- **THEN** the child receives exactly one `control_response` named by the
+  `request_id` Maki sent, with no field outside `request_id`, `behavior`,
+  `updatedPermissions`, and `message`
+
+### Requirement: Forward image attachments to the Maki child
+The bridge SHALL translate each prompt `files[]` entry whose `uri` is a base64
+`data:` URI of type `image/png`, `image/jpeg`, `image/gif`, or `image/webp`
+into a Maki inbound image content block
+(`{type:"image", source:{type:"base64", media_type, data}}`) after the prompt's
+text block. The admitted prompt's `payload` and the `session.inbox.enqueued`
+user item SHALL list exactly the forwarded files as inline
+`Prompt.FileAttachment` entries (`data`, `mime`, `source:{type:"inline"}`, and
+`name`/`description` when given), and SHALL carry only the text when nothing
+was forwarded. Entries the pinned wire cannot carry (PDF and other `data:`
+types, malformed base64) and `file://` URIs MUST NOT reach the child in any
+form; the bridge MUST NOT read a host path named by a `file://` URI. An
+unknown session SHALL answer `404` `SessionNotFoundError` and write no frame
+to any child.
+
+#### Scenario: An image attachment reaches the child
+- **WHEN** the TUI submits a prompt with a `data:image/png;base64,…` entry in
+  `files[]`
+- **THEN** the child's `user` frame carries the text block followed by one
+  base64 image block with media type `image/png` and the same data, and the
+  admitted payload and inbox item list that file as an inline attachment
+
+#### Scenario: Undeliverable attachments are dropped
+- **WHEN** `files[]` also carries a PDF `data:` URI, a `file://` URI, an
+  unsupported image type, or malformed base64
+- **THEN** none of them appears in the child's frames or in the admitted
+  payload, and no host file is read
+
+#### Scenario: A prompt without attachments is unchanged
+- **WHEN** a prompt carries no deliverable file
+- **THEN** the admitted payload and inbox item carry only the text, and the
+  child receives exactly one text content block
+
+#### Scenario: An unknown session is not a silent success
+- **WHEN** an attachment-bearing prompt names a session the bridge does not
+  know
+- **THEN** the route answers `404` with `_tag: "SessionNotFoundError"` and no
+  frame is written to any child
+
+### Requirement: Forward mid-session model selection to the Maki child
+The bridge SHALL answer the OpenCode model-selection route for an open session
+with `204` for a selection naming a provider and a model, and `400`
+`InvalidRequestError` when either is missing, writing nothing to the child.
+When the selection differs from the model the session currently reports, the
+bridge MUST write one `control_request` with subtype `set_model` whose `model`
+is `<providerID>/<id>`, or the bare `id` when the provider is `maki` (the
+bridge's label for ids announced without a provider). Only the child's success
+`control_response` SHALL change the model reported on the session object, on
+the session list, and on later `session.step.started` frames, and the bridge
+SHALL then emit `model.updated` for the session. A refused selection MUST leave
+the reported model unchanged. Re-posting the model the session already reports
+SHALL send nothing. The bridge MUST answer `404` `SessionNotFoundError` for an
+unknown session and record no selection.
+
+#### Scenario: A selection is forwarded and the acked model is reported
+- **WHEN** the TUI posts a different model to an open session and the child
+  acks `set_model` with success
+- **THEN** the route answers `204`, the child received exactly one `set_model`
+  naming `<providerID>/<id>`, `model.updated` is emitted, and the session read,
+  the session list, and the next `session.step.started` report the new model
+
+#### Scenario: A refused model is never claimed
+- **WHEN** the child acks `set_model` with an error
+- **THEN** the session keeps reporting the model it reported before, and no
+  `model.updated` is emitted for the selection
+
+#### Scenario: Re-posting the current model is not a switch
+- **WHEN** the TUI posts the model the session already reports
+- **THEN** the route answers `204` and no `set_model` reaches the child
 
 #### Scenario: An unknown session is not a silent success
 - **WHEN** the model route names a session the bridge does not know
 - **THEN** it answers `404` with `_tag: "SessionNotFoundError"` and records no
   selection
 
-### Requirement: Accept an interrupt without claiming the child stopped
-The bridge SHALL accept `POST /api/session/{sessionID}/interrupt` for an open
-session and answer `200` with `interrupted` set to `false`, because the pinned
-Maki wire's cancellation subtype is not sent. The bridge MUST answer `404`
-`SessionNotFoundError` for an unknown session. It MUST NOT write a
-`control_request` with subtype `interrupt` — or any other cancellation frame —
-to the Maki child. An in-flight turn SHALL continue to its normal result, and
-the bridge MUST NOT emit `session.execution.interrupted`.
+### Requirement: Queue a prompt sent while a turn runs
+The bridge SHALL admit a prompt posted while the session's turn is still
+running and write it to the Maki child at once, but SHALL start its turn
+(`session.execution.started` and `session.step.started` with a new assistant
+message) only after the running turn's result, in admission order, preceded by
+`session.inbox.delivered` for that item. Because the pinned Maki SDK answers
+each stdin prompt in its own later run and offers no delivery into a running
+one, a prompt requested with delivery `steer` MUST be reported as queued: the
+`session.inbox.enqueued` item keeps the requested delivery, the bridge emits
+`session.inbox.delivery.changed` with delivery `queue`, and the route's
+admitted item carries delivery `queue`. A prompt requested with `queue`
+SHALL emit no delivery change. A prompt on an idle session SHALL start its
+turn at once with its requested delivery and no `session.inbox.delivered`.
+When the child exits with a turn in flight, every prompt still queued behind
+it SHALL be reported with `session.inbox.cancelled` and SHALL NOT start a
+turn.
 
-#### Scenario: Interrupt is accepted and reports no interruption
-- **WHEN** the TUI interrupts a session whose turn is still running
-- **THEN** the route answers `200` with `{interrupted:false}` and the route
-  makes no claim that the running model was stopped
+#### Scenario: A steer prompt mid-turn is queued
+- **WHEN** the TUI posts a `steer` prompt while a turn runs
+- **THEN** the route answers `200` with delivery `queue`, the bridge emits
+  `session.inbox.delivery.changed` with delivery `queue`, and no second
+  `session.execution.started` appears before the running turn succeeds
 
-#### Scenario: The child is not cancelled
-- **WHEN** an interrupt is accepted during an in-flight turn
-- **THEN** the Maki child receives no `interrupt` control request or other
-  cancellation frame, the turn reaches `session.execution.succeeded`, and no
-  `session.execution.interrupted` frame is emitted
+#### Scenario: The queued turn runs next with its own message
+- **WHEN** the running turn's result arrives
+- **THEN** the bridge emits `session.inbox.delivered` for the queued item,
+  then the queued turn's `session.execution.started` and
+  `session.step.started`, and the queued turn's parts carry a different
+  assistant message id from the first turn's
 
-#### Scenario: An unknown session is not a silent success
-- **WHEN** the interrupt route names a session the bridge does not know
-- **THEN** it answers `404` with `_tag: "SessionNotFoundError"` and no frame is
-  written to any child
+#### Scenario: A prompt on an idle session is unchanged
+- **WHEN** the TUI posts a prompt with no turn running
+- **THEN** the turn starts at once with the requested delivery and no
+  delivery change or delivered frame is emitted
+
+#### Scenario: A queued prompt is cancelled when the child dies
+- **WHEN** the child exits while a turn runs and a prompt is queued behind it
+- **THEN** the running turn fails, the queued item gets one
+  `session.inbox.cancelled`, and no turn starts for it

@@ -18,7 +18,7 @@
 // The helper sets these (bin/maki-oss OpenCode mode) and attaches the TUI with
 // `opencode --server http://127.0.0.1:$PORT`.
 import { appendFileSync } from "node:fs";
-import { MakiSession } from "./maki.ts";
+import { MakiSession, type ImageBlock } from "./maki.ts";
 import { Translator } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
@@ -47,6 +47,7 @@ interface BridgeSession {
   translator: Translator;
   makiSessionID?: string; // maki's own session_id, mapped on first system.init
   pending: Map<string, PendingAsk>; // per_ id -> unanswered permission ask
+  controls: Map<string, (ack: AnyObj) => void>; // bridge control request_id -> ack handler
   created: number;
   updated: number;
   cost?: number;
@@ -166,7 +167,7 @@ function sessionObject(s: BridgeSession): AnyObj {
 function pendingList(s: BridgeSession): AnyObj[] {
   return [...s.pending.entries()].map(([perID, p]) => ({
     id: perID, sessionID: s.id, action: "allow", resources: [p.toolName],
-    save: ["once"], message: p.message, source: { type: "tool", messageID: p.messageID, id: p.toolUseID },
+    save: [p.toolName], message: p.message, source: { type: "tool", messageID: p.messageID, id: p.toolUseID },
   }));
 }
 
@@ -241,6 +242,7 @@ function createSession(body: AnyObj): { status: number; payload: any } {
     maki,
     translator,
     pending: new Map(),
+    controls: new Map(),
     created: Date.now(),
     updated: Date.now(),
   };
@@ -256,6 +258,31 @@ function listSessions(): { status: number; payload: AnyObj } {
   return { status: 200, payload: { ...payload, data: [...sessions.values()].map(sessionObject) } };
 }
 
+// files[] -> what the pinned child can take: base64 image blocks in Maki's
+// media types (maki-providers types.rs v0.6.4 L30–L35). PDFs and other data
+// URIs have no block on the inbound `user` wire (sdk_mode.rs L786–L816), and a
+// `file://` URI names a host path the bridge does not read on a client's
+// behalf; the mention text stays in the prompt either way
+const IMAGE_DATA_URI = /^data:(image\/(?:png|jpeg|gif|webp));base64,((?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)$/;
+
+function promptImages(files: unknown): { blocks: ImageBlock[]; delivered: AnyObj[] } {
+  const blocks: ImageBlock[] = [];
+  const delivered: AnyObj[] = [];
+  for (const file of Array.isArray(files) ? files : []) {
+    const m = IMAGE_DATA_URI.exec(typeof file?.uri === "string" ? file.uri : "");
+    if (!m || !m[2]) continue;
+    blocks.push({ type: "image", source: { type: "base64", media_type: m[1]!, data: m[2] } });
+    // the admitted prompt reports a delivered file in the pinned Prompt shape
+    // (opencode v2.0.32 schema/src/prompt.ts FileAttachment)
+    delivered.push({
+      data: m[2], mime: m[1], source: { type: "inline" },
+      ...(typeof file.name === "string" ? { name: file.name } : {}),
+      ...(typeof file.description === "string" ? { description: file.description } : {}),
+    });
+  }
+  return { blocks, delivered };
+}
+
 function prompt(sid: string, body: AnyObj, url: URL): { status: number; payload: any } {
   const s = sessions.get(sid);
   if (!s) return sessionNotFound(sid);
@@ -269,11 +296,19 @@ function prompt(sid: string, body: AnyObj, url: URL): { status: number; payload:
   // frame goes out first, before the child is written to, so the transcript
   // orders Q-A-Q-A within and across turns (spec: "Prompt renders before its
   // response"; shape pinned live in evidence/cross-map.md)
-  s.translator.beginTurn(mintMessage(), { text, id: userMsgID, delivery: String(body?.delivery ?? "steer") });
-  s.maki.prompt(text);
+  const images = promptImages(body?.files);
+  const delivery = s.translator.beginTurn(mintMessage(), { text, id: userMsgID, delivery: String(body?.delivery ?? "steer"), files: images.delivered });
+  s.maki.prompt(text, images.blocks);
   const { status, payload } = synthesize("POST", `/api/session/${sid}/prompt`, url, body, CANONICAL);
-  if (payload?.data) payload.data = { ...payload.data, id: userMsgID, sessionID: sid, time: { created: Date.now() }, payload: { text } };
+  const delivered = images.delivered.length ? { text, files: images.delivered } : { text };
+  if (payload?.data) payload.data = { ...payload.data, id: userMsgID, sessionID: sid, time: { created: Date.now() }, payload: delivered, delivery };
   return { status, payload };
+}
+
+// Maki only checks that the key is present; the value is the stream-json
+// session-rule shape, so the frame reads the same to any SDK consumer
+function sessionRule(toolName: string): unknown[] {
+  return [{ type: "addRules", rules: [{ toolName }], behavior: "allow", destination: "session" }];
 }
 
 function replyPermission(s: BridgeSession, perID: string, body: AnyObj): { status: number; payload: any } {
@@ -286,13 +321,62 @@ function replyPermission(s: BridgeSession, perID: string, body: AnyObj): { statu
     s.pending.delete(perID);
     return { status: 400, payload: { _tag: "InvalidRequestError", message: `invalid decision: ${decision}` } };
   }
-  // re-ask policy (design decision 3, decided with the user): maki's wire has
-  // only allow|deny, so `always` is honored for this one call and nothing is
-  // cached — the next can_use_tool asks the TUI again
   emit("permission.replied", { sessionID: s.id, requestID: perID, reply: decision });
-  s.maki.answer(pending.requestID, decision === "reject" ? "deny" : "allow");
+  // the bridge caches nothing: `always` becomes Maki's session-scoped allow,
+  // and Maki decides which later calls its session rule covers; a reject
+  // reason reaches the model as guidance
+  const message = typeof body?.message === "string" ? body.message : "";
+  if (decision === "always") s.maki.answer(pending.requestID, "allow", { updatedPermissions: sessionRule(pending.toolName) });
+  else if (decision === "reject") s.maki.answer(pending.requestID, "deny", message ? { message } : {});
+  else s.maki.answer(pending.requestID, "allow");
   s.pending.delete(perID);
   return { status: 204, payload: null };
+}
+
+// session.model: "switch the model used by subsequent provider turns". The
+// selection goes to the child as set_model; only its success ack moves the
+// model the session and later step frames report, so a model maki's policy
+// rejects is never claimed
+function selectModel(s: BridgeSession, body: AnyObj): { status: number; payload: any } {
+  const providerID = body?.model?.providerID;
+  const id = body?.model?.id;
+  if (typeof providerID !== "string" || !providerID || typeof id !== "string" || !id) {
+    return { status: 400, payload: { _tag: "InvalidRequestError", message: "model must name a providerID and an id" } };
+  }
+  const model = { providerID, id };
+  const current = s.translator.announcedModel ?? s.model;
+  s.model = model;
+  // the TUI re-posts the model it already shows (its boot default included);
+  // that is no switch, so nothing is sent
+  if (current.providerID === providerID && current.id === id) return { status: 204, payload: null };
+  // ids the child announced without a provider are listed under "maki"
+  // (translator parseModel), so they go back bare
+  const requestID = s.maki.setModel(providerID === "maki" ? id : `${providerID}/${id}`);
+  s.controls.set(requestID, (ack) => {
+    if (ack.subtype === "success") {
+      s.translator.announceModel(model);
+      emit("model.updated", { sessionID: s.id });
+    } else {
+      console.error(`[bridge] session ${s.id}: maki refused model ${providerID}/${id}: ${ack.error ?? "unknown error"}`);
+    }
+  });
+  return { status: 204, payload: null };
+}
+
+// session.interrupt: `interrupted` says whether an active execution was
+// stopped, so an idle session is the pinned no-op and nothing is written
+function interrupt(s: BridgeSession): { status: number; payload: any } {
+  if (!s.translator.inTurn || !s.maki.running) return { status: 200, payload: { interrupted: false } };
+  // a run parked on a permission ask is unparked with a deny first; the ask is
+  // then settled for the TUI too, since maki forgets it when the run ends
+  for (const [perID, pending] of s.pending) {
+    s.maki.answer(pending.requestID, "deny");
+    emit("permission.replied", { sessionID: s.id, requestID: perID, reply: "reject" });
+  }
+  s.pending.clear();
+  s.translator.markInterrupted();
+  s.controls.set(s.maki.interrupt(), () => {});
+  return { status: 200, payload: { interrupted: true } };
 }
 
 function onMakiFrame(sessionID: string, frame: AnyObj): void {
@@ -311,17 +395,26 @@ function onMakiFrame(sessionID: string, frame: AnyObj): void {
       messageID: s.translator.assistantMessageID,
       message: `Maki wants to run: ${toolName} ${JSON.stringify(req.input ?? {})}`,
     });
-    // object-form Permission.Source (design decision 4); `save` advertises only
-    // what the bridge can honor — one call
+    // object-form Permission.Source (design decision 4); `save` lists what the
+    // TUI's "Always allow" names (opencode v2.0.32 tui/util/permission.ts),
+    // here the tool the session rule is for
     emit("permission.asked", {
       id: perID,
       sessionID,
       action: "allow",
       resources: [toolName],
-      save: ["once"],
+      save: [toolName],
       message: `Maki wants to run: ${toolName} ${JSON.stringify(req.input ?? {})}`,
       source: { type: "tool", messageID: s.translator.assistantMessageID, id: toolUseID },
     });
+    return;
+  }
+  if (frame.type === "control_response") {
+    // maki's ack of a bridge control request (sdk_mode.rs L428–L441)
+    const id = String(frame.response?.request_id ?? "");
+    const onAck = s.controls.get(id);
+    s.controls.delete(id);
+    onAck?.(frame.response ?? {});
     return;
   }
   s.translator.onFrame(frame);
@@ -348,10 +441,7 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
   const s = sessions.get(sid);
   if (!s) return sessionNotFound(sid);
   if (rest === "prompt" && method === "POST") return prompt(sid, body, url);
-  if (rest === "model" && method === "POST") {
-    if (body?.model?.providerID && body?.model?.id) s.model = { providerID: String(body.model.providerID), id: String(body.model.id) };
-    return { status: 204, payload: null };
-  }
+  if (rest === "model" && method === "POST") return selectModel(s, body);
   if (rest === "agent" && method === "POST") {
     if (typeof body?.agent === "string") s.agent = body.agent;
     return { status: 204, payload: null };
@@ -360,6 +450,7 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
     const { status, payload } = synthesize(method, `/api/session/${sid}/permission`, url, body, CANONICAL);
     return { status, payload: { ...payload, data: pendingList(s) } };
   }
+  if (rest === "interrupt" && method === "POST") return interrupt(s);
   const reply = /^permission\/([^/]+)\/reply$/.exec(rest);
   if (reply && method === "POST") return replyPermission(s, reply[1]!, body);
   // deferred session surfaces (message/inbox/form/terminal, resume/fork/…)

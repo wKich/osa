@@ -1,5 +1,5 @@
 // API-level checks for the bridge behaviors the TUI capture cannot cover on
-// its own (tasks 3.3 delete, 5.2 reject, 5.3 always-re-asks, 4.3 failing
+// its own (tasks 3.3 delete, 5.2 reject, 5.3 always-as-session-rule, 4.3 failing
 // tool). Drives the bridge over HTTP against a live maki session and saves
 // every emitted frame to evidence/api-check-frames.jsonl.
 //
@@ -128,27 +128,27 @@ else fail("reject leaves the target file untouched", "probe file was deleted");
 if (await waitFor(() => types().includes("session.execution.succeeded"), 30_000)) pass("turn completes after the deny (maki reports rejection, bridge ends the turn)");
 else fail("turn completes after the deny", types().join(", "));
 
-// --- 5.3 re-ask: "always" is honored once and never cached ---
+// --- 5.3 "always" becomes maki's session rule (AllowSession); the bridge caches nothing ---
 await prompt(sid, "msg_always0000000000000001", "Use your shell tool to run exactly: rm -f /tmp/openmaki-api-check-probe.txt . Then reply with the single word DONE.");
 if (await waitFor(() => types().filter((t) => t === "permission.asked").length === 2)) pass("second gated call asks again (no ask seen yet answered 'always')");
 else fail("second permission.asked", types().join(", "));
 const per2 = frames.filter((f) => f.type === "permission.asked")[1]?.data?.id;
 const always = await post(`/api/session/${sid}/permission/${per2}/reply`, { decision: "always" });
-if (always.status === 204) pass("always reply answers 204 and allows that one call");
+if (always.status === 204) pass("always reply answers 204 (allow + updatedPermissions)");
 else fail("always reply status", String(always.status));
 if (await waitFor(() => types().includes("session.tool.success"))) pass("always executes the gated call");
 else fail("tool executes after always", types().join(", "));
 if (!existsSync(PROBE)) pass("the gated rm ran (probe deleted) after the always answer");
 else fail("the gated rm ran", "probe file still exists");
-// wait for the turn's result: maki treats a prompt sent mid-turn as steering,
-// which v1 does not implement, so the next prompt goes after the turn ends
+// wait for the turn's result: a prompt sent mid-turn would queue behind this
+// turn (its own run at the pin), which this check does not exercise
 if (await waitFor(() => types().filter((t) => t === "session.execution.succeeded").length >= 2)) pass("always turn completes");
 else fail("always turn completes", types().join(", "));
 await prompt(sid, "msg_always0000000000000002", "Use your shell tool to run exactly: rm -f /tmp/openmaki-api-check-probe.txt . Then reply with the single word DONE.");
-if (await waitFor(() => types().filter((t) => t === "permission.asked").length === 3)) pass("a later matching call re-prompts after 'always' (nothing cached)");
-else fail("re-ask after always", types().join(", "));
-if (await answerPendingUntil(sid, () => types().filter((t) => t === "session.execution.succeeded").length >= 3, "reject")) pass("re-ask turn completes after the deny(s)");
-else fail("re-ask turn completes", types().slice(-14).join(", "));
+if (await waitFor(() => types().filter((t) => t === "session.execution.succeeded").length >= 3)) pass("a later matching call runs under maki's session rule");
+else fail("matching call after always", types().join(", "));
+if (types().filter((t) => t === "permission.asked").length === 2) pass("no re-ask after 'always' (maki's session rule covers rm *)");
+else fail("no re-ask after always", types().join(", "));
 
 // --- 4.3 failing tool: exit 1 -> session.tool.failed ---
 const failsBefore = types().filter((t) => t === "session.tool.failed").length;

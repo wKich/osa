@@ -38,7 +38,12 @@ export function sandboxRun(argv: string[], workdir: string): Promise<SandboxResu
     // the host cwd is irrelevant to the exec; the sandbox workdir is --workdir
     const child = spawn(full[0]!, full.slice(1), { cwd: process.cwd(), stdio: ["ignore", "pipe", "ignore"] });
     let stdout = "";
-    const timer = setTimeout(() => child.kill("SIGKILL"), TIMEOUT_MS);
+    // a read that outlives its budget is ended like a closed session: TERM,
+    // then KILL if the transport does not exit
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      setTimeout(() => child.kill("SIGKILL"), 1_000).unref();
+    }, TIMEOUT_MS);
     child.stdout.on("data", (d) => (stdout += d.toString()));
     child.on("error", () => {
       clearTimeout(timer);
@@ -167,4 +172,36 @@ export async function readSkills(workdir: string): Promise<SkillFile[]> {
     byName.set(name, skill);
   }
   return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// ---------- Maki's model catalog and provider auth ----------
+export interface ModelCatalog {
+  models: { providerID: string; id: string }[];
+  // providers whose key comes from an environment variable in the sandbox
+  // (an OpenShell provider placeholder), with that variable's name
+  envProviders: { id: string; name: string; env: string }[];
+}
+
+// `maki models` prints one `provider/model-id` per stdout line
+// (src/cmd/subcmd.rs v0.6.4 L601–L630); `maki auth status` prints one line per
+// provider, naming the variable an env-backed key comes from as `(via VAR)`
+const CATALOG_SCRIPT = "maki models 2>/dev/null; printf '\\036'; maki auth status 2>/dev/null";
+
+const ANSI = /\x1b\[[0-9;]*m/g;
+
+/** the catalog a Maki child in the sandbox can use; empty without a sandbox */
+export async function readModelCatalog(workdir: string): Promise<ModelCatalog> {
+  const res = await sandboxRun(["sh", "-c", CATALOG_SCRIPT], workdir);
+  const catalog: ModelCatalog = { models: [], envProviders: [] };
+  if (!res) return catalog;
+  const [models = "", auth = ""] = res.stdout.split("\x1e");
+  for (const line of models.split("\n")) {
+    const cut = line.trim().indexOf("/");
+    if (cut > 0) catalog.models.push({ providerID: line.trim().slice(0, cut), id: line.trim().slice(cut + 1) });
+  }
+  for (const line of auth.replace(ANSI, "").split("\n")) {
+    const m = /^\s*\S+\s+(\S+)\s+(.*?)\s*\(via ([A-Za-z_][A-Za-z0-9_]*)\)\s*$/.exec(line);
+    if (m) catalog.envProviders.push({ id: m[1]!, name: m[2]! || m[1]!, env: m[3]! });
+  }
+  return catalog;
 }

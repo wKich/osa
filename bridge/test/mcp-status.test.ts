@@ -4,12 +4,16 @@
 // project's) and derives each one's state from the tools a child advertised.
 // The scripted openshell runs the reads with FAKE_SANDBOX_HOME as the sandbox
 // user's home; FAKE_MAKI_TOOLS sets the child's advertised tools.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test, setDefaultTimeout } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startBridge, waitFor, type BridgeHandle } from "./lib/bridge.ts";
 import { validateBody } from "./lib/contract.ts";
+
+// tests here boot their own bridges; the default 5s budget is too tight on a
+// loaded host
+setDefaultTimeout(20_000);
 
 let tmp: string;
 let home: string;

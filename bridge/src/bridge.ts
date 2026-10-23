@@ -24,7 +24,7 @@ import { MakiSession, type ImageBlock } from "./maki.ts";
 import { Translator } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
-import { readGitState, readMcpConfig, readSkills, sandboxRun } from "./sandbox.ts";
+import { readGitState, readMcpConfig, readModelCatalog, readSkills, sandboxRun } from "./sandbox.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
 const CANONICAL = process.env.OPENMAKI_CWD ?? process.cwd();
@@ -470,16 +470,68 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
   return synthesize(method, `/api/session/${sid}${rest ? `/${rest}` : ""}`, url, body, CANONICAL);
 }
 
-// /api/model must name the model a live child has announced, not a spec
-// placeholder (design decision 3); synthesis serves only before an announcement
-function modelList(url: URL): { status: number; payload: any } {
-  const result = synthesize("GET", "/api/model", url, null, CANONICAL);
+// /api/model, /api/provider and /api/integration describe what Maki can run
+// in the sandbox: the catalog `maki models` reports, read once at boot, with
+// the model the child announced — or, before any announcement, the one the
+// helper configured — first, since the TUI selects the first valid model
+// (design decision 3). Only with neither a catalog nor a known model does
+// the list fall back to the synthesized entry the spec permits before an
+// announcement.
+const catalogReady = readModelCatalog(CANONICAL);
+
+function splitModel(spec?: string): { providerID: string; id: string } | undefined {
+  const cut = spec ? spec.indexOf("/") : -1;
+  return cut > 0 ? { providerID: spec!.slice(0, cut), id: spec!.slice(cut + 1) } : undefined;
+}
+
+function modelInfo(m: { providerID: string; id: string }): AnyObj {
+  return {
+    id: m.id, modelID: m.id, providerID: m.providerID, name: m.id,
+    capabilities: { tools: true, input: ["text"], output: ["text"] },
+    variants: [], time: { released: 0 }, cost: [], status: "active", enabled: true,
+    limit: { context: 0, output: 0 },
+  };
+}
+
+async function knownModels(): Promise<{ providerID: string; id: string }[]> {
+  const { models } = await catalogReady;
   const announced = [...sessions.values()].map((s) => s.translator.announcedModel).find(Boolean);
-  if (announced && Array.isArray(result.payload?.data) && result.payload.data[0]) {
-    const first = result.payload.data[0];
-    result.payload.data[0] = { ...first, id: announced.id, modelID: announced.id, providerID: announced.providerID, name: announced.id, enabled: true };
-  }
+  const first = announced ?? splitModel(MAKI_MODEL);
+  if (!first) return models;
+  return [first, ...models.filter((m) => !(m.providerID === first.providerID && m.id === first.id))];
+}
+
+async function modelList(url: URL): Promise<{ status: number; payload: any }> {
+  const result = synthesize("GET", "/api/model", url, null, CANONICAL);
+  const known = await knownModels();
+  if (known.length) result.payload = { ...result.payload, data: known.map(modelInfo) };
   return result;
+}
+
+async function providerList(url: URL): Promise<{ status: number; payload: any }> {
+  const { status, payload } = synthesize("GET", "/api/provider", url, null, CANONICAL);
+  const { envProviders } = await catalogReady;
+  const names = new Map(envProviders.map((p) => [p.id, p.name]));
+  const ids = [...new Set([...(await knownModels()).map((m) => m.providerID), ...names.keys()])];
+  const data = ids.map((id) => {
+    const p: AnyObj = { id, name: names.get(id) ?? id, activation: "enabled", package: "maki" };
+    if (names.has(id)) p.integrationID = id;
+    return p;
+  });
+  return { status, payload: { ...payload, data } };
+}
+
+// a provider is connected through the variable its OpenShell profile injects;
+// the only method is that variable — credentials never enter through the TUI
+async function integrationList(url: URL): Promise<{ status: number; payload: any }> {
+  const { status, payload } = synthesize("GET", "/api/integration", url, null, CANONICAL);
+  const { envProviders } = await catalogReady;
+  const data = envProviders.map((p) => ({
+    id: p.id, name: p.name,
+    methods: [{ type: "env", names: [p.env] }],
+    connections: [{ type: "env", name: p.env }],
+  }));
+  return { status, payload: { ...payload, data } };
 }
 
 // /api/info describes this process, the server the TUI is attached to: its
@@ -637,7 +689,11 @@ async function handle(req: Request): Promise<Response> {
   } else if (parts[1] === "api" && parts[2] === "session" && parts[3] && parts[3] !== "active") {
     result = sessionRoute(method, parts[3]!, parts.slice(4).join("/"), body, url);
   } else if (method === "GET" && path === "/api/model") {
-    result = modelList(url);
+    result = await modelList(url);
+  } else if (method === "GET" && path === "/api/provider") {
+    result = await providerList(url);
+  } else if (method === "GET" && path === "/api/integration") {
+    result = await integrationList(url);
   } else if (method === "GET" && path === "/api/skill") {
     result = await skillList(url);
   } else if (method === "GET" && path === "/api/mcp") {

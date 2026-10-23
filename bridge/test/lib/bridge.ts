@@ -13,6 +13,12 @@ const FAKE_CHILD = fileURLToPath(new URL("../fake-maki.ts", import.meta.url));
 // sandbox reads (bridge/src/sandbox.ts) go through a scripted openshell that
 // runs them in the workdir, the way the fake child runs its tool calls
 const FAKE_OPENSHELL = fileURLToPath(new URL("../fake-openshell.ts", import.meta.url));
+// the real git binary's dir for the scripted sandbox (see fake-openshell.ts)
+const GIT_DIR = (() => {
+  const real = process.platform === "darwin" ? Bun.spawnSync(["xcrun", "-f", "git"]).stdout.toString().trim() : "";
+  const git = real || Bun.which("git") || "";
+  return git.slice(0, git.lastIndexOf("/"));
+})();
 
 /** one emitted OpenCode envelope: {id, created, type, durable?, data} */
 export interface Frame {
@@ -63,6 +69,7 @@ export async function startBridge(extraEnv: Record<string, string> = {}): Promis
       OPENMAKI_SANDBOX: "fake-sandbox",
       // the sandbox user's home is the temp workdir, never the host's
       FAKE_SANDBOX_HOME: workdir,
+      FAKE_SANDBOX_GIT_DIR: GIT_DIR,
       BRIDGE_LOG: logPath,
       ...extraEnv,
     },

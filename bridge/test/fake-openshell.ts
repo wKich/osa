@@ -9,6 +9,9 @@
 //
 //   FAKE_OPENSHELL_TRACE=<file>   append each argv as one JSON line
 //   FAKE_SANDBOX_HOME=<dir>       HOME for the command (the sandbox user's home)
+//   FAKE_SANDBOX_BIN=<dir>        stubs on the sandbox PATH (e.g. a scripted `maki`);
+//                                 PATH is otherwise the system dirs only, so no
+//                                 host-installed tool answers for the sandbox
 import { appendFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
@@ -35,11 +38,24 @@ if (!wellFormed) {
   process.exit(64);
 }
 
-const proc = Bun.spawnSync(argv, {
+// git is in the sandbox image; the harness passes the host's real git dir
+// (FAKE_SANDBOX_GIT_DIR — on macOS not the /usr/bin xcrun shim, which can
+// stall under concurrent calls)
+const gitDir = process.env.FAKE_SANDBOX_GIT_DIR;
+const proc = Bun.spawn(argv, {
   cwd: workdir,
   // the sandbox user's home stands alone: no host XDG dir leaks into a read
-  env: { ...process.env, HOME: process.env.FAKE_SANDBOX_HOME ?? process.env.HOME, XDG_CONFIG_HOME: undefined, PWD: workdir },
+  env: {
+    ...process.env,
+    HOME: process.env.FAKE_SANDBOX_HOME ?? process.env.HOME,
+    XDG_CONFIG_HOME: undefined,
+    PWD: workdir,
+    PATH: [process.env.FAKE_SANDBOX_BIN, gitDir, "/usr/bin", "/bin"].filter(Boolean).join(":"),
+  },
   stdout: "inherit",
   stderr: "inherit",
 });
-process.exit(proc.exitCode ?? 1);
+// the bridge ends a read that outlives its budget with SIGTERM: end the
+// command with it, as closing a real exec session would
+process.on("SIGTERM", () => proc.kill("SIGTERM"));
+process.exit(await proc.exited);

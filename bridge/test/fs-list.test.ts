@@ -5,12 +5,16 @@
 // (fake-openshell.ts) runs each read in the bridge's canonical workdir and
 // traces its argv; a separate "host" directory holds different files, so a
 // host read would show up in the answer.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test, setDefaultTimeout } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startBridge, type BridgeHandle } from "./lib/bridge.ts";
 import { validateBody } from "./lib/contract.ts";
+
+// tests here boot their own bridges; the default 5s budget is too tight on a
+// loaded host
+setDefaultTimeout(20_000);
 
 describe("workdir listing", () => {
   let bridge: BridgeHandle;

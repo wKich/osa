@@ -4,12 +4,16 @@
 // sandbox workdir over the exec transport, not from synthesized `sample`
 // values. The scripted openshell runs each read in a temp clone standing in
 // for the workdir.
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test, setDefaultTimeout } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { startBridge, type BridgeHandle } from "./lib/bridge.ts";
 import { validateBody } from "./lib/contract.ts";
+
+// tests here boot their own bridges; the default 5s budget is too tight on a
+// loaded host
+setDefaultTimeout(20_000);
 
 const git = (cwd: string, ...args: string[]) => {
   const p = Bun.spawnSync(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main", ...args], { cwd });

@@ -18,6 +18,7 @@
 // The helper sets these (bin/maki-oss OpenCode mode) and attaches the TUI with
 // `opencode --server http://127.0.0.1:$PORT`.
 import { appendFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { MakiSession, type ImageBlock } from "./maki.ts";
 import { Translator } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
@@ -470,6 +471,23 @@ function modelList(url: URL): { status: number; payload: any } {
   return result;
 }
 
+// /api/info describes this process, the server the TUI is attached to: its
+// pid and listen URL (the TUI's pair dialog parses urls[0]), the pinned
+// version (a mismatch warns), and no persistent PTY — the TUI offers
+// terminals unless persistentPty is false (session-terminals.tsx v2.0.32
+// L62–L77), and the bridge serves none
+function serverInfo(url: URL): { status: number; payload: any } {
+  const result = synthesize("GET", "/api/info", url, null, CANONICAL);
+  result.payload = {
+    ...result.payload,
+    pid: process.pid,
+    urls: [`http://127.0.0.1:${server.port}`],
+    paths: { tmp: tmpdir() },
+    capabilities: { persistentPty: false },
+  };
+  return result;
+}
+
 // ---------- request logging (redacted; design decision 6 hygiene) ----------
 const SECRET_KEY = /\b(authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|secret|password|cookie|credential)\b/i;
 const SECRET_VALUE = /\b(sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._-]{8,})/g;
@@ -509,6 +527,8 @@ async function handle(req: Request): Promise<Response> {
     result = sessionRoute(method, parts[3]!, parts.slice(4).join("/"), body, url);
   } else if (method === "GET" && path === "/api/model") {
     result = modelList(url);
+  } else if (method === "GET" && path === "/api/info") {
+    result = serverInfo(url);
   } else {
     result = synthesize(method, path, url, body, CANONICAL);
   }

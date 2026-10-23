@@ -51,6 +51,20 @@ composer selects.
   model list names the announced provider and id, and the submit is not
   refused for an unavailable model
 
+#### Scenario: Server info names the bridge and offers no terminal
+- **WHEN** the TUI reads `GET /api/info`
+- **THEN** the body is schema-valid, reports the pinned version, the bridge's
+  own pid and a parseable listen URL, and `capabilities.persistentPty: false`,
+  so the TUI offers no persistent terminal the bridge cannot serve
+
+#### Scenario: Boot lists carry no fabricated rows
+- **WHEN** the TUI reads the plugin, reference, shell, command, MCP server,
+  or MCP resource lists, or a session's persistent terminal list, and nothing
+  backs that surface in the bridge
+- **THEN** each answers a schema-valid body with an empty list, and the agent
+  list holds exactly one primary agent, `build`, with no synthesized
+  permission rule
+
 ### Requirement: Maintain one Maki session behind one OpenCode session
 The bridge SHALL run one Maki SDK session per OpenCode session — Maki running
 inside the project sandbox, reached over `openshell sandbox exec` stdio — and

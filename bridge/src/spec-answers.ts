@@ -138,8 +138,23 @@ export function synthesize(
   if (method === "GET" && path === "/api/config") payload = [];
   // enum order puts "subagent" first: with no primary agent the composer has
   // nothing to submit as and Enter does nothing
+  // Maki at the pin has one agent and no named-agent surface (`initialize`
+  // ignores `agents`, sdk_mode.rs v0.6.4 L828–L839; no `set_agent`, L818–L880):
+  // the list is that one agent, in Maki's own name for its default mode
   if (method === "GET" && path === "/api/agent" && Array.isArray(payload?.data)) {
-    payload = { ...payload, data: payload.data.map((a: AnyObj) => ({ ...a, mode: "primary" })) };
+    const [template] = payload.data;
+    payload = { ...payload, data: [{ ...template, id: "build", name: "build", mode: "primary", hidden: false, permissions: [] }] };
+  }
+  // surfaces with nothing behind them answer empty rather than a synthesized
+  // row the TUI renders as real (defect boot-lists-phantom-rows): no OpenCode
+  // plugin, reference alias, shell, or MCP client runs in the bridge, and the
+  // pinned SDK mode runs no custom command (sdk_mode.rs v0.6.4 L624), so a
+  // listed one would make submit POST session.command for nothing
+  if (method === "GET" && /^\/api\/(plugin|reference|shell|command|mcp)$/.test(path)) {
+    payload = { ...payload, data: [] };
+  }
+  if (method === "GET" && path === "/api/mcp/resource") {
+    payload = { ...payload, data: { resources: [], templates: [] } };
   }
   // synthesized list items act as phantom forms/permission prompts and block
   // the transcript; these surfaces stay empty

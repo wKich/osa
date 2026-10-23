@@ -14,7 +14,7 @@
   },
   {
     "type": "session.step.started",
-    "agent": "sample",
+    "agent": "build",
     "model": {
       "providerID": "hf:deepseek-ai",
       "id": "DeepSeek-V4.1-Flash-1017"

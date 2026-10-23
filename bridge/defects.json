@@ -34,13 +34,13 @@
   {
     "id": "boot-lists-phantom-rows",
     "title": "Boot list routes answer synthesized `sample` rows the TUI renders as real: a connected MCP server, MCP resources, a running shell, an active server plugin, a reference alias, a server command whose pick POSTs session.command, and a `sample` agent with a `sample` permission rule",
-    "status": "known",
+    "status": "fixed",
     "capture": "bridge/test/captures/defect-boot-lists-phantom-rows.jsonl"
   },
   {
     "id": "info-advertises-terminals",
     "title": "GET /api/info omits capabilities.persistentPty, so the TUI offers /terminal and the Terminals tab although the bridge serves no persistent PTY, and reports pid 0 and a non-URL `urls: [\"sample\"]`",
-    "status": "known",
+    "status": "fixed",
     "capture": "bridge/test/captures/defect-info-advertises-terminals.jsonl"
   }
 ]

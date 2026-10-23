@@ -78,3 +78,38 @@ export async function readGitState(workdir: string): Promise<GitState> {
   if (root && /^[0-9a-f]{40,64}$/.test(root)) state.root = root;
   return state;
 }
+
+// ---------- Maki's MCP config in the sandbox ----------
+export interface McpServerConfig {
+  name: string;
+  enabled: boolean;
+}
+
+// global then project: the order Maki merges them, a project server
+// replacing a same-named global one (maki-agent/src/mcp/config.rs v0.6.4
+// merge_config, load_config_inner)
+const MCP_SCRIPT = [
+  'cat "${XDG_CONFIG_HOME:-$HOME/.config}/maki/mcp.toml" 2>/dev/null',
+  "printf '\\036'",
+  "cat .maki/mcp.toml 2>/dev/null",
+].join("; ");
+
+/** the MCP servers Maki would load in the workdir; [] without a sandbox or config */
+export async function readMcpConfig(workdir: string): Promise<McpServerConfig[]> {
+  const res = await sandboxRun(["sh", "-c", MCP_SCRIPT], workdir);
+  if (!res) return [];
+  const merged = new Map<string, McpServerConfig>();
+  for (const text of res.stdout.split("\x1e")) {
+    let doc: any;
+    try {
+      doc = Bun.TOML.parse(text);
+    } catch {
+      continue; // Maki refuses an unparsable file too; nothing from it loads
+    }
+    for (const [name, raw] of Object.entries<any>(doc?.mcp ?? {})) {
+      if (!raw || typeof raw !== "object") continue;
+      merged.set(name, { name, enabled: raw.enabled !== false });
+    }
+  }
+  return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
+}

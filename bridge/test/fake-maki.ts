@@ -74,7 +74,10 @@ function streamText(text: string): void {
   out({ type: "stream_event", event: { type: "message_stop" } });
 }
 
-out({ type: "system", subtype: "init", session_id: "fake-maki-session", cwd, model: "synthetic/fake", tools: ["Bash"] });
+// FAKE_MAKI_TOOLS (comma-separated) replaces the advertised tool list, so a
+// test can stand in for MCP tools (`<server>__<tool>`) or `tool_search`
+const tools = process.env.FAKE_MAKI_TOOLS?.split(",").filter(Boolean) ?? ["Bash"];
+out({ type: "system", subtype: "init", session_id: "fake-maki-session", cwd, model: "synthetic/fake", tools });
 
 function toolFrames(toolUseID: string, command: string, isError: boolean, content: string): void {
   out({

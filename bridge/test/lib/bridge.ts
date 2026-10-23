@@ -61,6 +61,8 @@ export async function startBridge(extraEnv: Record<string, string> = {}): Promis
       MAKI_CHILD_CMD: FAKE_CHILD,
       OPENSHELL_BIN: FAKE_OPENSHELL,
       OPENMAKI_SANDBOX: "fake-sandbox",
+      // the sandbox user's home is the temp workdir, never the host's
+      FAKE_SANDBOX_HOME: workdir,
       BRIDGE_LOG: logPath,
       ...extraEnv,
     },

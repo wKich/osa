@@ -143,12 +143,13 @@ export function synthesize(
   }
   // surfaces with nothing behind them answer empty rather than a synthesized
   // row the TUI renders as real (defect boot-lists-phantom-rows): no OpenCode
-  // plugin, reference alias, shell, or MCP client runs in the bridge, and the
+  // plugin, reference alias, or shell runs in the bridge, and the
   // pinned SDK mode runs no custom command (sdk_mode.rs v0.6.4 L624), so a
   // listed one would make submit POST session.command for nothing
-  if (method === "GET" && /^\/api\/(plugin|reference|shell|command|mcp)$/.test(path)) {
+  if (method === "GET" && /^\/api\/(plugin|reference|shell|command)$/.test(path)) {
     payload = { ...payload, data: [] };
   }
+  // the resource catalog needs a live MCP client, which the bridge is not
   if (method === "GET" && path === "/api/mcp/resource") {
     payload = { ...payload, data: { resources: [], templates: [] } };
   }

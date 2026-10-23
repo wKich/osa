@@ -31,17 +31,20 @@ TURN_WAIT=${TUI_TURN_WAIT:-20}
 
 mkdir -p "$ROOT/$OUT"
 rm -f "$TRANSCRIPT" "$REQUESTS" "$FRAMES" "$BRIDGE_LOG_OUT" "$PROBE"
-rm -rf "$STATE_HOME" "$DATA_HOME"
+rm -rf "$STATE_HOME" "$DATA_HOME" "$ROOT/$OUT/tui-last.sandbox-home"
+mkdir -p "$ROOT/$OUT/tui-last.sandbox-home"
 
 MAKI_CHILD_CMD=$ROOT/bridge/test/fake-maki.ts
 # sandbox reads go through the scripted openshell, run in OPENMAKI_CWD
 OPENSHELL_BIN=$ROOT/bridge/test/fake-openshell.ts
 OPENMAKI_SANDBOX=fake-sandbox
+# an empty sandbox home, so no host Maki config stands in for the sandbox's
+FAKE_SANDBOX_HOME=$ROOT/$OUT/tui-last.sandbox-home
 OPENMAKI_CWD=$ROOT
 BRIDGE_LOG=$REQUESTS
 BRIDGE_SSE_LOG=$FRAMES
 PORT=0
-export MAKI_CHILD_CMD OPENSHELL_BIN OPENMAKI_SANDBOX OPENMAKI_CWD BRIDGE_LOG BRIDGE_SSE_LOG PORT
+export MAKI_CHILD_CMD OPENSHELL_BIN OPENMAKI_SANDBOX FAKE_SANDBOX_HOME OPENMAKI_CWD BRIDGE_LOG BRIDGE_SSE_LOG PORT
 
 bun bridge/src/bridge.ts > "$BRIDGE_LOG_OUT" 2>&1 &
 BRIDGE_PID=$!

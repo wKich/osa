@@ -4,13 +4,12 @@ Generated from `bridge/compat/statuses.json` and `bridge/defects.json` by `scrip
 
 ## Burndown
 
-Reachable surface: **33 of 143 routes** (17 `served-live`, 12 `served-faked`, 4 `deferred`, 0 `unhandled`) and **39 of 41 features** (31 `verified`, 3 `unverified`, 5 `degraded` (5 pin-blocked), 0 `buggy`). Out of scope: 110 routes, 2 features. Open defects: **0**.
+Reachable surface: **33 of 143 routes** (18 `served-live`, 11 `served-faked`, 4 `deferred`, 0 `unhandled`) and **39 of 41 features** (32 `verified`, 2 `unverified`, 5 `degraded` (5 pin-blocked), 0 `buggy`). Out of scope: 110 routes, 2 features. Open defects: **0**.
 
-Next (first 3 of 3 reachable, unblocked, not `verified`; ids match the feature tables):
+Next (first 2 of 2 reachable, unblocked, not `verified`; ids match the feature tables):
 
-1. `mcp-server-status` — `GET /api/mcp` lists the MCP servers in the sandbox's Maki `mcp.toml` files (`maki-agent/src/mcp/config.rs` v0.6.4 L13) with their status — disabled, or connected/failed by whether the child advertises their tools — since `system.init.mcp_servers` is hardcoded `[]` (`sdk_mode.rs` v0.6.4 L623) (`unverified`)
-2. `skill-list-live` — `GET /api/skill` lists the skills the child's skill plugin discovers in the sandbox (`plugins/skill/init.lua` v0.6.4 L11–L30, L98–L130) (`unverified`)
-3. `model-catalog-live` — `GET /api/model`, `/api/provider` and `/api/integration` describe the models and providers `maki models` reports in the sandbox (`src/cmd/subcmd.rs` v0.6.4 L601–L630), with the child's announced model first and providers connected through their OpenShell profile (`unverified`)
+1. `skill-list-live` — `GET /api/skill` lists the skills the child's skill plugin discovers in the sandbox (`plugins/skill/init.lua` v0.6.4 L11–L30, L98–L130) (`unverified`)
+2. `model-catalog-live` — `GET /api/model`, `/api/provider` and `/api/integration` describe the models and providers `maki models` reports in the sandbox (`src/cmd/subcmd.rs` v0.6.4 L601–L630), with the child's announced model first and providers connected through their OpenShell profile (`unverified`)
 
 Untriaged reachable routes: **0**.
 
@@ -36,6 +35,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/project` | `served-live` | live — `project-identity-live` | [`bridge/test/sandbox-git.test.ts`](../bridge/test/sandbox-git.test.ts) |
 | `GET /api/location` | `served-live` | live — `project-identity-live` | [`bridge/test/sandbox-git.test.ts`](../bridge/test/sandbox-git.test.ts) |
 | `GET /api/fs/list` | `served-live` | live — `fs-list-sandbox` | [`bridge/test/fs-list.test.ts`](../bridge/test/fs-list.test.ts) |
+| `GET /api/mcp` | `served-live` | live — `mcp-server-status` | [`bridge/test/mcp-status.test.ts`](../bridge/test/mcp-status.test.ts) |
 | `GET /api/vcs` | `served-live` | live — `vcs-branch-live` | [`bridge/test/sandbox-git.test.ts`](../bridge/test/sandbox-git.test.ts) |
 | `GET /api/session/active` | `served-live` | live — `session-active-live` | [`bridge/test/session-active.test.ts`](../bridge/test/session-active.test.ts) |
 | `POST /api/session/{sessionID}/interrupt` | `served-live` | live | [`bridge/test/interrupt.test.ts`](../bridge/test/interrupt.test.ts) |
@@ -47,7 +47,6 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/skill` | `served-faked` | in progress — `skill-list-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/provider` | `served-faked` | in progress — `model-catalog-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/integration` | `served-faked` | in progress — `model-catalog-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/mcp` | `served-faked` | in progress — `mcp-server-status` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/plugin` | `served-faked` | accept — the list holds OpenCode server plugins (`source`, `features`, `state`) and the bridge loads none; Maki's Lua plugins run inside the child and are not OpenCode plugins, so the empty list is the true set | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
 | `GET /api/form` | `served-faked` | accept — forms are pending MCP elicitations; the pinned Maki SDK wire has no elicitation message (its only outbound ask is `control_request` `can_use_tool`, `sdk_mode.rs` v0.6.4 L1155), so no global form can ever be pending and the empty list is the true state | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/experimental/migration/v1` | `served-faked` | accept — the bridge keeps no OpenCode data store, so there is no migration to run: `completed` is the true status, and the only one that ends the TUI's 1s poll without a spinner or an error toast (`tui/src/component/migration-overlay.tsx` v2.0.32 L22–L26) | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
@@ -210,7 +209,7 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | `vcs-branch-live` | `GET /api/vcs` reports the sandbox checkout's current branch (the footer's `dir:branch`, `tui/src/component/prompt/index.tsx` v2.0.32 L1620) through the exec transport | `verified` | [`bridge/test/sandbox-git.test.ts`](../bridge/test/sandbox-git.test.ts) |
 | `project-identity-live` | `GET /api/project` and `GET /api/location` name one project id read from the sandbox checkout (its root commit, else `global`) and the project's name and vcs, instead of `sample` | `verified` | [`bridge/test/sandbox-git.test.ts`](../bridge/test/sandbox-git.test.ts) |
 | `session-active-live` | `GET /api/session/active` maps every session with a turn in flight to `running` (server `handlers/session.ts` v2.0.32 L182–L188), so a reconnecting TUI shows the busy state | `verified` | [`bridge/test/session-active.test.ts`](../bridge/test/session-active.test.ts) |
-| `mcp-server-status` | `GET /api/mcp` lists the MCP servers in the sandbox's Maki `mcp.toml` files (`maki-agent/src/mcp/config.rs` v0.6.4 L13) with their status — disabled, or connected/failed by whether the child advertises their tools — since `system.init.mcp_servers` is hardcoded `[]` (`sdk_mode.rs` v0.6.4 L623) | `unverified` | [`bridge/test/captures/tui-last-requests.jsonl`](../bridge/test/captures/tui-last-requests.jsonl) |
+| `mcp-server-status` | `GET /api/mcp` lists the MCP servers in the sandbox's Maki `mcp.toml` files (`maki-agent/src/mcp/config.rs` v0.6.4 L13) with their status — disabled, or connected/failed by whether the child advertises their tools — since `system.init.mcp_servers` is hardcoded `[]` (`sdk_mode.rs` v0.6.4 L623) | `verified` | [`bridge/test/mcp-status.test.ts`](../bridge/test/mcp-status.test.ts) |
 | `skill-list-live` | `GET /api/skill` lists the skills the child's skill plugin discovers in the sandbox (`plugins/skill/init.lua` v0.6.4 L11–L30, L98–L130) | `unverified` | [`bridge/test/captures/tui-last-requests.jsonl`](../bridge/test/captures/tui-last-requests.jsonl) |
 | `model-catalog-live` | `GET /api/model`, `/api/provider` and `/api/integration` describe the models and providers `maki models` reports in the sandbox (`src/cmd/subcmd.rs` v0.6.4 L601–L630), with the child's announced model first and providers connected through their OpenShell profile | `unverified` | [`bridge/test/captures/tui-last-requests.jsonl`](../bridge/test/captures/tui-last-requests.jsonl) |
 | `permission-reask` | `always` becomes Maki's session-scoped allow (the bridge caches nothing); it is not saved for the project as the TUI's copy says — the pinned SDK decoder has no project/global answer (sdk_mode.rs v0.6.4 L918–L927) | `degraded` · pin-blocked | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |

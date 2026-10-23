@@ -24,7 +24,7 @@ import { MakiSession, type ImageBlock } from "./maki.ts";
 import { Translator } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
-import { readGitState, sandboxRun } from "./sandbox.ts";
+import { readGitState, readMcpConfig, sandboxRun } from "./sandbox.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
 const CANONICAL = process.env.OPENMAKI_CWD ?? process.cwd();
@@ -49,6 +49,7 @@ interface BridgeSession {
   maki: MakiSession;
   translator: Translator;
   makiSessionID?: string; // maki's own session_id, mapped on first system.init
+  tools?: string[]; // the tool names the child advertised on system.init
   pending: Map<string, PendingAsk>; // per_ id -> unanswered permission ask
   controls: Map<string, (ack: AnyObj) => void>; // bridge control request_id -> ack handler
   created: number;
@@ -205,6 +206,7 @@ function createSession(body: AnyObj): { status: number; payload: any } {
     model: () => s.model,
     onInit: (info) => {
       s.makiSessionID = info.sessionID;
+      s.tools = info.tools;
       // the TUI read the model list at boot, before this child existed, and
       // gates the composer on the selected model being in that list — so the
       // announcement has to invalidate it or every later submit is refused
@@ -508,6 +510,27 @@ function activeSessions(url: URL): { status: number; payload: any } {
   return { status, payload: { data } };
 }
 
+// /api/mcp: the pinned child announces `mcp_servers: []` whatever it loaded
+// (sdk_mode.rs v0.6.4 L623), so the servers come from the sandbox's Maki
+// config and their state from what a child advertised: an MCP tool is named
+// `<server>__<tool>` in system.init.tools, so a server with one is connected.
+// Without one, the server failed — unless the child defers MCP tools behind
+// `tool_search` (config.rs v0.6.4 defer_tools), or no child has started yet,
+// where the state is not observable and the answer is `pending`.
+async function mcpServers(url: URL): Promise<{ status: number; payload: any }> {
+  const { status, payload } = synthesize("GET", "/api/mcp", url, null, CANONICAL);
+  const config = await readMcpConfig(CANONICAL);
+  const advertised = [...sessions.values()].map((s) => s.tools).find((t) => t !== undefined);
+  const deferred = advertised?.some((t) => t.replace(/_/g, "").toLowerCase() === "toolsearch") ?? false;
+  const data = config.map(({ name, enabled }) => {
+    if (!enabled) return { name, status: { status: "disabled" } };
+    if (advertised?.some((t) => t.startsWith(`${name}__`))) return { name, status: { status: "connected" } };
+    if (!advertised || deferred) return { name, status: { status: "pending" } };
+    return { name, status: { status: "failed", error: "the Maki session advertised no tool from this server" } };
+  });
+  return { status, payload: { ...payload, data } };
+}
+
 // /api/project and /api/location name the one project the bridge serves
 async function projectList(url: URL): Promise<{ status: number; payload: any }> {
   await projectReady;
@@ -608,6 +631,8 @@ async function handle(req: Request): Promise<Response> {
     result = sessionRoute(method, parts[3]!, parts.slice(4).join("/"), body, url);
   } else if (method === "GET" && path === "/api/model") {
     result = modelList(url);
+  } else if (method === "GET" && path === "/api/mcp") {
+    result = await mcpServers(url);
   } else if (method === "GET" && path === "/api/session/active") {
     result = activeSessions(url);
   } else if (method === "GET" && path === "/api/project") {

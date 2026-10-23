@@ -16,6 +16,7 @@ import {
   runFixture,
   writeGolden,
 } from "./lib/projection.ts";
+import { Translator } from "../src/translator.ts";
 
 interface Defect {
   id: string;
@@ -53,6 +54,10 @@ const FIXTURES = [
   // captured through bridge/test/capture-subagent.sh — the authored fixture
   // stays for the edges a single run does not reproduce
   "maki-subagent-live",
+  // retry visibility (add-retry-scheduled-emission): the captured plain turn
+  // with two source-derived api_retry frames; the equality test below also
+  // proves they do not disturb the turn
+  "maki-retry",
 ];
 
 for (const name of FIXTURES) {
@@ -107,12 +112,39 @@ test("every defect expected-failure marker has a golden file", () => {
   }
 });
 
-// spec scenario "A mid-turn api_retry leaves the transcript undisturbed":
-// the retry fixture's projection must equal the plain-turn golden literally,
-// so the fixture is deliberately NOT in FIXTURES (which would mint its own golden).
-test("golden translation: maki-retry equals the plain-turn golden", () => {
-  const actual = project(runFixture("maki-retry"));
-  const diff = firstDiff(actual, readGolden("golden/maki-plain.json"));
+// spec scenarios "A mid-turn api_retry surfaces as session.retry.scheduled"
+// and "A mid-turn api_retry leaves the transcript undisturbed": the fixture's
+// own golden pins the retry frames in context, and the same turn with those
+// frames excluded must still equal the plain-turn golden literally.
+test("golden translation: maki-retry surfaces retries without disturbing the turn", () => {
+  const events = runFixture("maki-retry");
+  const retries = events.filter((e) => e.type === "session.retry.scheduled");
+  expect(retries.map((e) => e.data.attempt)).toEqual([1, 2]);
+  expect(retries.map((e) => e.data.error)).toEqual([
+    { type: "Error", message: "Overloaded" },
+    { type: "Error", message: "Internal server error" },
+  ]);
+  for (const retry of retries) {
+    expect(retry.data.assistantMessageID).toMatch(/^msg_/);
+    expect(retry.data.at).toBeGreaterThanOrEqual(0);
+    expect(retry.durableVersion).toBe(1);
+  }
+  const withoutRetries = events.filter((e) => e.type !== "session.retry.scheduled");
+  const diff = firstDiff(project(withoutRetries), readGolden("golden/maki-plain.json"));
   if (diff) throw new Error(`api_retry frames disturbed the transcript:\n      ${diff}`);
   expect(diff).toBeNull();
+});
+
+// a retry outside a turn has no assistant message for the pinned event to
+// name, so the translator tolerates it silently (design decision 2)
+test("a retry frame outside a turn emits nothing", () => {
+  const types: string[] = [];
+  const translator = new Translator({
+    sink: { emit: (type) => void types.push(type) },
+    sessionID: "ses_goldenfixture",
+    agent: () => "primary",
+    model: () => ({ providerID: "sample", id: "sample" }),
+  });
+  translator.onFrame({ type: "system", subtype: "api_retry", attempt: 1, error: "Overloaded" });
+  expect(types).toEqual([]);
 });

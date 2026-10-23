@@ -68,6 +68,6 @@ describe("agent selection over the spawned bridge", () => {
     expect(existsSync(tracePath)).toBe(true);
     const inbound = readFileSync(tracePath, "utf8").split("\n").filter((l) => l.trim()).map((l) => JSON.parse(l));
     expect(inbound.some((f) => f.type === "user")).toBe(true);
-    expect(inbound.filter((f) => f.type === "control_request")).toEqual([]);
+    expect(inbound.filter((f) => f.type === "control_request" && f.dir !== "out")).toEqual([]);
   }, 30_000);
 });

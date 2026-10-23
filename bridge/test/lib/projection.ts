@@ -24,6 +24,7 @@ export interface Projected {
 export interface SinkEvent {
   type: string;
   data: Record<string, any>;
+  durableVersion?: number;
 }
 
 export const UPDATE_GOLDENS = process.env.UPDATE_GOLDENS === "1";
@@ -70,7 +71,7 @@ export function loadFixture(name: string): Record<string, any>[] {
 export function runFixture(name: string): SinkEvent[] {
   const events: SinkEvent[] = [];
   const translator = new Translator({
-    sink: { emit: (type, data) => void events.push({ type, data }) },
+    sink: { emit: (type, data, durableVersion) => void events.push({ type, data, durableVersion }) },
     sessionID: "ses_goldenfixture",
     agent: defaultAgent,
     model: defaultModel,
@@ -91,7 +92,9 @@ export function runFixture(name: string): SinkEvent[] {
     turnOpen = true;
   };
   for (const frame of loadFixture(name)) {
-    if (frame.type === "assistant" || frame.type === "stream_event") {
+    // a retry frame arrives inside the turn, which live opened at prompt
+    // admission before the child was written to
+    if (frame.type === "assistant" || frame.type === "stream_event" || (frame.type === "system" && frame.subtype === "api_retry")) {
       admit();
       translator.onFrame(frame);
     } else if (frame.type === "result") {
@@ -106,7 +109,7 @@ export function runFixture(name: string): SinkEvent[] {
   return events;
 }
 
-const STRIP = new Set(["sessionID", "assistantMessageID", "id", "inboxID", "started", "created"]);
+const STRIP = new Set(["sessionID", "assistantMessageID", "id", "inboxID", "started", "created", "at"]);
 
 /** reduce sink events to {type, part order, text, …} with ids/timestamps removed */
 export function project(events: SinkEvent[]): Projected[] {

@@ -14,15 +14,30 @@ scoped list for the next iteration. Recording is not implementing.
 
 ```
 running-feature-discovery
-├── unverified/deferred rows → proposing-coverage-change → add-… change (tests, statuses → verified; green on archive)
-└── open defects.json entries → proposing-fix-change     → fix-… change (code fix, golden flip, status → fixed)
+├── unverified/deferred/capability rows → proposing-coverage-change → add-… change (tests or implementation; statuses → verified on green)
+├── open defects.json entries           → proposing-fix-change     → fix-… change (code fix, golden flip, status → fixed)
+└── no counterpart at the pin           → accept/out-of-scope     (status edits only, no code)
 ```
 
-The two branches are parallel, not sequential: `discovery.ts` appends defect
+The branches are parallel, not sequential: `discovery.ts` appends defect
 entries itself, so the fix path is entered straight from discovery. A
 failing new coverage test is a discovery finding — record it as a defect,
-don't ship red tests in an `add-…` change. Re-run discovery after either
-branch to confirm closure.
+don't ship red tests in an `add-…` change. Re-run discovery after any branch
+to confirm closure.
+
+## Scope (before recording)
+
+Compatibility is claimed only on the surface the TUI exercises. The reachable
+set is the union of `bridge/test/captures/tui-last-requests.jsonl`,
+`bridge/test/fixtures/bridge-requests.jsonl`, the SSE event stream, and the
+routes the bridge serves live; recompute it after a TUI pass adds requests.
+Every other operation in the
+pinned contract is `out-of-scope` — recorded, never counted as a gap.
+
+Done for a pin means: 0 `unhandled`; every reachable route `served-live` or
+deliberately-empty `deferred`; every feature `verified`, `degraded` with a
+mirrored pin limitation, or `out-of-scope` with a reason; 0 open defects; 0
+`unverified` rows without a triage decision.
 
 ## Ground first (read-only)
 
@@ -39,9 +54,13 @@ branch to confirm closure.
 ```sh
 bun bridge/test/discovery.ts     # API pass; appends NEW defects with captures; never edits existing entries; offline
 make test-ui                     # gated TUI pass; skips cleanly without opencode; rewrites bridge/test/captures/tui-last.*
+bun scripts/compat-drift.ts      # installed OpenCode vs the vendored pin
 cd bridge && bun test            # baseline: suite green before any edit
 bun scripts/gen-compat.ts --check
 ```
+
+A `compat-drift` delta makes this pass a rebaseline: update `versions`,
+re-enumerate both pins, and re-triage before recording anything else.
 
 ## Derive the chart from upstream docs and source (required)
 
@@ -106,6 +125,22 @@ contract).
 - Verify nothing: `verified` requires a test or fixture path as evidence
   (`bridge/test/crosscheck.test.ts` enforces it).
 
+## Triage (after recording)
+
+Every new or changed row carries `scope` (`reachable|out-of-scope`) and
+`blockedBy` (`pin|none`) in `statuses.json`, plus one `action` with a
+one-line rationale in the change's evidence matrix:
+
+| Action | When | Hand-off |
+| --- | --- | --- |
+| `fix` | observed violation of a pinned claim | `defects.json` → proposing-fix-change |
+| `coverage` | behavior exists, no proof | proposing-coverage-change, tests only |
+| `capability` | behavior missing, both pins support it, TUI needs it | proposing-coverage-change, implementation branch |
+| `accept` | no counterpart at the pin, or out of the reachable set | status/doc edit in this change |
+
+A `served-faked` route with no feature row is a scope statement, not debt.
+Never open a capability change discovery has not recorded.
+
 ## Do not
 
 Edit `docs/compatibility.md` by hand · delete or edit existing defect
@@ -122,6 +157,8 @@ cd bridge && bun test          # crosscheck validates evidence links exist
 make compat                    # regen + git diff --exit-code
 ```
 
-Report: rows added/changed, defects appended, open defects deduped,
+Report the scoreboard before the details — reachable routes
+`live/deferred/faked`, features `verified/degraded/unverified/untriaged`, open
+defects — then rows added/changed, defects appended, open defects deduped,
 capabilities newly transcribed from upstream (with the pins they came from),
-and the top next-iteration candidates from the cross-map.
+and the top three unblocked reachable items from the cross-map.

@@ -16,6 +16,8 @@ const REPORT = "docs/compatibility.md";
 
 const ROUTE_STATUS = ["served-live", "served-faked", "deferred", "unhandled"];
 const FEATURE_STATUS = ["verified", "unverified", "degraded", "buggy"];
+const SCOPES = ["reachable", "out-of-scope"];
+const BLOCKERS = ["pin", "none"];
 
 interface EvidenceRow {
   evidence: string;
@@ -29,6 +31,8 @@ interface Defect {
 const statuses = JSON.parse(read("bridge/compat/statuses.json"));
 const defects: Defect[] = JSON.parse(read("bridge/defects.json"));
 const isOpen = (id: string) => defects.some((d) => d.id === id && d.status === "known");
+const effectiveStatus = (f: EvidenceRow) =>
+  f.defect && isOpen(String(f.defect)) ? "buggy" : String(f.status);
 
 const provenance: Record<string, { kind: string; note: string }> = JSON.parse(
   read("bridge/test/fixtures/provenance.json"),
@@ -70,10 +74,14 @@ const need = (cond: boolean, msg: string) => {
 for (const r of statuses.routes as EvidenceRow[]) {
   need(Boolean(r.evidence), `route ${r.route}: missing evidence key`);
   need(ROUTE_STATUS.includes(String(r.status)), `route ${r.route}: unknown status ${r.status}`);
+  need(SCOPES.includes(String(r.scope)), `route ${r.route}: unknown scope ${r.scope}`);
+  need(BLOCKERS.includes(String(r.blockedBy)), `route ${r.route}: unknown blockedBy ${r.blockedBy}`);
 }
 for (const f of statuses.features as EvidenceRow[]) {
   need(Boolean(f.evidence), `feature ${f.id}: missing evidence key`);
   need(FEATURE_STATUS.includes(String(f.status)), `feature ${f.id}: unknown status ${f.status}`);
+  need(SCOPES.includes(String(f.scope)), `feature ${f.id}: unknown scope ${f.scope}`);
+  need(BLOCKERS.includes(String(f.blockedBy)), `feature ${f.id}: unknown blockedBy ${f.blockedBy}`);
   if (f.defect) {
     need(
       defects.some((d) => d.id === f.defect),
@@ -106,6 +114,43 @@ lines.push(
 );
 lines.push("");
 
+const reachableRoutes = (statuses.routes as EvidenceRow[]).filter((r) => r.scope === "reachable");
+const reachableFeatures = (statuses.features as EvidenceRow[]).filter((f) => f.scope === "reachable");
+const withStatus = (rows: EvidenceRow[], status: string) => rows.filter((r) => r.status === status);
+const pinBlocked = (rows: EvidenceRow[]) => rows.filter((r) => r.blockedBy === "pin").length;
+
+lines.push("## Burndown");
+lines.push("");
+lines.push(
+  `Reachable surface: **${reachableRoutes.length} of ${statuses.routes.length} routes** ` +
+    `(${ROUTE_STATUS.map((s) => `${withStatus(reachableRoutes, s).length} \`${s}\``).join(", ")}) ` +
+    `and **${reachableFeatures.length} of ${statuses.features.length} features** ` +
+    `(${FEATURE_STATUS.map((s) => {
+      const rows = reachableFeatures.filter((f) => effectiveStatus(f) === s);
+      const pin = pinBlocked(rows);
+      return `${rows.length} \`${s}\`${pin ? ` (${pin} pin-blocked)` : ""}`;
+    }).join(", ")}). ` +
+    `Out of scope: ${statuses.routes.length - reachableRoutes.length} routes, ` +
+    `${statuses.features.length - reachableFeatures.length} feature` +
+    `${statuses.features.length - reachableFeatures.length === 1 ? "" : "s"}. ` +
+    `Open defects: **${defects.filter((d) => d.status !== "fixed").length}**.`,
+);
+lines.push("");
+const candidates = reachableFeatures.filter(
+  (f) => effectiveStatus(f) !== "verified" && f.blockedBy !== "pin",
+);
+const next = candidates.slice(0, 3);
+if (next.length) {
+  lines.push(
+    `Next (first ${next.length} of ${candidates.length} reachable, unblocked, not \`verified\`; ids match the feature tables):`,
+  );
+  lines.push("");
+  next.forEach((f, i) => {
+    lines.push(`${i + 1}. \`${f.id}\` — ${md(f.title)} (\`${effectiveStatus(f)}\`)`);
+  });
+  lines.push("");
+}
+
 lines.push("## Served routes");
 lines.push("");
 lines.push(
@@ -115,12 +160,25 @@ lines.push(
     "(outside the pinned contract: answered 404).",
 );
 lines.push("");
-lines.push("| Route | Status | Evidence |");
-lines.push("| --- | --- | --- |");
-for (const r of statuses.routes) {
-  lines.push(`| \`${md(r.route)}\` | \`${r.status}\` | ${link(r.evidence)} |`);
+// Split by scope so each table reconciles with the burndown counts; within a
+// table, group by status (stable, so the status file's order survives).
+const byStatus = (order: string[], status: (r: EvidenceRow) => string) => (rows: EvidenceRow[]) =>
+  [...rows].sort((a, b) => order.indexOf(status(a)) - order.indexOf(status(b)));
+const scoped = (rows: EvidenceRow[], scope: string) => rows.filter((r) => r.scope === scope);
+const scopeHeading = (scope: string, n: number) =>
+  `### ${scope === "reachable" ? "Reachable" : "Out of scope"} (${n})`;
+
+for (const scope of SCOPES) {
+  const rows = byStatus(ROUTE_STATUS, (r) => String(r.status))(scoped(statuses.routes, scope));
+  lines.push(scopeHeading(scope, rows.length));
+  lines.push("");
+  lines.push("| Route | Status | Evidence |");
+  lines.push("| --- | --- | --- |");
+  for (const r of rows) {
+    lines.push(`| \`${md(r.route)}\` | \`${r.status}\` | ${link(r.evidence)} |`);
+  }
+  lines.push("");
 }
-lines.push("");
 
 lines.push("## Wire features");
 lines.push("");
@@ -128,21 +186,48 @@ lines.push(
   "Statuses: `verified` (an offline test or committed fixture proves it), " +
     "`degraded` (works, with a limitation recorded in the evidence), " +
     "`unverified` (no evidence yet), `buggy` (an open inventory entry in " +
-    "`bridge/defects.json` forces this status until the fix flips it).",
+    "`bridge/defects.json` forces this status until the fix flips it). " +
+    "`pin-blocked` marks a gap that needs an upstream wire change.",
 );
 lines.push("");
-lines.push("| Feature | Status | Evidence |");
-lines.push("| --- | --- | --- |");
-for (const f of statuses.features) {
-  const forced = f.defect && isOpen(f.defect);
-  const status = forced
-    ? `\`buggy\` ([${f.defect}](../bridge/defects.json))`
-    : `\`${f.status}\``;
-  const caveat = f.caveat ? ` (${md(f.caveat)})` : "";
-  const note = provenanceNote(f.evidence);
-  lines.push(`| ${md(f.title)} | ${status}${caveat} | ${link(f.evidence)}${note ? ` — ${note}` : ""} |`);
+
+// Many rows share one evidence file and so one provenance note: print each
+// note once under the tables and point the rows at it.
+const notes: string[] = [];
+const noteRef = (note: string) => {
+  if (!notes.includes(note)) notes.push(note);
+  return `fixture provenance: [note ${notes.indexOf(note) + 1}](#fixture-provenance)`;
+};
+
+for (const scope of SCOPES) {
+  const rows = byStatus(FEATURE_STATUS, effectiveStatus)(scoped(statuses.features, scope));
+  lines.push(scopeHeading(scope, rows.length));
+  lines.push("");
+  lines.push("| Id | Feature | Status | Evidence |");
+  lines.push("| --- | --- | --- | --- |");
+  for (const f of rows) {
+    const forced = f.defect && isOpen(String(f.defect));
+    const status = forced
+      ? `\`buggy\` ([${f.defect}](../bridge/defects.json))`
+      : `\`${f.status}\``;
+    const pin = f.blockedBy === "pin" ? " · pin-blocked" : "";
+    const caveat = f.caveat ? ` (${md(f.caveat)})` : "";
+    const note = provenanceNote(f.evidence);
+    lines.push(
+      `| \`${f.id}\` | ${md(f.title)} | ${status}${pin}${caveat} | ${link(f.evidence)}${note ? ` — ${noteRef(note)}` : ""} |`,
+    );
+  }
+  lines.push("");
 }
-lines.push("");
+
+if (notes.length) {
+  lines.push("### Fixture provenance");
+  lines.push("");
+  lines.push("Rows citing these notes are proved against fixtures that were authored or spliced from the pinned source, not captured whole from a live run.");
+  lines.push("");
+  notes.forEach((n, i) => lines.push(`${i + 1}. ${md(n)}`));
+  lines.push("");
+}
 
 lines.push("## Version matrix");
 lines.push("");

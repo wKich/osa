@@ -154,6 +154,35 @@ and across turns.
   frames, and removing the partial-message request from the child's flags
   fails this scenario
 
+### Requirement: Accept prompt attachments without claiming they were delivered
+The bridge SHALL accept a prompt whose request carries `files[]` (OpenCode's
+`PromptInput.FileAttachment` with `uri` and optional `name`) and admit it like
+any other prompt: `200` with the admitted `Session.Inbox.User`, and one
+`session.inbox.enqueued` user item. Because the bridge does not build the Maki
+inbound image blocks the pinned wire accepts, it MUST NOT claim the attachment
+was delivered: the response's `payload` and the enqueued user item SHALL carry
+only the prompt text, with no `files`, and the Maki child SHALL receive only a
+text content block — no image block and no attachment URI. An unknown session
+SHALL answer `404` `SessionNotFoundError` and write no frame to any child.
+
+#### Scenario: An attachment-bearing prompt is admitted with text only
+- **WHEN** the TUI submits a prompt whose body carries prompt text and one
+  `files[]` entry naming a URI
+- **THEN** the route answers `200`, the response's admitted user payload
+  carries the text and no `files`, and the `session.inbox.enqueued` item
+  carries the same text-only payload
+
+#### Scenario: The child receives no attachment
+- **WHEN** an attachment-bearing prompt is admitted
+- **THEN** the Maki child receives one `user` frame whose content is exactly
+  the prompt text block, with no image content block and no attachment URI
+
+#### Scenario: An unknown session is not a silent success
+- **WHEN** an attachment-bearing prompt names a session the bridge does not
+  know
+- **THEN** the route answers `404` with `_tag: "SessionNotFoundError"` and no
+  frame is written to any child
+
 ### Requirement: Fail an in-flight turn when the Maki child exits
 The bridge SHALL end a turn that is in flight when its Maki child process
 exits unexpectedly — crash, kill, or exit without a `result` frame — by
@@ -180,20 +209,38 @@ child.
   no `session.execution.started` for the rejected prompt
 
 ### Requirement: Tolerate recorded Maki wire frames with no OpenCode counterpart
-The bridge SHALL consume outbound Maki frames it has no OpenCode
-representation for — first among them `system{subtype:"api_retry"}` with its
-`attempt`, `retry_delay_ms`, and `error` fields (Maki SDK wire v0.6.4) —
-without emitting any event frame for them and without disturbing the
-in-progress turn: the emitted transcript SHALL be identical to the same turn
-replayed without those frames.
+The bridge SHALL consume outbound Maki frames it cannot render without
+disturbing the in-progress turn: frames with no OpenCode representation SHALL
+leave the emitted transcript identical to the same turn replayed without them.
+A `system{subtype:"api_retry"}` frame with `attempt`, `retry_delay_ms`, and
+`error` (Maki SDK wire v0.6.4) has a pinned OpenCode counterpart and SHALL be
+surfaced as one durable `session.retry.scheduled` event carrying the turn's
+`assistantMessageID`, the frame's positive `attempt`, an epoch-millisecond
+`at`, and the frame's error as `{type, message}`. Retry frames MUST NOT open,
+close, or reorder the turn: they add no part frames, the turn still ends with
+its single `session.execution.succeeded`, and every frame around them keeps
+its order.
 
-#### Scenario: A mid-turn api_retry leaves the transcript undisturbed
-- **WHEN** a recorded Maki fixture replays a plain turn with
+#### Scenario: A mid-turn api_retry surfaces as session.retry.scheduled
+- **WHEN** a recorded Maki fixture replays a plain turn with two
   `system{subtype:"api_retry"}` frames interleaved between its assistant and
   result frames
-- **THEN** the projected frame sequence matches the committed plain-turn
-  golden exactly — no extra, dropped, or reordered frames, and the turn still
-  ends in `session.execution.succeeded`
+- **THEN** exactly two `session.retry.scheduled` events are emitted, in
+  arrival order and before the result, each carrying the turn's assistant
+  message id, the frame's `attempt`, a non-negative `at`, the frame's error
+  message with type `Error`, and a durable envelope aggregated on the session
+
+#### Scenario: A mid-turn api_retry leaves the transcript undisturbed
+- **WHEN** the projected frame sequence for that fixture is compared with the
+  committed plain-turn golden after excluding `session.retry.scheduled`
+- **THEN** the two sequences match exactly — no extra, dropped, or reordered
+  part frames — and the turn still ends in `session.execution.succeeded`
+
+#### Scenario: A frame with no representation leaves no event
+- **WHEN** a recorded fixture carries outbound frames the bridge does not
+  render, such as `driver.exit` and `control_response`
+- **THEN** no event frame is emitted for them and the committed golden for
+  that fixture still matches
 
 ### Requirement: Render subagent-flagged frames in the session transcript
 The bridge SHALL render frames the child flags with `parent_tool_use_id` —
@@ -241,10 +288,13 @@ exists the row proving it carries the `contract-only` caveat.
 ### Requirement: Round-trip tool permissions
 The bridge SHALL forward each Maki `can_use_tool` control request to the TUI as
 a permission request, block that tool call until the TUI answers, and map the
-TUI's reply onto Maki's `allow`/`deny` wire answer. A reply of `always` SHALL be
-honored for that one call only; every later tool call re-prompts. A reply whose
-decision is not `once`, `always`, or `reject` SHALL fail closed: the bridge
-answers Maki `deny`, drops the pending request, and answers the route 400.
+TUI's reply onto Maki's `allow`/`deny` wire answer. Each answer SHALL be
+written to the child exactly once per ask and SHALL name the `request_id` Maki
+sent; the bridge SHALL send the bare `behavior` and no richer permission
+fields. A reply of `always` SHALL be honored for that one call only; every
+later tool call re-prompts. A reply whose decision is not `once`, `always`, or
+`reject` SHALL fail closed: the bridge answers Maki `deny`, drops the pending
+request, and answers the route 400.
 
 #### Scenario: User allows one call
 - **WHEN** Maki requests permission and the user answers "allow once"
@@ -266,6 +316,14 @@ answers Maki `deny`, drops the pending request, and answers the route 400.
 - **THEN** the bridge answers Maki `behavior: deny`, answers the route 400,
   clears the pending request, and the target the tool would have touched stays
   untouched
+
+#### Scenario: The wire answer names Maki's request and stays bare
+- **WHEN** the TUI answers a pending permission request with any of `once`,
+  `always`, `reject`, or an invalid decision
+- **THEN** the child receives exactly one `control_response` named by the
+  `request_id` Maki sent, carrying only `request_id` and `behavior` — `allow`
+  for `once`/`always`, `deny` for `reject`/invalid, with no
+  `updatedPermissions` or `message` field
 
 ### Requirement: Follow the wire, not the schema, for SSE frames
 The bridge SHALL emit event frames in the format the measured server uses — bare
@@ -364,6 +422,23 @@ transport mode. The report SHALL be rendered by a script from a
 machine-readable status file, and `make compat` SHALL regenerate it and exit
 non-zero when the committed report differs from the regenerated output.
 
+Every route and feature row in the status file SHALL carry a `scope` (`reachable|out-of-scope`)
+and a `blockedBy` (`pin|none`). `reachable` means a route is measured in the
+committed request captures or served live, and a capability is on the
+translation surface for the pin;
+`out-of-scope` means the pinned upstream has no counterpart or the repository
+has decided not to serve it. Reachability SHALL be derived from the committed
+request captures rather than assumed from the contract, and a route present in
+a capture SHALL NOT be reported `out-of-scope`. `blockedBy: pin` marks a row
+whose remaining gap cannot be closed without an upstream wire change.
+
+The report SHALL render a burndown over the reachable surface before the full
+tables: reachable route counts by status, reachable feature counts split by
+`blockedBy`, the number of open defect-inventory entries, and up to three
+reachable feature rows that are neither `verified`, nor `blockedBy: pin`, nor
+`out-of-scope`. The full route and feature tables SHALL remain in the report
+so every row stays auditable.
+
 The route lens SHALL be enumerated from the pinned OpenAPI contract rather
 than sampled from observed traffic: every operation the pinned contract
 defines for the served API surface SHALL carry exactly one row, whatever the
@@ -421,6 +496,28 @@ behavior but not the upstream wire shape that behavior was given.
   but no live run has exercised that shape upstream
 - **THEN** the row carries the `contract-only` caveat rather than claiming
   unqualified verification
+
+#### Scenario: Every row declares its scope and blocker
+- **WHEN** the status file is read
+- **THEN** every route and feature row has a `scope` of `reachable` or
+  `out-of-scope` and a `blockedBy` of `pin` or `none`, and a row with neither
+  fails the offline suite
+
+#### Scenario: A measured route is never out of scope
+- **WHEN** a route appears in a committed TUI or bridge request capture
+- **THEN** its status row reports `scope: reachable`, and a captured route
+  with no row or an `out-of-scope` row fails the offline suite
+
+#### Scenario: The burndown reports the reachable surface
+- **WHEN** the report is regenerated
+- **THEN** it lists reachable route counts by status, reachable feature counts
+  split by `blockedBy`, the open defect count, and up to three next items, none
+  of which is `verified`, `blockedBy: pin`, or `out-of-scope`
+
+#### Scenario: Out-of-scope rows leave the denominator
+- **WHEN** a route or feature is marked `out-of-scope`
+- **THEN** it stays listed with its status and evidence but is excluded from
+  the burndown counts and from the next-item list
 
 ### Requirement: Contract drift gate
 The repository SHALL provide a gated script that re-captures the OpenCode
@@ -562,3 +659,56 @@ result of the selection.
 - **WHEN** the agent route names a session the bridge does not know
 - **THEN** it answers `404` with `_tag: "SessionNotFoundError"` and records no
   selection
+
+### Requirement: Accept mid-session model selection without retasking the child
+The bridge SHALL accept the OpenCode model-selection route for an open session
+and answer `204` for a selection that names a provider and a model. The bridge
+MUST answer `404` `SessionNotFoundError` for an unknown session instead of
+recording a selection. The model the Maki child announced on `system.init`
+SHALL remain the model reported on the session object, on the session list,
+and on every `session.step.started` frame emitted after the selection. Because
+the pinned Maki wire's inbound `set_model` subtype is not sent by the bridge,
+the bridge MUST NOT claim that the switch took effect: the child keeps the
+model it started with, and no model-control frame reaches it as a result of
+the selection.
+
+#### Scenario: The switch is accepted and the announced model is still reported
+- **WHEN** the TUI posts a model to an open session and then submits a prompt
+- **THEN** the route answers `204`, the session read and session list still
+  report the model the child announced, and the next `session.step.started`
+  carries that same model
+
+#### Scenario: The child is not re-tasked
+- **WHEN** a model selection is accepted for an open session
+- **THEN** the Maki child receives no `set_model` or other model-control frame
+  and the transcript makes no claim that the running model changed
+
+#### Scenario: An unknown session is not a silent success
+- **WHEN** the model route names a session the bridge does not know
+- **THEN** it answers `404` with `_tag: "SessionNotFoundError"` and records no
+  selection
+
+### Requirement: Accept an interrupt without claiming the child stopped
+The bridge SHALL accept `POST /api/session/{sessionID}/interrupt` for an open
+session and answer `200` with `interrupted` set to `false`, because the pinned
+Maki wire's cancellation subtype is not sent. The bridge MUST answer `404`
+`SessionNotFoundError` for an unknown session. It MUST NOT write a
+`control_request` with subtype `interrupt` — or any other cancellation frame —
+to the Maki child. An in-flight turn SHALL continue to its normal result, and
+the bridge MUST NOT emit `session.execution.interrupted`.
+
+#### Scenario: Interrupt is accepted and reports no interruption
+- **WHEN** the TUI interrupts a session whose turn is still running
+- **THEN** the route answers `200` with `{interrupted:false}` and the route
+  makes no claim that the running model was stopped
+
+#### Scenario: The child is not cancelled
+- **WHEN** an interrupt is accepted during an in-flight turn
+- **THEN** the Maki child receives no `interrupt` control request or other
+  cancellation frame, the turn reaches `session.execution.succeeded`, and no
+  `session.execution.interrupted` frame is emitted
+
+#### Scenario: An unknown session is not a silent success
+- **WHEN** the interrupt route names a session the bridge does not know
+- **THEN** it answers `404` with `_tag: "SessionNotFoundError"` and no frame is
+  written to any child

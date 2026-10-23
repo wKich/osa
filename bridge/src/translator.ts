@@ -36,6 +36,7 @@ const DURABLE_VERSION: Record<string, number> = {
   "session.text.started": 1, "session.text.ended": 1,
   "session.tool.input.started": 1, "session.tool.input.ended": 1,
   "session.tool.called": 1, "session.tool.success": 2, "session.tool.failed": 2,
+  "session.retry.scheduled": 1,
 };
 
 // maki's tool names are PascalCase (Bash, Read, TodoWrite); the OpenCode side
@@ -123,6 +124,15 @@ export class Translator {
             cwd: frame.cwd,
             model: frame.model,
             tools: frame.tools ?? [],
+          });
+        } else if (frame.subtype === "api_retry" && this.turnOpen) {
+          // the pinned event names the turn's assistant message, so a retry
+          // outside a turn has nothing to attach to and stays tolerated
+          const attempt = Number.isInteger(frame.attempt) && frame.attempt > 0 ? frame.attempt : 1;
+          this.emit("session.retry.scheduled", {
+            attempt,
+            at: Date.now(),
+            error: { type: "Error", message: String(frame.error ?? "provider retry") },
           });
         }
         break;

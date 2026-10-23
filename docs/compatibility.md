@@ -2,9 +2,21 @@
 
 Generated from `bridge/compat/statuses.json` and `bridge/defects.json` by `scripts/gen-compat.ts`. Do not edit by hand — run `make compat` to regenerate and `make compat-drift` to check the pinned contract against the installed OpenCode.
 
+## Burndown
+
+Reachable surface: **32 of 143 routes** (10 `served-live`, 21 `served-faked`, 1 `deferred`, 0 `unhandled`) and **30 of 31 features** (23 `verified`, 1 `unverified`, 6 `degraded` (2 pin-blocked), 0 `buggy`). Out of scope: 111 routes, 1 feature. Open defects: **0**.
+
+Next (first 3 of 5 reachable, unblocked, not `verified`; ids match the feature tables):
+
+1. `permission-reask` — A reply of `always` is honored once; the next gated call asks again (`degraded`)
+2. `mid-turn-steering` — Mid-turn steering via an inbound user prompt while the agent runs (`unverified`)
+3. `interrupt-round-trip` — Interrupt is accepted and answered `interrupted:false`; the Maki child is never cancelled (no `control_request`/`interrupt` is sent) (`degraded`)
+
 ## Served routes
 
 Statuses: `served-live` (real state behind the route), `served-faked` (answered from the pinned spec with synthesized values), `deferred` (spec-valid minimal answer, surface not implemented), `unhandled` (outside the pinned contract: answered 404).
+
+### Reachable (32)
 
 | Route | Status | Evidence |
 | --- | --- | --- |
@@ -16,7 +28,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `POST /api/session/{sessionID}/prompt` | `served-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/session/{sessionID}/permission` | `served-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `POST /api/session/{sessionID}/permission/{requestID}/reply` | `served-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `POST /api/session/{sessionID}/model` | `served-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `POST /api/session/{sessionID}/model` | `served-live` | [`bridge/test/model-switch.test.ts`](../bridge/test/model-switch.test.ts) |
 | `POST /api/session/{sessionID}/agent` | `served-live` | [`bridge/test/agent-switch.test.ts`](../bridge/test/agent-switch.test.ts) |
 | `GET /api/info` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/model` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
@@ -38,6 +50,13 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/form` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/experimental/migration/v1` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/session/active` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/experimental/session/{sessionID}/terminal` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
+| `GET /api/session/{sessionID}/form` | `deferred` | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
+
+### Out of scope (111)
+
+| Route | Status | Evidence |
+| --- | --- | --- |
 | `DELETE /api/credential/{credentialID}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `DELETE /api/debug/location` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `DELETE /api/experimental/mcp/{server}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
@@ -63,7 +82,6 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/experimental/session/{sessionID}/export` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /api/experimental/session/{sessionID}/instructions/entries` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /api/experimental/session/{sessionID}/log` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
-| `GET /api/experimental/session/{sessionID}/terminal` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /api/experimental/session/{sessionID}/terminal/read` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /api/fs/find` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /api/integration/{integrationID}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
@@ -127,7 +145,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `POST /api/session/{sessionID}/form` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/session/{sessionID}/form/{formID}/reply` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/session/{sessionID}/generate` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
-| `POST /api/session/{sessionID}/interrupt` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
+| `POST /api/session/{sessionID}/interrupt` | `served-faked` | [`bridge/test/interrupt.test.ts`](../bridge/test/interrupt.test.ts) |
 | `POST /api/session/{sessionID}/move` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/session/{sessionID}/permission` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/session/{sessionID}/revert/commit` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
@@ -146,49 +164,61 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `PUT /api/pty/{ptyID}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `PUT /api/session/{sessionID}/environment` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /auth/connect/{code}` | `served-faked` | [`openspec/changes/archive/2026-10-23-rebaseline-compat-iteration-3/evidence/discovery-log.md`](../openspec/changes/archive/2026-10-23-rebaseline-compat-iteration-3/evidence/discovery-log.md) |
-| `GET /api/session/{sessionID}/form` | `deferred` | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
+| `GET /api/fs/read/*` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /api/session/{sessionID}/message` | `deferred` | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
 | `GET /api/session/{sessionID}/inbox` | `deferred` | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
 | `POST /api/session/{sessionID}/fork` | `deferred` | [`bridge/src/bridge.ts`](../bridge/src/bridge.ts) |
-| `GET /api/fs/read/*` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 
 ## Wire features
 
-Statuses: `verified` (an offline test or committed fixture proves it), `degraded` (works, with a limitation recorded in the evidence), `unverified` (no evidence yet), `buggy` (an open inventory entry in `bridge/defects.json` forces this status until the fix flips it).
+Statuses: `verified` (an offline test or committed fixture proves it), `degraded` (works, with a limitation recorded in the evidence), `unverified` (no evidence yet), `buggy` (an open inventory entry in `bridge/defects.json` forces this status until the fix flips it). `pin-blocked` marks a gap that needs an upstream wire change.
 
-| Feature | Status | Evidence |
-| --- | --- | --- |
-| SSE stream starts with server.connected | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
-| SSE frames are bare data: lines (no event:/id: lines) | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
-| SSE stream survives idle gaps: the TUI does not auto-reconnect mid-session | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
-| Minted ids match the OpenCode patterns (evt_/ses_/msg_/per_) | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
-| Durable events carry a complete durable envelope keyed to the session | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
-| Response bodies validate against the vendored OpenAPI 2.0.32 | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
-| Session create/read/list/delete with child teardown (no orphan processes) | `verified` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
-| Deferred session message/inbox/form reads answer schema-valid empty lists and 404 unknown sessions, never a phantom row | `verified` | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
-| Concurrent sessions keep their children and transcripts apart | `verified` | [`bridge/test/session-isolation.test.ts`](../bridge/test/session-isolation.test.ts) |
-| Recorded Maki turns translate to the committed golden frames | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — `maki-error.jsonl` is mixed (assistant output is captured; the error_during_execution result shape is source-derived (sdk_mode.rs v0.6.4 L995-L1000)); `maki-retry.jsonl` is mixed (the two spliced frames are source-derived (error is a plain string per the pin); the surrounding turn is captured); wire shape source-derived: `maki-stream.jsonl` is authored (never captured from a live streaming provider; see the shortcut note in bridge/src/translator.ts); wire shape source-derived: `maki-subagent.jsonl` is authored (never captured from a live subagent turn) |
-| Failing and permission-denied tools map to session.tool.failed | `verified` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
-| A failed Maki turn maps to session.execution.failed with the wire's message, never to success | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — `maki-error.jsonl` is mixed (assistant output is captured; the error_during_execution result shape is source-derived (sdk_mode.rs v0.6.4 L995-L1000)); `maki-retry.jsonl` is mixed (the two spliced frames are source-derived (error is a plain string per the pin); the surrounding turn is captured); wire shape source-derived: `maki-stream.jsonl` is authored (never captured from a live streaming provider; see the shortcut note in bridge/src/translator.ts); wire shape source-derived: `maki-subagent.jsonl` is authored (never captured from a live subagent turn) |
-| A Maki child exiting mid-turn fails the turn exactly once (no success) and later prompts are refused with 503 | `verified` | [`bridge/test/turn-abort.test.ts`](../bridge/test/turn-abort.test.ts) |
-| Permission ask/reply round trip runs offline over the child seam | `verified` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
-| A reply of `always` is honored once; the next gated call asks again | `degraded` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
-| stream_event deltas translate into part delta frames | `verified` | [`bridge/test/fixtures/maki-stream-live.jsonl`](../bridge/test/fixtures/maki-stream-live.jsonl) |
-| User prompts render before the assistant output they caused | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — `maki-error.jsonl` is mixed (assistant output is captured; the error_during_execution result shape is source-derived (sdk_mode.rs v0.6.4 L995-L1000)); `maki-retry.jsonl` is mixed (the two spliced frames are source-derived (error is a plain string per the pin); the surrounding turn is captured); wire shape source-derived: `maki-stream.jsonl` is authored (never captured from a live streaming provider; see the shortcut note in bridge/src/translator.ts); wire shape source-derived: `maki-subagent.jsonl` is authored (never captured from a live subagent turn) |
-| Session events carry Maki's real model name | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — `maki-error.jsonl` is mixed (assistant output is captured; the error_during_execution result shape is source-derived (sdk_mode.rs v0.6.4 L995-L1000)); `maki-retry.jsonl` is mixed (the two spliced frames are source-derived (error is a plain string per the pin); the surrounding turn is captured); wire shape source-derived: `maki-stream.jsonl` is authored (never captured from a live streaming provider; see the shortcut note in bridge/src/translator.ts); wire shape source-derived: `maki-subagent.jsonl` is authored (never captured from a live subagent turn) |
-| The location model list refreshes when the child announces, so its model stays selectable | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
-| Session agent selection is recorded and reported while the Maki child is not re-tasked (the pinned wire has no set_agent) | `degraded` | [`bridge/test/agent-switch.test.ts`](../bridge/test/agent-switch.test.ts) |
-| System api_retry frames are tolerated without disturbing the transcript | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — `maki-error.jsonl` is mixed (assistant output is captured; the error_during_execution result shape is source-derived (sdk_mode.rs v0.6.4 L995-L1000)); `maki-retry.jsonl` is mixed (the two spliced frames are source-derived (error is a plain string per the pin); the surrounding turn is captured); wire shape source-derived: `maki-stream.jsonl` is authored (never captured from a live streaming provider; see the shortcut note in bridge/src/translator.ts); wire shape source-derived: `maki-subagent.jsonl` is authored (never captured from a live subagent turn) |
-| Mid-session model switch forwards set_model / the model POST route | `unverified` | [`openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md) |
-| Mid-turn steering via an inbound user prompt while the agent runs | `unverified` | [`openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md) |
-| SDK control handshake (initialize / set_permission_mode) is sent to the child | `unverified` | [`openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md) |
-| Interrupt round trip via the inbound control_request `interrupt` subtype and the interrupt route | `unverified` | [`openspec/changes/archive/2026-10-22-rebaseline-compat-enumeration/evidence/cross-map.md`](../openspec/changes/archive/2026-10-22-rebaseline-compat-enumeration/evidence/cross-map.md) |
-| Outbound control_response to the child (maki answers every inbound control_request with success/error) | `unverified` | [`openspec/changes/archive/2026-10-22-rebaseline-compat-enumeration/evidence/cross-map.md`](../openspec/changes/archive/2026-10-22-rebaseline-compat-enumeration/evidence/cross-map.md) |
-| Permission reply vocabulary beyond bare allow/deny: `updatedPermissions` -> AllowSession, deny + message -> DenyWithGuidance | `unverified` | [`openspec/changes/archive/2026-10-22-rebaseline-compat-enumeration/evidence/cross-map.md`](../openspec/changes/archive/2026-10-22-rebaseline-compat-enumeration/evidence/cross-map.md) |
-| Subagent transcript nesting via parent_tool_use_id | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — `maki-error.jsonl` is mixed (assistant output is captured; the error_during_execution result shape is source-derived (sdk_mode.rs v0.6.4 L995-L1000)); `maki-retry.jsonl` is mixed (the two spliced frames are source-derived (error is a plain string per the pin); the surrounding turn is captured); wire shape source-derived: `maki-stream.jsonl` is authored (never captured from a live streaming provider; see the shortcut note in bridge/src/translator.ts); wire shape source-derived: `maki-subagent.jsonl` is authored (never captured from a live subagent turn) |
-| Maki's per-message envelope (top-level session_id + uuid) rides every wire frame; the bridge keeps the child on its OpenCode-minted session instead of rebinding on the envelope id | `verified` | [`bridge/test/envelope.test.ts`](../bridge/test/envelope.test.ts) |
-| Prompt file/image attachments: OpenCode `files[]` -> Maki inbound `user` image blocks | `unverified` | [`openspec/changes/archive/2026-10-23-rebaseline-compat-iteration-3/evidence/cross-map.md`](../openspec/changes/archive/2026-10-23-rebaseline-compat-iteration-3/evidence/cross-map.md) |
-| Maki `system api_retry` surfaces as the pinned `session.retry.scheduled` event | `unverified` | [`openspec/changes/archive/2026-10-23-rebaseline-compat-iteration-3/evidence/opencode-tui-features.md`](../openspec/changes/archive/2026-10-23-rebaseline-compat-iteration-3/evidence/opencode-tui-features.md) |
+### Reachable (30)
+
+| Id | Feature | Status | Evidence |
+| --- | --- | --- | --- |
+| `sse-handshake` | SSE stream starts with server.connected | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
+| `sse-bare-data-frames` | SSE frames are bare data: lines (no event:/id: lines) | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
+| `sse-idle-keepalive` | SSE stream survives idle gaps: the TUI does not auto-reconnect mid-session | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
+| `minted-id-patterns` | Minted ids match the OpenCode patterns (evt_/ses_/msg_/per_) | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
+| `durable-envelope` | Durable events carry a complete durable envelope keyed to the session | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
+| `openapi-contract` | Response bodies validate against the vendored OpenAPI 2.0.32 | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
+| `session-crud` | Session create/read/list/delete with child teardown (no orphan processes) | `verified` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
+| `deferred-session-surface-contract` | Deferred session message/inbox/form reads answer schema-valid empty lists and 404 unknown sessions, never a phantom row | `verified` | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
+| `session-isolation` | Concurrent sessions keep their children and transcripts apart | `verified` | [`bridge/test/session-isolation.test.ts`](../bridge/test/session-isolation.test.ts) |
+| `prompt-translation` | Recorded Maki turns translate to the committed golden frames | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
+| `tool-failure-mapping` | Failing and permission-denied tools map to session.tool.failed | `verified` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
+| `turn-failure-mapping` | A failed Maki turn maps to session.execution.failed with the wire's message, never to success | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
+| `turn-abort-mapping` | A Maki child exiting mid-turn fails the turn exactly once (no success) and later prompts are refused with 503 | `verified` | [`bridge/test/turn-abort.test.ts`](../bridge/test/turn-abort.test.ts) |
+| `permission-round-trip` | Permission ask/reply round trip runs offline over the child seam | `verified` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
+| `stream-deltas` | stream_event deltas translate into part delta frames | `verified` | [`bridge/test/fixtures/maki-stream-live.jsonl`](../bridge/test/fixtures/maki-stream-live.jsonl) |
+| `transcript-order` | User prompts render before the assistant output they caused | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
+| `model-identity` | Session events carry Maki's real model name | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
+| `model-list-refresh` | The location model list refreshes when the child announces, so its model stays selectable | `verified` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
+| `api-retry-tolerance` | System api_retry frames are tolerated without disturbing the transcript | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
+| `control-response-emission` | Every answered permission ask writes one bare control_response naming Maki's request id | `verified` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
+| `subagent-nesting` | Subagent transcript nesting via parent_tool_use_id | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
+| `maki-wire-envelope` | Maki's per-message envelope (top-level session_id + uuid) rides every wire frame; the bridge keeps the child on its OpenCode-minted session instead of rebinding on the envelope id | `verified` | [`bridge/test/envelope.test.ts`](../bridge/test/envelope.test.ts) |
+| `retry-scheduled` | Maki `system api_retry` surfaces as the pinned `session.retry.scheduled` event | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
+| `mid-turn-steering` | Mid-turn steering via an inbound user prompt while the agent runs | `unverified` | [`openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md) |
+| `permission-reask` | A reply of `always` is honored once; the next gated call asks again | `degraded` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
+| `agent-switch-state` | Session agent selection is recorded and reported while the Maki child is not re-tasked (the pinned wire has no set_agent) | `degraded` · pin-blocked | [`bridge/test/agent-switch.test.ts`](../bridge/test/agent-switch.test.ts) |
+| `mid-session-model-switch` | Mid-session model selection is accepted but the Maki child is not re-tasked (no set_model is sent); the announced model is still reported | `degraded` · pin-blocked | [`bridge/test/model-switch.test.ts`](../bridge/test/model-switch.test.ts) |
+| `interrupt-round-trip` | Interrupt is accepted and answered `interrupted:false`; the Maki child is never cancelled (no `control_request`/`interrupt` is sent) | `degraded` | [`bridge/test/interrupt.test.ts`](../bridge/test/interrupt.test.ts) |
+| `permission-reply-vocabulary` | Permission answers use Maki's bare allow/deny; the session-scoped (`updatedPermissions`) and guidance (`message`) shapes are not sent | `degraded` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
+| `prompt-attachments` | Prompt attachments are accepted but dropped: `files[]` is not forwarded, so the child receives only the prompt text | `degraded` | [`bridge/test/prompt-attachments.test.ts`](../bridge/test/prompt-attachments.test.ts) |
+
+### Out of scope (1)
+
+| Id | Feature | Status | Evidence |
+| --- | --- | --- | --- |
+| `sdk-control-handshake` | SDK control handshake (initialize / set_permission_mode) is sent to the child | `unverified` | [`openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md`](../openspec/changes/archive/2026-10-21-fix-bridge-transcript-defects/evidence/cross-map.md) |
+
+### Fixture provenance
+
+Rows citing these notes are proved against fixtures that were authored or spliced from the pinned source, not captured whole from a live run.
+
+1. `maki-error.jsonl` is mixed (assistant output is captured; the error_during_execution result shape is source-derived (sdk_mode.rs v0.6.4 L995-L1000)); `maki-retry.jsonl` is mixed (the two spliced frames are source-derived (error is a plain string per the pin); the surrounding turn is captured); wire shape source-derived: `maki-stream.jsonl` is authored (never captured from a live streaming provider; see the shortcut note in bridge/src/translator.ts); wire shape source-derived: `maki-subagent.jsonl` is authored (never captured from a live subagent turn)
 
 ## Version matrix
 

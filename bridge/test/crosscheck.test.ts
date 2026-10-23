@@ -4,6 +4,9 @@
 // existing test or fixture, every evidence key resolves, inventory entries
 // name an existing capture, and expected-failure markers pair with open
 // entries in both directions, and every fixture carries a recorded provenance.
+// The same pass enforces the compatibility scope: every row declares
+// scope/blockedBy, and every route measured in the committed captures is
+// recorded as reachable.
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "bun:test";
@@ -32,6 +35,24 @@ interface Statuses {
 const defects: Defect[] = JSON.parse(readFileSync(path("bridge/defects.json"), "utf8"));
 const statuses: Statuses = JSON.parse(readFileSync(path("bridge/compat/statuses.json"), "utf8"));
 const rows = [...statuses.routes, ...statuses.features, ...statuses.versions];
+
+const SCOPES = ["reachable", "out-of-scope"];
+const BLOCKERS = ["pin", "none"];
+const CAPTURES = [
+  "bridge/test/captures/tui-last-requests.jsonl",
+  "bridge/test/fixtures/bridge-requests.jsonl",
+];
+const normalizeRoute = (p: string) =>
+  p.replace(/\/ses_[^/]+/g, "/{sessionID}").replace(/\/per_[^/]+/g, "/{requestID}");
+
+const measuredRoutes = new Set<string>();
+for (const file of CAPTURES) {
+  for (const line of readFileSync(path(file), "utf8").split("\n")) {
+    if (!line.trim()) continue;
+    const row = JSON.parse(line) as { method: string; path: string };
+    measuredRoutes.add(`${row.method} ${normalizeRoute(row.path)}`);
+  }
+}
 
 const isTestOrFixture = (evidence: string) =>
   evidence.includes(".test.") ||
@@ -114,4 +135,43 @@ test("open inventory entries and their features are linked", () => {
     const entry = defects.find((d) => d.id === f.defect);
     expect(entry, `unknown inventory entry ${f.defect}`).toBeDefined();
   }
+});
+
+// Compatibility scope (add-compat-burndown): the report's denominator is the
+// reachable surface, so the fields it counts by must be valid on every row and
+// must agree with the committed traffic captures.
+test("every route and feature row declares scope and blockedBy", () => {
+  const bad = [...statuses.routes, ...statuses.features]
+    .filter(
+      (r) =>
+        !SCOPES.includes(String(r.scope)) || !BLOCKERS.includes(String(r.blockedBy)),
+    )
+    .map(
+      (r) =>
+        `${String(r.route ?? r.id)}: scope=${String(r.scope)} blockedBy=${String(r.blockedBy)}`,
+    );
+  expect(bad).toEqual([]);
+});
+
+test("every measured route is recorded as reachable", () => {
+  const byRoute = new Map<string, Row>(
+    statuses.routes.map((r): [string, Row] => [String(r.route), r]),
+  );
+  const problems = [...measuredRoutes].flatMap((route) => {
+    const row = byRoute.get(route);
+    if (!row) return [`${route}: no status row`];
+    if (row.scope !== "reachable") return [`${route}: scope=${String(row.scope)}`];
+    return [];
+  });
+  expect(problems).toEqual([]);
+  expect(measuredRoutes.size).toBeGreaterThan(0);
+});
+
+test("the SSE stream stays live and outside the HTTP capture tally", () => {
+  const event = statuses.routes.find((r) => r.route === "GET /api/event");
+  expect(event?.status).toBe("served-live");
+  expect(event?.scope).toBe("reachable");
+  // SSE opens before dispatch and never reaches the request log; if a capture
+  // ever records it, this assertion is the prompt to revisit the tally.
+  expect(measuredRoutes.has("GET /api/event")).toBe(false);
 });

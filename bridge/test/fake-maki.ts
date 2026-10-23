@@ -16,16 +16,23 @@ const cwd = process.env.OPENMAKI_CWD ?? process.cwd();
 let toolSeq = 0;
 const answers = new Map<string, (a: "allow" | "deny") => void>();
 
-// opt-in inbound trace so a test can prove which frames the bridge sent the
-// child (e.g. that an agent selection sends no control frame)
+// opt-in trace so a test can prove which frames the bridge sent the child
+// (e.g. that an agent selection sends no control frame); the child's own
+// outbound can_use_tool asks are recorded with dir:"out"
 const trace = process.env.FAKE_MAKI_TRACE;
 
 const SESSION_ID = "fake-maki-session";
-const out = (obj: unknown, after?: () => void) =>
+const out = (obj: unknown, after?: () => void) => {
+  // child -> bridge asks are traced too, so a test can pair the bridge's answer
+  // with the request_id the child sent
+  if (trace && (obj as any).type === "control_request") {
+    appendFileSync(trace, JSON.stringify({ dir: "out", ...(obj as object) }) + "\n");
+  }
   process.stdout.write(
     JSON.stringify({ ...(obj as object), session_id: SESSION_ID, uuid: crypto.randomUUID() }) + "\n",
     after,
   );
+};
 
 // knob so one bridge test can prove deltas reach the stream without changing
 // any existing test's frames (the real child streams only with --include-partial-messages)

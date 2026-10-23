@@ -4,13 +4,13 @@ Generated from `bridge/compat/statuses.json` and `bridge/defects.json` by `scrip
 
 ## Burndown
 
-Reachable surface: **33 of 143 routes** (13 `served-live`, 16 `served-faked`, 4 `deferred`, 0 `unhandled`) and **39 of 41 features** (28 `verified`, 6 `unverified`, 5 `degraded` (5 pin-blocked), 0 `buggy`). Out of scope: 110 routes, 2 features. Open defects: **0**.
+Reachable surface: **33 of 143 routes** (16 `served-live`, 13 `served-faked`, 4 `deferred`, 0 `unhandled`) and **39 of 41 features** (30 `verified`, 4 `unverified`, 5 `degraded` (5 pin-blocked), 0 `buggy`). Out of scope: 110 routes, 2 features. Open defects: **0**.
 
-Next (first 3 of 6 reachable, unblocked, not `verified`; ids match the feature tables):
+Next (first 3 of 4 reachable, unblocked, not `verified`; ids match the feature tables):
 
-1. `vcs-branch-live` — `GET /api/vcs` reports the sandbox checkout's current branch (the footer's `dir:branch`, `tui/src/component/prompt/index.tsx` v2.0.32 L1620) through the exec transport (`unverified`)
-2. `project-identity-live` — `GET /api/project` and `GET /api/location` name one project id read from the sandbox checkout (its root commit, else `global`) and the project's name and vcs, instead of `sample` (`unverified`)
-3. `session-active-live` — `GET /api/session/active` maps every session with a turn in flight to `running` (server `handlers/session.ts` v2.0.32 L182–L188), so a reconnecting TUI shows the busy state (`unverified`)
+1. `session-active-live` — `GET /api/session/active` maps every session with a turn in flight to `running` (server `handlers/session.ts` v2.0.32 L182–L188), so a reconnecting TUI shows the busy state (`unverified`)
+2. `mcp-server-status` — `GET /api/mcp` lists the MCP servers in the sandbox's Maki `mcp.toml` files (`maki-agent/src/mcp/config.rs` v0.6.4 L13) with their status — disabled, or connected/failed by whether the child advertises their tools — since `system.init.mcp_servers` is hardcoded `[]` (`sdk_mode.rs` v0.6.4 L623) (`unverified`)
+3. `skill-list-live` — `GET /api/skill` lists the skills the child's skill plugin discovers in the sandbox (`plugins/skill/init.lua` v0.6.4 L11–L30, L98–L130) (`unverified`)
 
 Untriaged reachable routes: **0**.
 
@@ -33,12 +33,13 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `POST /api/session/{sessionID}/model` | `served-live` | live | [`bridge/test/model-switch.test.ts`](../bridge/test/model-switch.test.ts) |
 | `POST /api/session/{sessionID}/agent` | `served-live` | live | [`bridge/test/agent-switch.test.ts`](../bridge/test/agent-switch.test.ts) |
 | `GET /api/info` | `served-live` | live — `server-info-live` | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
+| `GET /api/project` | `served-live` | live — `project-identity-live` | [`bridge/test/sandbox-git.test.ts`](../bridge/test/sandbox-git.test.ts) |
+| `GET /api/location` | `served-live` | live — `project-identity-live` | [`bridge/test/sandbox-git.test.ts`](../bridge/test/sandbox-git.test.ts) |
 | `GET /api/fs/list` | `served-live` | live — `fs-list-sandbox` | [`bridge/test/fs-list.test.ts`](../bridge/test/fs-list.test.ts) |
+| `GET /api/vcs` | `served-live` | live — `vcs-branch-live` | [`bridge/test/sandbox-git.test.ts`](../bridge/test/sandbox-git.test.ts) |
 | `POST /api/session/{sessionID}/interrupt` | `served-live` | live | [`bridge/test/interrupt.test.ts`](../bridge/test/interrupt.test.ts) |
 | `GET /api/model` | `served-faked` | in progress — `model-catalog-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/agent` | `served-faked` | accept — Maki at v0.6.4 runs one agent and has no named-agent surface — `initialize` ignores `agents` (sdk_mode.rs L828–L839) and there is no `set_agent` (L818–L880) — so one primary `build` entry, Maki's name for its default mode, is the true list; the TUI needs exactly one primary agent to submit (`prompt/index.tsx` v2.0.32 L1159–L1160) | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
-| `GET /api/project` | `served-faked` | in progress — `project-identity-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/location` | `served-faked` | in progress — `project-identity-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/config` | `served-faked` | accept — the response is the list of OpenCode config documents (`schema/src/config.ts` v2.0.32 L117–L135) and the bridge loads none — Maki's TOML/Lua config is not one; the TUI reads only the last document's `info.model` as a default (`tui/src/context/local.tsx` L173–L182), and the true default is the child's announced model, so an empty list is correct | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/command` | `served-faked` | pin — `slash-commands` | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
 | `GET /api/reference` | `served-faked` | accept — references are `@` aliases declared in OpenCode config documents, and the bridge has none (`GET /api/config` is an empty list); Maki has no alias concept at v0.6.4, so the empty list is the true set | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
@@ -47,7 +48,6 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/integration` | `served-faked` | in progress — `model-catalog-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/mcp` | `served-faked` | in progress — `mcp-server-status` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/plugin` | `served-faked` | accept — the list holds OpenCode server plugins (`source`, `features`, `state`) and the bridge loads none; Maki's Lua plugins run inside the child and are not OpenCode plugins, so the empty list is the true set | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
-| `GET /api/vcs` | `served-faked` | in progress — `vcs-branch-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/form` | `served-faked` | accept — forms are pending MCP elicitations; the pinned Maki SDK wire has no elicitation message (its only outbound ask is `control_request` `can_use_tool`, `sdk_mode.rs` v0.6.4 L1155), so no global form can ever be pending and the empty list is the true state | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/experimental/migration/v1` | `served-faked` | accept — the bridge keeps no OpenCode data store, so there is no migration to run: `completed` is the true status, and the only one that ends the TUI's 1s poll without a spinner or an error toast (`tui/src/component/migration-overlay.tsx` v2.0.32 L22–L26) | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/session/active` | `served-faked` | in progress — `session-active-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
@@ -207,8 +207,8 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | `retry-scheduled` | Maki `system api_retry` surfaces as the pinned `session.retry.scheduled` event | `verified` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
 | `server-info-live` | `GET /api/info` reports the bridge's own pid and listen URL with the pinned version, and `capabilities.persistentPty: false` because the bridge serves no persistent PTY (the TUI offers terminals unless it is false: `tui/src/context/session-terminals.tsx` v2.0.32 L62–L77) | `verified` | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
 | `fs-list-sandbox` | `GET /api/fs/list` lists the sandbox workdir through the OpenShell exec transport, never a host directory the client names | `verified` | [`bridge/test/fs-list.test.ts`](../bridge/test/fs-list.test.ts) |
-| `vcs-branch-live` | `GET /api/vcs` reports the sandbox checkout's current branch (the footer's `dir:branch`, `tui/src/component/prompt/index.tsx` v2.0.32 L1620) through the exec transport | `unverified` | [`bridge/test/captures/tui-last-requests.jsonl`](../bridge/test/captures/tui-last-requests.jsonl) |
-| `project-identity-live` | `GET /api/project` and `GET /api/location` name one project id read from the sandbox checkout (its root commit, else `global`) and the project's name and vcs, instead of `sample` | `unverified` | [`bridge/test/captures/tui-last-requests.jsonl`](../bridge/test/captures/tui-last-requests.jsonl) |
+| `vcs-branch-live` | `GET /api/vcs` reports the sandbox checkout's current branch (the footer's `dir:branch`, `tui/src/component/prompt/index.tsx` v2.0.32 L1620) through the exec transport | `verified` | [`bridge/test/sandbox-git.test.ts`](../bridge/test/sandbox-git.test.ts) |
+| `project-identity-live` | `GET /api/project` and `GET /api/location` name one project id read from the sandbox checkout (its root commit, else `global`) and the project's name and vcs, instead of `sample` | `verified` | [`bridge/test/sandbox-git.test.ts`](../bridge/test/sandbox-git.test.ts) |
 | `session-active-live` | `GET /api/session/active` maps every session with a turn in flight to `running` (server `handlers/session.ts` v2.0.32 L182–L188), so a reconnecting TUI shows the busy state | `unverified` | [`bridge/test/captures/tui-last-requests.jsonl`](../bridge/test/captures/tui-last-requests.jsonl) |
 | `mcp-server-status` | `GET /api/mcp` lists the MCP servers in the sandbox's Maki `mcp.toml` files (`maki-agent/src/mcp/config.rs` v0.6.4 L13) with their status — disabled, or connected/failed by whether the child advertises their tools — since `system.init.mcp_servers` is hardcoded `[]` (`sdk_mode.rs` v0.6.4 L623) | `unverified` | [`bridge/test/captures/tui-last-requests.jsonl`](../bridge/test/captures/tui-last-requests.jsonl) |
 | `skill-list-live` | `GET /api/skill` lists the skills the child's skill plugin discovers in the sandbox (`plugins/skill/init.lua` v0.6.4 L11–L30, L98–L130) | `unverified` | [`bridge/test/captures/tui-last-requests.jsonl`](../bridge/test/captures/tui-last-requests.jsonl) |

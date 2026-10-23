@@ -50,3 +50,31 @@ export function sandboxRun(argv: string[], workdir: string): Promise<SandboxResu
     });
   });
 }
+
+// ---------- git state of the sandbox checkout ----------
+export interface GitState {
+  branch?: string; // checked-out branch; absent when detached or not a repo
+  defaultBranch?: string; // origin's HEAD branch, when the clone recorded one
+  root?: string; // the repository's first root commit (OpenCode's project id)
+}
+
+// one exec for the three reads; fixed script, no client input reaches it
+const GIT_SCRIPT = [
+  "git rev-parse --abbrev-ref HEAD 2>/dev/null",
+  "printf '\\036'",
+  "git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null",
+  "printf '\\036'",
+  "git rev-list --max-parents=0 --all 2>/dev/null | sort | head -n 1",
+].join("; ");
+
+/** the checkout's git state, read in the sandbox; {} without a sandbox or a repository */
+export async function readGitState(workdir: string): Promise<GitState> {
+  const res = await sandboxRun(["sh", "-c", GIT_SCRIPT], workdir);
+  if (!res) return {};
+  const [branch, origin, root] = res.stdout.split("\x1e").map((s) => s.trim());
+  const state: GitState = {};
+  if (branch && branch !== "HEAD") state.branch = branch;
+  if (origin?.startsWith("origin/")) state.defaultBranch = origin.slice("origin/".length);
+  if (root && /^[0-9a-f]{40,64}$/.test(root)) state.root = root;
+  return state;
+}

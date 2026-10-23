@@ -24,7 +24,7 @@ import { MakiSession, type ImageBlock } from "./maki.ts";
 import { Translator } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
-import { sandboxRun } from "./sandbox.ts";
+import { readGitState, sandboxRun } from "./sandbox.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
 const CANONICAL = process.env.OPENMAKI_CWD ?? process.cwd();
@@ -137,12 +137,19 @@ function defaultModel(): { providerID: string; id: string } {
   return { providerID: String(first?.providerID ?? "sample"), id: String(first?.id ?? first?.modelID ?? "sample") };
 }
 
-function projectId(): string {
-  const { payload } = synthesize("GET", "/api/project", asUrl("/api/project"), null, CANONICAL);
-  const first = Array.isArray(payload) ? payload[0] : payload?.data?.[0];
-  return String(first?.id ?? "sample");
-}
-const PROJECT_ID = projectId();
+// The project is the sandbox checkout. OpenCode names a repository's project
+// after its first root commit and anything else "global"; the id is read once
+// from the sandbox at boot, and every answer that names a project (sessions,
+// location, project list) waits for it so they never disagree.
+const BOOTED = Date.now();
+let projectID = "global";
+let projectVcs: string | undefined;
+const projectReady = readGitState(CANONICAL).then((git) => {
+  if (git.root) {
+    projectID = git.root;
+    projectVcs = "git";
+  }
+});
 
 // Session.Info is synthesized once and patched per session: patching keeps the
 // required field set intact while replacing every value with real state
@@ -157,7 +164,7 @@ function sessionObject(s: BridgeSession): AnyObj {
   return {
     ...SESSION_TEMPLATE,
     id: s.id,
-    projectID: PROJECT_ID,
+    projectID,
     agent: s.agent,
     model: s.translator.announcedModel ?? s.model,
     cost: s.cost ?? 0,
@@ -251,7 +258,7 @@ function createSession(body: AnyObj): { status: number; payload: any } {
   };
   sessions.set(id, s);
   if (payload?.data) {
-    payload.data = { ...payload.data, id, projectID: PROJECT_ID, time: { ...payload.data.time, created: s.created, updated: s.updated }, location: { directory } };
+    payload.data = { ...payload.data, id, projectID, time: { ...payload.data.time, created: s.created, updated: s.updated }, location: { directory } };
   }
   return { status, payload };
 }
@@ -490,6 +497,38 @@ function serverInfo(url: URL): { status: number; payload: any } {
   return result;
 }
 
+// /api/project and /api/location name the one project the bridge serves
+async function projectList(url: URL): Promise<{ status: number; payload: any }> {
+  await projectReady;
+  const { status } = synthesize("GET", "/api/project", url, null, CANONICAL);
+  const active = Math.max(BOOTED, ...[...sessions.values()].map((s) => s.updated));
+  const project: AnyObj = { id: projectID, canonical: CANONICAL, name: posix.basename(CANONICAL) || CANONICAL };
+  if (projectVcs) project.vcs = projectVcs;
+  project.time = { created: BOOTED, updated: BOOTED, active };
+  project.sandboxes = [];
+  return { status, payload: [project] };
+}
+
+async function location(url: URL): Promise<{ status: number; payload: any }> {
+  await projectReady;
+  const result = synthesize("GET", "/api/location", url, null, CANONICAL);
+  result.payload = { ...result.payload, project: { ...result.payload.project, id: projectID } };
+  return result;
+}
+
+// /api/vcs: the footer's `dir:branch` and the sidebar read the checkout's
+// branch (tui prompt/index.tsx v2.0.32 L1620), read fresh from the sandbox on
+// every location sync
+async function vcsInfo(url: URL): Promise<{ status: number; payload: any }> {
+  const { status, payload } = synthesize("GET", "/api/vcs", url, null, CANONICAL);
+  const git = await readGitState(CANONICAL);
+  const branch: AnyObj = {};
+  if (git.branch) branch.current = git.branch;
+  if (git.defaultBranch) branch.default = git.defaultBranch;
+  const data: AnyObj = git.root || git.branch ? { provider: "git", branch } : { branch };
+  return { status, payload: { ...payload, data } };
+}
+
 // /api/fs/list: the TUI lists its own (host) directory at startup and for
 // `/cd` completion; the project it names lives in the sandbox workdir, so the
 // listing is the sandbox's, read over the exec transport — never the host
@@ -549,13 +588,21 @@ async function handle(req: Request): Promise<Response> {
   let result: { status: number; payload: any; matched?: boolean };
   const parts = path.split("/"); // ["", "api", "session", <sid>, ...rest]
   if (parts[1] === "api" && parts[2] === "session" && parts.length === 3) {
-    if (method === "POST") result = createSession(body);
+    // a session names its project, so creation waits for the id like every
+    // other answer that names one
+    if (method === "POST") result = (await projectReady, createSession(body));
     else if (method === "GET") result = listSessions();
     else result = synthesize(method, path, url, body, CANONICAL);
   } else if (parts[1] === "api" && parts[2] === "session" && parts[3] && parts[3] !== "active") {
     result = sessionRoute(method, parts[3]!, parts.slice(4).join("/"), body, url);
   } else if (method === "GET" && path === "/api/model") {
     result = modelList(url);
+  } else if (method === "GET" && path === "/api/project") {
+    result = await projectList(url);
+  } else if (method === "GET" && path === "/api/location") {
+    result = await location(url);
+  } else if (method === "GET" && path === "/api/vcs") {
+    result = await vcsInfo(url);
   } else if (method === "GET" && path === "/api/fs/list") {
     result = await fsList(url);
   } else if (method === "GET" && path === "/api/info") {

@@ -9,6 +9,11 @@
     "derivedFrom": "openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/bridge-sse-raw.txt (byte-identical)",
     "note": "raw SSE bytes of a live subscriber"
   },
+  "maki-error.jsonl": {
+    "kind": "mixed",
+    "derivedFrom": "copy of maki-plain.jsonl with the result frame rewritten to the pinned error subtype",
+    "note": "assistant output is captured; the error_during_execution result shape is source-derived (sdk_mode.rs v0.6.4 L995-L1000)"
+  },
   "maki-permission.jsonl": {
     "kind": "captured",
     "derivedFrom": "openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/maki-permission.jsonl (byte-identical)",

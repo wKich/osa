@@ -32,6 +32,9 @@ const defects: Defect[] = JSON.parse(readFileSync(new URL("../defects.json", imp
 // translation behavior, which is what the stream-deltas row claims.
 const FIXTURES = [
   "maki-plain",
+  // the failed-turn half of "Turn completion is reported": same captured
+  // assistant output, result rewritten to the pinned error subtype
+  "maki-error",
   "maki-tool",
   "maki-precheck",
   "maki-permission",

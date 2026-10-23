@@ -1,0 +1,71 @@
+[
+  {
+    "type": "session.inbox.enqueued",
+    "item": {
+      "type": "user",
+      "payload": {
+        "text": "golden prompt 1"
+      },
+      "delivery": "steer"
+    }
+  },
+  {
+    "type": "session.execution.started"
+  },
+  {
+    "type": "session.step.started",
+    "agent": "sample",
+    "model": {
+      "providerID": "maki",
+      "id": "syn:small:text"
+    }
+  },
+  {
+    "type": "session.reasoning.started",
+    "ordinal": 0
+  },
+  {
+    "type": "session.reasoning.delta",
+    "ordinal": 0,
+    "delta": "The user is asking me to simply reply with the word \"PONG\". This is a simple test or request to demonstrate that I can respond with the requested content. I should just output \"PONG\" and nothing else, following the guidelines about being concise and not adding extra commentary."
+  },
+  {
+    "type": "session.reasoning.ended",
+    "ordinal": 0,
+    "text": "The user is asking me to simply reply with the word \"PONG\". This is a simple test or request to demonstrate that I can respond with the requested content. I should just output \"PONG\" and nothing else, following the guidelines about being concise and not adding extra commentary."
+  },
+  {
+    "type": "session.text.started",
+    "ordinal": 0
+  },
+  {
+    "type": "session.text.delta",
+    "ordinal": 0,
+    "delta": "PONG"
+  },
+  {
+    "type": "session.text.ended",
+    "ordinal": 0,
+    "text": "PONG"
+  },
+  {
+    "type": "session.step.ended",
+    "finish": "error",
+    "tokens": {
+      "input": 8211,
+      "output": 61,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    }
+  },
+  {
+    "type": "session.execution.failed",
+    "error": {
+      "type": "Error",
+      "message": "API error: the model request failed mid-turn"
+    }
+  }
+]

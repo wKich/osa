@@ -38,7 +38,7 @@ if (!wellFormed) {
 const proc = Bun.spawnSync(argv, {
   cwd: workdir,
   // the sandbox user's home stands alone: no host XDG dir leaks into a read
-  env: { ...process.env, HOME: process.env.FAKE_SANDBOX_HOME ?? process.env.HOME, XDG_CONFIG_HOME: undefined },
+  env: { ...process.env, HOME: process.env.FAKE_SANDBOX_HOME ?? process.env.HOME, XDG_CONFIG_HOME: undefined, PWD: workdir },
   stdout: "inherit",
   stderr: "inherit",
 });

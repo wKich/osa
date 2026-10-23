@@ -24,7 +24,7 @@ import { MakiSession, type ImageBlock } from "./maki.ts";
 import { Translator } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
-import { readGitState, readMcpConfig, sandboxRun } from "./sandbox.ts";
+import { readGitState, readMcpConfig, readSkills, sandboxRun } from "./sandbox.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
 const CANONICAL = process.env.OPENMAKI_CWD ?? process.cwd();
@@ -531,6 +531,13 @@ async function mcpServers(url: URL): Promise<{ status: number; payload: any }> {
   return { status, payload: { ...payload, data } };
 }
 
+// /api/skill: the skills the child's skill plugin discovers in the sandbox;
+// the TUI offers them as `@skill` mentions, whose text rides in the prompt
+async function skillList(url: URL): Promise<{ status: number; payload: any }> {
+  const { status, payload } = synthesize("GET", "/api/skill", url, null, CANONICAL);
+  return { status, payload: { ...payload, data: await readSkills(CANONICAL) } };
+}
+
 // /api/project and /api/location name the one project the bridge serves
 async function projectList(url: URL): Promise<{ status: number; payload: any }> {
   await projectReady;
@@ -631,6 +638,8 @@ async function handle(req: Request): Promise<Response> {
     result = sessionRoute(method, parts[3]!, parts.slice(4).join("/"), body, url);
   } else if (method === "GET" && path === "/api/model") {
     result = modelList(url);
+  } else if (method === "GET" && path === "/api/skill") {
+    result = await skillList(url);
   } else if (method === "GET" && path === "/api/mcp") {
     result = await mcpServers(url);
   } else if (method === "GET" && path === "/api/session/active") {

@@ -113,3 +113,58 @@ export async function readMcpConfig(workdir: string): Promise<McpServerConfig[]>
   }
   return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
+
+// ---------- the skills Maki's skill plugin discovers ----------
+export interface SkillFile {
+  id: string;
+  name: string;
+  description?: string;
+  path: string;
+  content: string;
+}
+
+// the plugin's scan order (plugins/skill/init.lua v0.6.4 L11–L30, L98–L130):
+// config dir, home dirs, then the workdir and each ancestor up to the first
+// one holding `.git`; a later skill with the same name replaces an earlier one
+const SKILL_SCRIPT = `
+emit() { for f in "$1"/*/SKILL.md; do [ -f "$f" ] || continue; printf '\\036%s\\037' "$f"; cat "$f"; done; }
+emit "\${XDG_CONFIG_HOME:-$HOME/.config}/maki/skills"
+for g in .claude/skills .config/opencode/skills .agents/skills; do emit "$HOME/$g"; done
+dir=$(pwd)
+while :; do
+  for p in .maki/skills .claude/skills .opencode/skills .agents/skills; do emit "$dir/$p"; done
+  if [ -e "$dir/.git" ] || [ "$dir" = / ]; then break; fi
+  dir=$(dirname "$dir")
+done`;
+
+// `---` frontmatter of `key: value` lines, as the plugin's parse_frontmatter
+// reads it (plugins/skill/skill_helpers.lua v0.6.4 L3–L19)
+function frontmatter(text: string): { meta: Record<string, string>; body: string } {
+  const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
+  if (!m) return { meta: {}, body: text };
+  const meta: Record<string, string> = {};
+  for (const line of m[1]!.split(/\r?\n/)) {
+    const kv = /^([A-Za-z_][\w-]*):\s*(.*)$/.exec(line);
+    if (kv) meta[kv[1]!] = kv[2]!.trim().replace(/^(["'])(.*)\1$/, "$2");
+  }
+  return { meta, body: text.slice(m[0].length) };
+}
+
+/** the skills a Maki child in the workdir would offer; [] without a sandbox */
+export async function readSkills(workdir: string): Promise<SkillFile[]> {
+  const res = await sandboxRun(["sh", "-c", SKILL_SCRIPT], workdir);
+  if (!res) return [];
+  const byName = new Map<string, SkillFile>();
+  for (const record of res.stdout.split("\x1e").slice(1)) {
+    const cut = record.indexOf("\x1f");
+    if (cut < 0) continue;
+    const path = record.slice(0, cut);
+    const { meta, body } = frontmatter(record.slice(cut + 1));
+    if (!body.trim()) continue; // the plugin skips a skill with an empty body
+    const name = meta.name || path.split("/").at(-2)!;
+    const skill: SkillFile = { id: name, name, path, content: body };
+    if (meta.description) skill.description = meta.description;
+    byName.set(name, skill);
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+}

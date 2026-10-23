@@ -85,7 +85,7 @@ contract).
 - **Pinned source beats current docs:** versionless upstream docs (the
   `opencode.ai/docs/server/` pages are newer than the pin) are a pointer to
   where to look, never a citation — derive every row from source at the tag.
-- **Read-only fetches:** webfetch a raw file at the pinned tag or read the
+- **Read-only fetches:** WebFetch a raw file at the pinned tag or read the
   local vendored copies; if a side's source/docs link is absent from
   `docs/ai/references.md`, add it there so `scripts/check-links.sh` tracks it.
 - Record through the rules below — a doc/source read yields rows at most

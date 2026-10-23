@@ -158,6 +158,7 @@
     { "id": "prompt-translation", "title": "Recorded Maki turns translate to the committed golden frames", "status": "verified", "evidence": "bridge/test/golden.test.ts" },
     { "id": "tool-failure-mapping", "title": "Failing and permission-denied tools map to session.tool.failed", "status": "verified", "evidence": "bridge/test/session-api.test.ts" },
     { "id": "turn-failure-mapping", "title": "A failed Maki turn maps to session.execution.failed with the wire's message, never to success", "status": "verified", "evidence": "bridge/test/golden.test.ts" },
+    { "id": "turn-abort-mapping", "title": "A Maki child exiting mid-turn fails the turn exactly once (no success) and later prompts are refused with 503", "status": "verified", "evidence": "bridge/test/turn-abort.test.ts" },
     { "id": "permission-round-trip", "title": "Permission ask/reply round trip runs offline over the child seam", "status": "verified", "evidence": "bridge/test/session-api.test.ts" },
     { "id": "permission-reask", "title": "A reply of `always` is honored once; the next gated call asks again", "status": "degraded", "evidence": "bridge/test/session-api.test.ts" },
     { "id": "stream-deltas", "title": "stream_event deltas translate into part delta frames", "status": "verified", "evidence": "bridge/test/fixtures/maki-stream-live.jsonl" },

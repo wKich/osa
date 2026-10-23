@@ -15,14 +15,19 @@ let toolSeq = 0;
 const answers = new Map<string, (a: "allow" | "deny") => void>();
 
 const SESSION_ID = "fake-maki-session";
-const out = (obj: unknown) =>
+const out = (obj: unknown, after?: () => void) =>
   process.stdout.write(
     JSON.stringify({ ...(obj as object), session_id: SESSION_ID, uuid: crypto.randomUUID() }) + "\n",
+    after,
   );
 
 // knob so one bridge test can prove deltas reach the stream without changing
 // any existing test's frames (the real child streams only with --include-partial-messages)
 const streaming = process.env.FAKE_MAKI_STREAM === "1";
+
+// knob so one bridge test can prove the child-exit abort path: die on the first
+// prompt after one assistant frame, with no result
+const crash = process.env.FAKE_MAKI_CRASH === "1";
 
 /** the captured stream_event spelling (maki-stream-live.jsonl), before the buffered message */
 function streamText(text: string): void {
@@ -87,6 +92,12 @@ for await (const chunk of Bun.stdin.stream()) {
     }
     if (frame.type === "user" && Array.isArray(frame.message?.content)) {
       const text = frame.message.content.find((p: any) => p?.type === "text")?.text ?? "";
+      if (crash) {
+        // exit inside the write callback so the frame is flushed before the
+        // process goes away (process.exit does not drain buffered stdout)
+        out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "PONG" }] } }, () => process.exit(1));
+        continue;
+      }
       const exact = /run exactly: (.+?) \./.exec(text);
       if (!exact && !/\b(false|rm)\b/.test(text)) {
         // plain prompt: an assistant text turn, no tool call

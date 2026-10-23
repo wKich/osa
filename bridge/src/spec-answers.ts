@@ -126,10 +126,6 @@ export function synthesize(
 
   // identify as the pinned server (see PINNED_VERSION)
   if (path === "/api/info" && payload) payload = { ...payload, version: PINNED_VERSION };
-  // an empty active map keeps the TUI in its own new session (the
-  // session-by-id route template also matches "active", so this is a route
-  // check, not a pattern one)
-  if (path === "/api/session/active") payload = { data: {} };
   // with a synthesized non-enum status the TUI polls forever, and the first
   // enum value ("required") blocks submission until a migration runs
   if (path === "/api/experimental/migration/v1") payload = { status: "completed" };

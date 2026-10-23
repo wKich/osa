@@ -497,6 +497,17 @@ function serverInfo(url: URL): { status: number; payload: any } {
   return result;
 }
 
+// /api/session/active: the real server maps every session with an execution
+// in flight to {type: "running"} (handlers/session.ts v2.0.32 L182–L188); the
+// TUI reads it on server.connected, so a reconnect mid-turn keeps the busy
+// state and the interrupt control instead of showing the session idle
+function activeSessions(url: URL): { status: number; payload: any } {
+  const { status } = synthesize("GET", "/api/session/active", url, null, CANONICAL);
+  const data: AnyObj = {};
+  for (const s of sessions.values()) if (s.translator.inTurn && s.maki.running) data[s.id] = { type: "running" };
+  return { status, payload: { data } };
+}
+
 // /api/project and /api/location name the one project the bridge serves
 async function projectList(url: URL): Promise<{ status: number; payload: any }> {
   await projectReady;
@@ -597,6 +608,8 @@ async function handle(req: Request): Promise<Response> {
     result = sessionRoute(method, parts[3]!, parts.slice(4).join("/"), body, url);
   } else if (method === "GET" && path === "/api/model") {
     result = modelList(url);
+  } else if (method === "GET" && path === "/api/session/active") {
+    result = activeSessions(url);
   } else if (method === "GET" && path === "/api/project") {
     result = await projectList(url);
   } else if (method === "GET" && path === "/api/location") {

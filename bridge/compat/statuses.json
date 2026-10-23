@@ -138,11 +138,11 @@
     { "route": "PUT /api/experimental/session/{sessionID}/instructions/entries/{key}", "status": "served-faked", "evidence": "bridge/src/spec-answers.ts" },
     { "route": "PUT /api/pty/{ptyID}", "status": "served-faked", "evidence": "bridge/src/spec-answers.ts" },
     { "route": "PUT /api/session/{sessionID}/environment", "status": "served-faked", "evidence": "bridge/src/spec-answers.ts" },
-    { "route": "GET /auth/connect/{code}", "status": "served-faked", "evidence": "openspec/changes/rebaseline-compat-iteration-3/evidence/discovery-log.md" },
+    { "route": "GET /auth/connect/{code}", "status": "served-faked", "evidence": "openspec/changes/archive/2026-10-23-rebaseline-compat-iteration-3/evidence/discovery-log.md" },
 
-    { "route": "GET /api/session/{sessionID}/form", "status": "deferred", "evidence": "bridge/test/fixtures/bridge-requests.jsonl" },
-    { "route": "GET /api/session/{sessionID}/message", "status": "deferred", "evidence": "bridge/src/spec-answers.ts" },
-    { "route": "GET /api/session/{sessionID}/inbox", "status": "deferred", "evidence": "bridge/src/spec-answers.ts" },
+    { "route": "GET /api/session/{sessionID}/form", "status": "deferred", "evidence": "bridge/test/deferred-session-surfaces.test.ts" },
+    { "route": "GET /api/session/{sessionID}/message", "status": "deferred", "evidence": "bridge/test/deferred-session-surfaces.test.ts" },
+    { "route": "GET /api/session/{sessionID}/inbox", "status": "deferred", "evidence": "bridge/test/deferred-session-surfaces.test.ts" },
     { "route": "POST /api/session/{sessionID}/fork", "status": "deferred", "evidence": "bridge/src/bridge.ts" },
 
     { "route": "GET /api/fs/read/*", "status": "served-faked", "evidence": "bridge/src/spec-answers.ts" }
@@ -155,6 +155,8 @@
     { "id": "durable-envelope", "title": "Durable events carry a complete durable envelope keyed to the session", "status": "verified", "evidence": "bridge/test/contract.test.ts" },
     { "id": "openapi-contract", "title": "Response bodies validate against the vendored OpenAPI 2.0.32", "status": "verified", "evidence": "bridge/test/contract.test.ts" },
     { "id": "session-crud", "title": "Session create/read/list/delete with child teardown (no orphan processes)", "status": "verified", "evidence": "bridge/test/session-api.test.ts" },
+    { "id": "deferred-session-surface-contract", "title": "Deferred session message/inbox/form reads answer schema-valid empty lists and 404 unknown sessions, never a phantom row", "status": "verified", "evidence": "bridge/test/deferred-session-surfaces.test.ts" },
+    { "id": "session-isolation", "title": "Concurrent sessions keep their children and transcripts apart", "status": "verified", "evidence": "bridge/test/session-isolation.test.ts" },
     { "id": "prompt-translation", "title": "Recorded Maki turns translate to the committed golden frames", "status": "verified", "evidence": "bridge/test/golden.test.ts" },
     { "id": "tool-failure-mapping", "title": "Failing and permission-denied tools map to session.tool.failed", "status": "verified", "evidence": "bridge/test/session-api.test.ts" },
     { "id": "turn-failure-mapping", "title": "A failed Maki turn maps to session.execution.failed with the wire's message, never to success", "status": "verified", "evidence": "bridge/test/golden.test.ts" },
@@ -174,8 +176,8 @@
     { "id": "permission-reply-vocabulary", "title": "Permission reply vocabulary beyond bare allow/deny: `updatedPermissions` -> AllowSession, deny + message -> DenyWithGuidance", "status": "unverified", "evidence": "openspec/changes/archive/2026-10-22-rebaseline-compat-enumeration/evidence/cross-map.md" },
     { "id": "subagent-nesting", "title": "Subagent transcript nesting via parent_tool_use_id", "status": "verified", "evidence": "bridge/test/golden.test.ts" },
     { "id": "maki-wire-envelope", "title": "Maki's per-message envelope (top-level session_id + uuid) rides every wire frame; the bridge keeps the child on its OpenCode-minted session instead of rebinding on the envelope id", "status": "verified", "evidence": "bridge/test/envelope.test.ts" },
-    { "id": "prompt-attachments", "title": "Prompt file/image attachments: OpenCode `files[]` -> Maki inbound `user` image blocks", "status": "unverified", "evidence": "openspec/changes/rebaseline-compat-iteration-3/evidence/cross-map.md" },
-    { "id": "retry-scheduled", "title": "Maki `system api_retry` surfaces as the pinned `session.retry.scheduled` event", "status": "unverified", "evidence": "openspec/changes/rebaseline-compat-iteration-3/evidence/opencode-tui-features.md" }
+    { "id": "prompt-attachments", "title": "Prompt file/image attachments: OpenCode `files[]` -> Maki inbound `user` image blocks", "status": "unverified", "evidence": "openspec/changes/archive/2026-10-23-rebaseline-compat-iteration-3/evidence/cross-map.md" },
+    { "id": "retry-scheduled", "title": "Maki `system api_retry` surfaces as the pinned `session.retry.scheduled` event", "status": "unverified", "evidence": "openspec/changes/archive/2026-10-23-rebaseline-compat-iteration-3/evidence/opencode-tui-features.md" }
   ],
   "versions": [
     { "component": "OpenCode (pinned contract)", "value": "2.0.32", "evidence": "bridge/src/openapi-2.0.32.json" },

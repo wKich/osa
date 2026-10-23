@@ -19,10 +19,12 @@
 // `opencode --server http://127.0.0.1:$PORT`.
 import { appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { posix } from "node:path";
 import { MakiSession, type ImageBlock } from "./maki.ts";
 import { Translator } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
+import { sandboxRun } from "./sandbox.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
 const CANONICAL = process.env.OPENMAKI_CWD ?? process.cwd();
@@ -488,6 +490,33 @@ function serverInfo(url: URL): { status: number; payload: any } {
   return result;
 }
 
+// /api/fs/list: the TUI lists its own (host) directory at startup and for
+// `/cd` completion; the project it names lives in the sandbox workdir, so the
+// listing is the sandbox's, read over the exec transport — never the host
+// directory the client names (defect fs-list-reads-host-directory). The
+// answer keeps the client's directory as its location, so entries resolve
+// against the path the TUI asked about.
+async function fsList(url: URL): Promise<{ status: number; payload: any }> {
+  const { status, payload } = synthesize("GET", "/api/fs/list", url, null, CANONICAL);
+  const asked = url.searchParams.get("location[directory]");
+  const base = asked?.startsWith("/") ? posix.normalize(asked) : CANONICAL;
+  const rel = url.searchParams.get("path") ?? "";
+  const abs = rel.startsWith("/") ? posix.normalize(rel) : posix.join(base, rel);
+  // only the client's directory and what lies under it map onto the workdir
+  const inside = abs === base || abs.startsWith(base === "/" ? "/" : `${base}/`);
+  const target = inside ? posix.join(CANONICAL, abs.slice(base.length)) : null;
+  let entries: AnyObj[] = [];
+  const res = target ? await sandboxRun(["ls", "-1Ap", "--", target], CANONICAL) : null;
+  if (res?.code === 0) {
+    entries = res.stdout
+      .split("\n")
+      .filter(Boolean)
+      .map((name) => (name.endsWith("/") ? { path: name.slice(0, -1), type: "directory" } : { path: name, type: "file" }))
+      .sort((a, b) => a.path.localeCompare(b.path));
+  }
+  return { status, payload: { ...payload, location: { directory: abs }, data: entries } };
+}
+
 // ---------- request logging (redacted; design decision 6 hygiene) ----------
 const SECRET_KEY = /\b(authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|secret|password|cookie|credential)\b/i;
 const SECRET_VALUE = /\b(sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._-]{8,})/g;
@@ -527,6 +556,8 @@ async function handle(req: Request): Promise<Response> {
     result = sessionRoute(method, parts[3]!, parts.slice(4).join("/"), body, url);
   } else if (method === "GET" && path === "/api/model") {
     result = modelList(url);
+  } else if (method === "GET" && path === "/api/fs/list") {
+    result = await fsList(url);
   } else if (method === "GET" && path === "/api/info") {
     result = serverInfo(url);
   } else {

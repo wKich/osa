@@ -9,7 +9,7 @@
 //
 // Session CRUD, prompt, and permission routes are stateful and live in
 // bridge.ts; they call this for their schema-valid envelope.
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
 export type AnyObj = Record<string, any>;
 
@@ -205,21 +205,6 @@ export function synthesize(
     return o;
   };
   if (payload && typeof payload === "object") payload = absDirs(payload);
-  if (method === "GET" && path === "/api/fs/list") {
-    // the TUI's "session location unavailable" check reads this listing: an
-    // empty listing for a directory that should have contents reads as
-    // unavailable, so serve the real listing (names + type only)
-    const base = resolveDir(url.searchParams.get("location[directory]"));
-    const rel = url.searchParams.get("path");
-    const target = rel ? (rel.startsWith("/") ? rel : `${base}/${rel}`) : base;
-    let entries: AnyObj[] = [];
-    if (existsSync(target)) {
-      entries = readdirSync(target, { withFileTypes: true })
-        .map((d) => ({ path: d.name, type: d.isDirectory() ? "directory" : "file" }))
-        .sort((a, b) => String(a.path).localeCompare(String(b.path)));
-    }
-    payload = { location: { directory: target }, data: entries };
-  }
   if (method === "GET" && path === "/api/worktree") {
     payload = Array.isArray(payload) ? [] : { ...payload, data: [] };
   }

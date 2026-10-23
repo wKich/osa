@@ -324,6 +324,15 @@ and print a warning. Bridge logs MUST NOT contain credential material.
 - **THEN** the request, SSE, and stdout logs match a credential-pattern scan
   with no finding
 
+#### Scenario: Sandbox state is read through the same exec transport
+- **WHEN** a route answers from sandbox state — the TUI lists its directory
+  through `GET /api/fs/list`
+- **THEN** the bridge runs a read-only `openshell sandbox exec -n <sandbox>
+  --no-login-shell --workdir <workdir> -- …` with no `--env` value, answers
+  with the sandbox workdir's entries under the directory the client named,
+  lists nothing for a path outside that directory, reads no host directory,
+  and answers an empty list when no sandbox is configured
+
 ### Requirement: Offline verification gate
 The repository SHALL provide `make test-bridge`, which runs the bridge's test
 suite with no Docker, no gateway, and no network: golden tests asserting the

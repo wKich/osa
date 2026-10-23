@@ -10,6 +10,9 @@ import { fileURLToPath } from "node:url";
 const BRIDGE_DIR = fileURLToPath(new URL("../..", import.meta.url)); // bridge/
 const BRIDGE_ENTRY = join(BRIDGE_DIR, "src", "bridge.ts");
 const FAKE_CHILD = fileURLToPath(new URL("../fake-maki.ts", import.meta.url));
+// sandbox reads (bridge/src/sandbox.ts) go through a scripted openshell that
+// runs them in the workdir, the way the fake child runs its tool calls
+const FAKE_OPENSHELL = fileURLToPath(new URL("../fake-openshell.ts", import.meta.url));
 
 /** one emitted OpenCode envelope: {id, created, type, durable?, data} */
 export interface Frame {
@@ -56,6 +59,8 @@ export async function startBridge(extraEnv: Record<string, string> = {}): Promis
       PORT: "0",
       OPENMAKI_CWD: workdir,
       MAKI_CHILD_CMD: FAKE_CHILD,
+      OPENSHELL_BIN: FAKE_OPENSHELL,
+      OPENMAKI_SANDBOX: "fake-sandbox",
       BRIDGE_LOG: logPath,
       ...extraEnv,
     },

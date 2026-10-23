@@ -28,7 +28,7 @@
   {
     "id": "fs-list-reads-host-directory",
     "title": "GET /api/fs/list lists the host directory the client names in location[directory] (and any absolute `path`) instead of the sandbox workdir: the bridge reads a host path on the client's behalf",
-    "status": "known",
+    "status": "fixed",
     "capture": "bridge/test/captures/defect-fs-list-reads-host-directory.jsonl"
   },
   {

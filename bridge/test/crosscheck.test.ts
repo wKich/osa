@@ -167,6 +167,55 @@ test("every measured route is recorded as reachable", () => {
   expect(measuredRoutes.size).toBeGreaterThan(0);
 });
 
+// A route the bridge serves live is on the reachable surface by definition
+// (add-route-triage): an out-of-scope live row understates the denominator.
+test("every served-live route is reachable", () => {
+  const bad = statuses.routes
+    .filter((r) => r.status === "served-live" && r.scope !== "reachable")
+    .map((r) => `${String(r.route)}: scope=${String(r.scope)}`);
+  expect(bad).toEqual([]);
+});
+
+// Route triage (add-route-triage): a route's decision is derived from its
+// status and the feature it links, so the suite rejects malformed links and an
+// inconsistent status — but never missing triage, which is a queue.
+test("route triage fields are well formed", () => {
+  const featureIds = new Set(statuses.features.map((f) => String(f.id)));
+  const problems: string[] = [];
+  for (const r of statuses.routes) {
+    if (r.feature !== undefined && !featureIds.has(String(r.feature))) {
+      problems.push(`${String(r.route)}: unknown feature ${r.feature}`);
+    }
+    if (r.fakeReason !== undefined) {
+      if (typeof r.fakeReason !== "string" || r.fakeReason.trim() === "") {
+        problems.push(`${String(r.route)}: fakeReason must be a non-empty string`);
+      }
+      if (r.status !== "served-faked") {
+        problems.push(`${String(r.route)}: fakeReason on a ${String(r.status)} row`);
+      }
+    }
+    if (r.feature !== undefined && r.fakeReason !== undefined) {
+      problems.push(`${String(r.route)}: carries both feature and fakeReason`);
+    }
+  }
+  expect(problems).toEqual([]);
+});
+
+test("a verified, unblocked linked feature makes its route live", () => {
+  const byId = new Map(statuses.features.map((f) => [String(f.id), f]));
+  const problems = statuses.routes.flatMap((r) => {
+    if (r.feature === undefined) return [];
+    const feature = byId.get(String(r.feature));
+    if (!feature) return []; // reported by the well-formed test
+    const verified = feature.status === "verified" && feature.blockedBy !== "pin";
+    if (verified && r.status !== "served-live") {
+      return [`${String(r.route)}: feature ${String(feature.id)} is verified but route is ${String(r.status)}`];
+    }
+    return [];
+  });
+  expect(problems).toEqual([]);
+});
+
 test("the SSE stream stays live and outside the HTTP capture tally", () => {
   const event = statuses.routes.find((r) => r.route === "GET /api/event");
   expect(event?.status).toBe("served-live");

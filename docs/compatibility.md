@@ -4,54 +4,62 @@ Generated from `bridge/compat/statuses.json` and `bridge/defects.json` by `scrip
 
 ## Burndown
 
-Reachable surface: **32 of 143 routes** (10 `served-live`, 21 `served-faked`, 1 `deferred`, 0 `unhandled`) and **30 of 32 features** (26 `verified`, 0 `unverified`, 4 `degraded` (4 pin-blocked), 0 `buggy`). Out of scope: 111 routes, 2 features. Open defects: **0**.
+Reachable surface: **33 of 143 routes** (11 `served-live`, 21 `served-faked`, 1 `deferred`, 0 `unhandled`) and **30 of 32 features** (26 `verified`, 0 `unverified`, 4 `degraded` (4 pin-blocked), 0 `buggy`). Out of scope: 110 routes, 2 features. Open defects: **0**.
+
+Untriaged reachable routes: **21**.
+
+Next routes (first 3 of 21 untriaged reachable, in status-file order):
+
+1. `GET /api/info`
+2. `GET /api/model`
+3. `GET /api/agent`
 
 ## Served routes
 
 Statuses: `served-live` (real state behind the route), `served-faked` (answered from the pinned spec with synthesized values), `deferred` (spec-valid minimal answer, surface not implemented), `unhandled` (outside the pinned contract: answered 404).
 
-### Reachable (32)
+### Reachable (33)
+
+| Route | Status | Decision | Evidence |
+| --- | --- | --- | --- |
+| `GET /api/event` | `served-live` | live | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
+| `POST /api/session` | `served-live` | live | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/session` | `served-live` | live | [`openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/api-check.log`](../openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/api-check.log) |
+| `GET /api/session/{sessionID}` | `served-live` | live | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `DELETE /api/session/{sessionID}` | `served-live` | live | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
+| `POST /api/session/{sessionID}/prompt` | `served-live` | live | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/session/{sessionID}/permission` | `served-live` | live | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `POST /api/session/{sessionID}/permission/{requestID}/reply` | `served-live` | live | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `POST /api/session/{sessionID}/model` | `served-live` | live | [`bridge/test/model-switch.test.ts`](../bridge/test/model-switch.test.ts) |
+| `POST /api/session/{sessionID}/agent` | `served-live` | live | [`bridge/test/agent-switch.test.ts`](../bridge/test/agent-switch.test.ts) |
+| `POST /api/session/{sessionID}/interrupt` | `served-live` | live | [`bridge/test/interrupt.test.ts`](../bridge/test/interrupt.test.ts) |
+| `GET /api/info` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/model` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/agent` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/project` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/location` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/fs/list` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/config` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/command` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/reference` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/skill` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/provider` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/integration` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/mcp` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/mcp/resource` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/plugin` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/vcs` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/shell` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/form` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/experimental/migration/v1` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/session/active` | `served-faked` | untriaged | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `GET /api/experimental/session/{sessionID}/terminal` | `served-faked` | untriaged | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
+| `GET /api/session/{sessionID}/form` | `deferred` | deferred | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
+
+### Out of scope (110)
 
 | Route | Status | Evidence |
 | --- | --- | --- |
-| `GET /api/event` | `served-live` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
-| `POST /api/session` | `served-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/session` | `served-live` | [`openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/api-check.log`](../openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/api-check.log) |
-| `GET /api/session/{sessionID}` | `served-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `DELETE /api/session/{sessionID}` | `served-live` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
-| `POST /api/session/{sessionID}/prompt` | `served-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/session/{sessionID}/permission` | `served-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `POST /api/session/{sessionID}/permission/{requestID}/reply` | `served-live` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `POST /api/session/{sessionID}/model` | `served-live` | [`bridge/test/model-switch.test.ts`](../bridge/test/model-switch.test.ts) |
-| `POST /api/session/{sessionID}/agent` | `served-live` | [`bridge/test/agent-switch.test.ts`](../bridge/test/agent-switch.test.ts) |
-| `GET /api/info` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/model` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/agent` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/project` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/location` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/fs/list` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/config` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/command` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/reference` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/skill` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/provider` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/integration` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/mcp` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/mcp/resource` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/plugin` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/vcs` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/shell` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/form` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/experimental/migration/v1` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/session/active` | `served-faked` | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
-| `GET /api/experimental/session/{sessionID}/terminal` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
-| `GET /api/session/{sessionID}/form` | `deferred` | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
-
-### Out of scope (111)
-
-| Route | Status | Evidence |
-| --- | --- | --- |
-| `POST /api/session/{sessionID}/interrupt` | `served-live` | [`bridge/test/interrupt.test.ts`](../bridge/test/interrupt.test.ts) |
 | `DELETE /api/credential/{credentialID}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `DELETE /api/debug/location` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `DELETE /api/experimental/mcp/{server}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |

@@ -120,7 +120,7 @@
     { "route": "POST /api/session/{sessionID}/form", "status": "served-faked", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/src/spec-answers.ts" },
     { "route": "POST /api/session/{sessionID}/form/{formID}/reply", "status": "served-faked", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/src/spec-answers.ts" },
     { "route": "POST /api/session/{sessionID}/generate", "status": "served-faked", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/src/spec-answers.ts" },
-    { "route": "POST /api/session/{sessionID}/interrupt", "status": "served-live", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/test/interrupt.test.ts" },
+    { "route": "POST /api/session/{sessionID}/interrupt", "status": "served-live", "scope": "reachable", "blockedBy": "none", "evidence": "bridge/test/interrupt.test.ts" },
     { "route": "POST /api/session/{sessionID}/move", "status": "served-faked", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/src/spec-answers.ts" },
     { "route": "POST /api/session/{sessionID}/permission", "status": "served-faked", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/src/spec-answers.ts" },
     { "route": "POST /api/session/{sessionID}/revert/commit", "status": "served-faked", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/src/spec-answers.ts" },

@@ -2,16 +2,16 @@
 
 ## 1. Tooling: triage fields, crosscheck, report
 
-- [ ] 1.1 Move `POST /api/session/{sessionID}/interrupt` to `scope: reachable`
+- [x] 1.1 Move `POST /api/session/{sessionID}/interrupt` to `scope: reachable`
   in `bridge/compat/statuses.json` and add a crosscheck test that every
   `served-live` route is `reachable`; verify the test fails with the old scope
   (temporary revert) and passes with the fix, via `cd bridge && bun test`.
-- [ ] 1.2 Teach `scripts/gen-compat.ts` validation the optional `feature` and
+- [x] 1.2 Teach `scripts/gen-compat.ts` validation the optional `feature` and
   `fakeReason` route fields (unknown feature id, empty reason, reason on a
   non-`served-faked` row, both fields on one row → invalid); verify each case
   with a temporary edit that `bun scripts/gen-compat.ts --check` exits 1 and
   names the row, then revert.
-- [ ] 1.3 Add crosscheck tests in `bridge/test/crosscheck.test.ts` for the
+- [x] 1.3 Add crosscheck tests in `bridge/test/crosscheck.test.ts` for the
   spec's malformed-triage scenarios and the "verified, unblocked linked
   feature implies `served-live`" rule; verify each fails on a temporary bad
   row and the suite passes on the committed file (`cd bridge && bun test`).
@@ -20,7 +20,7 @@
   and the first three untriaged routes to the burndown; verify the regenerated
   report shows 33 reachable routes, 21 untriaged, and `make compat` exits 0
   after committing the regenerated `docs/compatibility.md`.
-- [ ] 1.5 Confirm the untriaged rule does not fail the suite: `cd bridge &&
+- [x] 1.5 Confirm the untriaged rule does not fail the suite: `cd bridge &&
   bun test` passes with all 21 reachable fakes still untriaged.
 
 ## 2. Skills, via the writing-skills method

@@ -71,11 +71,29 @@ const need = (cond: boolean, msg: string) => {
   if (!cond) failures.push(msg);
 };
 
+const featureById = new Map((statuses.features as EvidenceRow[]).map((f) => [String(f.id), f]));
 for (const r of statuses.routes as EvidenceRow[]) {
   need(Boolean(r.evidence), `route ${r.route}: missing evidence key`);
   need(ROUTE_STATUS.includes(String(r.status)), `route ${r.route}: unknown status ${r.status}`);
   need(SCOPES.includes(String(r.scope)), `route ${r.route}: unknown scope ${r.scope}`);
   need(BLOCKERS.includes(String(r.blockedBy)), `route ${r.route}: unknown blockedBy ${r.blockedBy}`);
+  if (r.feature !== undefined) {
+    need(featureById.has(String(r.feature)), `route ${r.route}: unknown feature ${r.feature}`);
+  }
+  if (r.fakeReason !== undefined) {
+    need(
+      typeof r.fakeReason === "string" && r.fakeReason.trim().length > 0,
+      `route ${r.route}: fakeReason must be a non-empty string`,
+    );
+    need(
+      r.status === "served-faked",
+      `route ${r.route}: fakeReason on a ${r.status} row`,
+    );
+  }
+  need(
+    !(r.feature !== undefined && r.fakeReason !== undefined),
+    `route ${r.route}: carries both feature and fakeReason`,
+  );
 }
 for (const f of statuses.features as EvidenceRow[]) {
   need(Boolean(f.evidence), `feature ${f.id}: missing evidence key`);
@@ -102,6 +120,19 @@ if (failures.length) {
 
 const md = (s: unknown) => String(s).replace(/\|/g, "\\|");
 const link = (path: string, label = path) => `[\`${label}\`](../${path})`;
+
+// Derive each route's decision from its status and triage fields (design
+// decision 1) so the column cannot disagree with the status beside it.
+const routeDecision = (r: EvidenceRow): string => {
+  if (r.status === "served-live") {
+    return r.feature === undefined ? "live" : `live — \`${md(r.feature)}\``;
+  }
+  if (r.status !== "served-faked") return String(r.status); // deferred, unhandled
+  if (r.fakeReason !== undefined) return `accept — ${md(r.fakeReason)}`;
+  if (r.feature === undefined) return "untriaged";
+  const pin = featureById.get(String(r.feature))?.blockedBy === "pin";
+  return `${pin ? "pin" : "in progress"} — \`${md(r.feature)}\``;
+};
 
 const lines: string[] = [];
 lines.push("# OpenCode TUI bridge — compatibility");
@@ -151,6 +182,21 @@ if (next.length) {
   lines.push("");
 }
 
+// Route triage (add-route-triage): a reachable fake is debt until it carries a
+// decision, so the untriaged ones are the second queue next to the feature one.
+const untriaged = reachableRoutes.filter((r) => routeDecision(r) === "untriaged");
+lines.push(`Untriaged reachable routes: **${untriaged.length}**.`);
+lines.push("");
+if (untriaged.length) {
+  const nextRoutes = untriaged.slice(0, 3);
+  lines.push(
+    `Next routes (first ${nextRoutes.length} of ${untriaged.length} untriaged reachable, in status-file order):`,
+  );
+  lines.push("");
+  nextRoutes.forEach((r, i) => lines.push(`${i + 1}. \`${md(r.route)}\``));
+  lines.push("");
+}
+
 lines.push("## Served routes");
 lines.push("");
 lines.push(
@@ -172,10 +218,14 @@ for (const scope of SCOPES) {
   const rows = byStatus(ROUTE_STATUS, (r) => String(r.status))(scoped(statuses.routes, scope));
   lines.push(scopeHeading(scope, rows.length));
   lines.push("");
-  lines.push("| Route | Status | Evidence |");
-  lines.push("| --- | --- | --- |");
+  // Only reachable rows carry a decision (add-route-triage); out-of-scope rows
+  // are already excluded from the queue they would feed.
+  const decision = scope === "reachable";
+  lines.push(decision ? "| Route | Status | Decision | Evidence |" : "| Route | Status | Evidence |");
+  lines.push(decision ? "| --- | --- | --- | --- |" : "| --- | --- | --- |");
   for (const r of rows) {
-    lines.push(`| \`${md(r.route)}\` | \`${r.status}\` | ${link(r.evidence)} |`);
+    const tail = decision ? ` ${routeDecision(r)} |` : "";
+    lines.push(`| \`${md(r.route)}\` | \`${r.status}\` |${tail} ${link(r.evidence)} |`);
   }
   lines.push("");
 }

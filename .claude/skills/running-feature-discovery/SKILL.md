@@ -34,10 +34,11 @@ routes the bridge serves live; recompute it after a TUI pass adds requests.
 Every other operation in the
 pinned contract is `out-of-scope` — recorded, never counted as a gap.
 
-Done for a pin means: 0 `unhandled`; every reachable route `served-live` or
-deliberately-empty `deferred`; every feature `verified`, `degraded` with a
-mirrored pin limitation, or `out-of-scope` with a reason; 0 open defects; 0
-`unverified` rows without a triage decision.
+Done for a pin means: 0 `unhandled`; every reachable route `served-live`,
+deliberately-empty `deferred`, or `served-faked` with a triage decision (a
+linked feature or a `fakeReason`); 0 untriaged reachable routes; every feature
+`verified`, `degraded` with a mirrored pin limitation, or `out-of-scope` with a
+reason; 0 open defects; 0 `unverified` rows without a triage decision.
 
 ## Ground first (read-only)
 
@@ -88,6 +89,14 @@ contract).
 - **Read-only fetches:** WebFetch a raw file at the pinned tag or read the
   local vendored copies; if a side's source/docs link is absent from
   `docs/ai/references.md`, add it there so `scripts/check-links.sh` tracks it.
+- **The sandbox is a valid data source.** A route's real state may come from
+  the Maki wire at the pin *or* from the sandbox environment through the
+  existing OpenShell exec transport (`bin/maki-oss`) — files, git, processes.
+  "Both pins support it" scopes the wire branch, not the route: a route whose
+  data lives in the sandbox still earns a capability row, tested against a
+  sandbox fixture. Security invariants hold — the bridge reads no host path on
+  the client's behalf, adds no bind mount, and reaches sandbox state only
+  through the transport it already uses.
 - Record through the rules below — a doc/source read yields rows at most
   `unverified`/`deferred` with an upstream citation in the matrix; it never
   yields `verified`.
@@ -135,10 +144,32 @@ one-line rationale in the change's evidence matrix:
 | --- | --- | --- |
 | `fix` | observed violation of a pinned claim | `defects.json` → proposing-fix-change |
 | `coverage` | behavior exists, no proof | proposing-coverage-change, tests only |
-| `capability` | behavior missing, both pins support it, TUI needs it | proposing-coverage-change, implementation branch |
-| `accept` | no counterpart at the pin, or out of the reachable set | status/doc edit in this change |
+| `capability` | behavior missing, the wire at the pin or the sandbox supports it, and the TUI needs it | proposing-coverage-change, implementation branch |
+| `accept` | no counterpart at either pin, and the sandbox cannot supply it | status/doc edit in this change |
 
-A `served-faked` route with no feature row is a scope statement, not debt.
+### Route queue
+
+Every reachable `served-faked` route is debt until it carries a decision: the
+TUI reads synthesized data from it today. Decide each one by writing one
+optional field in `statuses.json` (never both), or by flipping its status:
+
+| Decision | `statuses.json` encoding | Report shows |
+| --- | --- | --- |
+| link a feature | `feature: "<id>"` on the fake row | `pin` or `in progress` from the linked feature's `blockedBy`/`status`; `live` once the feature is `verified` and not `blockedBy: pin` |
+| accept | `fakeReason: "<why synthesized data is correct>"` | `accept — <reason>` |
+| defer | `status: "deferred"` | `deferred` |
+| leave | neither field | `untriaged`, counted and listed in the burndown |
+
+A linked feature makes the route real work: open or extend a capability
+through `proposing-coverage-change`, and link only a feature row that exists.
+A verified, unblocked feature implies `served-live` (`crosscheck.test.ts`
+enforces it), so the feature and its route flip in the same change.
+
+`fakeReason` must justify the fake, not the cost of the real thing: it explains
+why synthesized data is *correct* (e.g. `GET /api/info` must report the pinned
+server version so the TUI does not warn). "No Maki counterpart" or "needs
+sandbox plumbing" is a reason to link a feature, not to accept.
+
 Never open a capability change discovery has not recorded.
 
 ## Do not
@@ -158,7 +189,8 @@ make compat                    # regen + git diff --exit-code
 ```
 
 Report the scoreboard before the details — reachable routes
-`live/deferred/faked`, features `verified/degraded/unverified/untriaged`, open
-defects — then rows added/changed, defects appended, open defects deduped,
-capabilities newly transcribed from upstream (with the pins they came from),
-and the top three unblocked reachable items from the cross-map.
+`live/deferred/faked`, untriaged reachable routes, features
+`verified/degraded/unverified/untriaged`, open defects — then rows
+added/changed, defects appended, open defects deduped, capabilities newly
+transcribed from upstream (with the pins they came from), and the top three
+unblocked reachable items from the cross-map.

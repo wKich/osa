@@ -41,6 +41,10 @@ other — "no runtime changes" is what keeps a coverage change reviewable.
      it end to end;
    - the statuses row moves `unverified`/`deferred` → `verified` with the
      new test path as evidence;
+   - when a reachable route links that feature via its `feature` field, the
+     route flips to `served-live` in the same change with the new test as its
+     evidence, and the feature row is `reachable` — `crosscheck.test.ts` fails
+     while a verified, unblocked feature's route is not live;
    - `make compat` regeneration; and the archive-path note when statuses
      evidence points into the change dir.
 5. **Wrap-up gate:** `make test`, `make test-bridge`, `make compat`,

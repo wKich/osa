@@ -365,10 +365,25 @@ whose remaining gap cannot be closed without an upstream wire change.
 
 The report SHALL render a burndown over the reachable surface before the full
 tables: reachable route counts by status, reachable feature counts split by
-`blockedBy`, the number of open defect-inventory entries, and up to three
+`blockedBy`, the number of open defect-inventory entries, up to three
 reachable feature rows that are neither `verified`, nor `blockedBy: pin`, nor
-`out-of-scope`. The full route and feature tables SHALL remain in the report
-so every row stays auditable.
+`out-of-scope`, the number of untriaged reachable routes, and up to three of
+them. The full route and feature tables SHALL remain in the report so every
+row stays auditable.
+
+Every reachable `served-faked` route SHALL either carry a triage decision or be
+counted as untriaged. A route row MAY carry a `feature` naming an existing
+feature row that makes the route real or records why it cannot be, or a
+`fakeReason` stating why synthesized data is correct by design, but not both.
+A `fakeReason` SHALL appear only on a `served-faked` route. A route whose
+linked feature is `verified` and not `blockedBy: pin` SHALL be `served-live`.
+A reachable `served-faked` route with neither field, or whose linked feature
+is neither `verified` nor `blockedBy: pin`, is untriaged. Untriaged routes are
+a work queue reported by the burndown; a malformed triage field fails the
+offline suite. The report SHALL show each reachable route's decision: live
+through its feature, deferred, accepted with its reason, pin-blocked through
+its feature, in progress through its feature, or untriaged. A `served-live`
+route SHALL be `reachable`.
 
 The route lens SHALL be enumerated from the pinned OpenAPI contract rather
 than sampled from observed traffic: every operation the pinned contract
@@ -449,6 +464,34 @@ behavior but not the upstream wire shape that behavior was given.
 - **WHEN** a route or feature is marked `out-of-scope`
 - **THEN** it stays listed with its status and evidence but is excluded from
   the burndown counts and from the next-item list
+
+#### Scenario: An untriaged reachable fake is counted, not hidden
+- **WHEN** a reachable `served-faked` route has neither a `feature` nor a
+  `fakeReason`
+- **THEN** the burndown counts it as untriaged and may list it as a next
+  route, and the route table shows it as untriaged
+
+#### Scenario: An accepted fake carries its reason
+- **WHEN** a reachable route is served faked by design (for example, the
+  server info that must report the pinned version)
+- **THEN** its row carries a `fakeReason`, the route table shows the reason,
+  and the route leaves the untriaged count
+
+#### Scenario: A malformed triage field fails the offline suite
+- **WHEN** a route row names a `feature` that has no feature row, carries
+  both `feature` and `fakeReason`, or carries a `fakeReason` while not
+  `served-faked`
+- **THEN** the offline suite fails and names the row
+
+#### Scenario: A verified feature makes its route live
+- **WHEN** a route's linked feature is `verified` and not `blockedBy: pin`
+- **THEN** the route is `served-live`, and a row left `served-faked` or
+  `deferred` fails the offline suite
+
+#### Scenario: A live route is never out of scope
+- **WHEN** a route row is `served-live`
+- **THEN** its `scope` is `reachable`, and an `out-of-scope` live row fails
+  the offline suite
 
 ### Requirement: Contract drift gate
 The repository SHALL provide a gated script that re-captures the OpenCode

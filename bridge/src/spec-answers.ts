@@ -108,6 +108,13 @@ function successResponse(item: PathItem, method: string): { status: number; cont
 // ---------- answer set ----------
 // `canonical` is the one directory every answer must agree on (design: the
 // project canonical equals the session directory).
+/** Maki's default builtin plugins at the pin (maki-config lib.rs v0.6.4 L94–L122) */
+export const MAKI_BUILTIN_PLUGINS = [
+  "bash", "batch", "code_execution", "deepseek", "edit", "glob", "grep", "index", "list", "memory",
+  "mistral", "openrouter", "question", "read", "regolo", "requesty", "sessions", "skill", "synthetic",
+  "task", "tensorx", "thinking", "todo_write", "view_image", "webfetch", "websearch", "write",
+];
+
 export function synthesize(
   method: string,
   path: string,
@@ -155,8 +162,18 @@ export function synthesize(
   // plugin, reference alias, or shell runs in the bridge, and the
   // pinned SDK mode runs no custom command (sdk_mode.rs v0.6.4 L624), so a
   // listed one would make submit POST session.command for nothing
-  if (method === "GET" && /^\/api\/(plugin|reference|shell|command)$/.test(path)) {
+  if (method === "GET" && /^\/api\/(reference|shell|command)$/.test(path)) {
     payload = { ...payload, data: [] };
+  }
+  // the server's plugins are Maki's: the builtins it loads by default
+  // (maki-config lib.rs v0.6.4 L94–L122; the journey image's config disables
+  // none), each a builtin source the TUI lists as internal
+  // (feature-plugins/system/plugins.tsx v2.0.32 L67–L72)
+  if (method === "GET" && path === "/api/plugin") {
+    payload = {
+      ...payload,
+      data: MAKI_BUILTIN_PLUGINS.map((id) => ({ id, source: { type: "builtin" }, features: { server: true }, state: { status: "active" } })),
+    };
   }
   // the resource catalog needs a live MCP client, which the bridge is not
   if (method === "GET" && path === "/api/mcp/resource") {

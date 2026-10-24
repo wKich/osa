@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { startBridge, type BridgeHandle } from "./lib/bridge.ts";
 import { validateBody } from "./lib/contract.ts";
+import { MAKI_BUILTIN_PLUGINS } from "../src/spec-answers.ts";
 
 async function get(bridge: BridgeHandle, path: string): Promise<{ status: number; body: any }> {
   const res = await fetch(bridge.base + path);
@@ -47,8 +48,15 @@ describe("boot surface", () => {
     expect(body.data[1]).toMatchObject({ id: "plan", name: "plan", mode: "primary", hidden: false, permissions: [] });
   });
 
-  test("plugin, reference, shell, command and MCP lists carry no fabricated rows", async () => {
-    for (const path of ["/api/plugin", "/api/reference", "/api/shell", "/api/command", "/api/mcp"]) {
+  test("the plugin list is Maki's builtin plugins, each an active builtin", async () => {
+    const { status, body } = await get(bridge, `/api/plugin${loc}`);
+    expect(validateBody("/api/plugin", "GET", status, body)).toBeNull();
+    expect(body.data.map((p: any) => p.id)).toEqual(MAKI_BUILTIN_PLUGINS);
+    expect(body.data[0]).toEqual({ id: "bash", source: { type: "builtin" }, features: { server: true }, state: { status: "active" } });
+  });
+
+  test("reference, shell, command and MCP lists carry no fabricated rows", async () => {
+    for (const path of ["/api/reference", "/api/shell", "/api/command", "/api/mcp"]) {
       const { status, body } = await get(bridge, path + loc);
       expect(status).toBe(200);
       expect(validateBody(path, "GET", status, body)).toBeNull();

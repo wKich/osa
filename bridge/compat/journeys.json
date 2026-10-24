@@ -1333,18 +1333,18 @@
       "area": "tools",
       "source": "packages/tui/src/feature-plugins/system/plugins.tsx:337 (/plugins) at v2.0.32",
       "scenario": {
-        "steps": ["run /plugins", "check for updates"],
+        "steps": ["run /plugins", "show internal plugins"],
         "checkpoints": [
-          { "id": "plugin-list", "after": 1, "expect": "the plugin dialog lists installed OpenCode plugins, empty when none" },
-          { "id": "checked", "after": 2, "expect": "the check reports no updates or lists them" }
+          { "id": "plugins", "after": 1, "expect": "the plugin list shows the user plugins (none configured)" },
+          { "id": "internal", "after": 2, "expect": "the list adds the TUI's and the server's internal plugins" }
         ]
       },
-      "routes": ["GET /api/plugin", "POST /api/plugin/check", "POST /api/plugin/update"],
-      "features": [],
+      "routes": ["GET /api/plugin"],
+      "features": ["plugin-list"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/manage-plugins/reference/","maki":"bridge/test/journeys/manage-plugins/maki/","diff":"bridge/test/journeys/manage-plugins/diff.json","live":{"snapshots":"bridge/test/journeys/manage-plugins/live/","diff":"bridge/test/journeys/manage-plugins/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
       "acceptedDiffs": []
     },
     {

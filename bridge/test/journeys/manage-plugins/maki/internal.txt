@@ -1,0 +1,39 @@
+
+
+
+
+
+
+
+
+
+
+
+                    Plugins                                                                      esc
+
+                    Search
+
+                    TUI
+                    opencode.btw
+                    opencode.diffs
+                    opencode.home.footer
+                    opencode.latex
+                    opencode.merman
+                    opencode.notifications
+                    opencode.prompt.footer
+                    opencode.sidebar.context
+                    opencode.sidebar.footer
+                    opencode.sidebar.mcp
+                    opencode.stats
+
+                    Server
+
+                    hide internal ctrl+a                                               disable enter
+
+
+
+
+
+
+
+                                                                                                                2.0.32

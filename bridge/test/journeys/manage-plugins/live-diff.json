@@ -1,0 +1,13 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "plugins",
+      "verdict": "equal"
+    },
+    {
+      "id": "internal",
+      "verdict": "equal"
+    }
+  ]
+}

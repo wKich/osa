@@ -1,0 +1,39 @@
+
+
+
+
+
+
+
+
+
+
+
+                    Plugins                                                                      esc
+
+                    Search
+
+                    No items available
+
+                    show internal ctrl+a
+
+
+                       ┃
+                       ┃  Ask anything… "<HINT>"
+                       ┃
+                       ┃  Build · <MODEL> <MODEL>
+                       ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                       <WORKDIR> shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                2.0.32

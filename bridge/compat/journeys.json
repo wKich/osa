@@ -1281,16 +1281,17 @@
         "steps": ["press ctrl+t", "send a prompt"],
         "checkpoints": [
           { "id": "variant", "after": 1, "expect": "the footer shows the next variant for the current model" },
-          { "id": "variant-used", "after": 2, "expect": "the next turn reports the selected variant" }
+          { "id": "variant-used", "after": 2, "expect": "the reply renders and the composer keeps the variant" }
         ]
       },
       "routes": ["GET /api/model", "POST /api/session/{sessionID}/model"],
-      "features": [],
+      "features": ["model-variants"],
       "scope": "reachable",
-      "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "blockedBy": "pin",
+      "status": "diverges",
+      "evidence": { "reference":"bridge/test/journeys/switch-model-variant/reference/","maki":"bridge/test/journeys/switch-model-variant/maki/","diff":"bridge/test/journeys/switch-model-variant/diff.json","live":{"snapshots":"bridge/test/journeys/switch-model-variant/live/","diff":"bridge/test/journeys/switch-model-variant/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"diverges"} },
+      "acceptedDiffs": [],
+      "pinCitation": "Maki v0.6.4 has no way to set reasoning effort from outside: the stream-json set_model control takes a model spec only (src/sdk_mode.rs L861–L906), and the CLI accepts --effort, --thinking and --max-thinking-tokens only to warn that they are ignored (src/cli.rs L163–L173, L181–L203)"
     },
     {
       "slug": "manage-mcp-servers",

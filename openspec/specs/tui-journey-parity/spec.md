@@ -411,3 +411,12 @@ citation of the pinned Maki source while Maki's SDK cannot raise a question.
 - **WHEN** the agent calls its question tool through the bridge
 - **THEN** the transcript shows the call and no form, offline and live, and
   the row cites `plugins/question/question_form.lua` v0.6.4 L598–L628
+
+### Requirement: Always-allow is recorded at parity
+The catalog SHALL record `allow-permission-always` with reference, offline
+and live snapshots.
+
+#### Scenario: The second command is not asked again
+- **WHEN** the user picks Always allow for `rm -f probe1.txt` and then asks
+  for `rm -f probe2.txt`
+- **THEN** the second command runs with no permission prompt on both sides

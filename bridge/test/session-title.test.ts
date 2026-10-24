@@ -45,3 +45,21 @@ test("the first run's end titles the session once, and reads return the title", 
   const list = (await (await fetch(`${bridge.base}/api/session`)).json()).data;
   expect(list.find((x: any) => x.id === sid).title).toBe("Reply with the word PONG only.");
 });
+
+test("PATCH renames the session, an empty title regenerates Maki's, and the first run keeps a user title", async () => {
+  const sid = (await (await post("/api/session", { location: { directory: bridge.workdir } })).json()).data.id;
+  const patch = (body: unknown) =>
+    fetch(`${bridge.base}/api/session/${sid}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+  const renames = () => bridge.frames.filter((f) => f.type === "session.renamed" && f.data?.sessionID === sid).map((f) => f.data!.title);
+  expect((await patch({ title: "Renamed by journey" })).status).toBe(204);
+  expect((await (await fetch(`${bridge.base}/api/session/${sid}`)).json()).data.title).toBe("Renamed by journey");
+  const ended = () => bridge.frames.filter((f) => f.type === "session.execution.succeeded" && f.data?.sessionID === sid).length;
+  await post(`/api/session/${sid}/prompt`, { text: "first prompt text" });
+  expect(await waitFor(() => ended() === 1)).toBe(true);
+  expect(renames()).toEqual(["Renamed by journey"]);
+  expect((await patch({ title: null })).status).toBe(204);
+  expect(renames()).toEqual(["Renamed by journey", "first prompt text"]);
+  expect((await patch({ metadata: { pinned: true } })).status).toBe(204);
+  expect((await (await fetch(`${bridge.base}/api/session/${sid}`)).json()).data.metadata).toEqual({ pinned: true });
+  expect((await fetch(`${bridge.base}/api/session/ses_unknown000000000000`, { method: "PATCH", body: "{}" })).status).toBe(404);
+});

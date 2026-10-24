@@ -322,19 +322,22 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:110 (session.new) and packages/tui/src/app.tsx:744 (/new) at v2.0.32",
       "scenario": {
-        "steps": ["press leader+n", "type a prompt", "submit"],
+        "steps": ["prompt \"Reply with the word PONG only.\"", "press leader+n", "prompt \"Reply with the word PANG only.\""],
         "checkpoints": [
-          { "id": "session-created", "after": 2, "expect": "a new session is created and its empty transcript is shown with the prompt focused" },
-          { "id": "first-prompt", "after": 3, "expect": "the prompt renders as a user message and its turn starts" }
+          { "id": "session-created", "after": 2, "expect": "a fresh session home with the composer focused, the earlier session kept in its tab" },
+          { "id": "first-prompt", "after": 3, "expect": "the new session renders the PANG exchange in its own tab" }
         ]
       },
       "routes": ["POST /api/session", "GET /api/session/{sessionID}", "GET /api/session/{sessionID}/permission", "GET /api/session/{sessionID}/form"],
       "features": ["session-crud"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/new-session/reference/","maki":"bridge/test/journeys/new-session/maki/","diff":"bridge/test/journeys/new-session/diff.json","live":{"snapshots":"bridge/test/journeys/new-session/live/","diff":"bridge/test/journeys/new-session/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "session-created", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "first-prompt", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "resume-session-history",
@@ -409,18 +412,21 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:123 (session.rename) and packages/tui/src/routes/session/index.tsx:910 (/rename) at v2.0.32",
       "scenario": {
-        "steps": ["open a session", "press ctrl+r", "type a title", "submit"],
+        "steps": ["prompt \"Reply with the word PONG only.\"", "press ctrl+r", "replace the title and submit"],
         "checkpoints": [
-          { "id": "renamed", "after": 4, "expect": "the new title shows in the tab, the session list, and the footer" }
+          { "id": "rename-dialog", "after": 2, "expect": "the rename dialog opens with the current title filled in" },
+          { "id": "renamed", "after": 3, "expect": "the tab shows the new title" }
         ]
       },
       "routes": ["PATCH /api/session/{sessionID}"],
-      "features": ["session-crud"],
+      "features": ["session-title", "session-rename"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/rename-session/reference/","maki":"bridge/test/journeys/rename-session/maki/","diff":"bridge/test/journeys/rename-session/diff.json","live":{"snapshots":"bridge/test/journeys/rename-session/live/","diff":"bridge/test/journeys/rename-session/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "rename-dialog", "reason": "the dialog is prefilled with the session's current title, which is Maki's: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "delete-session",

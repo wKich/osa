@@ -4,7 +4,7 @@ Generated from `bridge/compat/statuses.json`, `bridge/compat/journeys.json` and 
 
 ## Burndown
 
-Reachable surface: **36 of 143 routes** (24 `served-live`, 7 `served-faked`, 5 `deferred`, 0 `unhandled`) and **42 of 44 features** (37 `verified`, 0 `unverified`, 5 `degraded` (5 pin-blocked), 0 `buggy`). Out of scope: 107 routes, 2 features. Open defects: **0**.
+Reachable surface: **37 of 143 routes** (25 `served-live`, 7 `served-faked`, 5 `deferred`, 0 `unhandled`) and **43 of 45 features** (38 `verified`, 0 `unverified`, 5 `degraded` (5 pin-blocked), 0 `buggy`). Out of scope: 106 routes, 2 features. Open defects: **0**.
 
 Untriaged reachable routes: **0**.
 
@@ -12,7 +12,7 @@ Untriaged reachable routes: **0**.
 
 Statuses: `served-live` (real state behind the route), `served-faked` (answered from the pinned spec with synthesized values), `deferred` (spec-valid minimal answer, surface not implemented), `unhandled` (outside the pinned contract: answered 404).
 
-### Reachable (36)
+### Reachable (37)
 
 | Route | Status | Decision | Evidence |
 | --- | --- | --- | --- |
@@ -37,6 +37,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/mcp` | `served-live` | live — `mcp-server-status` | [`bridge/test/mcp-status.test.ts`](../bridge/test/mcp-status.test.ts) |
 | `GET /api/vcs` | `served-live` | live — `vcs-branch-live` | [`bridge/test/sandbox-git.test.ts`](../bridge/test/sandbox-git.test.ts) |
 | `GET /api/session/active` | `served-live` | live — `session-active-live` | [`bridge/test/session-active.test.ts`](../bridge/test/session-active.test.ts) |
+| `PATCH /api/session/{sessionID}` | `served-live` | live — `session-rename` | [`bridge/test/session-title.test.ts`](../bridge/test/session-title.test.ts) |
 | `POST /api/session/{sessionID}/interrupt` | `served-live` | live | [`bridge/test/interrupt.test.ts`](../bridge/test/interrupt.test.ts) |
 | `POST /api/session/{sessionID}/view` | `served-live` | live — `session-idle-state` | [`bridge/test/session-idle.test.ts`](../bridge/test/session-idle.test.ts) |
 | `GET /api/session/{sessionID}/message` | `served-live` | live — `session-message-history` | [`bridge/test/session-history.test.ts`](../bridge/test/session-history.test.ts) |
@@ -53,7 +54,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/session/{sessionID}/form` | `deferred` | deferred | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
 | `GET /api/session/{sessionID}/inbox` | `deferred` | deferred | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
 
-### Out of scope (107)
+### Out of scope (106)
 
 | Route | Status | Evidence |
 | --- | --- | --- |
@@ -110,7 +111,6 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `PATCH /api/credential/{credentialID}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `PATCH /api/experimental/config` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `PATCH /api/project/{projectID}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
-| `PATCH /api/session/{sessionID}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `PATCH /api/session/{sessionID}/inbox/{inboxID}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/credential` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/credential/{credentialID}/activate` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
@@ -169,7 +169,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 
 Statuses: `verified` (an offline test or committed fixture proves it), `degraded` (works, with a limitation recorded in the evidence), `unverified` (no evidence yet), `buggy` (an open inventory entry in `bridge/defects.json` forces this status until the fix flips it). `pin-blocked` marks a gap that needs an upstream wire change. A `verified` row is `journey-verified` only when every reachable journey that lists it is at `parity`; otherwise the journey oracle reports it `unit-verified only`.
 
-### Reachable (42)
+### Reachable (43)
 
 | Id | Feature | Status | Journeys | Evidence |
 | --- | --- | --- | --- | --- |
@@ -179,8 +179,9 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | `minted-id-patterns` | Minted ids match the OpenCode patterns (evt_/ses_/msg_/per_) | `verified` | `journey-verified` — `send-prompt-stream-reply` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
 | `durable-envelope` | Durable events carry a complete durable envelope keyed to the session | `verified` | `journey-verified` — `send-prompt-stream-reply` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
 | `openapi-contract` | Response bodies validate against the vendored OpenAPI 2.0.32 | `verified` | `unit-verified only` | [`bridge/test/contract.test.ts`](../bridge/test/contract.test.ts) |
-| `session-crud` | Session create/read/list/delete with child teardown (no orphan processes) | `verified` | `unit-verified only` — `new-session`, `resume-session-history`, `rename-session`, `delete-session`, `clear-session` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
-| `session-title` | A session is titled from its first prompt by Maki's rule when its first run ends (generate_title, maki-storage sessions.rs v0.6.4 L677–L695), announced with session.renamed | `verified` | `journey-verified` — `resume-session-history`, `send-prompt-stream-reply` | [`bridge/test/session-title.test.ts`](../bridge/test/session-title.test.ts) |
+| `session-crud` | Session create/read/list/delete with child teardown (no orphan processes) | `verified` | `unit-verified only` — `new-session`, `resume-session-history`, `delete-session`, `clear-session` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
+| `session-title` | A session is titled from its first prompt by Maki's rule when its first run ends (generate_title, maki-storage sessions.rs v0.6.4 L677–L695), announced with session.renamed | `verified` | `journey-verified` — `resume-session-history`, `rename-session`, `send-prompt-stream-reply` | [`bridge/test/session-title.test.ts`](../bridge/test/session-title.test.ts) |
+| `session-rename` | PATCH /api/session/{sessionID} renames the session (session.renamed), regenerates Maki's first-prompt title for an empty title, and keeps metadata; permission rules are not settable over the pinned SDK (server handlers/session.ts v2.0.32 L259–L281) | `verified` | `journey-verified` — `rename-session` | [`bridge/test/session-title.test.ts`](../bridge/test/session-title.test.ts) |
 | `session-idle-state` | A terminal execution transition sets the session's time.idle and outcome, strictly advancing, before the frame the TUI re-reads on; session.view acknowledges it, so the tab's unread marker follows the real server (core session/projector.ts v2.0.32 L412–L440, session.ts L61–L70) | `verified` | `journey-verified` — `send-prompt-stream-reply` | [`bridge/test/session-idle.test.ts`](../bridge/test/session-idle.test.ts) |
 | `session-message-history` | GET /api/session/{sessionID}/message answers the transcript the bridge projected from its own frames (user, assistant parts, idle markers), paged like the real handler, so a reopened TUI renders the session's history (server/src/handlers/message.ts v2.0.32 L9–L65) | `verified` | `journey-verified` — `resume-session-history` | [`bridge/test/session-history.test.ts`](../bridge/test/session-history.test.ts) |
 | `deferred-session-surface-contract` | Deferred session inbox/form reads, and a session with no turn, answer schema-valid empty lists and 404 unknown sessions, never a phantom row | `verified` | `journey-verified` — `resume-session-history` | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
@@ -233,7 +234,7 @@ Rows citing these notes are proved against fixtures that were authored or splice
 
 Statuses: `unrecorded` (no reference recording yet), `referenced` (a reference recording of real OpenCode exists, the Maki side is not yet compared), `parity` (both sides match at every checkpoint), `diverges` (the journey completes with at least one differing checkpoint), `broken` (the Maki side cannot complete it).
 
-Reachable journeys: **61 of 67** (58 `unrecorded`, 0 `referenced`, 3 `parity`, 0 `diverges`, 0 `broken`). Native parity score: **4.9%** (3 of 61 reachable journeys at `parity`).
+Reachable journeys: **61 of 67** (56 `unrecorded`, 0 `referenced`, 5 `parity`, 0 `diverges`, 0 `broken`). Native parity score: **8.2%** (5 of 61 reachable journeys at `parity`).
 
 ### Reachable (61)
 
@@ -251,10 +252,8 @@ Reachable journeys: **61 of 67** (58 `unrecorded`, 0 `referenced`, 3 `parity`, 0
 | `view-debug-info` | View debug information | navigation | `unrecorded` | — | — | — |
 | `view-usage-statistics` | View usage statistics | navigation | `unrecorded` | — | — | — |
 | `exit-application` | Exit the application | navigation | `unrecorded` | — | — | — |
-| `new-session` | Create a new session | session | `unrecorded` | — | — | — |
 | `switch-session-tab` | Switch between open sessions | session | `unrecorded` | — | — | — |
 | `close-reopen-session-tab` | Close a session tab and reopen it | navigation | `unrecorded` | — | — | — |
-| `rename-session` | Rename a session | session | `unrecorded` | — | — | — |
 | `delete-session` | Delete a session | session | `unrecorded` | — | — | — |
 | `pin-session` | Pin a session in the list | session | `unrecorded` | — | — | — |
 | `clear-session` | Clear the current session | session | `unrecorded` | — | — | — |
@@ -297,7 +296,9 @@ Reachable journeys: **61 of 67** (58 `unrecorded`, 0 `referenced`, 3 `parity`, 0
 | `manage-workspaces` | Manage workspaces | files | `unrecorded` | — | — | — |
 | `change-working-directory` | Change the working directory | files | `unrecorded` | — | — | — |
 | `reload-configuration` | Reload the configuration | config | `unrecorded` | — | — | — |
+| `new-session` | Create a new session | session | `parity` | `parity` | reference: [`bridge/test/journeys/new-session/reference/`](../bridge/test/journeys/new-session/reference/) · maki: [`bridge/test/journeys/new-session/maki/`](../bridge/test/journeys/new-session/maki/) · diff: [`bridge/test/journeys/new-session/diff.json`](../bridge/test/journeys/new-session/diff.json) | session-created: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; first-prompt: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make |
 | `resume-session-history` | Resume a session and see its history | session | `parity` | `parity` | reference: [`bridge/test/journeys/resume-session-history/reference/`](../bridge/test/journeys/resume-session-history/reference/) · maki: [`bridge/test/journeys/resume-session-history/maki/`](../bridge/test/journeys/resume-session-history/maki/) · diff: [`bridge/test/journeys/resume-session-history/diff.json`](../bridge/test/journeys/resume-session-history/diff.json) | session-list: the list and tab show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; history-visible: the list and tab show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make |
+| `rename-session` | Rename a session | session | `parity` | `parity` | reference: [`bridge/test/journeys/rename-session/reference/`](../bridge/test/journeys/rename-session/reference/) · maki: [`bridge/test/journeys/rename-session/maki/`](../bridge/test/journeys/rename-session/maki/) · diff: [`bridge/test/journeys/rename-session/diff.json`](../bridge/test/journeys/rename-session/diff.json) | rename-dialog: the dialog is prefilled with the session's current title, which is Maki's: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make |
 | `send-prompt-stream-reply` | Send a prompt and watch the reply stream | prompt | `parity` | `parity` | reference: [`bridge/test/journeys/send-prompt-stream-reply/reference/`](../bridge/test/journeys/send-prompt-stream-reply/reference/) · maki: [`bridge/test/journeys/send-prompt-stream-reply/maki/`](../bridge/test/journeys/send-prompt-stream-reply/maki/) · diff: [`bridge/test/journeys/send-prompt-stream-reply/diff.json`](../bridge/test/journeys/send-prompt-stream-reply/diff.json) | streamed: the tab shows the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make |
 | `allow-permission-once` | Allow a tool once | permission | `parity` | `parity` | reference: [`bridge/test/journeys/allow-permission-once/reference/`](../bridge/test/journeys/allow-permission-once/reference/) · maki: [`bridge/test/journeys/allow-permission-once/maki/`](../bridge/test/journeys/allow-permission-once/maki/) · diff: [`bridge/test/journeys/allow-permission-once/diff.json`](../bridge/test/journeys/allow-permission-once/diff.json) | permission-prompt: Maki titles a session only when its first run is recorded (maki-agent session.rs v0.6.4 L143–L166, L203–L217), so mid-run the tab correctly has no title yet; OpenCode titles in parallel with the first model call and the mock answers "Journey"; allowed: the tab shows the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the silent command shows Maki's real bash result "Exit code: 0" (plugins/bash/init.lua v0.6.4 L407–L412), where OpenCode's shell tool prints "(no output)" (core/src/shell.ts v2.0.32 L249) — each TUI renders its own tool's result |
 

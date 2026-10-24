@@ -63,7 +63,8 @@ interface BridgeSession {
   idle?: number; // the last terminal execution transition (Session.Info time.idle)
   viewed?: number; // the idle watermark a viewer acknowledged
   outcome?: "succeeded" | "failed" | "interrupted";
-  title?: string; // set when the first run ends, as Maki records it
+  title?: string; // set when the first run ends, as Maki records it, or by a rename
+  metadata?: AnyObj; // host annotations the TUI sets (Session.Info metadata)
   history: SessionHistory; // the projected transcript a reopened TUI reads
 }
 
@@ -209,6 +210,7 @@ function sessionObject(s: BridgeSession): AnyObj {
     ...(s.outcome ? { outcome: s.outcome } : {}),
     location: { directory: s.directory },
     ...(s.title ? { title: s.title } : {}),
+    ...(s.metadata ? { metadata: s.metadata } : {}),
   };
 }
 
@@ -458,6 +460,29 @@ function interrupt(s: BridgeSession): { status: number; payload: any } {
   return { status: 200, payload: { interrupted: true } };
 }
 
+// session.update (server handlers/session.ts v2.0.32 L259–L281): a title
+// renames the session; an empty or null title asks for a generated one, which
+// for Maki is its first-prompt rule; metadata is the host's annotation set.
+// Permissions are Maki's rule set, which the pinned SDK cannot change
+// (sdk_mode.rs v0.6.4 has no rules control request), so they are not applied.
+function updateSession(s: BridgeSession, body: AnyObj): { status: number; payload: any } {
+  if ("title" in (body ?? {})) {
+    const title = typeof body.title === "string" && body.title ? body.title : s.firstPrompt ? makiTitle(s.firstPrompt) : undefined;
+    if (title) {
+      s.title = title;
+      emit("session.renamed", { sessionID: s.id, title }, 1);
+    }
+  }
+  if (body?.metadata && typeof body.metadata === "object") {
+    s.metadata = body.metadata;
+    emit("session.metadata.updated", { sessionID: s.id, metadata: body.metadata }, 1);
+  }
+  if (body?.permissions !== undefined && body.permissions !== null) {
+    console.error(`[bridge] session ${s.id}: permission rules are Maki's and cannot be set over the SDK; not applied`);
+  }
+  return { status: 204, payload: null };
+}
+
 // session.view: a viewer acknowledges the idle transition it saw. The real
 // server ignores a watermark for no transition, one past the current
 // transition, or one already covered (core session/session.ts v2.0.32
@@ -533,6 +558,7 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
   if (rest === "") {
     const s = sessions.get(sid);
     if (method === "GET") return s ? { status: 200, payload: { data: sessionObject(s) } } : sessionNotFound(sid);
+    if (method === "PATCH") return s ? updateSession(s, body) : sessionNotFound(sid);
     if (method === "DELETE") {
       if (!s) return sessionNotFound(sid);
       s.maki.kill();

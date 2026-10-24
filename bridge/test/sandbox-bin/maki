@@ -4,7 +4,7 @@
 # (src/cmd/subcmd.rs v0.6.4 L601–L630, L485).
 case "$1 $2" in
   # FAKE_SANDBOX_MODELS (space-separated) stands in for a configured catalog
-  "models ") if [ -n "$FAKE_SANDBOX_MODELS" ]; then printf '%s\n' $FAKE_SANDBOX_MODELS; else printf '%s\n' synthetic/hf:zai-org/GLM-4.7 synthetic/fake anthropic/claude-sonnet-5-5; fi ;;
+  "models ") if [ -n "$FAKE_SANDBOX_MODELS_FILE" ] && [ -f "$FAKE_SANDBOX_MODELS_FILE" ]; then cat "$FAKE_SANDBOX_MODELS_FILE"; elif [ -n "$FAKE_SANDBOX_MODELS" ]; then printf '%s\n' $FAKE_SANDBOX_MODELS; else printf '%s\n' synthetic/hf:zai-org/GLM-4.7 synthetic/fake anthropic/claude-sonnet-5-5; fi ;;
   "auth status")
     # FAKE_SANDBOX_AUTH=none: a sandbox with no provider attached, as the
     # live journey sandbox runs (no profile injects a key)

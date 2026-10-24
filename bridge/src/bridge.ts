@@ -1036,9 +1036,26 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
 // (design decision 3). Only with neither a catalog nor a known model does
 // the list fall back to the synthesized entry the spec permits before an
 // announcement.
-const catalogReady = readModelCatalog(CANONICAL);
+let catalogReady = readModelCatalog(CANONICAL);
 let catalogRead: Awaited<typeof catalogReady> | undefined;
 void catalogReady.then((c) => (catalogRead = c));
+
+// location.reload (server handlers/location.ts v2.0.32 L22–L31): OpenCode
+// rebuilds the location's services and the TUI then refetches every location
+// resource (client solid/data.ts L1955–L1967). The bridge re-reads what it
+// serves from the sandbox: the model catalog (otherwise read once at boot),
+// the checkout, its worktrees and its skills. Maki itself has no inbound
+// control to reload its own configuration (sdk_mode.rs v0.6.4 L818–L880), so
+// a running child keeps the configuration it started with.
+async function reloadLocation(): Promise<{ status: number; payload: any }> {
+  const next = readModelCatalog(CANONICAL);
+  catalogReady = next;
+  catalogRead = await next;
+  await refreshProject();
+  if (await worktrees.refresh()) emit("worktree.updated", { projectID }, undefined, undefined, CANONICAL);
+  await checkSkills();
+  return { status: 204, payload: null };
+}
 
 // A session starts on the model it was created with (the TUI creates it on
 // its selection, then re-posts that model: tui component/prompt/index.tsx
@@ -1484,6 +1501,8 @@ async function handle(req: Request, srv: Bun.Server<SocketData>): Promise<Respon
     result = terminalRoute(method, path, url, body, req);
   } else if (method === "GET" && path === "/api/fs/list") {
     result = await fsList(url);
+  } else if (method === "POST" && path === "/api/location/reload") {
+    result = await reloadLocation();
   } else if (path === "/api/worktree" || (method === "POST" && path === "/api/worktree/refresh")) {
     result = await worktreeRoute(method, path, url, body);
   } else if (method === "GET" && path === "/api/experimental/session/stats") {

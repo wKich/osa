@@ -134,12 +134,21 @@ export function synthesize(
   if (method === "GET" && path === "/api/config") payload = [];
   // enum order puts "subagent" first: with no primary agent the composer has
   // nothing to submit as and Enter does nothing
-  // Maki at the pin has one agent and no named-agent surface (`initialize`
-  // ignores `agents`, sdk_mode.rs v0.6.4 L828–L839; no `set_agent`, L818–L880):
-  // the list is that one agent, in Maki's own name for its default mode
+  // Maki's agents are its two modes, build and plan, which the pinned SDK
+  // switches with set_permission_mode (sdk_mode.rs v0.6.4 L77–L111,
+  // L846–L860); named agents have no surface (`initialize` ignores `agents`,
+  // L828–L839). The descriptions are Maki's (docs commands/_index.md L52,
+  // permissions/_index.md L52)
   if (method === "GET" && path === "/api/agent" && Array.isArray(payload?.data)) {
     const [template] = payload.data;
-    payload = { ...payload, data: [{ ...template, id: "build", name: "build", mode: "primary", hidden: false, permissions: [] }] };
+    const mode = (id: string, description: string) => ({ ...template, id, name: id, description, mode: "primary", hidden: false, permissions: [] });
+    payload = {
+      ...payload,
+      data: [
+        mode("build", "Maki's default mode: tools run under the permission rules."),
+        mode("plan", "Maki's plan mode: file writes go only to the plan file."),
+      ],
+    };
   }
   // surfaces with nothing behind them answer empty rather than a synthesized
   // row the TUI renders as real (defect boot-lists-phantom-rows): no OpenCode

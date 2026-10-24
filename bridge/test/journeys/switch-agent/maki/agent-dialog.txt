@@ -1,0 +1,39 @@
+
+
+
+
+
+
+
+
+
+
+
+                                  Select agent                                     esc
+
+                                  Search
+
+                                ● build Maki's default mode: tools run under the permi
+                                  plan Maki's plan mode: file writes go only to the pl
+
+
+
+                       ┃
+                       ┃  Ask anything… "<HINT>"
+                       ┃
+                       ┃  Build · <MODEL> <MODEL>
+                       ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                       <WORKDIR> shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                2.0.32

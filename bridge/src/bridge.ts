@@ -58,6 +58,7 @@ interface BridgeSession {
   maki: MakiSession;
   translator: Translator;
   makiSessionID?: string; // maki's own session_id, mapped on first system.init
+  baseMode?: string; // the permission mode the child started in (system.init), which `build` restores
   tools?: string[]; // the tool names the child advertised on system.init
   pending: Map<string, PendingAsk>; // per_ id -> unanswered permission ask
   controls: Map<string, (ack: AnyObj) => void>; // bridge control request_id -> ack handler
@@ -329,8 +330,10 @@ function createSession(body: AnyObj): { status: number; payload: any } {
   });
   if ("error" in opened) return opened.error;
   const s = opened.session;
+  // a session created as the plan agent runs its first turn in plan mode
+  if (s.agent === "plan") s.maki.setPermissionMode("plan");
   if (payload?.data) {
-    payload.data = { ...payload.data, id, projectID, time: { ...payload.data.time, created: s.created, updated: s.updated }, location: { directory: s.directory } };
+    payload.data = { ...payload.data, id, projectID, agent: s.agent, time: { ...payload.data.time, created: s.created, updated: s.updated }, location: { directory: s.directory } };
   }
   return { status, payload };
 }
@@ -355,6 +358,7 @@ function openSession(
     onInit: (info) => {
       s.makiSessionID = info.sessionID;
       s.tools = info.tools;
+      s.baseMode = info.permissionMode ?? s.baseMode ?? "default";
       // the TUI read the model list at boot, before this child existed, and
       // gates the composer on the selected model being in that list — so the
       // announcement has to invalidate it or every later submit is refused
@@ -629,6 +633,37 @@ function selectModel(s: BridgeSession, body: AnyObj): { status: number; payload:
   return { status: 204, payload: null };
 }
 
+// session.agent: Maki's agents are its modes (spec-answers /api/agent), so a
+// switch is set_permission_mode — `plan`, or for `build` the mode the child
+// started in — written before the next user message, which runs in it
+// (sdk_mode.rs v0.6.4 L688–L696, L846–L860). The selection is the session's
+// durable state, as the real server records it (core session/
+// message-updater.ts v2.0.32 L91–L103); a mode Maki refuses restores the
+// previous agent.
+const AGENT_MODES = new Set(["build", "plan"]);
+function agentMode(s: BridgeSession, agent: string): string {
+  return agent === "plan" ? "plan" : (s.baseMode ?? "default");
+}
+function selectAgent(s: BridgeSession, body: AnyObj): { status: number; payload: any } {
+  const agent = body?.agent;
+  if (typeof agent !== "string" || !AGENT_MODES.has(agent)) {
+    return { status: 400, payload: { _tag: "InvalidRequestError", message: `unknown agent: ${String(agent)}` } };
+  }
+  const previous = s.agent;
+  if (agent === previous) return { status: 204, payload: null };
+  s.agent = agent;
+  emit("session.agent.selected", { sessionID: s.id, agent, previous }, 1);
+  if (s.parentID) return { status: 204, payload: null };
+  const requestID = s.maki.setPermissionMode(agentMode(s, agent));
+  s.controls.set(requestID, (ack) => {
+    if (ack.subtype === "success" || s.agent !== agent) return;
+    console.error(`[bridge] session ${s.id}: maki refused mode for agent ${agent}: ${ack.error ?? "unknown error"}`);
+    s.agent = previous;
+    emit("session.agent.selected", { sessionID: s.id, agent: previous, previous: agent }, 1);
+  });
+  return { status: 204, payload: null };
+}
+
 // session.interrupt: `interrupted` says whether an active execution was
 // stopped, so an idle session is the pinned no-op and nothing is written
 function interrupt(s: BridgeSession): { status: number; payload: any } {
@@ -866,10 +901,7 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
   if (!s) return sessionNotFound(sid);
   if (rest === "prompt" && method === "POST") return prompt(sid, body, url);
   if (rest === "model" && method === "POST") return selectModel(s, body);
-  if (rest === "agent" && method === "POST") {
-    if (typeof body?.agent === "string") s.agent = body.agent;
-    return { status: 204, payload: null };
-  }
+  if (rest === "agent" && method === "POST") return selectAgent(s, body);
   if (rest === "permission" && method === "GET") {
     const { status, payload } = synthesize(method, `/api/session/${sid}/permission`, url, body, CANONICAL);
     return { status, payload: { ...payload, data: pendingList(s) } };

@@ -13,7 +13,7 @@ export interface TranslatorHooks {
   agent: () => string;
   model: () => { providerID: string; id: string };
   /** first `system.init` of the process: maki's session id, cwd, model, tools */
-  onInit?: (info: { sessionID: string; cwd: string; model: string; tools: string[] }) => void;
+  onInit?: (info: { sessionID: string; cwd: string; model: string; tools: string[]; permissionMode?: string }) => void;
   /** turn result, for session cost/token bookkeeping */
   onResult?: (result: AnyObj) => void;
   /** a `Task` call is a subagent (plugins/task/init.lua v0.6.4): the bridge
@@ -303,6 +303,7 @@ export class Translator {
             cwd: frame.cwd,
             model: frame.model,
             tools: frame.tools ?? [],
+            permissionMode: typeof frame.permissionMode === "string" ? frame.permissionMode : undefined,
           });
         } else if (frame.subtype === "api_retry" && this.turnOpen) {
           // the pinned event names the turn's assistant message, so a retry

@@ -114,7 +114,9 @@ const tools = process.env.FAKE_MAKI_TOOLS?.split(",").filter(Boolean) ?? ["Bash"
 // FAKE_MAKI_MODEL stands in for a child that settled on another one
 const flag = process.argv.indexOf("-m");
 const startModel = process.env.FAKE_MAKI_MODEL ?? (flag >= 0 ? process.argv[flag + 1] : undefined) ?? process.env.MAKI_MODEL ?? "synthetic/fake";
-out({ type: "system", subtype: "init", session_id: SESSION_ID, cwd, model: startModel, tools });
+// the run's mode, as set_permission_mode leaves it (sdk_mode.rs v0.6.4 L846–L860)
+let permissionMode = "default";
+out({ type: "system", subtype: "init", session_id: SESSION_ID, cwd, model: startModel, permissionMode, tools });
 
 function toolFrames(toolUseID: string, command: string, isError: boolean, content: string): void {
   out({
@@ -425,6 +427,16 @@ for await (const chunk of Bun.stdin.stream()) {
         out({ type: "control_response", response: { subtype: "success", request_id: frame.request_id, response: {} } });
       } else {
         out({ type: "control_response", response: { subtype: "error", request_id: frame.request_id, error: "invalid or disallowed model" } });
+      }
+      continue;
+    }
+    if (frame.type === "control_request" && frame.request?.subtype === "set_permission_mode") {
+      const mode = frame.request.mode;
+      if (["default", "acceptEdits", "plan", "bypassPermissions"].includes(mode)) {
+        permissionMode = mode;
+        out({ type: "control_response", response: { subtype: "success", request_id: frame.request_id, response: {} } });
+      } else {
+        out({ type: "control_response", response: { subtype: "error", request_id: frame.request_id, error: `invalid permission mode: ${mode ?? "<missing>"}` } });
       }
       continue;
     }

@@ -39,11 +39,12 @@ describe("boot surface", () => {
     expect(body.capabilities).toEqual({ persistentPty: true });
   });
 
-  test("the agent list is Maki's one primary agent", async () => {
+  test("the agent list is Maki's build and plan modes, build first", async () => {
     const { status, body } = await get(bridge, `/api/agent${loc}`);
     expect(validateBody("/api/agent", "GET", status, body)).toBeNull();
-    expect(body.data).toHaveLength(1);
+    expect(body.data).toHaveLength(2);
     expect(body.data[0]).toMatchObject({ id: "build", name: "build", mode: "primary", hidden: false, permissions: [] });
+    expect(body.data[1]).toMatchObject({ id: "plan", name: "plan", mode: "primary", hidden: false, permissions: [] });
   });
 
   test("plugin, reference, shell, command and MCP lists carry no fabricated rows", async () => {

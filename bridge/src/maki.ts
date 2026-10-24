@@ -103,6 +103,12 @@ export class MakiSession {
     return this.control("set_model", { model: spec });
   }
 
+  // the pinned mode control (sdk_mode.rs v0.6.4 L846–L860); the next user
+  // message runs in the mode it names (L688–L696)
+  setPermissionMode(mode: string): string {
+    return this.control("set_permission_mode", { mode });
+  }
+
   /** writes one bridge-originated control request; returns its request_id */
   private control(subtype: string, fields: Record<string, unknown>): string {
     const requestID = `bridge_${subtype}_${++this.controlSeq}`;

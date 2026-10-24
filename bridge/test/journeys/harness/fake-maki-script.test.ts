@@ -210,6 +210,9 @@ describe("fake-maki script mode", () => {
       const task = lines.find((l) => l.type === "assistant" && l.message.content[0]?.name === "Task").message.content[0].id;
       const sub = lines.filter((l) => l.parent_tool_use_id === task);
       expect(sub.map((l) => l.message.content[0].text)).toEqual(["MARK"]);
+      // its stream events carry no flag, as the pinned child's do not
+      const at = lines.indexOf(sub[0]);
+      expect(lines.slice(0, at).some((l) => l.type === "stream_event" && l.event?.delta?.text === "MARK" && !l.parent_tool_use_id)).toBe(true);
       expect(lines.find((l) => l.type === "user" && !l.parent_tool_use_id).message.content[0]).toMatchObject({ tool_use_id: task, content: "MARK" });
       const texts = lines.filter((l) => l.type === "assistant" && !l.parent_tool_use_id && l.message.content[0]?.type === "text");
       expect(texts.map((l) => l.message.content[0].text)).toEqual(["DONE"]);

@@ -274,16 +274,24 @@ async function playScript(run: { cancelled: boolean }): Promise<void> {
       }
       if (answer !== "deny" && turn.call.subagent) {
         // the subagent's own calls arrive as buffered frames flagged with the
-        // task's id, with no stream events (captured fixture
-        // maki-subagent-live.jsonl), until its final text
+        // task's id (captured fixture maki-subagent-live.jsonl), and — with
+        // partial messages on — as stream events the pinned child does not
+        // flag (sdk_mode.rs v0.6.4 L1022–L1050), until its final text; each
+        // call takes the model's beat
         for (;;) {
           const sub = nextTurn();
+          await Bun.sleep(300);
           if (!sub || sub.text !== undefined || !sub.tool) {
-            out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: sub?.text ?? "No more scripted turns." }], usage: CALL_USAGE }, parent_tool_use_id: toolUseID });
+            const text = sub?.text ?? "No more scripted turns.";
+            streamParts(sub?.stream ?? [text]);
+            out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }], usage: CALL_USAGE }, parent_tool_use_id: toolUseID });
             break;
           }
           const subID = `toolu_fake${String(++toolSeq).padStart(6, "0")}`;
           out({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: subID, name: "Bash", input: { command: sub.tool.command } }], usage: CALL_USAGE }, parent_tool_use_id: toolUseID });
+          out({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: subID, name: "Bash", input: {} } } });
+          out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify({ command: sub.tool.command }) } } });
+          out({ type: "stream_event", event: { type: "content_block_stop", index: 0 } });
           const proc = Bun.spawn(["/bin/sh", "-c", sub.tool.command], { cwd, stdout: "pipe", stderr: "pipe" });
           const code = await proc.exited;
           const output = (await new Response(proc.stdout).text()).trim();

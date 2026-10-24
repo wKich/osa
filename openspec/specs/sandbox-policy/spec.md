@@ -1,7 +1,9 @@
 # sandbox-policy Specification
 
 ## Purpose
-TBD - created by archiving change fix-minimal-policy-dev-null. Update Purpose after archive.
+The example OpenShell sandbox policies under `examples/policies/` and the
+filesystem floor every one of them keeps, so a Maki sandbox can run its tools
+whether or not a provider adds baseline paths.
 
 ## Requirements
 

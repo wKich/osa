@@ -27,7 +27,7 @@
 
 
   ┃
-  ┃  Subagents  Shell                                                                                            esc
+  ┃  Subagents  Shell  Terminals                                                                                 esc
   ┃
   ┃  General: Echo a marker
   ┃

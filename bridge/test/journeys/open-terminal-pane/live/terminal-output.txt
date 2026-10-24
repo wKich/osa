@@ -1,0 +1,39 @@
+   Reply with the word PONG only +
+                                                             <WORKDIR>$ echo tmark-$((40+2))
+  ┃                                                          tmark-42
+  ┃  Reply with the word PONG only.                          <WORKDIR>$
+  ┃
+
+     PONG
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

@@ -95,6 +95,8 @@ const proc = Bun.spawn(argv, {
     PWD: workdir,
     PATH: [process.env.FAKE_SANDBOX_BIN, gitDir, "/usr/bin", "/bin"].filter(Boolean).join(":"),
   },
+  // a terminal's shell reads its keystrokes from the exec's stdin
+  stdin: "inherit",
   stdout: "inherit",
   stderr: "inherit",
 });

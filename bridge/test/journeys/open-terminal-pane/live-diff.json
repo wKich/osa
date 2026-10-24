@@ -1,0 +1,15 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "terminal-open",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n-                                                             sh-3.2$\n+   Reply with the word PONG only +\n+                                                             <WORKDIR>$\n   ┃\n   ┃  Reply with the word PONG only.\n   ┃\n \n      PONG\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "terminal-output",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n-                                                             sh-3.2$ echo tmark-$((40+2))\n+   Reply with the word PONG only +\n+                                                             <WORKDIR>$ echo tmark-$((40+2))\n   ┃                                                          tmark-42\n-  ┃  Reply with the word PONG only.                          sh-3.2$\n+  ┃  Reply with the word PONG only.                          <WORKDIR>$\n   ┃\n \n      PONG\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

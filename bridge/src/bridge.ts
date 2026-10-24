@@ -27,6 +27,7 @@ import { synthesize, type AnyObj } from "./spec-answers.ts";
 import { makiTitle } from "./title.ts";
 import { runUserShell, shellNotice } from "./user-shell.ts";
 import { reviewBase, reviewDiff, reviewStatus, VcsError, type Mode } from "./vcs.ts";
+import { SandboxTerminals, type SocketData } from "./terminals.ts";
 import { exportSession, SessionHistory } from "./history.ts";
 import { readGitState, readMcpConfig, readModelCatalog, readSkills, sandboxRun } from "./sandbox.ts";
 
@@ -73,6 +74,12 @@ interface BridgeSession {
 }
 
 const sessions = new Map<string, BridgeSession>();
+
+// the sandbox terminals (persistent PTYs) the TUI's terminal pane opens
+const terminals = new SandboxTerminals(
+  { openshell: process.env.OPENSHELL_BIN ?? "openshell", sandbox: process.env.OPENMAKI_SANDBOX },
+  (type, data) => emit(type, data),
+);
 
 // ---------- SSE fan-out (design decision 4: bare `data:` frames) ----------
 // Idle keepalive: the client aborts an event stream it has heard nothing
@@ -933,7 +940,7 @@ function serverInfo(url: URL): { status: number; payload: any } {
     pid: process.pid,
     urls: [`http://127.0.0.1:${server.port}`],
     paths: { tmp: tmpdir() },
-    capabilities: { persistentPty: false },
+    capabilities: { persistentPty: terminals.available },
   };
   return result;
 }
@@ -1036,6 +1043,58 @@ async function vcsReview(path: string, url: URL): Promise<{ status: number; payl
   }
 }
 
+// persistent terminals in the sandbox (terminals.ts)
+function terminalRoute(method: string, path: string, url: URL, body: AnyObj, req: Request): { status: number; payload: any } {
+  const notFound = (ptyID: string) => ({ status: 404, payload: { _tag: "PtyNotFoundError", ptyID, message: `PTY session not found: ${ptyID}` } });
+  const unavailable = { status: 503, payload: { _tag: "ServiceUnavailableError", message: "no sandbox to open a terminal in", service: "opencode-pty" } };
+  const session = /^\/api\/experimental\/session\/([^/]+)\/terminal$/.exec(path);
+  if (session) {
+    const sid = session[1]!;
+    const s = sessions.get(sid);
+    if (method === "GET") return { status: 200, payload: { data: terminals.list(sid) } };
+    if (method !== "POST") return synthesize(method, path, url, body, CANONICAL);
+    if (!terminals.available) return unavailable;
+    // the TUI names its own host directory; terminals open in the sandbox
+    // workdir, as every session runs there (design decision 5)
+    const asked = typeof body?.cwd === "string" ? posix.normalize(body.cwd) : "";
+    const cwd = asked === CANONICAL || asked.startsWith(`${CANONICAL}/`) ? asked : (s?.directory ?? CANONICAL);
+    const size = body?.size && Number.isInteger(body.size.cols) && Number.isInteger(body.size.rows) ? { cols: body.size.cols, rows: body.size.rows } : undefined;
+    const info = terminals.create(sid, {
+      command: typeof body?.command === "string" && body.command ? body.command : undefined,
+      args: Array.isArray(body?.args) ? body.args.map(String) : [],
+      cwd,
+      title: typeof body?.title === "string" ? body.title : undefined,
+      size,
+    });
+    return info ? { status: 200, payload: { data: info } } : unavailable;
+  }
+  const m = /^\/api\/experimental\/persistent-pty\/([^/]+)(\/snapshot|\/connect-token)?$/.exec(path)!;
+  const ptyID = m[1]!;
+  if (m[2] === "/snapshot" && method === "GET") {
+    const snap = terminals.snapshot(ptyID);
+    return snap ? { status: 200, payload: { data: snap } } : notFound(ptyID);
+  }
+  if (m[2] === "/connect-token" && method === "POST") {
+    if (req.headers.get("x-opencode-ticket") !== "1") return { status: 403, payload: { _tag: "ForbiddenError", message: "Invalid persistent PTY connect token request" } };
+    const ticket = terminals.issueTicket(ptyID);
+    return ticket ? { status: 200, payload: { data: ticket } } : notFound(ptyID);
+  }
+  if (!m[2] && method === "GET") {
+    const info = terminals.get(ptyID);
+    return info ? { status: 200, payload: { data: info } } : notFound(ptyID);
+  }
+  if (!m[2] && method === "PUT") {
+    const size = body?.size;
+    if (!size || !Number.isInteger(size.cols) || !Number.isInteger(size.rows) || size.cols < 1 || size.rows < 1) {
+      return { status: 400, payload: { _tag: "InvalidRequestError", message: "size must name positive cols and rows" } };
+    }
+    const info = terminals.resize(ptyID, { cols: size.cols, rows: size.rows });
+    return info ? { status: 200, payload: { data: info } } : notFound(ptyID);
+  }
+  if (!m[2] && method === "DELETE") return terminals.remove(ptyID) ? { status: 204, payload: null } : notFound(ptyID);
+  return synthesize(method, path, url, body, CANONICAL);
+}
+
 // /api/fs/list: the TUI lists its own (host) directory at startup and for
 // `/cd` completion; the project it names lives in the sandbox workdir, so the
 // listing is the sandbox's, read over the exec transport — never the host
@@ -1082,10 +1141,21 @@ function logRequest(entry: AnyObj, status: number, path: string, method: string)
 }
 
 // ---------- server ----------
-async function handle(req: Request): Promise<Response> {
+async function handle(req: Request, srv: Bun.Server<SocketData>): Promise<Response | undefined> {
   const url = new URL(req.url);
   const method = req.method.toUpperCase();
   const path = url.pathname;
+  // persistentPty.connect is a WebSocket upgrade (server handlers/persistent-pty.ts v2.0.32 L127–L209)
+  const connect = /^\/api\/experimental\/persistent-pty\/([^/]+)\/connect$/.exec(path);
+  if (method === "GET" && connect) {
+    const ptyID = connect[1]!;
+    const cursor = Number(url.searchParams.get("cursor") ?? "0");
+    if (!Number.isSafeInteger(cursor) || cursor < 0) return new Response(null, { status: 400 });
+    if (!terminals.has(ptyID) || !terminals.consumeTicket(url.searchParams.get("ticket"), ptyID)) return new Response(null, { status: 403 });
+    const data: SocketData = { ptyID, cursor, attachmentID: url.searchParams.get("attachment_id") ?? crypto.randomUUID(), takeover: url.searchParams.get("takeover") === "true" };
+    logRequest({ method, path, query: Object.fromEntries(url.searchParams), body: {}, resp: null }, 101, path, method);
+    return srv.upgrade(req, { data }) ? undefined : new Response(null, { status: 400 });
+  }
   const bodyText = method === "GET" || method === "HEAD" ? "" : await req.text();
   let body: AnyObj = {};
   if (bodyText) { try { body = JSON.parse(bodyText); } catch { body = { raw: bodyText }; } }
@@ -1128,6 +1198,8 @@ async function handle(req: Request): Promise<Response> {
     result = await vcsInfo(url);
   } else if (method === "GET" && (path === "/api/vcs/diff" || path === "/api/vcs/base" || path === "/api/vcs/status")) {
     result = await vcsReview(path, url);
+  } else if (/^\/api\/experimental\/(?:session\/[^/]+\/terminal|persistent-pty\/[^/]+(?:\/snapshot|\/connect-token)?)$/.test(path) && !path.endsWith("/terminal/read")) {
+    result = terminalRoute(method, path, url, body, req);
   } else if (method === "GET" && path === "/api/fs/list") {
     result = await fsList(url);
   } else if (method === "GET" && path === "/api/info") {
@@ -1147,6 +1219,7 @@ async function handle(req: Request): Promise<Response> {
 }
 
 function shutdown(): void {
+  terminals.shutdown();
   for (const s of sessions.values()) s.maki.kill();
   process.exit(0);
 }
@@ -1156,5 +1229,15 @@ process.on("exit", () => { for (const s of sessions.values()) s.maki.kill(); });
 
 // server.port (not PORT): with PORT=0 the listen line must name the bound
 // port, which is what wait_for_bridge_port parses
-const server = Bun.serve({ port: PORT, hostname: "127.0.0.1", idleTimeout: 0, fetch: handle });
+const server = Bun.serve<SocketData>({
+  port: PORT,
+  hostname: "127.0.0.1",
+  idleTimeout: 0,
+  fetch: handle,
+  websocket: {
+    open: (ws) => terminals.open(ws),
+    message: (ws, message) => terminals.message(ws, message as string | Buffer),
+    close: (ws) => terminals.close(ws),
+  },
+});
 console.log(`bridge listening on http://127.0.0.1:${server.port} (canonical: ${CANONICAL})`);

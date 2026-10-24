@@ -772,11 +772,13 @@
       "features": ["subagent-nesting"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "diverges",
-      "evidence": { "reference":"bridge/test/journeys/open-subagent-session/reference/","maki":"bridge/test/journeys/open-subagent-session/maki/","diff":"bridge/test/journeys/open-subagent-session/diff.json","live":{"snapshots":"bridge/test/journeys/open-subagent-session/live/","diff":"bridge/test/journeys/open-subagent-session/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"diverges"} },
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/open-subagent-session/reference/","maki":"bridge/test/journeys/open-subagent-session/maki/","diff":"bridge/test/journeys/open-subagent-session/diff.json","live":{"snapshots":"bridge/test/journeys/open-subagent-session/live/","diff":"bridge/test/journeys/open-subagent-session/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
       "acceptedDiffs": [
         { "checkpoint": "subagent-row", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
-        { "checkpoint": "parent", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+        { "checkpoint": "subagent-picker", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "parent", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "child", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the child session shows the prompt Maki's subagent really received: Maki sends the task's prompt as given (plugins/task/init.lua v0.6.4 L211–L214), where OpenCode prefixes \"You are a subagent spawned by another session.\" (core tool/plugin/subagent.ts v2.0.32 L207–L211)" }
       ]
     },
     {
@@ -830,19 +832,22 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:100 (terminal.toggle) and packages/tui/src/component/session-frame.tsx:250 (/terminal) at v2.0.32",
       "scenario": {
-        "steps": ["open a session", "press leader+t", "run a command in the terminal"],
+        "steps": ["prompt \"Reply with the word PONG only.\"", "press leader+t", "run a command in the terminal"],
         "checkpoints": [
-          { "id": "terminal-open", "after": 2, "expect": "a terminal pane opens beside the transcript" },
-          { "id": "terminal-output", "after": 3, "expect": "the command's output renders in the pane" }
+          { "id": "terminal-open", "after": 2, "expect": "a terminal pane opens beside the transcript with a shell prompt" },
+          { "id": "terminal-output", "after": 3, "expect": "the command and its output render in the pane under a fresh prompt" }
         ]
       },
-      "routes": ["GET /api/experimental/session/{sessionID}/terminal", "POST /api/experimental/session/{sessionID}/terminal"],
-      "features": ["server-info-live"],
+      "routes": ["GET /api/experimental/session/{sessionID}/terminal", "POST /api/experimental/session/{sessionID}/terminal", "GET /api/experimental/persistent-pty/{ptyID}/snapshot", "POST /api/experimental/persistent-pty/{ptyID}/connect-token"],
+      "features": ["sandbox-terminals"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/open-terminal-pane/reference/","maki":"bridge/test/journeys/open-terminal-pane/maki/","diff":"bridge/test/journeys/open-terminal-pane/diff.json","live":{"snapshots":"bridge/test/journeys/open-terminal-pane/live/","diff":"bridge/test/journeys/open-terminal-pane/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "terminal-open", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the terminal runs in the sandbox, so it opens the sandbox user's own shell — bash in the project image, with its user@host:cwd prompt — never the host's environment (no --env value reaches the sandbox); the reference terminal opens the journey's host /bin/sh; offline, the scripted sandbox runs that same /bin/sh" },
+        { "checkpoint": "terminal-output", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the terminal runs in the sandbox, so it opens the sandbox user's own shell — bash in the project image, with its user@host:cwd prompt — never the host's environment (no --env value reaches the sandbox); the reference terminal opens the journey's host /bin/sh; offline, the scripted sandbox runs that same /bin/sh" }
+      ]
     },
     {
       "slug": "view-shell-output",

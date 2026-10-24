@@ -1,6 +1,7 @@
 {"method":"GET","path":"/api/agent"}
 {"method":"GET","path":"/api/command"}
 {"method":"GET","path":"/api/config"}
+{"method":"GET","path":"/api/experimental/session/{sessionID}/terminal"}
 {"method":"GET","path":"/api/form"}
 {"method":"GET","path":"/api/fs/list"}
 {"method":"GET","path":"/api/info"}

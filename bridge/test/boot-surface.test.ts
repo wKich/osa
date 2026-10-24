@@ -1,6 +1,6 @@
 // Offline coverage for the boot surface the TUI reads before any turn
 // (fix-boot-surface-truth): the server info names the bridge itself and
-// offers no persistent PTY, and the list routes with nothing behind them
+// offers the sandbox's persistent terminals, and the list routes with nothing behind them
 // answer empty, contract-valid bodies instead of synthesized `sample` rows the
 // TUI would render as a connected MCP server, a running shell, an active
 // plugin, a reference alias, or a runnable command. Drives the shipped
@@ -27,7 +27,7 @@ describe("boot surface", () => {
     await bridge?.stop();
   });
 
-  test("server info describes the bridge process and offers no persistent PTY", async () => {
+  test("server info describes the bridge process and offers sandbox terminals", async () => {
     const { status, body } = await get(bridge, "/api/info");
     expect(status).toBe(200);
     expect(validateBody("/api/info", "GET", status, body)).toBeNull();
@@ -35,7 +35,8 @@ describe("boot surface", () => {
     expect(body.pid).toBe(bridge.pid);
     expect(new URL(body.urls[0]).port).toBe(String(bridge.port));
     expect(body.paths.tmp.startsWith("/")).toBe(true);
-    expect(body.capabilities).toEqual({ persistentPty: false });
+    // the bridge serves persistent terminals in the sandbox (add-sandbox-terminals)
+    expect(body.capabilities).toEqual({ persistentPty: true });
   });
 
   test("the agent list is Maki's one primary agent", async () => {

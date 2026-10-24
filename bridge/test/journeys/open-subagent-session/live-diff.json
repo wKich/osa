@@ -1,5 +1,5 @@
 {
-  "status": "diverges",
+  "status": "parity",
   "checkpoints": [
     {
       "id": "subagent-row",
@@ -9,12 +9,12 @@
     {
       "id": "subagent-picker",
       "verdict": "differs",
-      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use a subagent to get the wor +\n \n   ┃\n   ┃  Use a subagent to get the word MARK, then reply DONE.\n   ┃\n \n      ✓ General Subagent — Echo a marker\n \n      DONE\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n-  ┃  Subagents  Shell  Terminals                                                                                 esc\n+  ┃  Subagents  Shell                                                                                            esc\n   ┃\n   ┃  General: Echo a marker\n   ┃\n   ┃\n   ┃\n   ┃\n   ┃\n   ┃  show active ctrl+a  tabs ←/→\n   ┃"
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use a subagent to get the wor +\n \n   ┃\n   ┃  Use a subagent to get the word MARK, then reply DONE.\n   ┃\n \n      ✓ General Subagent — Echo a marker\n \n      DONE\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃  Subagents  Shell  Terminals                                                                                 esc\n   ┃\n   ┃  General: Echo a marker\n   ┃\n   ┃\n   ┃\n   ┃\n   ┃\n   ┃  show active ctrl+a  tabs ←/→\n   ┃"
     },
     {
       "id": "child",
       "verdict": "differs",
-      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use a subagent to get the wor +\n \n   ┃\n-  ┃  You are a subagent spawned by another session.\n   ┃  Reply with the word MARK only.\n   ┃\n \n      MARK\n \n      General · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n+\n   ┃\n-  ┃  Subagents  Shell  Terminals                                                                                 esc\n+  ┃  Subagents  Shell                                                                                            esc\n   ┃\n   ┃  General: Echo a marker\n   ┃\n   ┃\n   ┃\n   ┃\n   ┃\n   ┃  show active ctrl+a  tabs ←/→\n   ┃"
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use a subagent to get the wor +\n \n   ┃\n-  ┃  You are a subagent spawned by another session.\n   ┃  Reply with the word MARK only.\n   ┃\n \n      MARK\n \n      General · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n+\n   ┃\n   ┃  Subagents  Shell  Terminals                                                                                 esc\n   ┃\n   ┃  General: Echo a marker\n   ┃\n   ┃\n   ┃\n   ┃\n   ┃\n   ┃  show active ctrl+a  tabs ←/→\n   ┃"
     },
     {
       "id": "parent",

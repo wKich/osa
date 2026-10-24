@@ -51,7 +51,7 @@ openshell sandbox exec -n maki --no-login-shell -- touch /usr/probe
 ```
 
 **Expected:** `touch: cannot touch '/usr/probe': Permission denied`, exit code
-1. System paths are read-only; `/sandbox` and `/tmp` accept writes.
+1. System paths are read-only; `/sandbox`, `/tmp`, and the `/dev/null` sink accept writes.
 
 ## 4. Effective policy review
 

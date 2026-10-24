@@ -1,0 +1,26 @@
+Version:      1
+Hash:         d89a5efd24726a19a209f7159ecb562743b703750987845cc9064cefb9ae36c1
+Status:       Effective
+Source:       sandbox
+Config rev:   13030484760726302490
+---
+version: 1
+filesystem_policy:
+  include_workdir: true
+  read_only:
+    - /usr
+    - /lib
+    - /bin
+    - /etc
+    - /proc
+    - /dev/urandom
+    - /var/log
+  read_write:
+    - /sandbox
+    - /tmp
+    - /dev/null
+landlock:
+  compatibility: hard_requirement
+process:
+  run_as_user: "1500"
+  run_as_group: "1500"

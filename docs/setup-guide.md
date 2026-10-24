@@ -19,7 +19,7 @@ Maki runs in an OpenShell sandbox — a Docker container (or MicroVM) whose
 isolation does not depend on Maki's own permission system:
 
 - **Filesystem.** Landlock confines the workload to the paths in the sandbox
-  policy: `/sandbox` and `/tmp` are writable, system paths are read-only,
+  policy: `/sandbox`, `/tmp`, and the `/dev/null` sink are writable, system paths are read-only,
   everything else is inaccessible. Host paths such as `/Users` do not exist in
   the sandbox.
 - **Network.** Egress is deny-by-default through a proxy. Only endpoints named
@@ -178,7 +178,7 @@ openshell provider list
 ## 5. Sandbox policy
 
 Use [`examples/policies/maki-minimal.yaml`](../examples/policies/maki-minimal.yaml):
-system paths read-only, `/sandbox` and `/tmp` read-write, uid/gid 1500, and no
+system paths read-only, `/sandbox`, `/tmp`, and `/dev/null` read-write, uid/gid 1500, and no
 network rules of its own. The attached provider contributes the model endpoint
 rules, and the result is the *effective* policy.
 

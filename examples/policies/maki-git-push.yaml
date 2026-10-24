@@ -28,6 +28,9 @@ filesystem_policy:
   read_write:
     - /sandbox
     - /tmp
+    # The null device, as in OpenShell's default policy and baseline paths:
+    # every process Maki spawns with a null stdin opens it.
+    - /dev/null
 
 landlock:
   compatibility: hard_requirement

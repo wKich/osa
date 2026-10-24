@@ -4,7 +4,7 @@ Generated from `bridge/compat/statuses.json`, `bridge/compat/journeys.json` and 
 
 ## Burndown
 
-Reachable surface: **35 of 143 routes** (22 `served-live`, 7 `served-faked`, 6 `deferred`, 0 `unhandled`) and **39 of 41 features** (34 `verified`, 0 `unverified`, 5 `degraded` (5 pin-blocked), 0 `buggy`). Out of scope: 108 routes, 2 features. Open defects: **1**.
+Reachable surface: **35 of 143 routes** (22 `served-live`, 7 `served-faked`, 6 `deferred`, 0 `unhandled`) and **39 of 41 features** (34 `verified`, 0 `unverified`, 5 `degraded` (5 pin-blocked), 0 `buggy`). Out of scope: 108 routes, 2 features. Open defects: **0**.
 
 Untriaged reachable routes: **0**.
 

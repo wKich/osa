@@ -7,7 +7,7 @@
   ┃
   ┃  $ rm -f probe.txt
   ┃
-  ┃  error: Permission denied (os error 13)
+  ┃  Exit code: 0
   ┃
 
      DONE

@@ -39,7 +39,7 @@ Never violate these, even to make a command succeed:
   provider-profile decision; add the narrowest rule and never use `tls: skip`,
   `access: full`, or wildcard hosts to fix a denial.
 - **Non-root sandbox user.** Processes run as uid/gid 1500 (`sandbox`), and the
-  filesystem policy stays minimal (`/sandbox` and `/tmp` writable, system paths
+  filesystem policy stays minimal (`/sandbox`, `/tmp`, and the `/dev/null` sink writable, system paths
   read-only).
 - **Maki never authenticates inside the sandbox.** Do not run
   `maki auth login`, and do not set `ANTHROPIC_BASE_URL` /

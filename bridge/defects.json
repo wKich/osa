@@ -80,7 +80,7 @@
   {
     "id": "minimal-policy-denies-dev-null",
     "title": "examples/policies/maki-minimal.yaml omits /dev/null, so with no provider attached every Maki bash call fails to spawn (`stdin(Stdio::null())`, maki-lua fn.rs v0.6.4 L299) with `Permission denied (os error 13)`",
-    "status": "known",
+    "status": "fixed",
     "capture": "bridge/test/journeys/evidence/pilot-live.md",
     "journey": {
       "slug": "allow-permission-once",

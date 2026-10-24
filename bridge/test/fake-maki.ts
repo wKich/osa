@@ -81,8 +81,15 @@ function streamText(text: string): void {
 // FAKE_MAKI_SCRIPT=<json> replays one journey script's model turns as Maki
 // wire frames (design decision 3), so the Maki side consumes the same turns
 // as the reference run's mock provider.
-const script: Array<{ text?: string; stream?: string[]; tool?: { command: string; needsPermission?: boolean } }> =
-  process.env.FAKE_MAKI_SCRIPT ? JSON.parse(process.env.FAKE_MAKI_SCRIPT) : [];
+type ScriptTurn = {
+  text?: string;
+  stream?: string[];
+  delayMs?: number;
+  tool?: { command: string; needsPermission?: boolean };
+  call?: { maki: { name: string; input: Record<string, unknown>; result: string; isError?: boolean }; needsPermission?: boolean };
+  fail?: { status: number; message: string };
+};
+const script: ScriptTurn[] = process.env.FAKE_MAKI_SCRIPT ? JSON.parse(process.env.FAKE_MAKI_SCRIPT) : [];
 // Turns are consumed in order across prompts, like the reference provider's
 // one-turn-per-request: a text turn ends its run, a tool turn continues it.
 // The bridge spawns one child per session, so an optional state file carries
@@ -122,16 +129,41 @@ function toolFrames(toolUseID: string, command: string, isError: boolean, conten
 const CALL_USAGE = { input_tokens: 1, output_tokens: 1 };
 let runCalls = 0;
 
-function toolCall(toolUseID: string, command: string): void {
+// Maki's wire names its tools Claude-style (sdk_mode.rs v0.6.4 L43–L60)
+const CLAUDE_NAME: Record<string, string> = {
+  bash: "Bash", read: "Read", edit: "Edit", write: "Write", grep: "Grep", glob: "Glob", todo_write: "TodoWrite",
+  webfetch: "WebFetch", websearch: "WebSearch", task: "Task", multiedit: "MultiEdit", code_execution: "CodeExecution",
+  index: "Index", memory: "Memory", question: "Question", skill: "Skill",
+};
+
+function toolCall(toolUseID: string, command: string, name = "Bash", input: Record<string, unknown> = { command }): void {
   runCalls++;
   out({
     type: "assistant",
-    message: { role: "assistant", content: [{ type: "tool_use", id: toolUseID, name: "Bash", input: { command } }], usage: CALL_USAGE },
+    message: { role: "assistant", content: [{ type: "tool_use", id: toolUseID, name, input }], usage: CALL_USAGE },
   });
   out({ type: "stream_event", event: { type: "message_start", message: { role: "assistant", content: [] } } });
-  out({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: toolUseID, name: "Bash", input: {} } } });
-  out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify({ command }) } } });
+  out({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: toolUseID, name, input: {} } } });
+  out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify(input) } } });
   out({ type: "stream_event", event: { type: "content_block_stop", index: 0 } });
+}
+
+// A paced stream checks for an interrupt between chunks; a cancelled stream
+// ends with no buffered message (TurnComplete never fires), only the error
+// result (run.rs v0.6.4 L560–L571, sdk_mode.rs L1162–L1178)
+async function pacedParts(parts: string[], delayMs: number, run: { cancelled: boolean }): Promise<boolean> {
+  out({ type: "stream_event", event: { type: "message_start", message: { role: "assistant", content: [] } } });
+  out({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } });
+  for (const [i, delta] of parts.entries()) {
+    if (i > 0) await Bun.sleep(delayMs);
+    if (run.cancelled) return false;
+    out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: delta } } });
+  }
+  await Bun.sleep(delayMs);
+  if (run.cancelled) return false;
+  out({ type: "stream_event", event: { type: "content_block_stop", index: 0 } });
+  out({ type: "stream_event", event: { type: "message_stop" } });
+  return true;
 }
 
 function toolResult(toolUseID: string, isError: boolean, content: string): void {
@@ -182,10 +214,26 @@ const runResult = () => {
 };
 
 async function runScript(): Promise<void> {
+  const run: { proc?: { kill(): void }; cancelled: boolean } = { cancelled: false };
+  current = run;
+  try {
+    await playScript(run);
+  } finally {
+    if (current === run) current = undefined;
+  }
+}
+
+async function playScript(run: { cancelled: boolean }): Promise<void> {
   // A short beat so the TUI has registered the prompt and its session before
   // the scripted frames arrive; a real model never answers in the same tick.
   await Bun.sleep(300);
+  let attempt = 0;
   for (;;) {
+    if (run.cancelled) {
+      runCalls = 0;
+      cancelledResult();
+      return;
+    }
     const turn = nextTurn();
     if (!turn) {
       streamParts(["No more scripted turns."]);
@@ -194,9 +242,43 @@ async function runScript(): Promise<void> {
       runResult();
       return;
     }
+    if (turn.fail) {
+      // the provider error as the pinned agent formats it (maki-providers
+      // error.rs v0.6.4 L106); 429 and 5xx are retried with an api_retry
+      // notice (error.rs L2, sdk_mode.rs L1076–L1089), anything else ends the run
+      const message = `API error (${turn.fail.status}): ${turn.fail.message}`;
+      if (turn.fail.status === 429 || turn.fail.status >= 500) {
+        out({ type: "system", subtype: "api_retry", attempt: ++attempt, retry_delay_ms: 1000, error: message });
+        await Bun.sleep(1000);
+        continue;
+      }
+      runCalls = 0;
+      out({ type: "result", subtype: "error_during_execution", is_error: true, result: message, usage: { input_tokens: 0, output_tokens: 0 }, total_cost_usd: 0 });
+      return;
+    }
+    if (turn.call) {
+      const toolUseID = `toolu_fake${String(++toolSeq).padStart(6, "0")}`;
+      const name = CLAUDE_NAME[turn.call.maki.name] ?? turn.call.maki.name;
+      toolCall(toolUseID, "", name, turn.call.maki.input);
+      let answer: "allow" | "deny" = "allow";
+      if (turn.call.needsPermission) {
+        const requestID = `req_fake${String(toolSeq).padStart(10, "0")}`;
+        out({ type: "control_request", request_id: requestID, request: { subtype: "can_use_tool", tool_name: name, tool_use_id: toolUseID, input: turn.call.maki.input } });
+        answer = await new Promise((resolve) => answers.set(requestID, resolve));
+      }
+      if (answer === "deny") toolResult(toolUseID, true, "Permission denied: rejected by the user");
+      else toolResult(toolUseID, turn.call.maki.isError === true, turn.call.maki.result);
+      continue;
+    }
     if (!turn.tool) {
       const text = turn.text ?? "";
-      streamParts(turn.stream ?? [text]);
+      if (turn.delayMs) {
+        if (!(await pacedParts(turn.stream ?? [text], turn.delayMs, run))) {
+          runCalls = 0;
+          cancelledResult();
+          return;
+        }
+      } else streamParts(turn.stream ?? [text]);
       runCalls++;
       out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }], usage: CALL_USAGE } });
       runResult();

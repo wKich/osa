@@ -38,4 +38,27 @@ describe("mock provider", () => {
       provider.close();
     }
   });
+
+  test("serves per-side tool calls, model errors, and paced chunks", async () => {
+    const turns = [
+      { call: { opencode: { name: "read", input: { filePath: "a" } }, maki: { name: "read", input: { path: "a" }, result: "x" } } },
+      { fail: { status: 500, message: "boom" } },
+      { text: "SLOW", stream: ["SL", "OW"], delayMs: 200 },
+    ];
+    const opencode = startMockProvider(turns);
+    const maki = startMockProvider(turns, "bash");
+    try {
+      expect(await ask(opencode.url, [{ role: "user", content: "go" }])).toContain('"arguments":"{\\"filePath\\":\\"a\\"}"');
+      expect(await ask(maki.url, [{ role: "user", content: "go" }])).toContain('"arguments":"{\\"path\\":\\"a\\"}"');
+      const failed = await fetch(`${opencode.url}/chat/completions`, { method: "POST", body: JSON.stringify({ messages: [{ role: "user", content: "x" }] }) });
+      expect(failed.status).toBe(500);
+      expect(await failed.json()).toEqual({ error: { message: "boom", type: "journey_error" } });
+      const started = Date.now();
+      expect(await ask(opencode.url, [{ role: "user", content: "slow" }])).toContain('"content":"OW"');
+      expect(Date.now() - started).toBeGreaterThanOrEqual(500);
+    } finally {
+      opencode.close();
+      maki.close();
+    }
+  });
 });

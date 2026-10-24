@@ -24,7 +24,7 @@ const paths = {
 };
 
 describe("reference isolation", () => {
-  test("the spawned env carries no provider credential or OPENCODE_* variable", () => {
+  test("the spawned env carries no provider credential or host OPENCODE_* variable", () => {
     const env = referenceEnv(paths, {
       ...process.env,
       ANTHROPIC_API_KEY: "secret",
@@ -33,7 +33,9 @@ describe("reference isolation", () => {
       OPENCODE_AUTO_SHARE: "1",
     });
     const leaked = Object.keys(env).filter((key) => key.endsWith("_API_KEY") || key.startsWith("OPENCODE_"));
-    expect(leaked).toEqual([]);
+    // the harness's own switch: no update check reaches the release feed
+    expect(leaked).toEqual(["OPENCODE_DISABLE_AUTOUPDATE"]);
+    expect(env.OPENCODE_DISABLE_AUTOUPDATE).toBe("1");
     expect(env.HOME).toBe(paths.home);
     expect(env.XDG_CONFIG_HOME).toBe(paths.home + "/.config");
   });

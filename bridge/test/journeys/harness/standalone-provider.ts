@@ -8,7 +8,7 @@
 //
 // Prints `listening on 127.0.0.1:<port>` once the server is up.
 import { readFileSync, writeFileSync } from "node:fs";
-import { beginReplay, chatBody, modelReply } from "./mock-provider.ts";
+import { beginReplay, chatBody, errorBody, modelReply } from "./mock-provider.ts";
 import type { Turn } from "./journey.ts";
 
 const arg = (name: string) => {
@@ -38,6 +38,7 @@ const server = Bun.serve({
     const reply = modelReply(replay, turns, url.pathname, body, "bash");
     if (reply.kind === "models") return Response.json(reply.json);
     if (reply.kind === "notFound") return new Response("not found", { status: 404 });
+    if (reply.kind === "error") return errorBody(reply);
     return chatBody(reply);
   },
 });

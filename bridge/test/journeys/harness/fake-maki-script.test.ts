@@ -112,4 +112,60 @@ describe("fake-maki script mode", () => {
       await proc.exited;
     }
   });
+
+  test("a paced text turn stops on interrupt with only the cancelled result", async () => {
+    const { proc, lines, prompt } = startScript([{ text: "ABCDEF", stream: ["AB", "CD", "EF"], delayMs: 400 }]);
+    try {
+      prompt("go");
+      await waitFor(lines, () => lines.some((l) => l.event?.delta?.text === "AB"));
+      proc.stdin.write(JSON.stringify({ type: "control_request", request_id: "r1", request: { subtype: "interrupt" } }) + "\n");
+      proc.stdin.flush();
+      await waitFor(lines, () => lines.some((l) => l.type === "result"));
+      const result = lines.find((l) => l.type === "result");
+      expect(result.subtype).toBe("error_during_execution");
+      expect(lines.some((l) => l.type === "assistant")).toBe(false);
+      expect(lines.some((l) => l.event?.delta?.text === "EF")).toBe(false);
+    } finally {
+      proc.kill();
+      await proc.exited;
+    }
+  });
+
+  test("a call turn speaks Maki's tool name and returns the scripted result", async () => {
+    const { proc, lines, prompt } = startScript([
+      { call: { opencode: { name: "read", input: { path: "a" } }, maki: { name: "read", input: { path: "a" }, result: "1: x" } } },
+      { text: "OK" },
+    ]);
+    try {
+      prompt("go");
+      await waitFor(lines, () => lines.some((l) => l.type === "result"));
+      const call = lines.find((l) => l.type === "assistant" && l.message.content[0]?.type === "tool_use");
+      expect(call.message.content[0]).toMatchObject({ name: "Read", input: { path: "a" } });
+      expect(lines.find((l) => l.type === "user").message.content[0]).toMatchObject({ content: "1: x", is_error: false });
+      expect(lines.find((l) => l.type === "result").subtype).toBe("success");
+    } finally {
+      proc.kill();
+      await proc.exited;
+    }
+  });
+
+  test("a failing model call is retried on 5xx and ends the run on 4xx", async () => {
+    const { proc, lines, prompt } = startScript([
+      { fail: { status: 503, message: "busy" } },
+      { text: "OK" },
+      { fail: { status: 400, message: "bad request" } },
+    ]);
+    try {
+      prompt("first");
+      await waitFor(lines, () => lines.some((l) => l.type === "result"), 8000);
+      expect(lines.find((l) => l.subtype === "api_retry")).toMatchObject({ attempt: 1, error: "API error (503): busy" });
+      expect(lines.find((l) => l.type === "result").subtype).toBe("success");
+      prompt("second");
+      await waitFor(lines, () => lines.filter((l) => l.type === "result").length === 2, 8000);
+      expect(lines.filter((l) => l.type === "result")[1]).toMatchObject({ is_error: true, result: "API error (400): bad request" });
+    } finally {
+      proc.kill();
+      await proc.exited;
+    }
+  });
 });

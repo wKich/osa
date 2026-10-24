@@ -106,6 +106,10 @@ export function referenceEnv(paths: Paths, base: NodeJS.ProcessEnv = process.env
     XDG_CACHE_HOME: join(paths.home, ".cache"),
     TERM: "xterm-256color",
     LANG: base.LANG ?? "C.UTF-8",
+    // The TUI's update check asks the OpenCode release feed; a journey's only
+    // network peer is the loopback provider (cli services/updater.ts v2.0.32
+    // L534), and a new release must not change every home-screen snapshot.
+    OPENCODE_DISABLE_AUTOUPDATE: "1",
   };
   if (base.TMPDIR) env.TMPDIR = base.TMPDIR;
   return env;

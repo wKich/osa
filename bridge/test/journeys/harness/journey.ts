@@ -2,9 +2,30 @@
 // reference OpenCode run and the Maki-side run: the same key steps and the
 // same model turns.
 
+/** One side's spelling of a tool call: OpenCode's tool name and input, or Maki's. */
+export interface CallSpelling {
+  name: string;
+  input: Record<string, unknown>;
+}
+
 export type Turn =
-  | { text: string; stream?: string[] }
-  | { tool: { command: string; needsPermission?: boolean } };
+  /** `delayMs` paces the stream chunks, so a turn can still be running when a step acts. */
+  | { text: string; stream?: string[]; delayMs?: number }
+  | { tool: { command: string; needsPermission?: boolean } }
+  /**
+   * A model tool call spelled per side; each side's real tool runs it. The
+   * scripted Maki child cannot run Maki's tools, so `maki.result` is the text
+   * the pinned tool returns for it (the live run checks it against real Maki).
+   */
+  | {
+      call: {
+        opencode: CallSpelling;
+        maki: CallSpelling & { result: string; isError?: boolean };
+        needsPermission?: boolean;
+      };
+    }
+  /** The model call fails with this HTTP status and error message. */
+  | { fail: { status: number; message: string } };
 
 export interface WaitOptions {
   /** Wait until no terminal data has arrived for this long. */

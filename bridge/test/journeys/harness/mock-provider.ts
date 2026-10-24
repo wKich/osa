@@ -49,12 +49,12 @@ function textChunks(text: string, stream?: string[]): string[] {
   return chunks;
 }
 
-function toolChunks(command: string, id: string, tool: string): string[] {
+function toolChunks(input: Record<string, unknown>, id: string, tool: string): string[] {
   const call = {
     index: 0,
     id,
     type: "function",
-    function: { name: tool, arguments: JSON.stringify({ command }) },
+    function: { name: tool, arguments: JSON.stringify(input) },
   };
   return [
     chunk({ choices: [{ index: 0, delta: { role: "assistant", tool_calls: [call] }, finish_reason: null }] }),
@@ -65,7 +65,8 @@ function toolChunks(command: string, id: string, tool: string): string[] {
 
 export type ModelReply =
   | { kind: "models"; json: unknown }
-  | { kind: "chat"; title: boolean; chunks: string[] }
+  | { kind: "chat"; title: boolean; chunks: string[]; delayMs?: number }
+  | { kind: "error"; status: number; json: unknown }
   | { kind: "notFound" };
 
 /**
@@ -88,11 +89,19 @@ export function modelReply(
 
   const turn = turns[replay.next++];
   if (!turn) return { kind: "chat", title: false, chunks: textChunks("No more scripted turns.") };
-  const chunks =
-    "tool" in turn
-      ? toolChunks(turn.tool.command, `call_journey_${++replay.toolCalls}`, tool)
-      : textChunks(turn.text, turn.stream);
-  return { kind: "chat", title: false, chunks };
+  if ("fail" in turn) {
+    // the OpenAI error envelope both sides' OpenAI-compatible clients parse
+    return { kind: "error", status: turn.fail.status, json: { error: { message: turn.fail.message, type: "journey_error" } } };
+  }
+  if ("call" in turn) {
+    // `tool` names the side: OpenCode's shell is `shell`, Maki's is `bash`
+    const spelling = tool === "shell" ? turn.call.opencode : turn.call.maki;
+    return { kind: "chat", title: false, chunks: toolChunks(spelling.input, `call_journey_${++replay.toolCalls}`, spelling.name) };
+  }
+  if ("tool" in turn) {
+    return { kind: "chat", title: false, chunks: toolChunks({ command: turn.tool.command }, `call_journey_${++replay.toolCalls}`, tool) };
+  }
+  return { kind: "chat", title: false, chunks: textChunks(turn.text, turn.stream), delayMs: turn.delayMs };
 }
 
 /** The SSE body for one chat reply, with the beat a real model would take. */
@@ -100,10 +109,31 @@ export async function chatBody(reply: Extract<ModelReply, { kind: "chat" }>): Pr
   // The beat lets the TUI render the submitted user message before the reply
   // starts; a real model never answers in the same tick.
   await Bun.sleep(300);
-  return new Response(reply.chunks.join("") + "data: [DONE]\n\n", {
-    headers: { "content-type": "text/event-stream" },
-  });
+  const headers = { "content-type": "text/event-stream" };
+  if (!reply.delayMs) return new Response(reply.chunks.join("") + "data: [DONE]\n\n", { headers });
+  // A paced turn sends each chunk after the delay, so the turn stays running;
+  // a client that hangs up (an interrupt) ends the stream early.
+  const enc = new TextEncoder();
+  const delay = reply.delayMs;
+  const chunks = [...reply.chunks, "data: [DONE]\n\n"];
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        const next = chunks.shift();
+        if (next === undefined) return controller.close();
+        if (chunks.length < reply.chunks.length) await Bun.sleep(delay);
+        try {
+          controller.enqueue(enc.encode(next));
+        } catch {
+          chunks.length = 0;
+        }
+      },
+    }),
+    { headers },
+  );
 }
+
+export const errorBody = (reply: Extract<ModelReply, { kind: "error" }>) => Response.json(reply.json, { status: reply.status });
 
 export function startMockProvider(turns: Turn[], tool = "shell"): MockProvider {
   const replay = beginReplay();
@@ -123,6 +153,7 @@ export function startMockProvider(turns: Turn[], tool = "shell"): MockProvider {
       const reply = modelReply(replay, turns, url.pathname, body, tool);
       if (reply.kind === "models") return Response.json(reply.json);
       if (reply.kind === "notFound") return new Response("not found", { status: 404 });
+      if (reply.kind === "error") return errorBody(reply);
       return chatBody(reply);
     },
   });

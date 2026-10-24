@@ -95,8 +95,8 @@
     "type": "session.step.ended",
     "finish": "stop",
     "tokens": {
-      "input": 8322,
-      "output": 112,
+      "input": 90,
+      "output": 34,
       "reasoning": 0,
       "cache": {
         "read": 8192,
@@ -201,11 +201,11 @@
     "type": "session.step.ended",
     "finish": "stop",
     "tokens": {
-      "input": 2920,
-      "output": 198,
+      "input": 2880,
+      "output": 111,
       "reasoning": 0,
       "cache": {
-        "read": 13632,
+        "read": 5440,
         "write": 0
       }
     }

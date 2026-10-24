@@ -109,11 +109,11 @@
     "type": "session.step.ended",
     "finish": "stop",
     "tokens": {
-      "input": 8323,
-      "output": 113,
+      "input": 33,
+      "output": 70,
       "reasoning": 0,
       "cache": {
-        "read": 16448,
+        "read": 8256,
         "write": 0
       }
     }

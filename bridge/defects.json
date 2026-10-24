@@ -86,5 +86,15 @@
       "slug": "allow-permission-once",
       "checkpoint": "allowed"
     }
+  },
+  {
+    "id": "step-tokens-cumulative",
+    "title": "session.step.ended reports the run’s cumulative result usage as the step’s tokens, so after a multi-call turn (tool call + reply) the TUI context counter shows the run total (live `4`) instead of the last model call’s tokens (reference `2`)",
+    "status": "fixed",
+    "capture": "bridge/test/journeys/allow-permission-once/live-diff.json",
+    "journey": {
+      "slug": "allow-permission-once",
+      "checkpoint": "allowed"
+    }
   }
 ]

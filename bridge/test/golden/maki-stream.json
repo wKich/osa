@@ -153,11 +153,11 @@
     "type": "session.step.ended",
     "finish": "stop",
     "tokens": {
-      "input": 100,
-      "output": 122,
+      "input": 29,
+      "output": 89,
       "reasoning": 0,
       "cache": {
-        "read": 16384,
+        "read": 8192,
         "write": 0
       }
     }

@@ -118,10 +118,15 @@ function toolFrames(toolUseID: string, command: string, isError: boolean, conten
 // message (TurnComplete, run.rs v0.6.4 L605) before dispatch, then the
 // streamed tool_use block (ToolStart, sdk_mode.rs v0.6.4 L1037–L1052), and
 // only then the permission ask (L1115–L1149)
+// one scripted model call's usage, as the journey's mock provider reports it
+const CALL_USAGE = { input_tokens: 1, output_tokens: 1 };
+let runCalls = 0;
+
 function toolCall(toolUseID: string, command: string): void {
+  runCalls++;
   out({
     type: "assistant",
-    message: { role: "assistant", content: [{ type: "tool_use", id: toolUseID, name: "Bash", input: { command } }] },
+    message: { role: "assistant", content: [{ type: "tool_use", id: toolUseID, name: "Bash", input: { command } }], usage: CALL_USAGE },
   });
   out({ type: "stream_event", event: { type: "message_start", message: { role: "assistant", content: [] } } });
   out({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: toolUseID, name: "Bash", input: {} } } });
@@ -169,6 +174,13 @@ async function runCommand(command: string): Promise<void> {
 // Play the journey's turns in order: text turns become stream deltas plus the
 // buffered assistant message, and a tool turn asks for permission when the
 // turn says so, runs the command, then moves to the next turn.
+// the pinned result carries the run's ledger total (run.rs v0.6.4 L868–L882)
+const runResult = () => {
+  const n = runCalls;
+  runCalls = 0;
+  out({ type: "result", subtype: "success", result: "ok", usage: { input_tokens: n, output_tokens: n }, total_cost_usd: 0 });
+};
+
 async function runScript(): Promise<void> {
   // A short beat so the TUI has registered the prompt and its session before
   // the scripted frames arrive; a real model never answers in the same tick.
@@ -177,15 +189,17 @@ async function runScript(): Promise<void> {
     const turn = nextTurn();
     if (!turn) {
       streamParts(["No more scripted turns."]);
-      out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "No more scripted turns." }] } });
-      success();
+      runCalls++;
+      out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "No more scripted turns." }], usage: CALL_USAGE } });
+      runResult();
       return;
     }
     if (!turn.tool) {
       const text = turn.text ?? "";
       streamParts(turn.stream ?? [text]);
-      out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } });
-      success();
+      runCalls++;
+      out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }], usage: CALL_USAGE } });
+      runResult();
       return;
     }
     const toolUseID = `toolu_fake${String(++toolSeq).padStart(6, "0")}`;

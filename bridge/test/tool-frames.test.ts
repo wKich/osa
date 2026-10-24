@@ -46,3 +46,15 @@ test("called, failed and success frames carry executed: false", () => {
   expect(failed.data).toMatchObject({ id: "toolu_1", executed: false, error: { type: "Error", message: "Exit code: 1" } });
   expect(out.find((f) => f.type === "session.tool.success")!.data.executed).toBe(false);
 });
+
+test("a multi-call turn's step carries the last call's tokens, not the run total", () => {
+  const usage = { input_tokens: 1, output_tokens: 1 };
+  const out = run([
+    { type: "assistant", message: { role: "assistant", content: [toolUse], usage } },
+    { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "Exit code: 0" }] } },
+    { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "DONE" }], usage } },
+    { type: "result", subtype: "success", result: "DONE", usage: { input_tokens: 2, output_tokens: 2 }, total_cost_usd: 0 },
+  ]);
+  const ended = out.find((f) => f.type === "session.step.ended")!;
+  expect(ended.data.tokens).toMatchObject({ input: 1, output: 1 });
+});

@@ -74,6 +74,10 @@ export class Translator {
   private streamed = new Map<string, StreamPart>();
   // tool ids the turn already rendered, from either path
   private toolIDs = new Set<string>();
+  // the usage of the turn's last model call: each assistant frame carries its
+  // own call's, while `result` carries the run total (sdk_mode.rs v0.6.4
+  // L1090–L1112, L1162–L1178)
+  private lastUsage?: AnyObj;
 
   constructor(hooks: TranslatorHooks) {
     this.hooks = hooks;
@@ -151,6 +155,7 @@ export class Translator {
     this.streamCursor = { reasoning: 0, text: 0, tool: 0 };
     this.streamed = new Map();
     this.toolIDs = new Set();
+    this.lastUsage = undefined;
     this.emitExec("session.execution.started", {});
     this.emit("session.step.started", {
       sessionID: this.hooks.sessionID,
@@ -213,6 +218,10 @@ export class Translator {
   private handleAssistant(frame: AnyObj): void {
     // every assistant message names the model that produced it
     this.announced = parseModel(frame.message?.model) ?? this.announced;
+    // a subagent's call (parent_tool_use_id set) is not the parent step's
+    if (!frame.parent_tool_use_id && frame.message?.usage && typeof frame.message.usage === "object") {
+      this.lastUsage = frame.message.usage;
+    }
     const content = frame.message?.content;
     if (!Array.isArray(content)) return;
     for (const part of content) {
@@ -388,7 +397,9 @@ export class Translator {
     this.turnOpen = false;
     const ok = frame.subtype === "success" && !frame.is_error;
     const data: AnyObj = { finish: ok ? "stop" : "error" };
-    const usage = frame.usage;
+    // a step is one model call in OpenCode, and the TUI's context counter reads
+    // the last step's tokens (tui util/session.ts v2.0.32 L45–L59)
+    const usage = this.lastUsage ?? frame.usage;
     if (usage) {
       data.tokens = {
         input: usage.input_tokens ?? 0,

@@ -16,8 +16,9 @@ export interface TranslatorHooks {
   onInit?: (info: { sessionID: string; cwd: string; model: string; tools: string[] }) => void;
   /** turn result, for session cost/token bookkeeping */
   onResult?: (result: AnyObj) => void;
-  /** a prompt's turn starts: write it to the child now */
-  deliver?: (user: UserPrompt) => void;
+  /** a prompt's turn starts: write it to the child now, after the synthetic
+   * inputs admitted before it (shell notices), which ride as its preamble */
+  deliver?: (user: UserPrompt, preamble: string[]) => void;
 }
 
 // the child is the single source of model identity (design decision 3):
@@ -69,6 +70,10 @@ export class Translator {
   // L763) and cannot take one back, so the bridge holds them and writes each
   // when its turn starts; until then the TUI can list or cancel them
   private queued: { am: string; user?: UserPrompt }[] = [];
+  // synthetic inputs (a user shell's notice) wait for the next turn, as
+  // OpenCode admits them with resume:false (core session/session.ts v2.0.32
+  // L213–L219, L273–L303)
+  private synthetics: { id: string; text: string }[] = [];
   // the model the child last announced (system.init / assistant.model);
   // synthesized defaults serve only until then (design decision 3)
   private announced?: { providerID: string; id: string };
@@ -155,8 +160,10 @@ export class Translator {
 
   private startTurn(assistantMessageID: string, user?: UserPrompt): void {
     if (user) {
+      const preamble = this.synthetics.splice(0);
+      for (const item of preamble) this.emitExec("session.inbox.delivered", { inboxID: item.id });
       this.emitExec("session.inbox.delivered", { inboxID: user.id });
-      this.hooks.deliver?.(user);
+      this.hooks.deliver?.(user, preamble.map((item) => item.text));
     }
     this.am = assistantMessageID;
     this.turnOpen = true;
@@ -195,6 +202,16 @@ export class Translator {
     const next = this.queued.shift();
     if (!next) return;
     this.startTurn(next.am, next.user);
+  }
+
+  /** admits a synthetic input for the next turn */
+  admitSynthetic(id: string, payload: { text: string; description?: string; metadata?: AnyObj }): void {
+    this.synthetics.push({ id, text: payload.text });
+    this.hooks.sink.emit("session.inbox.enqueued", {
+      sessionID: this.hooks.sessionID,
+      inboxID: id,
+      item: { type: "synthetic", payload, delivery: "steer" },
+    }, 1);
   }
 
   /** prompts waiting for their turn, in delivery order (session.inbox.list) */

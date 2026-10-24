@@ -844,19 +844,24 @@
       "area": "session",
       "source": "packages/tui/src/routes/session/composer/shell-tab.tsx and packages/tui/src/component/dialog-shell-output.tsx at v2.0.32",
       "scenario": {
-        "steps": ["open a session", "submit a prompt that runs a shell tool", "select the shell in the composer"],
+        "steps": ["prompt \"Reply with the word PONG only.\"", "type ! to enter shell mode", "run a command that writes to stdout and stderr", "prompt \"Reply with the word SEEN only.\""],
         "checkpoints": [
-          { "id": "shell-tab", "after": 2, "expect": "the composer lists the running shell" },
-          { "id": "shell-output", "after": 3, "expect": "the shell output dialog shows the command's stdout and stderr" }
+          { "id": "shell-mode", "after": 2, "expect": "the composer switches to Shell with an esc exit shell mode hint" },
+          { "id": "shell-output", "after": 3, "expect": "the transcript shows the $ command and its combined stdout and stderr" },
+          { "id": "next-turn", "after": 4, "expect": "the next exchange renders under the shell output; the shell notice rides with the prompt and stays out of the transcript" }
         ]
       },
-      "routes": ["POST /api/session/{sessionID}/shell", "GET /api/shell/{id}", "GET /api/shell/{id}/output"],
-      "features": [],
+      "routes": ["POST /api/session/{sessionID}/shell"],
+      "features": ["user-shell"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/view-shell-output/reference/","maki":"bridge/test/journeys/view-shell-output/maki/","diff":"bridge/test/journeys/view-shell-output/diff.json","live":{"snapshots":"bridge/test/journeys/view-shell-output/live/","diff":"bridge/test/journeys/view-shell-output/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "shell-mode", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "shell-output", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "next-turn", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "see-failed-turn-error",

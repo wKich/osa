@@ -25,6 +25,7 @@ import { Translator } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
 import { makiTitle } from "./title.ts";
+import { runUserShell, shellNotice } from "./user-shell.ts";
 import { exportSession, SessionHistory } from "./history.ts";
 import { readGitState, readMcpConfig, readModelCatalog, readSkills, sandboxRun } from "./sandbox.ts";
 
@@ -91,8 +92,8 @@ function pushFrame(frame: { id: string; event: string; data: AnyObj }): void {
   }
 }
 
-function emit(type: string, data: AnyObj, durableVersion?: number): void {
-  const ev: AnyObj = { id: mintEvent(), created: Date.now(), type };
+function emit(type: string, data: AnyObj, durableVersion?: number, eventID?: string): void {
+  const ev: AnyObj = { id: eventID ?? mintEvent(), created: Date.now(), type };
   const dir = typeof data.sessionID === "string" ? sessions.get(data.sessionID)?.directory : undefined;
   if (dir) ev.location = { directory: dir };
   ev.data = data;
@@ -302,7 +303,7 @@ function openSession(
     },
     // a prompt is written to the child when its turn starts, so one still
     // waiting can be cancelled
-    deliver: (user) => s.maki.prompt(user.text, (user.child as ImageBlock[] | undefined) ?? []),
+    deliver: (user, preamble) => s.maki.prompt([...preamble, user.text].join("\n\n"), (user.child as ImageBlock[] | undefined) ?? []),
     onResult: (r) => {
       s.updated = Date.now();
       // Maki titles the session when it records the first run
@@ -351,6 +352,42 @@ function openSession(
   };
   sessions.set(id, s);
   return { session: s };
+}
+
+// session.shell (core session/session.ts v2.0.32 L179–L222): the command runs
+// in the sandbox; started and ended frames carry the pinned Shell.Info and
+// Output (schema shell.ts L25–L84), and the result reaches the model with the
+// next turn as OpenCode's user-shell notice
+let shellSeq = 0;
+function userShell(s: BridgeSession, body: AnyObj): { status: number; payload: any } {
+  const command = typeof body?.command === "string" ? body.command : "";
+  if (!command.trim()) return { status: 400, payload: { _tag: "InvalidRequestError", message: "command is required" } };
+  const run = runUserShell(command, s.directory);
+  if (!run) return { status: 503, payload: { _tag: "ServiceUnavailableError", message: "no sandbox to run the command in", service: "shell" } };
+  const messageID = typeof body?.id === "string" && /^msg_/.test(body.id) ? body.id : mintMessage();
+  const info: AnyObj = {
+    id: `sh_${Date.now().toString(16)}${String(++shellSeq).padStart(4, "0")}`,
+    status: "running",
+    command,
+    cwd: s.directory,
+    shell: "/bin/sh",
+    file: "",
+    metadata: { sessionID: s.id, background: true },
+    time: { started: Date.now() },
+  };
+  emit("session.shell.started", { sessionID: s.id, shell: info }, 1, messageID.replace(/^msg_/, "evt_"));
+  void run.then((result) => {
+    const ended = { ...info, status: "exited", exit: result.exit, time: { ...info.time, completed: Date.now() } };
+    const size = Buffer.byteLength(result.output);
+    emit("session.shell.ended", { sessionID: s.id, shell: ended, output: { output: result.output, cursor: size, size, truncated: result.truncated } }, 1);
+    s.translator.admitSynthetic(mintMessage(), {
+      // no description, as OpenCode's notice has none: the TUI keeps it out of
+      // the transcript (tui routes/session/rows.ts v2.0.32 L383)
+      text: shellNotice(info.id, command, result),
+      metadata: { source: "shell", shellID: info.id, state: "completed", truncated: result.truncated, exit: result.exit },
+    });
+  });
+  return { status: 204, payload: null };
 }
 
 // session.fork (server handlers/session.ts v2.0.32 L226–L239, core session.ts
@@ -743,6 +780,7 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
   if (rest === "interrupt" && method === "POST") return interrupt(s);
   if (rest === "view" && method === "POST") return viewSession(s, body);
   if (rest === "fork" && method === "POST") return forkSession(s, body);
+  if (rest === "shell" && method === "POST") return userShell(s, body);
   if (rest === "message" && method === "GET") return messagePage(s, url);
   if (rest === "inbox" && method === "GET") return { status: 200, payload: { data: inboxList(s) } };
   const inboxItem = /^inbox\/([^/]+)$/.exec(rest);

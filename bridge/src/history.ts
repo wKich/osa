@@ -10,6 +10,7 @@ type Message = AnyObj & { id: string; type: string };
 
 interface Pending {
   id: string;
+  type: "user" | "synthetic";
   payload: AnyObj;
 }
 
@@ -41,7 +42,9 @@ export class SessionHistory {
   apply(type: string, data: AnyObj, created: number, eventID: string): void {
     switch (type) {
       case "session.inbox.enqueued":
-        if (data.item?.type === "user") this.pending.set(String(data.inboxID), { id: String(data.inboxID), payload: data.item.payload ?? {} });
+        if (data.item?.type === "user" || data.item?.type === "synthetic") {
+          this.pending.set(String(data.inboxID), { id: String(data.inboxID), type: data.item.type, payload: data.item.payload ?? {} });
+        }
         return;
       case "session.inbox.cancelled":
         this.pending.delete(String(data.inboxID));
@@ -50,6 +53,11 @@ export class SessionHistory {
         const item = this.pending.get(String(data.inboxID));
         if (!item) return;
         this.pending.delete(item.id);
+        if (item.type === "synthetic") {
+          const { text, description, metadata } = item.payload;
+          this.messages.push({ id: item.id, type: "synthetic", text: String(text ?? ""), ...(description ? { description } : {}), ...(metadata ? { metadata } : {}), time: { created } });
+          return;
+        }
         const { text, files, agents, skills } = item.payload;
         this.messages.push({
           id: item.id,
@@ -144,6 +152,26 @@ export class SessionHistory {
           : { status: "error", input, error: data.error, ...(data.content ? { content: data.content } : {}) };
         tool.executed = data.executed || tool.executed === true;
         tool.time.completed = created;
+        return;
+      }
+      case "session.shell.started":
+        this.messages.push({
+          id: eventID.replace(/^evt_/, "msg_"),
+          type: "shell",
+          shellID: data.shell?.id,
+          command: String(data.shell?.command ?? ""),
+          status: data.shell?.status ?? "running",
+          ...(data.shell?.exit !== undefined ? { exit: data.shell.exit } : {}),
+          time: { created },
+        });
+        return;
+      case "session.shell.ended": {
+        const shell = this.messages.findLast((m) => m.type === "shell" && m.shellID === data.shell?.id);
+        if (!shell) return;
+        shell.status = data.shell?.status;
+        shell.exit = data.shell?.exit;
+        shell.output = data.output;
+        shell.time.completed = created;
         return;
       }
       case "session.execution.succeeded":

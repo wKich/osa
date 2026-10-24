@@ -1,0 +1,39 @@
+   Use your shell tool to run ex   Use your shell tool to run ex +
+
+  ┃                                                           All · vs main                                         0/1
+  ┃  Use your shell tool to run exactly: printf 'beta\n'
+  ┃  >> notes.txt . Then reply with the single word DONE.     notes.txt                                           +1 -0
+  ┃
+                                                              1   alpha
+  ┃                                                           2 + beta
+  ┃  $ printf 'beta\n' >> notes.txt
+  ┃
+  ┃  Exit code: 0
+  ┃
+
+     DONE
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀  ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR>:main 2  ctrl+p commands    ctrl+x ← focus prompt                           ? see all

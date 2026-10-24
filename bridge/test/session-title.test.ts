@@ -58,6 +58,8 @@ test("PATCH renames the session, an empty title regenerates Maki's, and the firs
   expect(await waitFor(() => ended() === 1)).toBe(true);
   expect(renames()).toEqual(["Renamed by journey"]);
   expect((await patch({ title: null })).status).toBe(204);
+  // the frame can trail the 204
+  expect(await waitFor(() => renames().length === 2)).toBe(true);
   expect(renames()).toEqual(["Renamed by journey", "first prompt text"]);
   expect((await patch({ metadata: { pinned: true } })).status).toBe(204);
   expect((await (await fetch(`${bridge.base}/api/session/${sid}`)).json()).data.metadata).toEqual({ pinned: true });

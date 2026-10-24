@@ -26,6 +26,7 @@ import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
 import { makiTitle } from "./title.ts";
 import { runUserShell, shellNotice } from "./user-shell.ts";
+import { reviewBase, reviewDiff, reviewStatus, VcsError, type Mode } from "./vcs.ts";
 import { exportSession, SessionHistory } from "./history.ts";
 import { readGitState, readMcpConfig, readModelCatalog, readSkills, sandboxRun } from "./sandbox.ts";
 
@@ -178,12 +179,19 @@ function defaultModel(): { providerID: string; id: string } {
 const BOOTED = Date.now();
 let projectID = "global";
 let projectVcs: string | undefined;
-const projectReady = readGitState(CANONICAL).then((git) => {
-  if (git.root) {
-    projectID = git.root;
-    projectVcs = "git";
-  }
-});
+const applyGit = (git: { root?: string }) => {
+  projectID = git.root ?? "global";
+  projectVcs = git.root ? "git" : undefined;
+};
+const projectReady = readGitState(CANONICAL).then(applyGit);
+
+// a checkout can become a repository mid-run (the agent runs `git init`); the
+// real server resolves the project when a client opens the location, so the
+// project and location reads look again
+async function refreshProject(): Promise<void> {
+  await projectReady;
+  applyGit(await readGitState(CANONICAL));
+}
 
 // Session.Info is synthesized once and patched per session: patching keeps the
 // required field set intact while replacing every value with real state
@@ -918,7 +926,7 @@ async function skillList(url: URL): Promise<{ status: number; payload: any }> {
 
 // /api/project and /api/location name the one project the bridge serves
 async function projectList(url: URL): Promise<{ status: number; payload: any }> {
-  await projectReady;
+  await refreshProject();
   const { status } = synthesize("GET", "/api/project", url, null, CANONICAL);
   const active = Math.max(BOOTED, ...[...sessions.values()].map((s) => s.updated));
   const project: AnyObj = { id: projectID, canonical: CANONICAL, name: posix.basename(CANONICAL) || CANONICAL };
@@ -929,7 +937,7 @@ async function projectList(url: URL): Promise<{ status: number; payload: any }> 
 }
 
 async function location(url: URL): Promise<{ status: number; payload: any }> {
-  await projectReady;
+  await refreshProject();
   const result = synthesize("GET", "/api/location", url, null, CANONICAL);
   result.payload = { ...result.payload, project: { ...result.payload.project, id: projectID } };
   return result;
@@ -946,6 +954,33 @@ async function vcsInfo(url: URL): Promise<{ status: number; payload: any }> {
   if (git.defaultBranch) branch.default = git.defaultBranch;
   const data: AnyObj = git.root || git.branch ? { provider: "git", branch } : { branch };
   return { status, payload: { ...payload, data } };
+}
+
+// /api/vcs/diff, /base, /status: the diff viewer's review of the sandbox
+// checkout, from OpenCode's git provider ported in vcs.ts (server
+// handlers/vcs.ts v2.0.32 L61–L100); a provider error is the pinned 503
+async function vcsReview(path: string, url: URL): Promise<{ status: number; payload: any }> {
+  const { status, payload } = synthesize("GET", path, url, null, CANONICAL);
+  try {
+    let data: unknown;
+    if (path === "/api/vcs/base") data = await reviewBase(CANONICAL);
+    else if (path === "/api/vcs/status") data = await reviewStatus(CANONICAL);
+    else {
+      const mode = (url.searchParams.get("mode") ?? "") as Mode;
+      if (!["working", "branch", "committed"].includes(mode)) {
+        return { status: 400, payload: { _tag: "InvalidRequestError", message: `invalid mode: ${mode}` } };
+      }
+      const context = url.searchParams.get("context");
+      data = await reviewDiff(CANONICAL, mode, {
+        base: url.searchParams.get("base") ?? undefined,
+        context: context !== null && /^\d+$/.test(context) ? Number(context) : undefined,
+      });
+    }
+    return { status, payload: { ...payload, data } };
+  } catch (err) {
+    if (!(err instanceof VcsError)) throw err;
+    return { status: 503, payload: { _tag: "ServiceUnavailableError", message: err.message, service: "vcs" } };
+  }
 }
 
 // /api/fs/list: the TUI lists its own (host) directory at startup and for
@@ -1038,6 +1073,8 @@ async function handle(req: Request): Promise<Response> {
     result = await location(url);
   } else if (method === "GET" && path === "/api/vcs") {
     result = await vcsInfo(url);
+  } else if (method === "GET" && (path === "/api/vcs/diff" || path === "/api/vcs/base" || path === "/api/vcs/status")) {
+    result = await vcsReview(path, url);
   } else if (method === "GET" && path === "/api/fs/list") {
     result = await fsList(url);
   } else if (method === "GET" && path === "/api/info") {

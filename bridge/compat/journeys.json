@@ -802,19 +802,20 @@
       "area": "session",
       "source": "packages/tui/src/feature-plugins/system/diff-viewer.tsx:1319 (/diff) and packages/tui/src/config/keybind.ts:64 (diff.open) at v2.0.32",
       "scenario": {
-        "steps": ["open a session where the agent edited files", "run /diff", "select a file"],
+        "steps": ["commit notes.txt in a new repository through the agent shell", "restart the TUI", "append a line to notes.txt through the agent shell", "run /diff"],
         "checkpoints": [
-          { "id": "diff-open", "after": 2, "expect": "the diff viewer lists changed files with additions and deletions" },
-          { "id": "file-diff", "after": 3, "expect": "the selected file's hunks render with line numbers" }
+          { "id": "diff-open", "after": 4, "expect": "the diff viewer shows All · vs main with notes.txt +1 -0 and its hunk" }
         ]
       },
-      "routes": ["GET /api/session/{sessionID}/diff", "GET /api/vcs/diff"],
-      "features": [],
+      "routes": ["GET /api/vcs/diff", "GET /api/vcs/base", "GET /api/vcs"],
+      "features": ["vcs-review", "vcs-branch-live"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/view-session-diff/reference/","maki":"bridge/test/journeys/view-session-diff/maki/","diff":"bridge/test/journeys/view-session-diff/diff.json","live":{"snapshots":"bridge/test/journeys/view-session-diff/live/","diff":"bridge/test/journeys/view-session-diff/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "diff-open", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the silent command shows Maki's real bash result \"Exit code: 0\" (plugins/bash/init.lua v0.6.4 L407–L412), where OpenCode's shell tool prints \"(no output)\" (core/src/shell.ts v2.0.32 L249) — each TUI renders its own tool's result" }
+      ]
     },
     {
       "slug": "open-terminal-pane",

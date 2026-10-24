@@ -562,6 +562,9 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
     if (method === "DELETE") {
       if (!s) return sessionNotFound(sid);
       s.maki.kill();
+      // the TUI drops the session and leaves its route on this frame
+      // (session-event.ts v2.0.32 L177–L184; client data.ts L682–L684)
+      emit("session.deleted", { sessionID: sid }, 2);
       sessions.delete(sid);
       return { status: 204, payload: null };
     }

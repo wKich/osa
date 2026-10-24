@@ -435,18 +435,21 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:124 (session.delete) and packages/tui/src/component/dialog-session-list.tsx at v2.0.32",
       "scenario": {
-        "steps": ["press leader+l", "select a session", "confirm delete"],
+        "steps": ["prompt \"Reply with the word PONG only.\"", "press leader+l", "press ctrl+d on the session", "press ctrl+d again to confirm"],
         "checkpoints": [
-          { "id": "deleted", "after": 3, "expect": "the session disappears from the list and its tab closes" }
+          { "id": "delete-confirm", "after": 3, "expect": "the selected row asks to press ctrl+d again to confirm" },
+          { "id": "deleted", "after": 4, "expect": "the list shows no sessions and the TUI is back on the home screen" }
         ]
       },
-      "routes": ["DELETE /api/session/{sessionID}"],
-      "features": ["session-crud", "session-isolation"],
+      "routes": ["DELETE /api/session/{sessionID}", "GET /api/session"],
+      "features": ["session-crud"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/delete-session/reference/","maki":"bridge/test/journeys/delete-session/maki/","diff":"bridge/test/journeys/delete-session/diff.json","live":{"snapshots":"bridge/test/journeys/delete-session/live/","diff":"bridge/test/journeys/delete-session/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "delete-confirm", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "pin-session",

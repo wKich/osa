@@ -212,9 +212,12 @@ describe("session API over the spawned bridge", () => {
     expect(await waitFor(() => count(bridge, "session.execution.succeeded") >= done + 1, 30_000)).toBe(true);
   }, 90_000);
 
-  test("delete answers 204 and the session reads back 404", async () => {
+  test("delete answers 204, emits session.deleted, and the session reads back 404", async () => {
     const del = await fetch(`${bridge.base}/api/session/${sid}`, { method: "DELETE" });
     expect(del.status).toBe(204);
+    // the pinned durable frame the TUI leaves the session on
+    expect(await waitFor(() => bridge.frames.some((f) => f.type === "session.deleted" && f.data?.sessionID === sid))).toBe(true);
+    expect(bridge.frames.find((f) => f.type === "session.deleted")!.durable?.version).toBe(2);
     const gone = await fetch(`${bridge.base}/api/session/${sid}`);
     expect(gone.status).toBe(404);
     const body = await gone.json();

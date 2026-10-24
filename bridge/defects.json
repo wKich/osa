@@ -96,5 +96,15 @@
       "slug": "allow-permission-once",
       "checkpoint": "allowed"
     }
+  },
+  {
+    "id": "session-delete-emits-no-event",
+    "title": "DELETE /api/session/{sessionID} removes the session but emits no session.deleted (session-event.ts v2.0.32 L177–L184), so the TUI keeps the deleted session open instead of returning home",
+    "status": "fixed",
+    "capture": "bridge/test/journeys/delete-session/diff.json",
+    "journey": {
+      "slug": "delete-session",
+      "checkpoint": "deleted"
+    }
   }
 ]

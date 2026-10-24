@@ -103,8 +103,9 @@ runs in its sandbox workdir. A model turn SHALL be one of: a text reply, optiona
 chunk; a shell call; a tool call spelled per side, carrying the result the
 pinned Maki tool returns; or a model-call failure with an HTTP status. Both
 sides SHALL run with the TUI's update check disabled, so no run asks the
-OpenCode release feed, and with `SHELL=/bin/sh`, so no terminal opens the
-host user's own shell. A script SHALL NOT wait on fixed delays alone: every
+OpenCode release feed, with `SHELL=/bin/sh`, so no terminal opens the
+host user's own shell, and with `EDITOR` set to the harness's scripted
+editor, which replaces the draft with a fixed prompt. A script SHALL NOT wait on fixed delays alone: every
 step that depends on the TUI reacting SHALL wait for screen content or a
 bounded timeout that fails the run.
 
@@ -166,6 +167,11 @@ bounded timeout that fails the run.
 #### Scenario: A terminal does not open the host user's shell
 - **WHEN** a journey opens a terminal on either side
 - **THEN** it runs `/bin/sh`, whatever shell the host user logs in with
+
+#### Scenario: The external editor is scripted
+- **WHEN** a journey opens the external editor from the composer
+- **THEN** the harness editor replaces the draft with
+  `Reply with the word EDITED only.` and the TUI returns it to the composer
 
 ### Requirement: Compare normalized text snapshots per checkpoint
 Each side's terminal output SHALL be rendered by a headless terminal emulator

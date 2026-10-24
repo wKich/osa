@@ -503,6 +503,18 @@ function viewSession(s: BridgeSession, body: AnyObj): { status: number; payload:
   return { status: 204, payload: null };
 }
 
+// session.wait: answers once the session's agent loop is idle — no turn
+// running and no prompt waiting (server handlers/session.ts v2.0.32 L456–L460)
+async function waitIdle(sid: string): Promise<{ status: number; payload: any }> {
+  let s = sessions.get(sid);
+  if (!s) return sessionNotFound(sid);
+  while (s && s.maki.running && (s.translator.inTurn || s.translator.pending.length > 0)) {
+    await new Promise((r) => setTimeout(r, 50));
+    s = sessions.get(sid);
+  }
+  return { status: 204, payload: null };
+}
+
 // experimental.session.export: the transcript the copy and export commands
 // format (tui routes/session/index.tsx v2.0.32 L1191–L1240)
 function sessionExport(sid: string, url: URL): { status: number; payload: any } {
@@ -851,6 +863,8 @@ async function handle(req: Request): Promise<Response> {
     else result = synthesize(method, path, url, body, CANONICAL);
   } else if (parts[1] === "api" && parts[2] === "session" && parts[3] && parts[3] !== "active") {
     result = sessionRoute(method, parts[3]!, parts.slice(4).join("/"), body, url);
+  } else if (method === "POST" && /^\/api\/experimental\/session\/[^/]+\/wait$/.test(path)) {
+    result = await waitIdle(parts[4]!);
   } else if (method === "GET" && /^\/api\/experimental\/session\/[^/]+\/export$/.test(path)) {
     result = sessionExport(parts[4]!, url);
   } else if (method === "GET" && path === "/api/model") {

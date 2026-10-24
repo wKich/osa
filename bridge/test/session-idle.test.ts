@@ -51,3 +51,14 @@ test("a finished run marks the session idle and unread; view acknowledges it onc
   expect(second.time.idle).toBeGreaterThan(first.time.idle);
   expect(second.time.idle).toBeGreaterThan(second.time.viewed);
 });
+
+test("wait answers only once the running turn is done", async () => {
+  const sid = (await (await post("/api/session", { location: { directory: bridge.workdir } })).json()).data.id;
+  await post(`/api/session/${sid}/prompt`, { text: "run exactly: sleep 1 ." });
+  expect(await waitFor(() => bridge.frames.some((f) => f.type === "session.execution.started" && f.data?.sessionID === sid))).toBe(true);
+  const res = await post(`/api/experimental/session/${sid}/wait`, {});
+  expect(res.status).toBe(204);
+  expect(bridge.frames.some((f) => f.type === "session.execution.succeeded" && f.data?.sessionID === sid)).toBe(true);
+  expect((await post(`/api/experimental/session/${sid}/wait`, {})).status).toBe(204);
+  expect((await post("/api/experimental/session/ses_unknown00000000000/wait", {})).status).toBe(404);
+});

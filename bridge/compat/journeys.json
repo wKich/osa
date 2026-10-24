@@ -624,18 +624,19 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:130 (session.compact) and packages/tui/src/routes/session/index.tsx:958 (/compact) at v2.0.32",
       "scenario": {
-        "steps": ["open a session with a long history", "run /compact"],
+        "steps": ["prompt \"Reply with the word PONG only.\"", "run /compact"],
         "checkpoints": [
-          { "id": "compacted", "after": 2, "expect": "a compaction summary replaces the older turns and the context indicator drops" }
+          { "id": "compacted", "after": 2, "expect": "a Compaction divider with its usage and the templated summary follows the PONG exchange" }
         ]
       },
       "routes": ["POST /api/session/{sessionID}/compact"],
-      "features": [],
+      "features": ["session-compaction"],
       "scope": "reachable",
-      "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "blockedBy": "pin",
+      "status": "diverges",
+      "evidence": { "reference":"bridge/test/journeys/compact-session/reference/","maki":"bridge/test/journeys/compact-session/maki/","diff":"bridge/test/journeys/compact-session/diff.json","live":{"snapshots":"bridge/test/journeys/compact-session/live/","diff":"bridge/test/journeys/compact-session/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"diverges"} },
+      "acceptedDiffs": [],
+      "pinCitation": "maki v0.6.4 has no headless compaction request: the SDK accepts only the initialize, interrupt, set_permission_mode and set_model control subtypes (src/sdk_mode.rs L818–L880) and drops AutoCompacting/CompactionDone from the wire (L1057–L1058); /compact is a maki-ui command (maki-ui/src/app/mod.rs L1969)"
     },
     {
       "slug": "undo-previous-message",
@@ -644,18 +645,19 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:193 (session.undo) and packages/tui/src/routes/session/index.tsx:981 (/undo) at v2.0.32",
       "scenario": {
-        "steps": ["send a prompt and receive a reply", "run /undo"],
+        "steps": ["prompt \"Reply with the word PONG only.\"", "press leader+u"],
         "checkpoints": [
-          { "id": "reverted", "after": 2, "expect": "the last exchange leaves the transcript and its prompt text returns to the input" }
+          { "id": "reverted", "after": 2, "expect": "the exchange leaves the transcript, a 1 message reverted notice offers redo, and the prompt text returns to the composer" }
         ]
       },
       "routes": ["GET /api/session/{sessionID}/message", "POST /api/session/{sessionID}/interrupt", "POST /api/session/{sessionID}/revert/stage", "POST /api/experimental/session/{sessionID}/wait"],
-      "features": [],
+      "features": ["session-revert"],
       "scope": "reachable",
-      "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "blockedBy": "pin",
+      "status": "diverges",
+      "evidence": { "reference":"bridge/test/journeys/undo-previous-message/reference/","maki":"bridge/test/journeys/undo-previous-message/maki/","diff":"bridge/test/journeys/undo-previous-message/diff.json","live":{"snapshots":"bridge/test/journeys/undo-previous-message/live/","diff":"bridge/test/journeys/undo-previous-message/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"diverges"} },
+      "acceptedDiffs": [],
+      "pinCitation": "maki v0.6.4 has no headless rewind: the SDK accepts only the initialize, interrupt, set_permission_mode and set_model control subtypes (src/sdk_mode.rs L818–L880), and rewinding a transcript is maki-ui only (maki-ui/src/app/session.rs L455 rewind_to, maki-ui/src/components/rewind_picker.rs)"
     },
     {
       "slug": "redo-reverted-message",
@@ -664,18 +666,19 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:194 (session.redo) and packages/tui/src/routes/session/index.tsx:1014 (/redo) at v2.0.32",
       "scenario": {
-        "steps": ["undo the last message", "run /redo"],
+        "steps": ["prompt \"Reply with the word PONG only.\"", "press leader+u", "press leader+r"],
         "checkpoints": [
-          { "id": "restored", "after": 2, "expect": "the reverted exchange returns to the transcript" }
+          { "id": "restored", "after": 3, "expect": "the reverted exchange returns to the transcript" }
         ]
       },
       "routes": ["DELETE /api/session/{sessionID}/revert", "POST /api/session/{sessionID}/revert/commit"],
-      "features": [],
+      "features": ["session-revert"],
       "scope": "reachable",
-      "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "blockedBy": "pin",
+      "status": "diverges",
+      "evidence": { "reference":"bridge/test/journeys/redo-reverted-message/reference/","maki":"bridge/test/journeys/redo-reverted-message/maki/","diff":"bridge/test/journeys/redo-reverted-message/diff.json","live":{"snapshots":"bridge/test/journeys/redo-reverted-message/live/","diff":"bridge/test/journeys/redo-reverted-message/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"diverges"} },
+      "acceptedDiffs": [],
+      "pinCitation": "maki v0.6.4 has no headless rewind: the SDK accepts only the initialize, interrupt, set_permission_mode and set_model control subtypes (src/sdk_mode.rs L818–L880), and rewinding a transcript is maki-ui only (maki-ui/src/app/session.rs L455 rewind_to, maki-ui/src/components/rewind_picker.rs)"
     },
     {
       "slug": "copy-session-content",

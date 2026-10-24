@@ -1,0 +1,39 @@
+   Journey                       +
+
+  ┃
+  ┃  Reply with the word PONG only.
+  ┃
+
+     PONG
+
+     Build · <MODEL> · <DUR>
+
+
+                                  Themes                                           esc
+
+                                  Search
+
+                                  material
+                                  matrix
+                                  mercury
+                                  monokai
+                                  nightowl
+                                  nord
+                                  one-dark
+                                ● opencode
+                                  orng
+                                  osaka-jade
+                                  palenight
+                                  rosepine
+                                  solarized
+                                  synthwave84
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

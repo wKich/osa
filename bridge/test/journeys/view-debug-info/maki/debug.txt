@@ -1,0 +1,39 @@
+   Reply with the word PONG only +
+
+  ┃
+  ┃  Reply with the word PONG only.
+  ┃
+
+     PONG
+
+     Build · <MODEL> · <DUR>
+
+
+                   Debug                                                                          esc
+
+                   Version    2.0.32 (latest)
+                   Date  <TIME>
+                   OS         macOS 25.5.0 (arm64)
+                   Terminal   xterm-256color
+                   Session ID <ID>
+                   Model      <MODEL>
+
+                   Share this when reporting an issue.                                     copy enter
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

@@ -1,0 +1,39 @@
+   Reply with the word PONG only +
+
+  ┃
+  ┃  Reply with the word PONG only.
+  ┃
+
+     PONG
+
+     Build · <MODEL> · <DUR>
+
+
+                                  Commands                                         esc
+
+                                  sidebar
+
+                                  Show sidebar                      Session · ctrl+x b
+                                  Sidebar                           Settings · Session
+                                  Layout                               Settings · Tabs
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

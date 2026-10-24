@@ -1,0 +1,39 @@
+   Journey                       +
+
+  ┃
+  ┃  Reply with the word PONG only.
+  ┃
+
+     PONG
+
+     Build · <MODEL> · <DUR>
+
+
+                                  Commands                                         esc
+
+                                  Search
+
+                                  Suggested
+                                  Switch session                              ctrl+x l
+                                  New session                                 ctrl+x n
+                                  Switch model                                ctrl+x m
+                                  Connect an integration
+                                  Open settings
+
+                                  Session
+                                  Switch session                              ctrl+x l
+                                  New session                                 ctrl+x n
+                                  Clear session
+                                  Open session or project                       ctrl+o
+                                  Close tab                                   ctrl+x w
+                                  Reopen closed tab                       ctrl+shift+t
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

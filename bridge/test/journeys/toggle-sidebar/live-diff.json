@@ -1,0 +1,15 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "sidebar-toggled",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Reply with the word PONG only +\n \n-  ┃                                                                             Journey\n+  ┃                                                                             Reply with the word PONG only.\n   ┃  Reply with the word PONG only.\n   ┃                                                                             Context\n                                                                                 <N> tokens\n      PONG\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n                                                                                   ⬖ Getting started                ✕\n \n                                                                                     OpenCode includes free models so\n                                                                                     you can start immediately.\n \n                                                                                     Connect from 75+ providers to\n                                                                                     use other models, including\n   ┃                                                                                 Claude, GPT, Gemini etc\n   ┃\n   ┃                                                                                 Connect provider        /connect\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> <WORKDIR>"
+    },
+    {
+      "id": "sidebar-restored",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Reply with the word PONG only +\n \n   ┃\n   ┃  Reply with the word PONG only.\n   ┃\n \n      PONG\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

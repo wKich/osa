@@ -1,0 +1,10 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "exit-prompted",
+      "verdict": "differs",
+      "hunk": "@@ -1,7 +1,7 @@\n                                    ▄\n   █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█\n   █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀\n   ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀\n \n-  Session   Journey\n+  Session   Reply with the word PONG only.\n   Continue  opencode -s <ID>"
+    }
+  ]
+}

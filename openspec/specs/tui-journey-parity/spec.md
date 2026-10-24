@@ -226,6 +226,10 @@ a completed run is `parity`, a completed run with a differing checkpoint is
 - **WHEN** a checkpoint shows `11:59 PM` on one run and `12:01 AM` on another
 - **THEN** both normalize to `<TIME>`
 
+#### Scenario: A model switch stays visible
+- **WHEN** a footer names the journey catalog's second model
+- **THEN** it normalizes to `<MODEL-2>`, not `<MODEL>`
+
 ### Requirement: Gated journey recording target
 `make test-journeys` SHALL record and compare every journey that has a script,
 write its snapshots, comparison, and Maki-side request log, and update the

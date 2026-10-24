@@ -90,7 +90,8 @@ export function normalize(text: string, opts: NormalizeOptions = {}): string {
 
   // The footer pads the workdir to the terminal width; the raw path length is
   // a harness property (a temp dir vs the sandbox workdir), so keep one gap.
-  out = out.replace(/(<WORKDIR>|<HOME>)[ \t]{2,}/g, "$1 ");
+  // A branch suffix (`<WORKDIR>:main`) is padded the same way.
+  out = out.replace(/(<WORKDIR>|<HOME>)(:\S+)?[ \t]{2,}/g, "$1$2 ");
 
   // Animated work spinners are volatile too.
   out = out.replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "<SPINNER>");

@@ -31,7 +31,7 @@ function parseModel(raw: unknown): { providerID: string; id: string } | undefine
 // (spike stub measurement), delta/permission events are ephemeral
 const DURABLE_VERSION: Record<string, number> = {
   "session.execution.started": 1, "session.execution.succeeded": 1, "session.execution.interrupted": 1,
-  "session.step.started": 1, "session.step.ended": 1,
+  "session.step.started": 1, "session.step.ended": 1, "session.step.failed": 1,
   "session.reasoning.started": 1, "session.reasoning.ended": 1,
   "session.text.started": 1, "session.text.ended": 1,
   "session.tool.input.started": 1, "session.tool.input.ended": 1,
@@ -409,7 +409,12 @@ export class Translator {
       };
     }
     if (typeof frame.total_cost_usd === "number" && frame.total_cost_usd > 0) data.cost = frame.total_cost_usd;
-    this.emit("session.step.ended", data);
+    // an interrupted step fails with the pinned interruption error and no
+    // usage, which the TUI shows as `· interrupted` (core runner/step.ts
+    // v2.0.32 L63, L225; publish-llm-event.ts L420–L437)
+    if (!ok && this.interruptRequested) {
+      this.emit("session.step.failed", { error: { type: "aborted", message: "Step interrupted" } });
+    } else this.emit("session.step.ended", data);
     if (ok) this.emitExec("session.execution.succeeded", {});
     // maki reports a cancelled run as an error result (sdk_mode.rs v0.6.4
     // L1168–L1172); after an interrupt that is the pinned interrupted end

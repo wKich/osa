@@ -550,18 +550,22 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:128 (session.interrupt) and packages/tui/src/routes/session/index.tsx at v2.0.32",
       "scenario": {
-        "steps": ["submit a prompt that starts a long turn", "press escape"],
+        "steps": ["prompt a slowly streamed reply", "press escape twice while it streams"],
         "checkpoints": [
-          { "id": "interrupted", "after": 2, "expect": "the spinner stops, the partial reply stays, and the transcript marks the turn as interrupted" }
+          { "id": "running", "after": 1, "expect": "the partial reply streams with the spinner and the esc interrupt hint" },
+          { "id": "interrupted", "after": 2, "expect": "the spinner stops, the partial reply stays, and the footer line marks the turn interrupted" }
         ]
       },
       "routes": ["POST /api/session/{sessionID}/interrupt"],
-      "features": ["interrupt-round-trip", "turn-abort-mapping", "turn-failure-mapping"],
+      "features": ["interrupt-round-trip", "turn-abort-mapping"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/interrupt-running-turn/reference/","maki":"bridge/test/journeys/interrupt-running-turn/maki/","diff":"bridge/test/journeys/interrupt-running-turn/diff.json","live":{"snapshots":"bridge/test/journeys/interrupt-running-turn/live/","diff":"bridge/test/journeys/interrupt-running-turn/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "running", "reason": "Maki titles a session only when its first run is recorded (maki-agent session.rs v0.6.4 L143–L166, L203–L217), so mid-run the tab correctly has no title yet; OpenCode titles in parallel with the first model call and the mock answers \"Journey\"" },
+        { "checkpoint": "interrupted", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "queue-prompt-while-running",

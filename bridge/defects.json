@@ -106,5 +106,15 @@
       "slug": "delete-session",
       "checkpoint": "deleted"
     }
+  },
+  {
+    "id": "interrupted-step-not-failed",
+    "title": "An interrupted turn ends its step with session.step.ended (finish error, the cancelled result’s usage) instead of session.step.failed with the pinned Step interrupted error (core runner/step.ts v2.0.32 L63, L225), so the footer lacks `· interrupted` and shows a token counter",
+    "status": "fixed",
+    "capture": "bridge/test/journeys/interrupt-running-turn/diff.json",
+    "journey": {
+      "slug": "interrupt-running-turn",
+      "checkpoint": "interrupted"
+    }
   }
 ]

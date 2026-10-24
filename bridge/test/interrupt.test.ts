@@ -98,6 +98,10 @@ describe("interrupt over the spawned bridge", () => {
     expect(frame.durable?.version).toBe(1);
     expect(count(bridge, "session.execution.succeeded", sid)).toBe(succeeded);
     expect(count(bridge, "session.execution.failed", sid)).toBe(failed);
+    // the step fails with the pinned interruption error, carrying no usage
+    const stepFailed = bridge.frames.filter((f) => f.type === "session.step.failed" && f.data?.sessionID === sid);
+    expect(stepFailed.map((f) => f.data?.error)).toEqual([{ type: "aborted", message: "Step interrupted" }]);
+    expect(stepFailed[0]!.data?.tokens).toBeUndefined();
   }, 60_000);
 
   test("the session keeps working after an interrupt", async () => {

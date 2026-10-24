@@ -1,0 +1,39 @@
+ <SPINNER> Journey                       +
+
+  ┃
+  ┃  Use your shell tool to run exactly: sleep 8; echo slow-done . Then reply with the single word DONE.
+  ┃
+
+  ┃
+  ┃  <SPINNER> sleep 8; echo slow-done
+  ┃
+  ┃   Background
+  ┃
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   <BAR> esc interrupt                                                               ↓ 1 shell · 2  ctrl+p commands

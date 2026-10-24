@@ -738,19 +738,20 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:129 (session.background) and packages/tui/src/routes/session/index.tsx:1253 at v2.0.32",
       "scenario": {
-        "steps": ["start a turn that runs a long blocking tool", "press ctrl+b"],
+        "steps": ["run a slow shell tool turn and allow it", "press ctrl+b while it runs", "wait for the reply and the shell to finish"],
         "checkpoints": [
-          { "id": "backgrounded", "after": 2, "expect": "the blocking tool is backgrounded and progress continues in the transcript" },
-          { "id": "badge", "after": 2, "expect": "the status line shows the session has a backgrounded tool" }
+          { "id": "backgrounded", "after": 2, "expect": "the running shell is marked Background and the footer counts 1 shell" },
+          { "id": "badge", "after": 3, "expect": "the reply renders and a Shell finished notice follows when the background shell ends" }
         ]
       },
       "routes": ["POST /api/session/{sessionID}/background"],
-      "features": [],
+      "features": ["tool-background"],
       "scope": "reachable",
-      "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "blockedBy": "pin",
+      "status": "broken",
+      "evidence": { "reference":"bridge/test/journeys/background-blocking-tools/reference/","maki":"bridge/test/journeys/background-blocking-tools/maki/","diff":"bridge/test/journeys/background-blocking-tools/diff.json","live":{"snapshots":"bridge/test/journeys/background-blocking-tools/live/","diff":"bridge/test/journeys/background-blocking-tools/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"broken"} },
+      "acceptedDiffs": [],
+      "pinCitation": "maki v0.6.4 cannot move a running tool to the background on request: the SDK accepts only the initialize, interrupt, set_permission_mode and set_model control subtypes (src/sdk_mode.rs L818–L880), and its background work is background agents only (maki-agent/src/tools/mod.rs L331–L333 background_for), never a call the user detaches mid-run"
     },
     {
       "slug": "open-subagent-session",
@@ -759,19 +760,24 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:138 (session.child.first) and packages/tui/src/routes/session/index.tsx:1263 at v2.0.32",
       "scenario": {
-        "steps": ["start a turn that spawns a subagent", "press down", "press up"],
+        "steps": ["prompt a turn that delegates to a subagent", "press down to open the subagent picker and ctrl+a to show finished subagents", "select the subagent", "press up"],
         "checkpoints": [
-          { "id": "subagent-picker", "after": 2, "expect": "the subagent picker lists the child sessions" },
-          { "id": "parent", "after": 3, "expect": "the parent transcript is shown again" }
+          { "id": "subagent-row", "after": 1, "expect": "the parent transcript shows a completed General Subagent row with the task description, then the reply" },
+          { "id": "subagent-picker", "after": 2, "expect": "the picker lists the finished General subagent by its description" },
+          { "id": "child", "after": 3, "expect": "the child session shows the subagent prompt and its reply under the General agent" },
+          { "id": "parent", "after": 4, "expect": "the parent transcript is shown again" }
         ]
       },
-      "routes": ["GET /api/session/{sessionID}"],
-      "features": ["subagent-nesting", "maki-wire-envelope"],
+      "routes": ["GET /api/session", "GET /api/session/{sessionID}", "GET /api/session/{sessionID}/message"],
+      "features": ["subagent-nesting"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "diverges",
+      "evidence": { "reference":"bridge/test/journeys/open-subagent-session/reference/","maki":"bridge/test/journeys/open-subagent-session/maki/","diff":"bridge/test/journeys/open-subagent-session/diff.json","live":{"snapshots":"bridge/test/journeys/open-subagent-session/live/","diff":"bridge/test/journeys/open-subagent-session/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"diverges"} },
+      "acceptedDiffs": [
+        { "checkpoint": "subagent-row", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "parent", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "ask-side-question",

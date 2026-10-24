@@ -16,6 +16,13 @@ export interface TranslatorHooks {
   onInit?: (info: { sessionID: string; cwd: string; model: string; tools: string[] }) => void;
   /** turn result, for session cost/token bookkeeping */
   onResult?: (result: AnyObj) => void;
+  /** a `Task` call is a subagent (plugins/task/init.lua v0.6.4): the bridge
+   * runs it as a child session; frames flagged with its id go there */
+  subagent?: {
+    start(toolUseID: string, input: AnyObj): string | undefined;
+    frame(toolUseID: string, frame: AnyObj): boolean;
+    end(toolUseID: string, isError: boolean, text: string): void;
+  };
   /** a prompt's turn starts: write it to the child now, after the synthetic
    * inputs admitted before it (shell notices), which ride as its preamble */
   deliver?: (user: UserPrompt, preamble: string[]) => void;
@@ -90,6 +97,12 @@ export class Translator {
   private lastUsage?: AnyObj;
   // a provider retry was announced: the next attempt restarts the step
   private retryPending = false;
+  // subagent tool ids -> their child session ids, and the ones still running
+  private subagents = new Map<string, string>();
+  private runningSubagents: string[] = [];
+  // the task call's own streamed block (it follows the buffered call) is the
+  // parent's, not the subagent's
+  private inTaskBlock = false;
 
   constructor(hooks: TranslatorHooks) {
     this.hooks = hooks;
@@ -242,6 +255,19 @@ export class Translator {
   }
 
   onFrame(frame: AnyObj): void {
+    // the pinned child flags a subagent's buffered frames but not its stream
+    // events (sdk_mode.rs v0.6.4 L1022–L1050); the parent run waits on the
+    // task call meanwhile, so a stream event then is the running subagent's
+    const flagged = typeof frame.parent_tool_use_id === "string" ? frame.parent_tool_use_id : undefined;
+    if (!flagged && frame.type === "stream_event") {
+      const ev = frame.event ?? {};
+      if (ev.type === "content_block_start" && ev.content_block?.type === "tool_use" && this.subagents.has(String(ev.content_block.id ?? ""))) {
+        this.inTaskBlock = true;
+      }
+    }
+    const owner = flagged ?? (frame.type === "stream_event" && !this.inTaskBlock ? this.runningSubagents.at(-1) : undefined);
+    if (this.inTaskBlock && frame.type === "stream_event" && frame.event?.type === "content_block_stop") this.inTaskBlock = false;
+    if (owner && this.subagents.has(owner) && this.hooks.subagent?.frame(owner, frame)) return;
     switch (frame.type) {
       case "system":
         if (frame.subtype === "init") {
@@ -334,6 +360,16 @@ export class Translator {
     // executed reports a provider-executed call (publish-llm-event.ts v2.0.32
     // L391); every Maki tool runs in the child
     this.emit("session.tool.called", { id, input, executed: false });
+    // a subagent's tool part names its child session, as OpenCode's subagent
+    // tool reports progress (core tool/plugin/subagent.ts v2.0.32 L200)
+    if (part.name === "Task" && !this.subagents.has(id)) {
+      const child = this.hooks.subagent?.start(id, input);
+      if (child) {
+        this.subagents.set(id, child);
+        this.runningSubagents.push(id);
+        this.emit("session.tool.progress", { id, metadata: { sessionID: child, status: "running" } });
+      }
+    }
   }
 
   // ---------- `user` message with tool_result parts ----------
@@ -343,12 +379,18 @@ export class Translator {
     for (const part of content) {
       if (part?.type !== "tool_result") continue;
       const id = String(part.tool_use_id ?? "");
+      const child = this.subagents.get(id);
+      const metadata = child ? { metadata: { sessionID: child, status: part.is_error ? "error" : "completed" } } : {};
+      if (child) {
+        this.runningSubagents = this.runningSubagents.filter((x) => x !== id);
+        this.hooks.subagent?.end(id, part.is_error === true, resultText(part.content));
+      }
       if (part.is_error) {
         // spec error shape is {type, message} (mapping-table.md §3); the
         // spike's stub emitted {name, data} and the TUI tolerated it
-        this.emit("session.tool.failed", { id, error: { type: "Error", message: resultText(part.content) }, executed: false });
+        this.emit("session.tool.failed", { id, error: { type: "Error", message: resultText(part.content) }, executed: false, ...metadata });
       } else {
-        this.emit("session.tool.success", { id, content: resultContent(part.content), executed: false });
+        this.emit("session.tool.success", { id, content: resultContent(part.content), executed: false, ...metadata });
       }
     }
   }

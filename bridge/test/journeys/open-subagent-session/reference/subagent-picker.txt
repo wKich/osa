@@ -1,0 +1,39 @@
+   Journey                       +
+
+  ┃
+  ┃  Use a subagent to get the word MARK, then reply DONE.
+  ┃
+
+     ✓ General Subagent — Echo a marker
+
+     DONE
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  Subagents  Shell  Terminals                                                                                 esc
+  ┃
+  ┃  General: Echo a marker
+  ┃
+  ┃
+  ┃
+  ┃
+  ┃
+  ┃  show active ctrl+a  tabs ←/→
+  ┃

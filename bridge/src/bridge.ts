@@ -68,6 +68,7 @@ interface BridgeSession {
   title?: string; // set when the first run ends, as Maki records it, or by a rename
   metadata?: AnyObj; // host annotations the TUI sets (Session.Info metadata)
   fork?: { sessionID: string; boundary: { type: "through"; messageID: string } }; // the parent it was forked from
+  parentID?: string; // the session whose subagent this session is
   history: SessionHistory; // the projected transcript a reopened TUI reads
 }
 
@@ -222,6 +223,51 @@ function sessionObject(s: BridgeSession): AnyObj {
     ...(s.title ? { title: s.title } : {}),
     ...(s.metadata ? { metadata: s.metadata } : {}),
     ...(s.fork ? { fork: s.fork } : {}),
+    ...(s.parentID ? { parentID: s.parentID } : {}),
+  };
+}
+
+// A subagent (Maki's Task tool) runs inside the parent's Maki child; OpenCode
+// runs one as a child session (core tool/plugin/subagent.ts v2.0.32
+// L184–L215), so the bridge opens a child session for it — titled with the
+// task's description, under Maki's subagent type (plugins/task/init.lua
+// v0.6.4, default `research`) — whose transcript is the subagent's prompt and
+// the frames flagged with the task call's id, ended by the task's result.
+const subagentChild = (): MakiSession =>
+  ({ running: false, prompt() {}, answer() {}, interrupt: () => "", setModel: () => "", kill() {} }) as unknown as MakiSession;
+
+function subagentHooks(parent: () => BridgeSession) {
+  const children = new Map<string, BridgeSession>();
+  return {
+    start(toolUseID: string, input: AnyObj): string | undefined {
+      const p = parent();
+      const agent = typeof input.subagent_type === "string" && input.subagent_type ? input.subagent_type : "research";
+      const opened = openSession(mintSession(), { agent, model: p.translator.announcedModel ?? p.model, parentID: p.id });
+      if ("error" in opened) return undefined;
+      const c = opened.session;
+      if (typeof input.description === "string" && input.description) c.title = input.description;
+      children.set(toolUseID, c);
+      emit("session.created", {
+        sessionID: c.id, projectID, location: { directory: c.directory }, parentID: p.id,
+        slug: c.id.replace(/^ses_/, ""), ...(c.title ? { title: c.title } : {}), agent: c.agent, model: c.model, version: "2.0.32",
+      }, 1);
+      // the subagent's prompt is the task's, as Maki sends it (task/init.lua L211–L214)
+      const prompt = typeof input.prompt === "string" ? input.prompt : "";
+      c.firstPrompt = prompt || undefined;
+      c.translator.beginTurn(mintMessage(), { text: prompt, id: mintMessage(), delivery: "steer" });
+      return c.id;
+    },
+    frame(toolUseID: string, frame: AnyObj): boolean {
+      const c = children.get(toolUseID);
+      if (!c) return false;
+      c.translator.onFrame({ ...frame, parent_tool_use_id: undefined });
+      return true;
+    },
+    end(toolUseID: string, isError: boolean, text: string): void {
+      const c = children.get(toolUseID);
+      if (!c) return;
+      c.translator.onFrame({ type: "result", subtype: isError ? "error_during_execution" : "success", is_error: isError, result: text });
+    },
   };
 }
 
@@ -282,7 +328,7 @@ function createSession(body: AnyObj): { status: number; payload: any } {
  * session under a new id */
 function openSession(
   id: string,
-  opts: { agent: string; model: { providerID: string; id: string }; fork?: string },
+  opts: { agent: string; model: { providerID: string; id: string }; fork?: string; parentID?: string },
 ): { session: BridgeSession } | { error: { status: number; payload: any } } {
   // The TUI's requested directory is its own host cwd (design decision 5):
   // the sandbox workdir is canonical, so every session runs there and no host
@@ -309,6 +355,9 @@ function openSession(
         console.error(`[bridge] session ${id}: maki cwd ${info.cwd} differs from canonical ${directory}`);
       }
     },
+    // a subagent session has no Maki child of its own: its frames arrive
+    // through the parent's child, flagged with the task call's id
+    ...(opts.parentID ? {} : { subagent: subagentHooks(() => s) }),
     // a prompt is written to the child when its turn starts, so one still
     // waiting can be cancelled
     deliver: (user, preamble) => s.maki.prompt([...preamble, user.text].join("\n\n"), (user.child as ImageBlock[] | undefined) ?? []),
@@ -333,7 +382,7 @@ function openSession(
   });
   let maki: MakiSession;
   try {
-    maki = new MakiSession({
+    maki = opts.parentID ? subagentChild() : new MakiSession({
       cwd: directory,
       model: MAKI_MODEL,
       fork: opts.fork,
@@ -357,6 +406,7 @@ function openSession(
     history: new SessionHistory(),
     created: Date.now(),
     updated: Date.now(),
+    ...(opts.parentID ? { parentID: opts.parentID } : {}),
   };
   sessions.set(id, s);
   return { session: s };
@@ -436,9 +486,12 @@ const forkTitle = (value?: string) => {
   return match ? `${match[1]} (fork #${Number.parseInt(match[2]!, 10) + 1})` : `${value} (fork #1)`;
 };
 
-function listSessions(): { status: number; payload: AnyObj } {
+// session.list: `parentID` names a parent's children, `null` the roots
+function listSessions(url: URL): { status: number; payload: AnyObj } {
   const { payload } = synthesize("GET", "/api/session", asUrl("/api/session"), null, CANONICAL);
-  return { status: 200, payload: { ...payload, data: [...sessions.values()].map(sessionObject) } };
+  const parent = url.searchParams.get("parentID");
+  const list = [...sessions.values()].filter((s) => parent === null || (parent === "null" ? !s.parentID : s.parentID === parent));
+  return { status: 200, payload: { ...payload, data: list.map(sessionObject) } };
 }
 
 // files[] -> what the pinned child can take: base64 image blocks in Maki's
@@ -1047,7 +1100,7 @@ async function handle(req: Request): Promise<Response> {
     // a session names its project, so creation waits for the id like every
     // other answer that names one
     if (method === "POST") result = (await projectReady, createSession(body));
-    else if (method === "GET") result = listSessions();
+    else if (method === "GET") result = listSessions(url);
     else result = synthesize(method, path, url, body, CANONICAL);
   } else if (parts[1] === "api" && parts[2] === "session" && parts[3] && parts[3] !== "active") {
     result = sessionRoute(method, parts[3]!, parts.slice(4).join("/"), body, url);

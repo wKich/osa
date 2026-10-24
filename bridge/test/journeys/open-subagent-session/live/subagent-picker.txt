@@ -1,0 +1,39 @@
+   Use a subagent to get the wor +
+
+  ┃
+  ┃  Use a subagent to get the word MARK, then reply DONE.
+  ┃
+
+     ✓ General Subagent — Echo a marker
+
+     DONE
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  Subagents  Shell                                                                                            esc
+  ┃
+  ┃  General: Echo a marker
+  ┃
+  ┃
+  ┃
+  ┃
+  ┃
+  ┃  show active ctrl+a  tabs ←/→
+  ┃

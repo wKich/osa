@@ -4,7 +4,7 @@ Generated from `bridge/compat/statuses.json`, `bridge/compat/journeys.json` and 
 
 ## Burndown
 
-Reachable surface: **49 of 143 routes** (36 `served-live`, 9 `served-faked`, 4 `deferred`, 0 `unhandled`) and **53 of 55 features** (45 `verified`, 0 `unverified`, 8 `degraded` (8 pin-blocked), 0 `buggy`). Out of scope: 94 routes, 2 features. Open defects: **0**.
+Reachable surface: **50 of 143 routes** (36 `served-live`, 10 `served-faked`, 4 `deferred`, 0 `unhandled`) and **54 of 56 features** (45 `verified`, 0 `unverified`, 9 `degraded` (9 pin-blocked), 0 `buggy`). Out of scope: 93 routes, 2 features. Open defects: **0**.
 
 Untriaged reachable routes: **0**.
 
@@ -12,7 +12,7 @@ Untriaged reachable routes: **0**.
 
 Statuses: `served-live` (real state behind the route), `served-faked` (answered from the pinned spec with synthesized values), `deferred` (spec-valid minimal answer, surface not implemented), `unhandled` (outside the pinned contract: answered 404).
 
-### Reachable (49)
+### Reachable (50)
 
 | Route | Status | Decision | Evidence |
 | --- | --- | --- | --- |
@@ -59,6 +59,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/plugin` | `served-faked` | accept — the list holds OpenCode server plugins (`source`, `features`, `state`) and the bridge loads none; Maki's Lua plugins run inside the child and are not OpenCode plugins, so the empty list is the true set | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
 | `GET /api/form` | `served-faked` | accept — forms are pending MCP elicitations; the pinned Maki SDK wire has no elicitation message (its only outbound ask is `control_request` `can_use_tool`, `sdk_mode.rs` v0.6.4 L1155), so no global form can ever be pending and the empty list is the true state | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/experimental/migration/v1` | `served-faked` | accept — the bridge keeps no OpenCode data store, so there is no migration to run: `completed` is the true status, and the only one that ends the TUI's 1s poll without a spinner or an error toast (`tui/src/component/migration-overlay.tsx` v2.0.32 L22–L26) | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
+| `POST /api/session/{sessionID}/background` | `served-faked` | pin — `tool-background` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/session/{sessionID}/compact` | `served-faked` | pin — `session-compaction` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/session/{sessionID}/revert/stage` | `served-faked` | pin — `session-revert` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /api/mcp/resource` | `deferred` | deferred | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
@@ -66,7 +67,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/experimental/session/{sessionID}/terminal` | `deferred` | deferred | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
 | `GET /api/session/{sessionID}/form` | `deferred` | deferred | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
 
-### Out of scope (94)
+### Out of scope (93)
 
 | Route | Status | Evidence |
 | --- | --- | --- |
@@ -144,7 +145,6 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `POST /api/pty` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/pty/{ptyID}/connect-token` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/rpc/{rpcID}/{method}` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
-| `POST /api/session/{sessionID}/background` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/session/{sessionID}/command` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/session/{sessionID}/form` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `POST /api/session/{sessionID}/form/{formID}/reply` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
@@ -169,7 +169,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 
 Statuses: `verified` (an offline test or committed fixture proves it), `degraded` (works, with a limitation recorded in the evidence), `unverified` (no evidence yet), `buggy` (an open inventory entry in `bridge/defects.json` forces this status until the fix flips it). `pin-blocked` marks a gap that needs an upstream wire change. A `verified` row is `journey-verified` only when every reachable journey that lists it is at `parity`; otherwise the journey oracle reports it `unit-verified only`.
 
-### Reachable (53)
+### Reachable (54)
 
 | Id | Feature | Status | Journeys | Evidence |
 | --- | --- | --- | --- | --- |
@@ -206,8 +206,8 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | `interrupt-round-trip` | Interrupt cancels an in-flight turn via `control_request`/`interrupt` and ends it `session.execution.interrupted`; an idle session answers `interrupted:false` | `verified` | `journey-verified` — `interrupt-running-turn` | [`bridge/test/interrupt.test.ts`](../bridge/test/interrupt.test.ts) |
 | `control-response-emission` | Every answered permission ask writes one control_response naming Maki's request id | `verified` | `journey-verified` — `allow-permission-once` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
 | `permission-reply-vocabulary` | Permission answers use the pinned vocabulary: `once` → bare allow, `always` → allow + `updatedPermissions` (AllowSession), `reject` → deny, plus `message` as DenyWithGuidance when a reason is given | `verified` | `unit-verified only` — `allow-permission-once`, `allow-permission-always`, `reject-permission-with-reason` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
-| `subagent-nesting` | Subagent transcript nesting via parent_tool_use_id | `verified` | `unit-verified only` — `open-subagent-session` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
-| `maki-wire-envelope` | Maki's per-message envelope (top-level session_id + uuid) rides every wire frame; the bridge keeps the child on its OpenCode-minted session instead of rebinding on the envelope id | `verified` | `unit-verified only` — `open-subagent-session`, `send-prompt-stream-reply` | [`bridge/test/envelope.test.ts`](../bridge/test/envelope.test.ts) |
+| `subagent-nesting` | A Maki Task call runs as a child session — parentID, the task description as title, Maki's subagent type as agent, announced with session.created — holding the subagent's flagged frames and its unflagged stream while the task runs; the task part names the child (core tool/plugin/subagent.ts v2.0.32 L184–L215; sdk_mode.rs v0.6.4 L1022–L1050) | `verified` | `unit-verified only` — `open-subagent-session` | [`bridge/test/session-subagent.test.ts`](../bridge/test/session-subagent.test.ts) |
+| `maki-wire-envelope` | Maki's per-message envelope (top-level session_id + uuid) rides every wire frame; the bridge keeps the child on its OpenCode-minted session instead of rebinding on the envelope id | `verified` | `journey-verified` — `send-prompt-stream-reply` | [`bridge/test/envelope.test.ts`](../bridge/test/envelope.test.ts) |
 | `retry-scheduled` | Maki `system api_retry` surfaces as the pinned `session.retry.scheduled` event | `verified` | `journey-verified` — `see-provider-retry` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
 | `server-info-live` | `GET /api/info` reports the bridge's own pid and listen URL with the pinned version, and `capabilities.persistentPty: false` because the bridge serves no persistent PTY (the TUI offers terminals unless it is false: `tui/src/context/session-terminals.tsx` v2.0.32 L62–L77) | `verified` | `unit-verified only` — `boot-project-context`, `view-status`, `open-terminal-pane` | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
 | `fs-list-sandbox` | `GET /api/fs/list` lists the sandbox workdir through the OpenShell exec transport, never a host directory the client names | `verified` | `unit-verified only` — `boot-project-context` | [`bridge/test/fs-list.test.ts`](../bridge/test/fs-list.test.ts) |
@@ -221,6 +221,7 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | `session-compaction` | Compacting a session on request (/compact): the pinned Maki SDK has no compaction request — only initialize, interrupt, set_permission_mode and set_model controls (sdk_mode.rs v0.6.4 L818–L880) — and drops its compaction events from the wire (L1057–L1058); /compact is a maki-ui command (maki-ui/src/app/mod.rs L1969) | `degraded` · pin-blocked | — | [`bridge/test/journeys/compact-session/diff.json`](../bridge/test/journeys/compact-session/diff.json) |
 | `session-revert` | Reverting and restoring the last exchange (/undo, /redo): the pinned Maki SDK has no rewind request — only initialize, interrupt, set_permission_mode and set_model controls (sdk_mode.rs v0.6.4 L818–L880) — and rewinding is maki-ui only (maki-ui/src/app/session.rs L455) | `degraded` · pin-blocked | — | [`bridge/test/journeys/undo-previous-message/diff.json`](../bridge/test/journeys/undo-previous-message/diff.json) |
 | `session-fork-at-message` | Forking at an earlier message (session.fork with `before`): the pinned child forks whole stored sessions only (`--fork-session` copies the loaded session, src/cli.rs v0.6.4 L114–L117; the SDK has no history-cut request, sdk_mode.rs L818–L880), so the bridge refuses a cut fork with 400 | `degraded` · pin-blocked | — | [`bridge/test/session-fork.test.ts`](../bridge/test/session-fork.test.ts) |
+| `tool-background` | Backgrounding a running tool (ctrl+b, session.background): the pinned Maki SDK has no request to detach a running call — only initialize, interrupt, set_permission_mode and set_model controls (sdk_mode.rs v0.6.4 L818–L880) — and its background work is background agents only (maki-agent tools/mod.rs L331–L333) | `degraded` · pin-blocked | — | [`bridge/test/journeys/background-blocking-tools/diff.json`](../bridge/test/journeys/background-blocking-tools/diff.json) |
 | `permission-reask` | `always` becomes Maki's session-scoped allow (the bridge caches nothing); it is not saved for the project as the TUI's copy says — the pinned SDK decoder has no project/global answer (sdk_mode.rs v0.6.4 L918–L927) | `degraded` · pin-blocked | — | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
 | `agent-switch-state` | Session agent selection is recorded and reported while the Maki child is not re-tasked — the pinned inbound control subtypes are `initialize`, `interrupt`, `set_permission_mode`, `set_model`, with no `set_agent` (sdk_mode.rs v0.6.4 L818–L880) | `degraded` · pin-blocked | — | [`bridge/test/agent-switch.test.ts`](../bridge/test/agent-switch.test.ts) |
 | `mid-turn-steering` | A prompt sent while a turn runs is admitted and queued: its turn starts after the running turn's result, and a `steer` is reported as `queue` (`session.inbox.delivery.changed`) — the pinned SDK sends each stdin `user` to the session's input queue, answered by its own later run, never into the running one (sdk_mode.rs v0.6.4 L682–L702, L763) | `degraded` · pin-blocked | — | [`bridge/test/steering.test.ts`](../bridge/test/steering.test.ts) |
@@ -244,7 +245,7 @@ Rows citing these notes are proved against fixtures that were authored or splice
 
 Statuses: `unrecorded` (no reference recording yet), `referenced` (a reference recording of real OpenCode exists, the Maki side is not yet compared), `parity` (both sides match at every checkpoint), `diverges` (the journey completes with at least one differing checkpoint), `broken` (the Maki side cannot complete it).
 
-Reachable journeys: **61 of 67** (35 `unrecorded`, 0 `referenced`, 23 `parity`, 3 `diverges`, 0 `broken`). Native parity score: **37.7%** (23 of 61 reachable journeys at `parity`).
+Reachable journeys: **61 of 67** (33 `unrecorded`, 0 `referenced`, 23 `parity`, 4 `diverges`, 1 `broken`). Native parity score: **37.7%** (23 of 61 reachable journeys at `parity`).
 
 ### Reachable (61)
 
@@ -262,8 +263,6 @@ Reachable journeys: **61 of 67** (35 `unrecorded`, 0 `referenced`, 23 `parity`, 
 | `view-debug-info` | View debug information | navigation | `unrecorded` | — | — | — |
 | `view-usage-statistics` | View usage statistics | navigation | `unrecorded` | — | — | — |
 | `exit-application` | Exit the application | navigation | `unrecorded` | — | — | — |
-| `background-blocking-tools` | Background a blocking tool | session | `unrecorded` | — | — | — |
-| `open-subagent-session` | Open a subagent session | session | `unrecorded` | — | — | — |
 | `open-terminal-pane` | Open a terminal pane | session | `unrecorded` | — | — | — |
 | `recall-prompt-history` | Recall an earlier prompt from history | prompt | `unrecorded` | — | — | — |
 | `attach-image-to-prompt` | Attach an image to a prompt | prompt | `unrecorded` | — | — | — |
@@ -311,6 +310,8 @@ Reachable journeys: **61 of 67** (35 `unrecorded`, 0 `referenced`, 23 `parity`, 
 | `compact-session` | Compact a long session | session | `diverges` | `diverges` | reference: [`bridge/test/journeys/compact-session/reference/`](../bridge/test/journeys/compact-session/reference/) · maki: [`bridge/test/journeys/compact-session/maki/`](../bridge/test/journeys/compact-session/maki/) · diff: [`bridge/test/journeys/compact-session/diff.json`](../bridge/test/journeys/compact-session/diff.json) | — |
 | `undo-previous-message` | Undo the previous message | session | `diverges` | `diverges` | reference: [`bridge/test/journeys/undo-previous-message/reference/`](../bridge/test/journeys/undo-previous-message/reference/) · maki: [`bridge/test/journeys/undo-previous-message/maki/`](../bridge/test/journeys/undo-previous-message/maki/) · diff: [`bridge/test/journeys/undo-previous-message/diff.json`](../bridge/test/journeys/undo-previous-message/diff.json) | — |
 | `redo-reverted-message` | Redo a reverted message | session | `diverges` | `diverges` | reference: [`bridge/test/journeys/redo-reverted-message/reference/`](../bridge/test/journeys/redo-reverted-message/reference/) · maki: [`bridge/test/journeys/redo-reverted-message/maki/`](../bridge/test/journeys/redo-reverted-message/maki/) · diff: [`bridge/test/journeys/redo-reverted-message/diff.json`](../bridge/test/journeys/redo-reverted-message/diff.json) | — |
+| `open-subagent-session` | Open a subagent session | session | `diverges` | `diverges` | reference: [`bridge/test/journeys/open-subagent-session/reference/`](../bridge/test/journeys/open-subagent-session/reference/) · maki: [`bridge/test/journeys/open-subagent-session/maki/`](../bridge/test/journeys/open-subagent-session/maki/) · diff: [`bridge/test/journeys/open-subagent-session/diff.json`](../bridge/test/journeys/open-subagent-session/diff.json) | subagent-row: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; parent: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make |
+| `background-blocking-tools` | Background a blocking tool | session | `broken` | `broken` | reference: [`bridge/test/journeys/background-blocking-tools/reference/`](../bridge/test/journeys/background-blocking-tools/reference/) · maki: [`bridge/test/journeys/background-blocking-tools/maki/`](../bridge/test/journeys/background-blocking-tools/maki/) · diff: [`bridge/test/journeys/background-blocking-tools/diff.json`](../bridge/test/journeys/background-blocking-tools/diff.json) | — |
 
 ### Out of scope (6)
 

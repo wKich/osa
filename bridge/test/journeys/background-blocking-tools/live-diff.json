@@ -1,0 +1,14 @@
+{
+  "status": "broken",
+  "checkpoints": [
+    {
+      "id": "backgrounded",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n- <SPINNER> Journey                       +\n+ <SPINNER> New session                   +\n \n   ┃\n   ┃  Use your shell tool to run exactly: sleep 8; echo slow-done . Then reply with the single word DONE.\n   ┃\n \n   ┃\n   ┃  <SPINNER> sleep 8; echo slow-done\n   ┃\n-  ┃   Background\n-  ┃\n \n+     Press ctrl+b to move running work to the background\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n+\n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n-   <BAR> esc interrupt                                                               ↓ 1 shell · 2  ctrl+p commands\n+   <BAR> esc interrupt                                                            shift+tab agents  ctrl+p commands"
+    },
+    {
+      "id": "badge",
+      "verdict": "unreached"
+    }
+  ]
+}

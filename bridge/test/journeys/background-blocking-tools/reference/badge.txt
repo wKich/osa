@@ -1,0 +1,39 @@
+   Journey                       +
+
+  ┃
+  ┃  Use your shell tool to run exactly: sleep 8; echo slow-done . Then reply with the single word DONE.
+  ┃
+
+  ┃
+  ┃  $ sleep 8; echo slow-done
+  ┃
+  ┃   Background
+  ┃
+
+     DONE
+
+     Build · <MODEL> · <DUR>
+
+     NOTED
+
+     Build · <MODEL> · <DUR>
+
+     ↳ Shell finished · sleep 8; echo slow-done
+
+     NOTED
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

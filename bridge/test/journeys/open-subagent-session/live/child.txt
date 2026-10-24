@@ -1,0 +1,39 @@
+   Use a subagent to get the wor +
+
+  ┃
+  ┃  Reply with the word MARK only.
+  ┃
+
+     MARK
+
+     General · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  Subagents  Shell                                                                                            esc
+  ┃
+  ┃  General: Echo a marker
+  ┃
+  ┃
+  ┃
+  ┃
+  ┃
+  ┃  show active ctrl+a  tabs ←/→
+  ┃

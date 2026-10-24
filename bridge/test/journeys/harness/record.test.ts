@@ -36,6 +36,8 @@ describe("reference isolation", () => {
     // the harness's own switch: no update check reaches the release feed
     expect(leaked).toEqual(["OPENCODE_DISABLE_AUTOUPDATE"]);
     expect(env.OPENCODE_DISABLE_AUTOUPDATE).toBe("1");
+    // the host user's login shell never reaches a journey terminal
+    expect(env.SHELL).toBe("/bin/sh");
     expect(env.HOME).toBe(paths.home);
     expect(env.XDG_CONFIG_HOME).toBe(paths.home + "/.config");
   });

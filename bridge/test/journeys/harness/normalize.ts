@@ -93,6 +93,9 @@ export function normalize(text: string, opts: NormalizeOptions = {}): string {
   // A branch suffix (`<WORKDIR>:main`) is padded the same way.
   out = out.replace(/(<WORKDIR>|<HOME>)(:\S+)?[ \t]{2,}/g, "$1$2 ");
 
+  // A live sandbox's hostname is its container id.
+  out = out.replace(/\bsandbox@[0-9a-f]{12}\b/g, "sandbox@<HOST>");
+
   // Animated work spinners are volatile too.
   out = out.replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "<SPINNER>");
 

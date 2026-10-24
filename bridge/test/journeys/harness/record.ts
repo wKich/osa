@@ -110,6 +110,9 @@ export function referenceEnv(paths: Paths, base: NodeJS.ProcessEnv = process.env
     // network peer is the loopback provider (cli services/updater.ts v2.0.32
     // L534), and a new release must not change every home-screen snapshot.
     OPENCODE_DISABLE_AUTOUPDATE: "1",
+    // A terminal opens the login shell; the host user's shell and its prompt
+    // (zsh, fish, a custom PS1) are host configuration, not journey content.
+    SHELL: "/bin/sh",
   };
   if (base.TMPDIR) env.TMPDIR = base.TMPDIR;
   return env;

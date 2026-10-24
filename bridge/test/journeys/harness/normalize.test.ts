@@ -23,6 +23,8 @@ describe("normalize", () => {
     expect(normalize("Reply.          9:59 PM", opts)).toBe(normalize("Reply.         10:05 PM", opts));
     // the footer pads a workdir with its branch by the path's length
     expect(normalize("  /tmp/x/journey-work:main            2  ctrl+p", { ...opts, workdir: "/tmp/x/journey-work" })).toBe("  <WORKDIR>:main 2  ctrl+p");
+    // a live sandbox's prompt names its container
+    expect(normalize("sandbox@f328cbd028b1:/tmp$ ", opts)).toBe("sandbox@<HOST>:/tmp$ ");
     // a dialog cut the duration mid-unit
     expect(normalize("     Build · mock-model · 700m    Last turn", opts)).toBe("     Build · <MODEL> · <DUR>    Last turn");
   });

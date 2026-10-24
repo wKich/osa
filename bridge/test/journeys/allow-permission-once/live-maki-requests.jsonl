@@ -24,3 +24,4 @@
 {"method":"POST","path":"/api/session/{sessionID}/model"}
 {"method":"POST","path":"/api/session/{sessionID}/permission/{requestID}/reply"}
 {"method":"POST","path":"/api/session/{sessionID}/prompt"}
+{"method":"POST","path":"/api/session/{sessionID}/view"}

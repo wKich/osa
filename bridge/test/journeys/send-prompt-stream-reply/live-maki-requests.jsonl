@@ -23,3 +23,4 @@
 {"method":"POST","path":"/api/session"}
 {"method":"POST","path":"/api/session/{sessionID}/model"}
 {"method":"POST","path":"/api/session/{sessionID}/prompt"}
+{"method":"POST","path":"/api/session/{sessionID}/view"}

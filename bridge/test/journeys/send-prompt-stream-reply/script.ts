@@ -9,6 +9,7 @@ export default journey("send-prompt-stream-reply", {
     checkpoint("user-message", waitFor(/Reply with the word PONG only\./)),
     waitFor(/^\s*PONG\s*$/m, { idleMs: 100 }),
     waitFor(/^(?![\s\S]*esc interrupt)/, { name: "turn-finished" }),
+    waitFor(/^[\s\S]*$/, { idleMs: 1500, name: "settled" }),
     checkpoint("streamed", waitFor(/^\s*PONG\s*$/m)),
   ],
 });

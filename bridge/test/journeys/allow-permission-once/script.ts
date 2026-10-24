@@ -9,6 +9,7 @@ export default journey("allow-permission-once", {
     type("\r"),
     waitFor(/^\s*DONE\s*$/m, { idleMs: 100 }),
     waitFor(/^(?![\s\S]*esc interrupt)/, { name: "turn-finished" }),
+    waitFor(/^[\s\S]*$/, { idleMs: 1500, name: "settled" }),
     checkpoint("allowed", waitFor(/^\s*DONE\s*$/m)),
   ],
 });

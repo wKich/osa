@@ -1,4 +1,4 @@
- • Journey                       +
+   Journey                       +
 
   ┃
   ┃  Reply with the word PONG only.

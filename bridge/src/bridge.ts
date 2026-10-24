@@ -59,6 +59,9 @@ interface BridgeSession {
   cost?: number;
   tokens?: AnyObj;
   firstPrompt?: string; // the first non-empty prompt text, Maki's title source
+  idle?: number; // the last terminal execution transition (Session.Info time.idle)
+  viewed?: number; // the idle watermark a viewer acknowledged
+  outcome?: "succeeded" | "failed" | "interrupted";
   title?: string; // set when the first run ends, as Maki records it
 }
 
@@ -92,9 +95,29 @@ function emit(type: string, data: AnyObj, durableVersion?: number): void {
   if (durableVersion && typeof data.sessionID === "string") {
     ev.durable = { aggregateID: data.sessionID, seq: durableSeq++, version: durableVersion };
   }
+  projectIdle(type, data, ev.created);
   const frame = { id: ev.id, event: type, data: ev };
   seenFrames.push(frame);
   pushFrame(frame);
+}
+
+// A terminal execution transition is the session's idle marker, as the real
+// projector records it (core session/projector.ts v2.0.32 L412–L440): strictly
+// advancing, so the TUI's unread check (idle > viewed) sees every new one; a
+// shutdown interrupt is not an idle transition. It is set before the frame goes
+// out, since the TUI re-reads the session when it sees the frame.
+const OUTCOME: Record<string, BridgeSession["outcome"]> = {
+  "session.execution.succeeded": "succeeded",
+  "session.execution.failed": "failed",
+  "session.execution.interrupted": "interrupted",
+};
+
+function projectIdle(type: string, data: AnyObj, created: number): void {
+  const outcome = OUTCOME[type];
+  const s = outcome && typeof data.sessionID === "string" ? sessions.get(data.sessionID) : undefined;
+  if (!s || (outcome === "interrupted" && data.reason === "shutdown")) return;
+  s.idle = Math.max(created, s.idle === undefined ? created : s.idle + 1);
+  s.outcome = outcome;
 }
 
 function openEventStream(): Response {
@@ -174,7 +197,13 @@ function sessionObject(s: BridgeSession): AnyObj {
     model: s.translator.announcedModel ?? s.model,
     cost: s.cost ?? 0,
     tokens: s.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-    time: { created: s.created, updated: s.updated },
+    time: {
+      created: s.created,
+      updated: s.updated,
+      ...(s.idle !== undefined ? { idle: s.idle } : {}),
+      ...(s.viewed !== undefined ? { viewed: s.viewed } : {}),
+    },
+    ...(s.outcome ? { outcome: s.outcome } : {}),
     location: { directory: s.directory },
     ...(s.title ? { title: s.title } : {}),
   };
@@ -425,6 +454,21 @@ function interrupt(s: BridgeSession): { status: number; payload: any } {
   return { status: 200, payload: { interrupted: true } };
 }
 
+// session.view: a viewer acknowledges the idle transition it saw. The real
+// server ignores a watermark for no transition, one past the current
+// transition, or one already covered (core session/session.ts v2.0.32
+// L61–L70), and keeps the watermark monotone (projector.ts L601–L611)
+function viewSession(s: BridgeSession, body: AnyObj): { status: number; payload: any } {
+  const idle = body?.idle;
+  if (typeof idle !== "number" || !Number.isFinite(idle)) {
+    return { status: 400, payload: { _tag: "InvalidRequestError", message: "idle must be a number" } };
+  }
+  if (s.idle === undefined || idle > s.idle || (s.viewed !== undefined && s.viewed >= idle)) return { status: 204, payload: null };
+  s.viewed = Math.max(idle, s.viewed ?? idle);
+  emit("session.viewed", { sessionID: s.id, idle }, 1);
+  return { status: 204, payload: null };
+}
+
 function onMakiFrame(sessionID: string, frame: AnyObj): void {
   const s = sessions.get(sessionID);
   if (!s) return;
@@ -497,6 +541,7 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
     return { status, payload: { ...payload, data: pendingList(s) } };
   }
   if (rest === "interrupt" && method === "POST") return interrupt(s);
+  if (rest === "view" && method === "POST") return viewSession(s, body);
   const reply = /^permission\/([^/]+)\/reply$/.exec(rest);
   if (reply && method === "POST") return replyPermission(s, reply[1]!, body);
   // deferred session surfaces (message/inbox/form/terminal, resume/fork/…)

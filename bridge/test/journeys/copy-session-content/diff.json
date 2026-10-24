@@ -1,0 +1,15 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "message-copied",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Reply with the word PONG only +\n                                                                                  ┃                                   ┃\n   ┃                                                                              ┃  Message copied to clipboard!  x  ┃\n   ┃  Reply with the word PONG only.                                              ┃                                   ┃\n   ┃\n \n      PONG\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "transcript-copied",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Reply with the word PONG only +\n                                                                       ┃                                              ┃\n   ┃                                                                   ┃  Session transcript copied to clipboard!  x  ┃\n   ┃  Reply with the word PONG only.                                   ┃                                              ┃\n   ┃\n \n      PONG\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

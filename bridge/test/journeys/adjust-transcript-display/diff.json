@@ -1,0 +1,15 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "verbosity",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n \n   ┃\n   ┃  Use your shell tool to run exactly: rm -f probe.txt . Then reply with the single word DONE.\n   ┃\n \n   ┃\n   ┃  $ rm -f probe.txt\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      DONE\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "display",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n \n   ┃\n   ┃  Use your shell tool to run exactly: rm -f probe.txt . Then reply with the single word DONE.\n   ┃\n \n      + 1 command\n \n      DONE\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

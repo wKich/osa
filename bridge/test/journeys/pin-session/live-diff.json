@@ -1,0 +1,10 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "pinned",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Reply with the word PONG only +\n \n   ┃\n   ┃  Reply with the word PONG only.\n   ┃\n \n      PONG\n \n      Build · <MODEL> · <DUR>\n \n \n                     Sessions for <WORKDIR> esc\n \n                     Search\n \n                     Today\n-                  ● Journey\n+                  ● Reply with the word PONG only.\n \n                     delete ctrl+d  rename ctrl+r                                 all projects ctrl+a\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

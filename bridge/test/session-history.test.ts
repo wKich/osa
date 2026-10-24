@@ -56,3 +56,23 @@ test("the default page is newest first and the cursor walks on", async () => {
   expect((await page("?cursor=not-a-cursor")).status).toBe(400);
   expect((await page("?type=user")).body.data.map((m: any) => m.text)).toEqual(["run exactly: true .", "hello"]);
 });
+
+test("export answers the session and its settled transcript, and sanitize redacts content", async () => {
+  const path = `/api/experimental/session/${sid}/export`;
+  const res = await fetch(bridge.base + path);
+  const body = await res.json();
+  expect(validateBody(path, "GET", res.status, body)).toBeNull();
+  expect(body.data.info.id).toBe(sid);
+  expect(body.data.messages.map((m: any) => m.type)).toEqual(["user", "assistant", "idle", "user", "assistant", "idle"]);
+  expect(body.data.messages[0].text).toBe("hello");
+
+  const red = await (await fetch(`${bridge.base}${path}?sanitize=true`)).json();
+  expect(validateBody(path, "GET", 200, red)).toBeNull();
+  const user = red.data.messages[0];
+  expect(user.text).toBe(`[redacted:text:${user.id}]`);
+  const assistant = red.data.messages[1];
+  expect(assistant.content[0].text).toBe(`[redacted:text:${assistant.id}]`);
+  expect(red.data.info.location.directory).toBe(`/[redacted:session-directory:${sid}]`);
+  expect(JSON.stringify(red)).not.toContain("hello");
+  expect((await fetch(`${bridge.base}/api/experimental/session/ses_unknown0000000000/export`)).status).toBe(404);
+});

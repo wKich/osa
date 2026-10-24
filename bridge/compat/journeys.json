@@ -370,19 +370,22 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:113 (session.tab.next) and :143 (session.quick_switch.1) at v2.0.32",
       "scenario": {
-        "steps": ["open two sessions in tabs", "press ctrl+tab", "press leader+2"],
+        "steps": ["prompt PONG in one session and PANG in a new session", "press alt+down", "press leader+2"],
         "checkpoints": [
-          { "id": "tab-switched", "after": 2, "expect": "the next tab's session becomes active with its transcript" },
-          { "id": "quick-switched", "after": 3, "expect": "the session in quick slot 2 opens" }
+          { "id": "tab-switched", "after": 2, "expect": "the next tab (the PONG session) becomes active with its transcript" },
+          { "id": "quick-switched", "after": 3, "expect": "the session in tab 2 (PANG) opens" }
         ]
       },
       "routes": ["GET /api/session/{sessionID}", "GET /api/session/{sessionID}/message"],
       "features": ["session-active-live"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/switch-session-tab/reference/","maki":"bridge/test/journeys/switch-session-tab/maki/","diff":"bridge/test/journeys/switch-session-tab/diff.json","live":{"snapshots":"bridge/test/journeys/switch-session-tab/live/","diff":"bridge/test/journeys/switch-session-tab/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "tab-switched", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "quick-switched", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "close-reopen-session-tab",
@@ -397,13 +400,15 @@
           { "id": "tab-reopened", "after": 3, "expect": "the closed session reopens in its tab with the PONG exchange" }
         ]
       },
-      "routes": [],
+      "routes": ["GET /api/session/{sessionID}", "GET /api/session/{sessionID}/message"],
       "features": [],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/close-reopen-session-tab/reference/","maki":"bridge/test/journeys/close-reopen-session-tab/maki/","diff":"bridge/test/journeys/close-reopen-session-tab/diff.json","live":{"snapshots":"bridge/test/journeys/close-reopen-session-tab/live/","diff":"bridge/test/journeys/close-reopen-session-tab/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "tab-reopened", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "rename-session",
@@ -458,18 +463,20 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:142 (session.pin.toggle) and packages/tui/src/component/dialog-session-list.tsx at v2.0.32",
       "scenario": {
-        "steps": ["press leader+l", "press ctrl+f on a session"],
+        "steps": ["prompt \"Reply with the word PONG only.\"", "press leader+l", "press ctrl+f on the session"],
         "checkpoints": [
-          { "id": "pinned", "after": 2, "expect": "the session moves to the pinned group with a pin marker" }
+          { "id": "pinned", "after": 3, "expect": "the session row carries the pin marker in the session list" }
         ]
       },
       "routes": [],
       "features": [],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/pin-session/reference/","maki":"bridge/test/journeys/pin-session/maki/","diff":"bridge/test/journeys/pin-session/diff.json","live":{"snapshots":"bridge/test/journeys/pin-session/live/","diff":"bridge/test/journeys/pin-session/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "pinned", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "clear-session",
@@ -478,17 +485,17 @@
       "area": "session",
       "source": "packages/tui/src/app.tsx:770 (/clear) at v2.0.32",
       "scenario": {
-        "steps": ["open a session with history", "run /clear"],
+        "steps": ["prompt \"Reply with the word PONG only.\"", "run /clear"],
         "checkpoints": [
-          { "id": "cleared", "after": 2, "expect": "the transcript is empty and a fresh session prompt is focused" }
+          { "id": "cleared", "after": 2, "expect": "the TUI leaves the session for a fresh home screen with the composer focused" }
         ]
       },
-      "routes": ["POST /api/session"],
+      "routes": [],
       "features": ["session-crud"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/clear-session/reference/","maki":"bridge/test/journeys/clear-session/maki/","diff":"bridge/test/journeys/clear-session/diff.json","live":{"snapshots":"bridge/test/journeys/clear-session/live/","diff":"bridge/test/journeys/clear-session/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
       "acceptedDiffs": []
     },
     {
@@ -519,19 +526,22 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:121 (session.timeline) and packages/tui/src/routes/session/dialog-timeline.tsx at v2.0.32",
       "scenario": {
-        "steps": ["open a long session", "run /timeline", "select an earlier message"],
+        "steps": ["prompt PONG, then prompt PANG", "press leader+g", "select the PONG message and choose Jump to"],
         "checkpoints": [
-          { "id": "timeline", "after": 2, "expect": "a timeline lists the session's messages" },
-          { "id": "jumped", "after": 3, "expect": "the transcript scrolls to the selected message" }
+          { "id": "timeline", "after": 2, "expect": "the timeline lists both user messages, newest first, with their times" },
+          { "id": "jumped", "after": 3, "expect": "the transcript scrolls to the PONG exchange with a jump-to-latest hint" }
         ]
       },
-      "routes": ["GET /api/session/{sessionID}/message", "GET /api/session/{sessionID}"],
+      "routes": ["GET /api/session/{sessionID}/message"],
       "features": ["transcript-order"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/jump-to-message/reference/","maki":"bridge/test/journeys/jump-to-message/maki/","diff":"bridge/test/journeys/jump-to-message/diff.json","live":{"snapshots":"bridge/test/journeys/jump-to-message/live/","diff":"bridge/test/journeys/jump-to-message/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "jumped", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "timeline", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the timeline dialog covers the last footer line mid-label, so each side shows the first letters of its own label for the same scripted model: the reference's provider label \"Mock Model\" and Maki's model id \"fake\" (from the bridge's GET /api/model, the child's announced synthetic/fake) — the whole label is normalized to <MODEL> everywhere it is not cut" }
+      ]
     },
     {
       "slug": "interrupt-running-turn",
@@ -662,19 +672,22 @@
       "area": "session",
       "source": "packages/tui/src/routes/session/index.tsx:1140 (/copy), :1179 (copy id), :1191 (copy transcript) at v2.0.32",
       "scenario": {
-        "steps": ["open a session with an assistant reply", "press leader+y", "copy the session id from the palette", "copy the transcript from the palette"],
+        "steps": ["prompt \"Reply with the word PONG only.\"", "press leader+y", "run Copy session transcript from the palette"],
         "checkpoints": [
           { "id": "message-copied", "after": 2, "expect": "a toast confirms the last assistant message is on the clipboard" },
-          { "id": "transcript-copied", "after": 4, "expect": "a toast confirms the transcript is on the clipboard" }
+          { "id": "transcript-copied", "after": 3, "expect": "a toast confirms the session transcript is on the clipboard" }
         ]
       },
-      "routes": [],
-      "features": [],
+      "routes": ["GET /api/experimental/session/{sessionID}/export"],
+      "features": ["session-export"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/copy-session-content/reference/","maki":"bridge/test/journeys/copy-session-content/maki/","diff":"bridge/test/journeys/copy-session-content/diff.json","live":{"snapshots":"bridge/test/journeys/copy-session-content/live/","diff":"bridge/test/journeys/copy-session-content/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "message-copied", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "transcript-copied", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "export-session-transcript",
@@ -683,19 +696,20 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:106 (session.export) and packages/tui/src/routes/session/index.tsx:1213 (/export) at v2.0.32",
       "scenario": {
-        "steps": ["run /export", "choose markdown", "choose save"],
+        "steps": ["prompt \"Reply with the word PONG only.\"", "run /export"],
         "checkpoints": [
-          { "id": "export-options", "after": 1, "expect": "the dialog asks for format, thinking, tools, and copy or save" },
-          { "id": "exported", "after": 3, "expect": "the file is written and its path is shown" }
+          { "id": "export-options", "after": 2, "expect": "the export dialog offers Markdown or JSON, thinking and tools toggles, and Copy or Export" }
         ]
       },
       "routes": ["GET /api/experimental/session/{sessionID}/export"],
-      "features": [],
+      "features": ["session-export"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/export-session-transcript/reference/","maki":"bridge/test/journeys/export-session-transcript/maki/","diff":"bridge/test/journeys/export-session-transcript/diff.json","live":{"snapshots":"bridge/test/journeys/export-session-transcript/live/","diff":"bridge/test/journeys/export-session-transcript/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "export-options", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "background-blocking-tools",
@@ -1019,19 +1033,22 @@
       "area": "session",
       "source": "packages/tui/src/routes/session/index.tsx:1045 (grouping), :1073 (verbosity), :1027 (thinking) at v2.0.32",
       "scenario": {
-        "steps": ["open a session", "cycle verbosity", "toggle thinking blocks", "toggle tool grouping"],
+        "steps": ["run a shell tool turn and answer its permission", "cycle verbosity from the palette", "cycle verbosity again"],
         "checkpoints": [
-          { "id": "verbosity", "after": 2, "expect": "the transcript switches between low, medium, and high verbosity" },
-          { "id": "display", "after": 4, "expect": "thinking blocks and tool grouping change visibility without losing the transcript" }
+          { "id": "verbosity", "after": 2, "expect": "the next verbosity level shows the shell call with its output" },
+          { "id": "display", "after": 3, "expect": "the following level folds the call into a one-line command summary" }
         ]
       },
       "routes": [],
       "features": [],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/adjust-transcript-display/reference/","maki":"bridge/test/journeys/adjust-transcript-display/maki/","diff":"bridge/test/journeys/adjust-transcript-display/diff.json","live":{"snapshots":"bridge/test/journeys/adjust-transcript-display/live/","diff":"bridge/test/journeys/adjust-transcript-display/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "verbosity", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the silent command shows Maki's real bash result \"Exit code: 0\" (plugins/bash/init.lua v0.6.4 L407–L412), where OpenCode's shell tool prints \"(no output)\" (core/src/shell.ts v2.0.32 L249) — each TUI renders its own tool's result" },
+        { "checkpoint": "display", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "allow-permission-once",

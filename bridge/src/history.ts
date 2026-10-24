@@ -208,3 +208,61 @@ export class SessionHistory {
     return this.assistant(assistantID)?.content.find((p: AnyObj) => p.type === "tool" && p.id === id);
   }
 }
+
+// session.export (core session/transfer.ts v2.0.32 L56–L62): the session and
+// its settled messages oldest first; `sanitize` redacts content the way the
+// real transfer does (L165–L348) for the message types the bridge projects
+const settled = (m: AnyObj) => (m.type === "assistant" ? m.time?.completed !== undefined : true);
+const redact = (kind: string, id: string, value: string) => (value.trim() ? `[redacted:${kind}:${id}]` : value);
+const redactMeta = (kind: string, id: string, value: AnyObj | undefined) =>
+  value && Object.keys(value).length > 0 ? { redacted: `${kind}:${id}` } : value;
+
+function sanitizeToolState(id: string, state: AnyObj): AnyObj {
+  if (state.status === "streaming") return { ...state, input: redact("tool-input", id, String(state.input ?? "")) };
+  if (state.status === "running") return { ...state, input: { redacted: `tool-input:${id}` }, metadata: { redacted: `tool-metadata:${id}` } };
+  const content = (items: AnyObj[] | undefined) =>
+    items?.map((c) => (c.type === "text"
+      ? { ...c, text: redact("tool-output", id, String(c.text ?? "")) }
+      : { ...c, uri: redact("tool-file-uri", id, String(c.uri ?? "")), ...(c.name === undefined ? {} : { name: redact("tool-file-name", id, c.name) }) }));
+  const out: AnyObj = { ...state, input: { redacted: `tool-input:${id}` } };
+  if (state.content) out.content = content(state.content);
+  if (state.metadata !== undefined) out.metadata = { redacted: `tool-metadata:${id}` };
+  return out;
+}
+
+function sanitizeMessage(m: AnyObj): AnyObj {
+  const meta = redactMeta("message-metadata", m.id, m.metadata);
+  const base = meta === undefined ? { ...m } : { ...m, metadata: meta };
+  if (m.type === "user") {
+    return {
+      ...base,
+      text: redact("text", m.id, m.text),
+      ...(m.files ? { files: m.files.map((f: AnyObj, i: number) => ({ ...f, data: "", source: { type: "inline" }, ...(f.name === undefined ? {} : { name: redact("file-name", String(i), f.name) }), ...(f.description === undefined ? {} : { description: redact("file-description", String(i), f.description) }) })) } : {}),
+    };
+  }
+  if (m.type === "assistant") {
+    return {
+      ...base,
+      content: m.content.map((c: AnyObj) => {
+        if (c.type === "text" || c.type === "reasoning") {
+          const out: AnyObj = { ...c, text: redact(c.type, m.id, c.text) };
+          if (c.state) out.state = { redacted: `${c.type}-state:${m.id}` };
+          return out;
+        }
+        return { ...c, state: sanitizeToolState(m.id, c.state) };
+      }),
+    };
+  }
+  return base;
+}
+
+export function exportSession(info: AnyObj, history: SessionHistory, sanitize: boolean): AnyObj {
+  const messages = history.page({ order: "asc", limit: String(Number.MAX_SAFE_INTEGER) });
+  const list = messages.ok ? messages.data.filter(settled) : [];
+  if (!sanitize) return { info, messages: list };
+  const out: AnyObj = { ...info };
+  if (info.title !== undefined) out.title = redact("session-title", info.id, info.title);
+  if (info.metadata && Object.keys(info.metadata).length > 0) out.metadata = { redacted: `session-metadata:${info.id}` };
+  out.location = { ...info.location, directory: `/${redact("session-directory", info.id, info.location.directory)}` };
+  return { info: out, messages: list.map(sanitizeMessage) };
+}

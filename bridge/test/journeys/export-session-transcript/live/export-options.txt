@@ -1,0 +1,39 @@
+   Reply with the word PONG only +
+
+  ┃
+  ┃  Reply with the word PONG only.
+  ┃
+
+     PONG
+
+     Build · <MODEL> · <DUR>
+
+
+                                 Export session                                     esc
+
+                                 Export as:  ◉ Markdown   ○ JSON
+
+                                 [x] Include thinking
+
+                                 [x] Include tools
+
+                                                                Copy         Export
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

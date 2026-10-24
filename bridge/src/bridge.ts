@@ -25,7 +25,7 @@ import { Translator } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
 import { makiTitle } from "./title.ts";
-import { SessionHistory } from "./history.ts";
+import { exportSession, SessionHistory } from "./history.ts";
 import { readGitState, readMcpConfig, readModelCatalog, readSkills, sandboxRun } from "./sandbox.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
@@ -498,6 +498,14 @@ function viewSession(s: BridgeSession, body: AnyObj): { status: number; payload:
   return { status: 204, payload: null };
 }
 
+// experimental.session.export: the transcript the copy and export commands
+// format (tui routes/session/index.tsx v2.0.32 L1191–L1240)
+function sessionExport(sid: string, url: URL): { status: number; payload: any } {
+  const s = sessions.get(sid);
+  if (!s) return sessionNotFound(sid);
+  return { status: 200, payload: { data: exportSession(sessionObject(s), s.history, url.searchParams.get("sanitize") === "true") } };
+}
+
 // session.messages: the projected transcript, paged as the real handler pages
 function messagePage(s: BridgeSession, url: URL): { status: number; payload: any } {
   const q = url.searchParams;
@@ -809,6 +817,8 @@ async function handle(req: Request): Promise<Response> {
     else result = synthesize(method, path, url, body, CANONICAL);
   } else if (parts[1] === "api" && parts[2] === "session" && parts[3] && parts[3] !== "active") {
     result = sessionRoute(method, parts[3]!, parts.slice(4).join("/"), body, url);
+  } else if (method === "GET" && /^\/api\/experimental\/session\/[^/]+\/export$/.test(path)) {
+    result = sessionExport(parts[4]!, url);
   } else if (method === "GET" && path === "/api/model") {
     result = await modelList(url);
   } else if (method === "GET" && path === "/api/provider") {

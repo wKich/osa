@@ -135,9 +135,10 @@ and across turns.
 - **WHEN** the `result` frame carries the pinned error subtype
   `error_during_execution` (`is_error: true`, its `result` field carrying the
   failure message)
-- **THEN** the turn's parts still render, `session.step.ended` carries
-  `finish: "error"`, and `session.execution.failed` carries the wire's
-  message — with no `session.execution.succeeded` for that turn
+- **THEN** the turn's parts still render, `session.step.failed` carries the
+  wire's message as `{type: "Error", message}`, and `session.execution.failed`
+  carries the same message — with no `session.step.ended` and no
+  `session.execution.succeeded` for that turn
 
 #### Scenario: Event stream opens correctly
 - **WHEN** the TUI connects to the event stream
@@ -182,6 +183,13 @@ and across turns.
   `{input_tokens: 2, output_tokens: 2}`
 - **THEN** `session.step.ended` carries `tokens.input: 1` and
   `tokens.output: 1`, and the TUI context counter shows `2`
+
+#### Scenario: A retried attempt reads like OpenCode's
+- **WHEN** Maki announces `api_retry` with `attempt: 1` and `retry_delay_ms:
+  1000`, then streams the reply
+- **THEN** `session.retry.scheduled` names `attempt: 2` and an `at` one second
+  ahead, and the reply's first frame is preceded by `session.step.started` on
+  the same assistant message, so the TUI's retry row clears
 
 ### Requirement: Fail an in-flight turn when the Maki child exits
 The bridge SHALL end a turn that is in flight when its Maki child process

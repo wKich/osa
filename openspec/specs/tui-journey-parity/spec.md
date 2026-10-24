@@ -103,7 +103,8 @@ runs in its sandbox workdir. A model turn SHALL be one of: a text reply, optiona
 chunk; a shell call; a tool call spelled per side, carrying the result the
 pinned Maki tool returns; or a model-call failure with an HTTP status. Both
 sides SHALL run with the TUI's update check disabled, so no run asks the
-OpenCode release feed. A script SHALL NOT wait on fixed delays alone: every
+OpenCode release feed, and with `SHELL=/bin/sh`, so no terminal opens the
+host user's own shell. A script SHALL NOT wait on fixed delays alone: every
 step that depends on the TUI reacting SHALL wait for screen content or a
 bounded timeout that fails the run.
 
@@ -162,6 +163,10 @@ bounded timeout that fails the run.
   call's `parent_tool_use_id` and answers the task with `MARK`, and the
   reference's subagent consumes the same turn from the mock provider
 
+#### Scenario: A terminal does not open the host user's shell
+- **WHEN** a journey opens a terminal on either side
+- **THEN** it runs `/bin/sh`, whatever shell the host user logs in with
+
 ### Requirement: Compare normalized text snapshots per checkpoint
 Each side's terminal output SHALL be rendered by a headless terminal emulator
 into a text screen at every checkpoint. Volatile tokens (ids, timestamps,
@@ -199,6 +204,11 @@ a completed run is `parity`, a completed run with a differing checkpoint is
 - **WHEN** one side's footer reads `<WORKDIR>:main  2` and the other's
   `<WORKDIR>:main            2` because their workdir paths differ in length
 - **THEN** both normalize to the same text
+
+#### Scenario: A live sandbox's hostname is not a difference
+- **WHEN** a live terminal prompt names the sandbox container,
+  `sandbox@f328cbd028b1`
+- **THEN** it normalizes to `sandbox@<HOST>`
 
 ### Requirement: Gated journey recording target
 `make test-journeys` SHALL record and compare every journey that has a script,

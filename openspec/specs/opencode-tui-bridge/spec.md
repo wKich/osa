@@ -251,26 +251,37 @@ its order.
   that fixture still matches
 
 ### Requirement: Render subagent-flagged frames in the session transcript
-The bridge SHALL render frames the child flags with `parent_tool_use_id` —
-subagent turns flowing through the parent run's stream — inline in the owning
-session's transcript: their parts emit as `session.reasoning.*`,
-`session.text.*`, and `session.tool.*` frames in arrival order, under the
-turn's assistant message id and continuing the turn's part ordinals, and their
-`tool_result` parts map by tool id to `session.tool.success` or
-`session.tool.failed`. Subagent frames SHALL neither close nor restart the
-turn; the run's single terminal `result` frame ends it.
+The bridge SHALL run a Maki `Task` call's subagent as a child session: a
+session with the parent's id as `parentID`, the task's description as title,
+and the task's subagent type as agent, announced with `session.created`,
+whose turn starts with the task's prompt. Frames the child flags with the
+task call's `parent_tool_use_id`, and stream events that arrive while the
+task runs other than the task call's own streamed block, SHALL render in the
+child session's transcript, not the parent's; the task's `tool_result` SHALL
+end the child's turn, and the parent's task tool part SHALL carry the child's
+id as `metadata.sessionID`. Subagent frames SHALL neither close nor restart
+the parent's turn; the run's single terminal `result` frame ends it.
+`GET /api/session` SHALL list a session's children for `parentID=<id>` and
+the root sessions for `parentID=null`.
 
 The `parent_tool_use_id` wire shape this rendering depends on SHALL be
 confirmed against a capture of a live subagent turn, not solely against a
 fixture authored by reading the pinned Maki source; until such a capture
 exists the row proving it carries the `contract-only` caveat.
 
+#### Scenario: A subagent opens as a child session
+- **WHEN** the child calls `Task` and the subagent streams and then sends its
+  reply flagged with the task's id
+- **THEN** a child session titled with the task's description lists under the
+  parent, its transcript holds the task's prompt and the reply, and the
+  parent's transcript holds neither
+
 #### Scenario: Subagent parts render inline, in arrival order
 - **WHEN** the child emits `assistant` frames carrying `parent_tool_use_id`
   interleaved with unflagged parent frames within one run
-- **THEN** the flagged parts emit in the same order into the session
-  transcript, under the turn's assistant message id, with part ordinals
-  continuing the turn's sequence rather than restarting it
+- **THEN** the flagged parts render in arrival order inline in the child
+  session's transcript, and the parent's parts keep their own order and
+  ordinals
 
 #### Scenario: Nested tool results map by tool id
 - **WHEN** a `user` frame carrying `parent_tool_use_id` holds a

@@ -230,6 +230,10 @@ a completed run is `parity`, a completed run with a differing checkpoint is
 - **WHEN** a footer names the journey catalog's second model
 - **THEN** it normalizes to `<MODEL-2>`, not `<MODEL>`
 
+#### Scenario: An elided workdir is the workdir
+- **WHEN** a pane prints the workdir as `/…/fold…/bb/…/T/maki-journey-ref-x`
+- **THEN** it normalizes to `<WORKDIR>`, and `/…/usr/lib/x` is left alone
+
 ### Requirement: Gated journey recording target
 `make test-journeys` SHALL record and compare every journey that has a script,
 write its snapshots, comparison, and Maki-side request log, and update the

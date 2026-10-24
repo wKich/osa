@@ -122,9 +122,11 @@ describe("journey-only Maki config", () => {
     expect(config["providers.toml"]).toContain('base_url = "http://127.0.0.1:47901/v1"');
     expect(config["providers.toml"]).toContain('api_key = "journey-placeholder"');
     expect(config["providers.toml"].match(/^\[[^\]]+\]$/gm)).toEqual(["[mock]"]);
+    // the reference's MCP set: none
+    expect(config["mcp.toml"]).not.toMatch(/^\s*\[/m);
   });
 
-  test("uploads only the two config files and issues no env, provider, or policy command", async () => {
+  test("uploads only the three config files and issues no env, provider, or policy command", async () => {
     const { env, root, trace } = fake();
     const configDir = join(temp(), "config");
     await withSandbox(env, async (name) => {
@@ -134,10 +136,10 @@ describe("journey-only Maki config", () => {
     expect(calls.some((argv) => argv.some((a) => a === "--env" || a.startsWith("--env=")))).toBe(false);
     expect(calls.some((argv) => argv.includes("--provider"))).toBe(false);
     expect(calls.some((argv) => ["policy", "profile", "provider"].includes(argv[0]))).toBe(false);
-    expect(has(calls, "upload").length).toBe(2);
+    expect(has(calls, "upload").length).toBe(3);
 
     const published = journeyMakiConfig(47901);
-    for (const file of ["init.lua", "providers.toml"]) {
+    for (const file of ["init.lua", "providers.toml", "mcp.toml"]) {
       const uploaded = readFileSync(join(root, "sandbox", ".config", "maki", file), "utf8");
       expect(uploaded).toBe(published[file]);
     }

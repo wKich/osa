@@ -157,7 +157,7 @@ export async function withSandbox<T>(env: LiveEnvironment, body: (name: string) 
   }
 }
 
-/** The journey-only Maki config (design decision 3): loopback provider, YOLO off. */
+/** The journey-only Maki config (design decision 3): loopback provider, YOLO off, no MCP server. */
 export function journeyMakiConfig(port: number): Record<string, string> {
   return {
     "init.lua": `-- Journey-only Maki config uploaded by the live journey runner.
@@ -190,6 +190,11 @@ id = "mock-model"
 tier = "medium"
 context_window = 32768
 max_output_tokens = 4096
+`,
+    // the reference config declares no MCP server; this replaces the image's
+    // baked servers, which cannot connect with no provider attached
+    "mcp.toml": `# Journey-only MCP config uploaded by the live journey runner: no server,
+# the reference OpenCode config's MCP set.
 `,
   };
 }

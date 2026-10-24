@@ -1,9 +1,9 @@
    Reply with the word ALPHA onl + New session
-                                                                ┃                                                    ┃
-                                                                ┃  MCP server failed: synthetic  › Open MCP servers  ┃
-                                                                ┃                                                    ┃
-                                                                ┃  Run /mcps to view details.                        ┃
-                                                                ┃                                                    ┃
+
+
+
+
+
 
 
 
@@ -36,4 +36,4 @@
 
 
 
-  ⊙ 2 MCP failed /mcps                                                                                          2.0.32
+                                                                                                                2.0.32

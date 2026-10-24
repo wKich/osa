@@ -93,6 +93,11 @@ export function normalize(text: string, opts: NormalizeOptions = {}): string {
     if (base) out = out.replace(new RegExp(`\\S*${escape(base)}\\b`, "g"), token);
   }
 
+  // A worktree lives under its side's data directory and a project id taken
+  // from the first commit (core worktree/strategies.ts v2.0.32 L49–L51): the
+  // prefix, however a pane elides it, and the id are the run's.
+  out = out.replace(/\S*opencode\/worktree\/[0-9a-f]{6}\//g, "<WORKTREES>/");
+
   // A narrow pane elides the middle of the workdir and cuts its end
   // (`/…/fold…/bb/…/T/maki-journey-ref-x`): a `/…`-led token whose kept
   // segments run along the workdir's, in order, is the workdir too.

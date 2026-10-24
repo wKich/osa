@@ -27,6 +27,9 @@ describe("normalize", () => {
     expect(normalize("  /tmp/x/journey-work:main            2  ctrl+p", { ...opts, workdir: "/tmp/x/journey-work" })).toBe("  <WORKDIR>:main 2  ctrl+p");
     // the second journey model stays distinct from the first
     expect(normalize("Build · Mock Model Two Mock · mock/mock-model-2", { models: ["Mock Model", "Mock", "mock-model", "mock/mock-model"] })).toBe("Build · <MODEL-2> <MODEL> · <MODEL-2>");
+    // a worktree path keeps only its name
+    expect(normalize("  …/sh…/opencode/worktree/41803d/feature-x  x", opts)).toBe("  <WORKTREES>/feature-x  x");
+    expect(normalize("  /sandbox/.local/share/opencode/worktree/d8f7fe/feature-x  x", opts)).toBe("  <WORKTREES>/feature-x  x");
     // a subdirectory footer is padded by the path's length too
     expect(normalize("  /tmp/x/journey-work/sub            2  ctrl+p", { ...opts, workdir: "/tmp/x/journey-work" })).toBe("  <WORKDIR>/sub 2  ctrl+p");
     // a narrow pane elides the workdir's middle and cuts its end

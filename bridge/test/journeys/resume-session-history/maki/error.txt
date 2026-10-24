@@ -1,0 +1,1 @@
+journey resume-session-history: maki step "history-visible" did not show /^\s*ALPHA\s*$/m within 20000ms

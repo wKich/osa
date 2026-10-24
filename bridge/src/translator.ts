@@ -119,12 +119,12 @@ export class Translator {
       this.queued.push({ am: assistantMessageID, user });
       return user ? "queue" : undefined;
     }
-    // shortcut: the real server also emits session.inbox.delivered once the
-    // runner consumes the item; omitted for an item that starts at once (no
-    // consumer needs it) and emitted for a queued one, which stays pending in
-    // OpenCode's inbox model until delivered or cancelled
+    // The prompt is represented at admission, but delivery belongs to the
+    // common turn-start path: a prompt that starts at once and a prompt that
+    // waited behind a running turn must report the same enqueued -> delivered
+    // -> assistant sequence (the TUI renders the reply after delivery).
     if (user) this.enqueue(assistantMessageID, user);
-    this.startTurn(assistantMessageID);
+    this.startTurn(assistantMessageID, user);
     return user?.delivery;
   }
 
@@ -137,7 +137,8 @@ export class Translator {
     }, 1);
   }
 
-  private startTurn(assistantMessageID: string): void {
+  private startTurn(assistantMessageID: string, user?: UserPrompt): void {
+    if (user) this.emitExec("session.inbox.delivered", { inboxID: user.id });
     this.am = assistantMessageID;
     this.turnOpen = true;
     this.interruptRequested = false;
@@ -158,8 +159,7 @@ export class Translator {
   private startNext(): void {
     const next = this.queued.shift();
     if (!next) return;
-    if (next.user) this.emitExec("session.inbox.delivered", { inboxID: next.user.id });
-    this.startTurn(next.am);
+    this.startTurn(next.am, next.user);
   }
 
   /** maki died with a turn in flight: fail the execution instead of a stuck

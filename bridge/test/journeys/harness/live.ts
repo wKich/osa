@@ -19,10 +19,12 @@ import { startPty, runSteps, type Pty } from "./driver.ts";
 import { normalize } from "./normalize.ts";
 import { diffCheckpoints, type CheckpointInput, type Verdict } from "./diff.ts";
 import {
+  assertPinnedOpencode,
   bridgePort,
   checkpointIds,
+  makiModelLabels,
   makePaths,
-  makiModels,
+  normalizeRequests,
   referenceEnv,
   waitForSubscriber,
   writeRun,
@@ -47,12 +49,9 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const JOURNEYS = join(HERE, "..");
 const ROOT = join(JOURNEYS, "..", "..", "..");
 
-// The bridge reports its own catalog labels; the mock provider's labels can
-// surface too if Maki prints them, so both normalize to <MODEL>. Maki's
-// assistant frames name the custom provider `maki`, so the provider display
-// (and its `sample` placeholder before the first announcement) joins the map.
+// Fallback public labels seen around the mock provider and the pre-announcement
+// placeholder; the bridge's own model/provider responses add the catalog ones.
 export const LIVE_MODELS = [
-  ...makiModels,
   "maki/mock-model",
   "mock/mock-model",
   "Mock Model",
@@ -150,6 +149,7 @@ async function liveRun(
       });
     pty = await start();
     await waitForSubscriber(framesPath);
+    const labels = [...LIVE_MODELS, ...(await makiModelLabels(`http://127.0.0.1:${port}`))];
     await runSteps(
       {
         slug: script.slug,
@@ -168,7 +168,7 @@ async function liveRun(
         onCheckpoint: (id, text) => {
           checkpoints.set(
             id,
-            normalize(text, { workdir: SANDBOX_WORKDIR, home: paths.home, models: LIVE_MODELS }),
+            normalize(text, { workdir: SANDBOX_WORKDIR, home: paths.home, models: labels }),
           );
         },
       },
@@ -212,7 +212,7 @@ export async function runJourney(
 
   const dir = join(JOURNEYS, script.slug);
   writeRun(join(dir, "live"), live.checkpoints, ids);
-  writeFileSync(join(dir, "live-maki-requests.jsonl"), live.requests);
+  writeFileSync(join(dir, "live-maki-requests.jsonl"), normalizeRequests(live.requests));
 
   const accepted = journeyRow(script.slug).acceptedDiffs ?? [];
   const inputs: CheckpointInput[] = ids.map((id) => ({
@@ -242,6 +242,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
     console.log("opencode not found; skipping live journey run");
     return;
   }
+  assertPinnedOpencode();
   if (!openshellFound(env)) {
     console.log("openshell not found; skipping live journey run");
     return;

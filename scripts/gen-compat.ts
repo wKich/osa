@@ -9,6 +9,7 @@
 //   bun scripts/gen-compat.ts           write docs/compatibility.md
 //   bun scripts/gen-compat.ts --check   exit 1 when the committed file differs
 import { readFileSync, writeFileSync } from "node:fs";
+import { featureOracle } from "./journey-oracle.ts";
 
 const ROOT = new URL("..", import.meta.url);
 const read = (rel: string) => readFileSync(new URL(rel, ROOT), "utf8");
@@ -341,7 +342,9 @@ lines.push(
     "`degraded` (works, with a limitation recorded in the evidence), " +
     "`unverified` (no evidence yet), `buggy` (an open inventory entry in " +
     "`bridge/defects.json` forces this status until the fix flips it). " +
-    "`pin-blocked` marks a gap that needs an upstream wire change.",
+    "`pin-blocked` marks a gap that needs an upstream wire change. A `verified` " +
+    "row is `journey-verified` only when every reachable journey that lists it " +
+    "is at `parity`; otherwise the journey oracle reports it `unit-verified only`.",
 );
 lines.push("");
 
@@ -357,8 +360,8 @@ for (const scope of SCOPES) {
   const rows = byStatus(FEATURE_STATUS, effectiveStatus)(scoped(statuses.features, scope));
   lines.push(scopeHeading(scope, rows.length));
   lines.push("");
-  lines.push("| Id | Feature | Status | Evidence |");
-  lines.push("| --- | --- | --- | --- |");
+  lines.push("| Id | Feature | Status | Journeys | Evidence |");
+  lines.push("| --- | --- | --- | --- | --- |");
   for (const f of rows) {
     const forced = f.defect && isOpen(String(f.defect));
     const status = forced
@@ -367,8 +370,13 @@ for (const scope of SCOPES) {
     const pin = f.blockedBy === "pin" ? " · pin-blocked" : "";
     const caveat = f.caveat ? ` (${md(f.caveat)})` : "";
     const note = provenanceNote(f.evidence);
+    const oracle = featureOracle(String(f.id), journeys);
+    const journeyCell =
+      effectiveStatus(f) === "verified"
+        ? `\`${oracle.label}\`${oracle.linked.length ? ` — ${oracle.linked.map((j) => `\`${md(j.slug)}\``).join(", ")}` : ""}`
+        : "—";
     lines.push(
-      `| \`${f.id}\` | ${md(f.title)} | ${status}${pin}${caveat} | ${link(f.evidence)}${note ? ` — ${noteRef(note)}` : ""} |`,
+      `| \`${f.id}\` | ${md(f.title)} | ${status}${pin}${caveat} | ${journeyCell} | ${link(f.evidence)}${note ? ` — ${noteRef(note)}` : ""} |`,
     );
   }
   lines.push("");

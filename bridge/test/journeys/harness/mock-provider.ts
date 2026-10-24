@@ -32,6 +32,12 @@ const titleRequest = (body: any) =>
 const chunk = (content: unknown) =>
   `data: ${JSON.stringify({ id: "chatcmpl-journey", object: "chat.completion.chunk", created: 0, model: "mock-model", ...(content as object) })}\n\n`;
 
+function usageChunk(): string {
+  // The scripted child's result reports 1 input + 1 output token; the
+  // reference must carry the same usage or its footer omits the counter.
+  return chunk({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 } });
+}
+
 function textChunks(text: string, stream?: string[]): string[] {
   const chunks: string[] = [];
   chunks.push(chunk({ choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }] }));
@@ -39,6 +45,7 @@ function textChunks(text: string, stream?: string[]): string[] {
     chunks.push(chunk({ choices: [{ index: 0, delta: { content: part }, finish_reason: null }] }));
   }
   chunks.push(chunk({ choices: [{ index: 0, delta: {}, finish_reason: "stop" }] }));
+  chunks.push(usageChunk());
   return chunks;
 }
 
@@ -52,6 +59,7 @@ function toolChunks(command: string, id: string, tool: string): string[] {
   return [
     chunk({ choices: [{ index: 0, delta: { role: "assistant", tool_calls: [call] }, finish_reason: null }] }),
     chunk({ choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }] }),
+    usageChunk(),
   ];
 }
 

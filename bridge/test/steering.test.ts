@@ -94,7 +94,11 @@ describe("mid-turn prompts over the spawned bridge", () => {
     expect(res.json?.data?.delivery).toBe("queue");
     expect(count(bridge, sid, "session.inbox.delivery.changed")).toBe(0);
     expect(await waitFor(() => count(bridge, sid, "session.execution.succeeded") === 2, 30_000)).toBe(true);
-    expect(count(bridge, sid, "session.inbox.delivered")).toBe(1);
+    expect(count(bridge, sid, "session.inbox.delivered")).toBe(2);
+    const deliveredIDs = of(bridge, sid)
+      .filter((f) => f.type === "session.inbox.delivered")
+      .map((f) => f.data?.inboxID);
+    expect(deliveredIDs).toContain("msg_steering000000000003");
   }, 60_000);
 
   test("a prompt on an idle session starts at once and keeps its delivery", async () => {
@@ -103,7 +107,14 @@ describe("mid-turn prompts over the spawned bridge", () => {
     expect(res.json?.data?.delivery).toBe("steer");
     expect(await waitFor(() => count(bridge, sid, "session.execution.succeeded") === 1, 30_000)).toBe(true);
     expect(count(bridge, sid, "session.inbox.delivery.changed")).toBe(0);
-    expect(count(bridge, sid, "session.inbox.delivered")).toBe(0);
+    expect(count(bridge, sid, "session.inbox.delivered")).toBe(1);
+    const frames = of(bridge, sid);
+    const enqueued = indexOf(frames, (f) => f.type === "session.inbox.enqueued");
+    const delivered = indexOf(frames, (f) => f.type === "session.inbox.delivered");
+    const text = indexOf(frames, (f) => f.type === "session.text.started");
+    expect(enqueued).toBeGreaterThan(-1);
+    expect(delivered).toBeGreaterThan(enqueued);
+    expect(text).toBeGreaterThan(delivered);
   }, 60_000);
 });
 
@@ -134,8 +145,8 @@ describe("queued prompts when the child dies", () => {
     expect(await waitFor(() => count(bridge, sid, "session.inbox.cancelled") === 1, 5_000)).toBe(true);
     const cancelled = of(bridge, sid).find((f) => f.type === "session.inbox.cancelled")!;
     expect(cancelled.data).toEqual({ sessionID: sid, inboxID: queued });
-    // the queued prompt never started a turn
+    // the queued prompt never started a turn; the running one was delivered
     expect(count(bridge, sid, "session.execution.started")).toBe(1);
-    expect(count(bridge, sid, "session.inbox.delivered")).toBe(0);
+    expect(count(bridge, sid, "session.inbox.delivered")).toBe(1);
   }, 60_000);
 });

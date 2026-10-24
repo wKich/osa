@@ -832,7 +832,8 @@ one, a prompt requested with delivery `steer` MUST be reported as queued: the
 `session.inbox.delivery.changed` with delivery `queue`, and the route's
 admitted item carries delivery `queue`. A prompt requested with `queue`
 SHALL emit no delivery change. A prompt on an idle session SHALL start its
-turn at once with its requested delivery and no `session.inbox.delivered`.
+turn at once with its requested delivery, preceded by
+`session.inbox.delivered` for that item.
 When the child exits with a turn in flight, every prompt still queued behind
 it SHALL be reported with `session.inbox.cancelled` and SHALL NOT start a
 turn.
@@ -850,10 +851,11 @@ turn.
   `session.step.started`, and the queued turn's parts carry a different
   assistant message id from the first turn's
 
-#### Scenario: A prompt on an idle session is unchanged
+#### Scenario: A prompt on an idle session is delivered at once
 - **WHEN** the TUI posts a prompt with no turn running
-- **THEN** the turn starts at once with the requested delivery and no
-  delivery change or delivered frame is emitted
+- **THEN** the turn starts at once with the requested delivery, a delivered
+  frame for the item precedes its assistant text, and no delivery change is
+  emitted
 
 #### Scenario: A queued prompt is cancelled when the child dies
 - **WHEN** the child exits while a turn runs and a prompt is queued behind it
@@ -986,3 +988,26 @@ announcement.
   `SYNTHETIC_API_KEY` and `ANTHROPIC_API_KEY`, and `openai` as not logged in
 - **THEN** the integration list holds `synthetic` and `anthropic`, each with
   that variable as its `env` method and connection, and `openai` is absent
+
+### Requirement: Deliver an admitted prompt before its assistant turn
+The bridge SHALL emit `session.inbox.delivered` for every prompt it admits,
+before the first assistant frame that prompt causes. The event SHALL carry the
+prompt's inbound id as `inboxID` and SHALL be durable on the session. This
+SHALL hold for a prompt that starts its turn immediately as well as for a
+prompt that waits behind a running turn, which is delivered when its turn
+starts. A prompt whose turn starts immediately SHALL NOT be left in the
+enqueued state; the TUI renders the assistant turn only after the delivered
+frame arrives.
+
+#### Scenario: An immediately-started prompt is delivered
+- **WHEN** the user submits a prompt and no turn is in flight, so the prompt
+  starts its turn at once
+- **THEN** the bridge emits `session.inbox.enqueued` followed by
+  `session.inbox.delivered` for that prompt's `inboxID`, both before the first
+  assistant text frame, and the TUI renders the assistant reply
+
+#### Scenario: A queued prompt is delivered when its turn starts
+- **WHEN** a prompt is admitted while another turn is running and starts when
+  that turn ends
+- **THEN** the bridge emits `session.inbox.delivered` for the queued prompt
+  before its first assistant frame, with the same `inboxID` it enqueued

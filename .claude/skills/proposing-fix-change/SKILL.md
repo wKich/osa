@@ -15,7 +15,9 @@ split; the loop prefers small steps.
 
 1. **Reproduce.** Read each defect entry's capture, then
    `bun bridge/test/discovery.ts` — its scenarios name the defect ids and
-   print `known` for open entries.
+   print `known` for open entries. A defect found by a TUI journey names the
+   journey and checkpoint that exposed it (`journey: { "slug", "checkpoint" }`)
+   and cites the committed `maki-frames.jsonl`/snapshot as its capture.
 2. `openspec new change "fix-…"`; proposal → specs → design → tasks. If an
    unarchived change for these defects already exists, work inside it —
    revise its artifacts — and never scaffold a colliding second change. Spec
@@ -33,12 +35,18 @@ split; the loop prefers small steps.
    the statuses row → `verified` with the new test as evidence;
    `make compat` regenerates.
 6. **Verify the loop:** `bun bridge/test/discovery.ts` prints `ok` for those
-   scenarios and appends nothing; then `make test`, `make test-bridge`,
-   `make compat`, `make lint`, `openspec validate "<change>"`.
+   scenarios and appends nothing; a TUI-visible fix re-runs the journey
+   (`make test-journeys` or `bun bridge/test/journeys/harness/record.ts
+   <slug>`), records its new status and snapshots, and regenerates the report;
+   then `make test`, `make test-bridge`, `make compat`, `make lint`,
+   `openspec validate "<change>"`.
 
 ## Rules
 
 - One fix batch per change; the cross-map's next slice waits its turn.
+- A journey finding names the journey checkpoint that exposed it; a
+  TUI-visible fix is not closed until that journey is re-recorded and its new
+  status is committed.
 - `bridge/test/crosscheck.test.ts` pairs expected-failure markers with
   *open* entries — a closed defect with a leftover marker fails the suite.
 - Statuses evidence links into the change dir must be rewritten to the

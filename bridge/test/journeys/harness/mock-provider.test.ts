@@ -26,6 +26,7 @@ describe("mock provider", () => {
       expect(text).toContain('"content":"PO"');
       expect(text).toContain('"content":"NG"');
       expect(text).toContain('"finish_reason":"stop"');
+      expect(text).toContain('"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}');
       expect(text).toContain("data: [DONE]");
 
       const tool = await ask(provider.url, [{ role: "user", content: "go" }]);

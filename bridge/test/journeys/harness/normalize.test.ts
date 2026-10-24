@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { normalize } from "./normalize.ts";
+import { modelLabels, normalize } from "./normalize.ts";
 
 describe("normalize", () => {
   const opts = { workdir: "/tmp/run-abc/work", home: "/tmp/run-abc/home", models: ["Mock Model", "mock-model"] };
@@ -17,6 +17,10 @@ describe("normalize", () => {
     expect(normalize("1.2s 350ms", opts)).toBe("<DUR> <DUR>");
   });
 
+  test("token rate is wall-clock derived", () => {
+    expect(normalize("Build · mock-model · 1.2s · 3.2 tok/s", opts)).toBe("Build · <MODEL> · <DUR>");
+  });
+
   test("ports", () => {
     expect(normalize("http://127.0.0.1:45999/v1", opts)).toBe("http://127.0.0.1:<PORT>/v1");
   });
@@ -30,6 +34,13 @@ describe("normalize", () => {
     expect(normalize("/…/fold…/T/run-xyz/journey-work", trunc)).toBe("<WORKDIR>");
   });
 
+  test("footer padding after the workdir is a layout artifact", () => {
+    const trunc = { ...opts, workdir: "/tmp/run-xyz/journey-work" };
+    expect(normalize("  /tmp/run-xyz/journey-work      2  ctrl+p commands", trunc)).toBe(
+      "  <WORKDIR> 2  ctrl+p commands",
+    );
+  });
+
   test("animated spinners", () => {
     expect(normalize("⠦ working", opts)).toBe("<SPINNER> working");
   });
@@ -40,6 +51,14 @@ describe("normalize", () => {
 
   test("explicit model labels", () => {
     expect(normalize("Mock Model mock-model", opts)).toBe("<MODEL> <MODEL>");
+  });
+
+  test("model labels derive from the model and provider responses", () => {
+    const models = { data: [{ id: "fake", modelID: "fake", providerID: "synthetic", name: "fake" }] };
+    const providers = { data: [{ id: "synthetic", name: "Synthetic" }] };
+    const labels = modelLabels(models, providers);
+    expect(normalize("Build · synthetic/fake · Synthetic", { models: labels })).toBe("Build · <MODEL> · <MODEL>");
+    expect(normalize("Build · synthetic/other", { models: labels })).not.toBe("Build · <MODEL>");
   });
 
   test("token and cost counters", () => {

@@ -9,7 +9,7 @@
 
 
 
-                    Sessions for <WORKDIR>                                                    esc
+                    Sessions for <WORKDIR> esc
 
                     Search
 
@@ -24,7 +24,7 @@
                        ┃
                        ┃  Build · <MODEL> <MODEL>
                        ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-                       <WORKDIR>  shift+tab agents  ctrl+p commands
+                       <WORKDIR> shift+tab agents  ctrl+p commands
 
 
 

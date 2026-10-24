@@ -42,5 +42,19 @@
     "title": "GET /api/info omits capabilities.persistentPty, so the TUI offers /terminal and the Terminals tab although the bridge serves no persistent PTY, and reports pid 0 and a non-URL `urls: [\"sample\"]`",
     "status": "fixed",
     "capture": "bridge/test/captures/defect-info-advertises-terminals.jsonl"
+  },
+  {
+    "id": "inbox-delivery-not-emitted",
+    "title": "An immediately-started prompt is never delivered, so the TUI renders its user message after the assistant reply (A-Q-Q-A order)",
+    "status": "fixed",
+    "capture": "bridge/test/journeys/send-prompt-stream-reply/evidence/inbox-delivery-not-emitted.frames.jsonl",
+    "journey": {
+      "slug": "send-prompt-stream-reply",
+      "checkpoint": "streamed"
+    },
+    "golden": {
+      "fixture": "maki-plain",
+      "want": "golden/want-inbox-delivery.json"
+    }
   }
 ]

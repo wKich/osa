@@ -39,6 +39,10 @@ other — "no runtime changes" is what keeps a coverage change reviewable.
      (`captured`/`authored`/`mixed`) in `provenance.json`, or the suite fails;
    - a golden (semantic projection) or session-api/contract test asserting
      it end to end;
+   - when the slice changes event shapes or ordering the TUI renders, a
+     journey (or journey-level test) in `bridge/compat/journeys.json` and its
+     recorded snapshots; a row proved only by a golden or unit test is
+     `unit-verified only` in the report, never native;
    - the statuses row moves `unverified`/`deferred` → `verified` with the
      new test path as evidence;
    - when a reachable route links that feature via its `feature` field, the
@@ -57,6 +61,10 @@ other — "no runtime changes" is what keeps a coverage change reviewable.
   behavior.
 - `verified` only with a test or fixture path as evidence —
   `bridge/test/crosscheck.test.ts` rejects anything else.
+- A feature row proved only by a golden or unit test is `unit-verified only`
+  in `docs/compatibility.md`; the native claim needs a reachable journey at
+  parity. A capability slice that changes event shapes or ordering includes a
+  journey or journey-level test.
 - Gated targets (`test-ui`, `compat-drift`) skip cleanly and never join
   `make test`; the default suite stays offline (no Docker, gateway, network).
 - If a fixture cannot exist offline (needs a streaming provider, a live

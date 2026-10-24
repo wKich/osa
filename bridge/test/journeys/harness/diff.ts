@@ -26,8 +26,12 @@ export interface DiffResult {
 }
 
 export function compare(reference: string, maki: string): string | undefined {
-  if (reference === maki) return undefined;
-  return unified(reference.split("\n"), maki.split("\n"));
+  // A committed snapshot carries a trailing newline; an in-memory screen does
+  // not. The newline is storage, not rendered content.
+  const a = reference.replace(/\n+$/, "");
+  const b = maki.replace(/\n+$/, "");
+  if (a === b) return undefined;
+  return unified(a.split("\n"), b.split("\n"));
 }
 
 export function diffCheckpoints(checkpoints: CheckpointInput[]): DiffResult {
@@ -41,7 +45,11 @@ export function diffCheckpoints(checkpoints: CheckpointInput[]): DiffResult {
 
   const status: Verdict = results.some((r) => r.verdict === "unreached")
     ? "broken"
-    : results.some((r) => r.verdict === "differs" && !checkpoints.find((c) => c.id === r.id)?.acceptedReason)
+    : results.some(
+        (r) =>
+          r.verdict === "differs" &&
+          !(checkpoints.find((c) => c.id === r.id)?.acceptedReason ?? "").trim(),
+      )
       ? "diverges"
       : "parity";
   return { status, checkpoints: results };

@@ -8,8 +8,11 @@ description: Use when asked to catalog, enumerate, record, or compare OpenCode T
 ## Overview
 
 Discover → record → hand off. A route says what the TUI called; a journey says
-what the user did and saw. The journey is the unit of "native": OpenCode TUI +
-Maki looks and behaves like OpenCode TUI + OpenCode.
+what the user did and saw. The journey is the oracle for "native": OpenCode TUI
++ Maki looks and behaves like OpenCode TUI + OpenCode. A golden or unit test
+proves the wire shape, never the rendered screen, so it can support a row but
+cannot make it native. A broken journey, or one that diverges without an
+accepted difference, is triaged before new coverage starts.
 
 ```
 discovering-tui-journeys
@@ -143,24 +146,39 @@ Do not shrink the reachable denominator to move the score. The score counts
 `parity` journeys over reachable journeys; an `out-of-scope` row must survive
 the reason test on its own.
 
-## Compare and triage (only once the harness exists)
-
-The recording harness is the follow-up goal's first change. Until it exists,
-stop at `unrecorded` (or `referenced` with only a reference snapshot). When it
-exists:
+## Compare and triage
 
 1. Drive the same scenario against real OpenCode (TUI + its own server, a
    temporary XDG home, a scripted local provider, no credentials) and against
    the TUI + bridge (fake-maki offline, real Maki in the sandbox for the gated
    live run).
-2. Render both terminal streams into text screens at each checkpoint;
-   normalize ids, timestamps, durations, ports, paths, and provider/model
-   labels.
-3. Diff per checkpoint. Complete with no difference → `parity`. Complete with
+2. **Run the production invocation on the Maki side.** `OPENMAKI_CWD` is the
+   journey workdir and `MAKI_MODEL` is the scripted model, so the footer and
+   model line match the reference after normalization; model labels come from
+   the bridge's `/api/model` and `/api/provider` responses, never a hardcoded
+   list.
+3. **Assert the pin before either side starts.** `opencode --version` must
+   equal `journeys.json.pin.opencode`; a mismatch is a harness failure, not a
+   journey verdict.
+4. Render both terminal streams into text screens at each checkpoint;
+   normalize ids, timestamps, durations, token rate, ports, paths, and
+   provider/model labels.
+5. Diff per checkpoint. Complete with no difference → `parity`. Complete with
    at least one difference → `diverges`. Cannot complete → `broken`.
-4. Record the reference, Maki-side, and diff paths. Accept a difference only
-   with a written reason; the report prints every reason.
-5. Hand every finding to an existing loop:
+6. **Keep harness failures out of the verdict.** Version mismatch, a bridge
+   that does not listen, a missing binary, and a PTY failure abort non-zero and
+   leave the catalog unchanged (`HarnessError`). A Maki step timeout after the
+   reference succeeded is a product failure: it records `unreached` for the
+   checkpoint, saves the final screen and error, and sets `broken`.
+7. Record the reference, Maki-side, and diff paths. Accept a difference only
+   with a written reason; the report prints every reason and the recorder
+   applies `acceptedDiffs` by checkpoint id. A `broken` journey cannot accept.
+8. Run every pilot twice and require byte-identical snapshots, diffs, and
+   request logs before adding the next journey.
+9. The gated live run records `evidence.live` beside the offline row; a live
+   verdict worse than the offline status is a finding for this loop, never a
+   silent status flip.
+10. Hand every finding to an existing loop:
 
 | Finding | Hand-off |
 | --- | --- |
@@ -170,16 +188,26 @@ exists:
 | gap needs Maki upstream | `blockedBy: "pin"` with a `pinCitation` |
 | Maki screen correct by design | `acceptedDiffs` with a written reason |
 
-Maki-side journey request logs join the two committed captures as the measured
-reachable set once they exist (`running-feature-discovery`, Scope). A route a
-journey calls but the captures never saw becomes reachable and enters the route
-queue; it does not stay out-of-scope.
+A broken or unaccepted `diverges` journey is triaged before starting new
+coverage; `transcript-order` and `stream-deltas` were reopened this way after
+the first pilot rendered the reply in the wrong place. Once the pilot loop is
+trustworthy, run one real-Maki smoke in a throwaway sandbox before scaling the
+catalog; the full live runner is the separate `add-journey-live-run` change.
+
+Maki-side journey request logs (`bridge/test/journeys/*/maki-requests.jsonl`
+and `live-maki-requests.jsonl`) join the committed captures as the measured
+reachable set (`running-feature-discovery`, Scope). A route a journey calls but
+the captures never saw becomes reachable and enters the route queue; it does
+not stay out-of-scope.
 
 ## Do not
 
 - Mark any status past `unrecorded` without a committed reference snapshot.
 - Claim `parity` without both snapshots and a diff with no unaccepted
   checkpoint difference.
+- Report a feature or route as native from a golden or unit test alone; the
+  report labels such a row `unit-verified only` until a reachable journey is
+  at parity.
 - Accept a `broken` step, or accept any difference without a written reason.
 - Use `out-of-scope` for behavior the bridge merely does not serve yet, or to
   keep the score denominator small.
@@ -192,8 +220,8 @@ queue; it does not stay out-of-scope.
 ## Finish
 
 ```sh
-bun scripts/gen-compat.ts && bun scripts/gen-compat.ts --check
-cd bridge && bun test          # crosscheck validates links, vocab, and evidence
+make test-journeys             # record with the pinned opencode, then regen
+cd bridge && bun test          # offline re-diff + crosscheck validate every row
 make compat                    # regen + git diff --exit-code
 ```
 

@@ -3,12 +3,14 @@
 ## Why
 
 The first recorded TUI journey (`send-prompt-stream-reply`) is `broken`: the
-bridge emits a complete assistant turn, but the OpenCode 2.0.32 TUI renders
-only the user prompt. The missing frame is `session.inbox.delivered`, which
-the bridge omits for a prompt that starts immediately; adding it makes the
-reply render. The compatibility report still calls `transcript-order` and
-`stream-deltas` `verified` and the defect inventory is empty, because those
-claims rest on golden event projections rather than on the TUI.
+bridge emits a complete assistant turn, but the OpenCode 2.0.32 TUI renders the
+submitted user message after the reply (the reply is present; the transcript
+order is inverted). The missing frame is `session.inbox.delivered`, which the
+bridge omits for a prompt that starts immediately; emitting it at turn start
+commits the prompt before the reply. The compatibility report still calls
+`transcript-order` and `stream-deltas` `verified` and the defect inventory is
+empty, because those claims rest on golden event projections rather than on the
+TUI.
 
 The journey harness that found the bug is not yet an independent oracle: it
 runs the bridge with a different canonical directory and without a model, so

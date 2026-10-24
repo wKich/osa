@@ -10,6 +10,9 @@
     }
   },
   {
+    "type": "session.inbox.delivered"
+  },
+  {
     "type": "session.execution.started"
   },
   {

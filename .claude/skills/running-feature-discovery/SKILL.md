@@ -26,6 +26,12 @@ failing new coverage test is a discovery finding — record it as a defect,
 don't ship red tests in an `add-…` change. Re-run discovery after any branch
 to confirm closure.
 
+The TUI journey is the native oracle: a feature is `journey-verified` only
+when every reachable journey that lists it is at `parity`; a golden or unit
+test alone leaves the row `unit-verified only` in the report. A `broken` or
+unaccepted `diverges` journey is re-triaged here before new coverage is
+proposed.
+
 ## Scope (before recording)
 
 Compatibility is claimed only on the surface the TUI exercises. The reachable
@@ -47,7 +53,11 @@ Done for a pin means: 0 `unhandled`; every reachable route `served-live`,
 deliberately-empty `deferred`, or `served-faked` with a triage decision (a
 linked feature or a `fakeReason`); 0 untriaged reachable routes; every feature
 `verified`, `degraded` with a mirrored pin limitation, or `out-of-scope` with a
-reason; 0 open defects; 0 `unverified` rows without a triage decision.
+reason; 0 open defects; 0 `unverified` rows without a triage decision; 0
+reachable journeys that are `broken` or `diverging` without an accepted
+difference. The generated report separates `unit-verified only` features from
+`journey-verified` features; a route or feature count is never reported as
+native proof.
 
 ## Ground first (read-only)
 
@@ -193,13 +203,16 @@ claim coverage of a route the TUI never called without saying
 
 ```sh
 bun scripts/gen-compat.ts && bun scripts/gen-compat.ts --check
-cd bridge && bun test          # crosscheck validates evidence links exist
+cd bridge && bun test          # crosscheck validates evidence links and re-diffs journeys
 make compat                    # regen + git diff --exit-code
+make test-journeys             # gated; omit when opencode is absent
 ```
 
 Report the scoreboard before the details — reachable routes
 `live/deferred/faked`, untriaged reachable routes, features
-`verified/degraded/unverified/untriaged`, open defects — then rows
-added/changed, defects appended, open defects deduped, capabilities newly
-transcribed from upstream (with the pins they came from), and the top three
-unblocked reachable items from the cross-map.
+`verified/degraded/unverified/untriaged` split into `journey-verified` and
+`unit-verified only`, open defects, and reachable `broken`/`diverges` journeys
+without accepted differences — then rows added/changed, defects appended, open
+defects deduped, capabilities newly transcribed from upstream (with the pins
+they came from), and the top three unblocked reachable items from the
+cross-map.

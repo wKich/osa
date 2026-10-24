@@ -84,3 +84,10 @@ then failed, so `allowed` is unreached.
    plus a live-render test for a failed tool. The offline suite misses this
    because its permission tool succeeds; the live run is the only one that
    fails a tool.
+
+## After `fix-journey-oracle`
+
+The `send-prompt-stream-reply` live smoke re-ran on 2026-10-24 after the
+delivered-frame fix (Maki 0.6.4, same image): live snapshots now say `parity`,
+with only the accepted session-title difference. The other pilots' live
+evidence is unchanged.

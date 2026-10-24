@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
 import { diffCheckpoints } from "./journeys/harness/diff.ts";
+import { featureOracle } from "../../scripts/journey-oracle.ts";
 
 const ROOT = new URL("../..", import.meta.url); // repository root (from bridge/test/)
 const path = (rel: string) => fileURLToPath(new URL(rel, ROOT));
@@ -320,10 +321,73 @@ test("a broken journey never accepts a difference", () => {
   expect(problems).toEqual([]);
 });
 
+// Journey oracle (fix-journey-oracle): a verified feature is native only when
+// every reachable journey that lists it is at parity; the generated report must
+// say which kind of proof the row has. An open defect forces its row buggy.
+const reportRows = (() => {
+  const file = path("docs/compatibility.md");
+  return existsSync(file) ? readFileSync(file, "utf8").split("\n") : [];
+})();
+const reportRow = (id: string) => reportRows.find((line) => line.startsWith(`| \`${id}\` |`));
+const openDefect = (id: string | undefined) =>
+  id !== undefined && defects.some((d) => d.id === id && d.status === "known");
+
+test("every verified feature's report label matches the journey oracle", () => {
+  const problems: string[] = [];
+  for (const f of statuses.features) {
+    if (f.status !== "verified" || openDefect(f.defect as string | undefined)) continue;
+    const id = String(f.id);
+    const { linked, label } = featureOracle(id, journeys);
+    const row = reportRow(id);
+    if (!row) {
+      problems.push(`${id}: no report row`);
+      continue;
+    }
+    if (!row.includes(`\`${label}\``)) {
+      const linkedLabel = linked.map((j) => `${j.slug} (${j.status})`).join(", ") || "none";
+      problems.push(`${id}: report does not say ${label} (linked journeys: ${linkedLabel})`);
+    }
+    const dirty = linked.filter((j) => j.status !== "parity").map((j) => j.slug);
+    if (dirty.length && label === "journey-verified") {
+      problems.push(`${id}: journey-verified while ${dirty.join(", ")} is not at parity`);
+    }
+  }
+  expect(problems).toEqual([]);
+});
+
+test("an open defect forces its feature buggy, and a buggy feature names an open defect", () => {
+  const problems: string[] = [];
+  for (const f of statuses.features) {
+    const id = String(f.id);
+    const defect = f.defect as string | undefined;
+    if (f.status === "buggy" && !openDefect(defect)) {
+      problems.push(`${id}: buggy without an open defect`);
+    }
+    if (openDefect(defect) && f.status !== "buggy") {
+      problems.push(`${id}: defect ${defect} is open but the row is ${String(f.status)}`);
+    }
+  }
+  expect(problems).toEqual([]);
+});
+
+test("accepted differences carry a reason and name a checkpoint", () => {
+  const problems: string[] = [];
+  for (const j of journeys) {
+    const checkpoints = new Set((j.scenario?.checkpoints ?? []).map((c) => c.id));
+    for (const d of j.acceptedDiffs ?? []) {
+      if (!String(d.reason ?? "").trim()) problems.push(`${j.slug}: accepted difference ${d.checkpoint} has no reason`);
+      if (!checkpoints.has(d.checkpoint)) {
+        problems.push(`${j.slug}: accepted difference names unknown checkpoint ${d.checkpoint}`);
+      }
+    }
+  }
+  expect(problems).toEqual([]);
+});
+
 // Journey harness (add-journey-harness): the script is the executable form of
 // the catalog row, and the committed snapshots are the comparison's source of
 // truth, so the offline suite can reproduce the committed status without a PTY.
-test("every journey script's checkpoint ids match its catalog row", async () => {
+test("every journey script's checkpoint ids match its catalog row, in order", async () => {
   const bySlug = new Map(journeys.map((j) => [j.slug, j]));
   const problems: string[] = [];
   for (const slug of journeyScripts) {
@@ -333,18 +397,27 @@ test("every journey script's checkpoint ids match its catalog row", async () => 
       continue;
     }
     const script = (await import(pathToFileURL(path(`${JOURNEYS_DIR}/${slug}/script.ts`)).href)).default;
-    const scriptIds = (script.steps ?? [])
-      .flatMap((step: any) => (step.kind === "checkpoint" ? [step.id] : []))
-      .sort();
-    const catalogIds = (journey.scenario?.checkpoints ?? []).map((c) => c.id).sort();
-    if (JSON.stringify(scriptIds) !== JSON.stringify(catalogIds)) {
-      problems.push(`${slug}: script [${scriptIds}] vs catalog [${catalogIds}]`);
+    const scriptIds = (script.steps ?? []).flatMap((step: any) => (step.kind === "checkpoint" ? [step.id] : []));
+    const catalogOrdered = [...(journey.scenario?.checkpoints ?? [])]
+      .sort((a, b) => a.after - b.after)
+      .map((c) => c.id);
+    if (JSON.stringify(scriptIds) !== JSON.stringify(catalogOrdered)) {
+      const at = scriptIds.findIndex((id: string, i: number) => id !== catalogOrdered[i]);
+      const bad = at >= 0 ? scriptIds[at] : (catalogOrdered[scriptIds.length] ?? "(missing)");
+      problems.push(`${slug}: checkpoint ${bad} order/name mismatch: script [${scriptIds}] vs catalog [${catalogOrdered}]`);
+    }
+    // `after` is the scenario step the checkpoint follows; a row that points
+    // outside the scenario is already rejected by gen-compat, so here it only
+    // has to be monotonic with the script's checkpoint order.
+    const after = (journey.scenario?.checkpoints ?? []).map((c) => c.after);
+    if (after.some((value, i) => i > 0 && value < after[i - 1]!)) {
+      problems.push(`${slug}: catalog checkpoints are not in step order [${after}]`);
     }
   }
   expect(problems).toEqual([]);
 });
 
-test("re-diffing committed snapshots reproduces each journey's status", () => {
+test("re-diffing committed snapshots reproduces each journey's status and checkpoints", () => {
   const problems: string[] = [];
   for (const slug of journeyScripts) {
     const dir = `${JOURNEYS_DIR}/${slug}`;
@@ -360,10 +433,22 @@ test("re-diffing committed snapshots reproduces each journey's status", () => {
         acceptedReason: journey.acceptedDiffs?.find((d) => d.checkpoint === checkpoint.id)?.reason,
       };
     });
-    const recomputed = diffCheckpoints(inputs).status;
-    const committed = JSON.parse(readFileSync(path(`${dir}/diff.json`), "utf8")).status;
-    if (recomputed !== journey.status) problems.push(`${slug}: snapshots say ${recomputed}, catalog says ${journey.status}`);
-    if (committed !== journey.status) problems.push(`${slug}: diff.json says ${committed}, catalog says ${journey.status}`);
+    const recomputed = diffCheckpoints(inputs);
+    const committed = JSON.parse(readFileSync(path(`${dir}/diff.json`), "utf8"));
+    if (recomputed.status !== journey.status) {
+      problems.push(`${slug}: snapshots say ${recomputed.status}, catalog says ${journey.status}`);
+    }
+    if (committed.status !== journey.status) {
+      problems.push(`${slug}: diff.json says ${committed.status}, catalog says ${journey.status}`);
+    }
+    for (const checkpoint of recomputed.checkpoints) {
+      const recorded = committed.checkpoints?.find((c: { id: string }) => c.id === checkpoint.id);
+      if (recorded?.verdict !== checkpoint.verdict) {
+        problems.push(
+          `${slug}: checkpoint ${checkpoint.id} snapshots say ${checkpoint.verdict}, diff.json says ${recorded?.verdict ?? "missing"}`,
+        );
+      }
+    }
   }
   expect(problems).toEqual([]);
 });

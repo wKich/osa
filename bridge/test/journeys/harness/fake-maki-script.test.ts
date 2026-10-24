@@ -13,11 +13,7 @@ async function waitFor(lines: any[], predicate: () => boolean, timeoutMs = 5000)
 }
 
 describe("fake-maki script mode", () => {
-  test("plays text deltas, a permission-gated tool use, then the next turn", async () => {
-    const turns = [
-      { tool: { command: "true", needsPermission: true } },
-      { text: "DONE", stream: ["DO", "NE"] },
-    ];
+  const startScript = (turns: unknown[]) => {
     const proc = Bun.spawn({
       cmd: ["bun", FAKE],
       cwd: fileURLToPath(new URL("../../..", import.meta.url)),
@@ -43,11 +39,24 @@ describe("fake-maki script mode", () => {
         }
       }
     })();
+    const prompt = (text: string) => {
+      proc.stdin.write(
+        JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] } }) + "\n",
+      );
+      proc.stdin.flush();
+    };
+    return { proc, lines, prompt };
+  };
+
+  test("plays text deltas, a permission-gated tool use, then the next turn", async () => {
+    const turns = [
+      { tool: { command: "true", needsPermission: true } },
+      { text: "DONE", stream: ["DO", "NE"] },
+    ];
+    const { proc, lines, prompt } = startScript(turns);
 
     try {
-      const user = { type: "user", message: { role: "user", content: [{ type: "text", text: "go" }] } };
-      proc.stdin.write(JSON.stringify(user) + "\n");
-      proc.stdin.flush();
+      prompt("go");
 
       await waitFor(lines, () => lines.some((l) => l.type === "control_request"));
       const ask = lines.find((l) => l.type === "control_request");
@@ -74,6 +83,24 @@ describe("fake-maki script mode", () => {
       const result = lines.find((l) => l.type === "user");
       expect(result.message.content[0].content).toBe("");
       expect(lines.find((l) => l.type === "result").subtype).toBe("success");
+    } finally {
+      proc.kill();
+      await proc.exited;
+    }
+  });
+
+  test("a second prompt consumes the next turn instead of replaying the script", async () => {
+    const { proc, lines, prompt } = startScript([{ text: "ONE" }, { text: "TWO" }]);
+    try {
+      prompt("first");
+      await waitFor(lines, () => lines.filter((l) => l.type === "result").length >= 1);
+      prompt("second");
+      await waitFor(lines, () => lines.filter((l) => l.type === "result").length >= 2);
+
+      const assistant = lines
+        .filter((l) => l.type === "assistant" && l.message.content[0]?.type === "text")
+        .map((l) => l.message.content[0].text);
+      expect(assistant).toEqual(["ONE", "TWO"]);
     } finally {
       proc.kill();
       await proc.exited;

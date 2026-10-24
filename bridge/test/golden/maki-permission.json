@@ -10,6 +10,9 @@
     }
   },
   {
+    "type": "session.inbox.delivered"
+  },
+  {
     "type": "session.execution.started"
   },
   {
@@ -111,6 +114,9 @@
       },
       "delivery": "steer"
     }
+  },
+  {
+    "type": "session.inbox.delivered"
   },
   {
     "type": "session.execution.started"

@@ -10,6 +10,42 @@ export interface NormalizeOptions {
   models?: string[];
 }
 
+interface Payload {
+  data?: Array<Record<string, unknown>>;
+}
+
+/**
+ * The labels a side can print for its model and provider, read from the side's
+ * own `/api/model` and `/api/provider` responses (design decision 3). A wrong
+ * model still differs after normalization.
+ */
+export function modelLabels(models: Payload, providers: Payload): string[] {
+  const providerNames = new Map(
+    (providers.data ?? []).map((p) => [String(p.id ?? ""), String(p.name ?? "")]),
+  );
+  const labels = new Set<string>();
+  for (const m of models.data ?? []) {
+    const id = String(m.id ?? m.modelID ?? "");
+    const providerID = String(m.providerID ?? "");
+    for (const label of [
+      m.name,
+      id,
+      m.modelID,
+      providerID && id ? `${providerID}/${id}` : "",
+      providerNames.get(providerID),
+      providerID,
+    ]) {
+      if (typeof label === "string" && label.trim()) labels.add(label);
+    }
+  }
+  for (const p of providers.data ?? []) {
+    for (const label of [p.id, p.name]) {
+      if (typeof label === "string" && label.trim()) labels.add(label);
+    }
+  }
+  return [...labels].sort((a, b) => b.length - a.length);
+}
+
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export function normalize(text: string, opts: NormalizeOptions = {}): string {
@@ -29,6 +65,10 @@ export function normalize(text: string, opts: NormalizeOptions = {}): string {
   // Durations.
   out = out.replace(/\b\d+(?:\.\d+)?\s?(?:ms|s)\b/g, "<DUR>");
 
+  // Token rate is wall-clock derived and absent when a send is too quick to
+  // measure.
+  out = out.replace(/\s*·\s*\d+(?:\.\d+)?\s*tok\/s\b/g, "");
+
   // Ports stay recognizable as a host with a volatile port.
   out = out.replace(/\b(?:127\.0\.0\.1|localhost|0\.0\.0\.0):\d{2,5}\b/g, (m) =>
     m.replace(/:\d+$/, ":<PORT>"),
@@ -44,6 +84,10 @@ export function normalize(text: string, opts: NormalizeOptions = {}): string {
     const base = value.split(/[\\/]/).filter(Boolean).pop();
     if (base) out = out.replace(new RegExp(`\\S*${escape(base)}\\b`, "g"), token);
   }
+
+  // The footer pads the workdir to the terminal width; the raw path length is
+  // a harness property (a temp dir vs the sandbox workdir), so keep one gap.
+  out = out.replace(/(<WORKDIR>|<HOME>)[ \t]{2,}/g, "$1 ");
 
   // Animated work spinners are volatile too.
   out = out.replace(/[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏]/g, "<SPINNER>");

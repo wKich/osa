@@ -5,13 +5,13 @@
 See `proposal.md` — Why. The facts the design rests on:
 
 - `send-prompt-stream-reply` is the first committed journey. Its Maki side
-  emits a complete turn in `maki-frames.jsonl`, but the TUI screenshot at the
-  `streamed` checkpoint never shows the reply. The reference side reaches the
-  same checkpoint.
+  emits a complete turn in `maki-frames.jsonl`, and the `streamed` checkpoint
+  renders `PONG`, but above the submitted user message instead of below it.
+  The reference side reaches the same checkpoint with the prompt first.
 - A reproduction that adds one `session.inbox.delivered` frame in
-  `Translator.beginTurn` makes `PONG` render. The current code emits
-  `session.inbox.enqueued` and starts the turn immediately, but only emits
-  `delivered` for a prompt that waited behind another turn.
+  `Translator.beginTurn` orders the prompt before the reply. The current code
+  emits `session.inbox.enqueued` and starts the turn immediately, but only
+  emits `delivered` for a prompt that waited behind another turn.
 - `transcript-order` and `stream-deltas` are `verified` via
   `bridge/test/golden.test.ts`; `message-order-inversion` is `fixed`. The
   golden projection asserts the bridge's event sequence, not the TUI's

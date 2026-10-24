@@ -99,6 +99,37 @@ const main = async () => {
       },
     });
 
+    // --- 1b. prompt delivery ----------------------------------------------
+    // Expectation: every admitted prompt is delivered before the first
+    // assistant text it causes, including a prompt that starts at once.
+    const deliveredTurns = [turn1, turn2].filter((turn) => {
+      const enqueued = turn.findIndex(
+        (f) => f.type === "session.inbox.enqueued" && f.data?.item?.type === "user",
+      );
+      const delivered = turn.findIndex((f) => f.type === "session.inbox.delivered");
+      const firstText = turn.findIndex((f) => f.type === "session.text.started");
+      return (
+        enqueued >= 0 &&
+        delivered > enqueued &&
+        (firstText === -1 || delivered < firstText) &&
+        turn[delivered]?.data?.inboxID === turn[enqueued]?.data?.inboxID
+      );
+    });
+    const deliveryOk = deliveredTurns.length === 2;
+    results.push({
+      id: "inbox-delivery-not-emitted",
+      clean: deliveryOk,
+      detail: deliveryOk
+        ? `both prompts delivered before assistant text (${deliveredTurns.length})`
+        : `${deliveredTurns.length} of 2 prompts emitted session.inbox.delivered before assistant text`,
+      finding: {
+        id: "inbox-delivery-not-emitted",
+        title: "An immediately-started prompt is never delivered, so the TUI renders its user message after the assistant reply",
+        note: "expected session.inbox.enqueued, then session.inbox.delivered with the same inboxID, then assistant text for every prompt",
+        frames: bothTurns,
+      },
+    });
+
     // --- 2. status-line model name ----------------------------------------
     // Expectation: session events carry the model the maki child announced on
     // its system.init (the scripted child reports `synthetic/fake`, parsed

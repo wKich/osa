@@ -44,3 +44,10 @@ live cache and never calls the message route.
   tokens, so accepting them would hide real gaps.
 - The reference run stayed reliable on all three pilots; no Maki-side failure
   aborted a reference run.
+
+## After `fix-journey-oracle`
+
+`send-prompt-stream-reply` is `parity`: the delivered frame fixed the
+transcript order and the session-title difference is accepted with a written
+reason. `allow-permission-once` stays `diverges` (the permission dialog body),
+and `resume-session-history` stays `broken` (`history-visible` is unreached).

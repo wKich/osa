@@ -187,6 +187,11 @@ a completed run is `parity`, a completed run with a differing checkpoint is
   `9:59 PM` on one run and `10:05 PM` on the next
 - **THEN** both normalize to the same text
 
+#### Scenario: The footer's workdir padding is not a difference
+- **WHEN** one side's footer reads `<WORKDIR>:main  2` and the other's
+  `<WORKDIR>:main            2` because their workdir paths differ in length
+- **THEN** both normalize to the same text
+
 ### Requirement: Gated journey recording target
 `make test-journeys` SHALL record and compare every journey that has a script,
 write its snapshots, comparison, and Maki-side request log, and update the

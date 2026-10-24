@@ -121,7 +121,10 @@ and across turns.
 #### Scenario: Turn completion is reported
 - **WHEN** Maki emits a `result` frame
 - **THEN** the bridge emits the matching `session.step.ended` with usage and
-  finish status, and `session.execution.succeeded` or `session.execution.failed`
+  finish status, and `session.execution.succeeded` or `session.execution.failed`;
+  the step's tokens are the usage of the turn's last `assistant` frame (one
+  model call), falling back to the `result` usage only when no assistant frame
+  carried usage
 
 #### Scenario: A failed turn reports the failure, not success
 - **WHEN** the `result` frame carries the pinned error subtype
@@ -167,6 +170,13 @@ and across turns.
   before the buffered message, the buffered message adds no duplicate part
   frames, and removing the partial-message request from the child's flags
   fails this scenario
+
+#### Scenario: A multi-call turn reports its last call's tokens
+- **WHEN** a turn makes two model calls whose `assistant` frames each carry
+  `{input_tokens: 1, output_tokens: 1}` and the `result` carries the run total
+  `{input_tokens: 2, output_tokens: 2}`
+- **THEN** `session.step.ended` carries `tokens.input: 1` and
+  `tokens.output: 1`, and the TUI context counter shows `2`
 
 ### Requirement: Fail an in-flight turn when the Maki child exits
 The bridge SHALL end a turn that is in flight when its Maki child process

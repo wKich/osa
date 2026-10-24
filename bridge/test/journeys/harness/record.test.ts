@@ -38,6 +38,9 @@ describe("reference isolation", () => {
     expect(env.OPENCODE_DISABLE_AUTOUPDATE).toBe("1");
     // the host user's login shell never reaches a journey terminal
     expect(env.SHELL).toBe("/bin/sh");
+    // the scripted editor, never the host user's
+    expect(env.EDITOR).toEndWith("/harness/editor.sh");
+    expect(leaked).not.toContain("EDITOR");
     expect(env.HOME).toBe(paths.home);
     expect(env.XDG_CONFIG_HOME).toBe(paths.home + "/.config");
   });

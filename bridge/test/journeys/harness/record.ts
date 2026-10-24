@@ -113,6 +113,8 @@ export function referenceEnv(paths: Paths, base: NodeJS.ProcessEnv = process.env
     // A terminal opens the login shell; the host user's shell and its prompt
     // (zsh, fish, a custom PS1) are host configuration, not journey content.
     SHELL: "/bin/sh",
+    // the journeys' scripted external editor (harness/editor.sh)
+    EDITOR: join(HERE, "editor.sh"),
   };
   if (base.TMPDIR) env.TMPDIR = base.TMPDIR;
   return env;

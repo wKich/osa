@@ -1,0 +1,13 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "stashed",
+      "verdict": "equal"
+    },
+    {
+      "id": "popped",
+      "verdict": "equal"
+    }
+  ]
+}

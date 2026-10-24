@@ -961,9 +961,12 @@
       "features": [],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/recall-prompt-history/reference/","maki":"bridge/test/journeys/recall-prompt-history/maki/","diff":"bridge/test/journeys/recall-prompt-history/diff.json","live":{"snapshots":"bridge/test/journeys/recall-prompt-history/live/","diff":"bridge/test/journeys/recall-prompt-history/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "recalled", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "resent", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "attach-image-to-prompt",
@@ -1035,19 +1038,21 @@
       "area": "prompt",
       "source": "packages/tui/src/config/keybind.ts:92 (prompt.editor) and packages/tui/src/component/prompt/index.tsx:552 (/editor) at v2.0.32",
       "scenario": {
-        "steps": ["press leader+e", "edit the prompt in $EDITOR", "save and quit"],
+        "steps": ["type a draft in the composer", "press leader+e (the editor rewrites the draft)", "submit the edited prompt"],
         "checkpoints": [
-          { "id": "editor-open", "after": 1, "expect": "the external editor opens with the current prompt text" },
-          { "id": "editor-return", "after": 3, "expect": "the edited text is back in the prompt with mentions intact" }
+          { "id": "edited", "after": 2, "expect": "the composer holds the text the editor saved" },
+          { "id": "sent", "after": 3, "expect": "the edited prompt and its reply render" }
         ]
       },
-      "routes": [],
+      "routes": ["POST /api/session/{sessionID}/prompt"],
       "features": [],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/open-external-editor/reference/","maki":"bridge/test/journeys/open-external-editor/maki/","diff":"bridge/test/journeys/open-external-editor/diff.json","live":{"snapshots":"bridge/test/journeys/open-external-editor/live/","diff":"bridge/test/journeys/open-external-editor/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "sent", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "stash-prompt",
@@ -1056,18 +1061,18 @@
       "area": "prompt",
       "source": "packages/tui/src/config/keybind.ts:202 (prompt.stash) and packages/tui/src/component/dialog-stash.tsx at v2.0.32",
       "scenario": {
-        "steps": ["type a prompt", "stash it", "list stashes", "restore it"],
+        "steps": ["type a draft in the composer", "run Stash prompt from the palette", "run Stash pop from the palette"],
         "checkpoints": [
-          { "id": "stashed", "after": 2, "expect": "the prompt empties and the draft appears in the stash list" },
-          { "id": "restored", "after": 4, "expect": "the stashed prompt returns to the input" }
+          { "id": "stashed", "after": 2, "expect": "the composer is empty again" },
+          { "id": "popped", "after": 3, "expect": "the stashed draft returns to the composer" }
         ]
       },
       "routes": [],
       "features": [],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/stash-prompt/reference/","maki":"bridge/test/journeys/stash-prompt/maki/","diff":"bridge/test/journeys/stash-prompt/diff.json","live":{"snapshots":"bridge/test/journeys/stash-prompt/live/","diff":"bridge/test/journeys/stash-prompt/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
       "acceptedDiffs": []
     },
     {

@@ -361,7 +361,7 @@ the row's committed status. Journey scripts SHALL name exactly the checkpoints
 their catalog rows name, in the catalog's order. Maki-side journey request logs
 SHALL join the measured route set, with every id path segment named by the
 pinned contract's parameter (`{sessionID}`, `{requestID}`, `{inboxID}`,
-`{messageID}`). `make compat` SHALL fail while the committed
+`{messageID}`, `{ptyID}`). `make compat` SHALL fail while the committed
 report disagrees with the catalog, statuses, or defect inventory.
 
 #### Scenario: A status that disagrees with its snapshots fails
@@ -387,3 +387,8 @@ report disagrees with the catalog, statuses, or defect inventory.
 #### Scenario: A message-id route is measured by its template
 - **WHEN** a journey deletes a queued prompt
 - **THEN** its request log records `DELETE /api/session/{sessionID}/inbox/{inboxID}`
+
+#### Scenario: A terminal route is measured by its template
+- **WHEN** a journey opens a terminal
+- **THEN** its request log records
+  `GET /api/experimental/persistent-pty/{ptyID}/snapshot`

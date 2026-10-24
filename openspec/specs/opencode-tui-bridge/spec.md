@@ -707,8 +707,12 @@ of `once` SHALL be a bare `allow`. A reply of `always` SHALL be an `allow`
 carrying `updatedPermissions`, which Maki applies as a session-scoped rule; the
 bridge SHALL NOT cache the decision itself. A reply of `reject` SHALL be a
 `deny`, carrying the reply's `message` when it is a non-empty string. The
-permission request SHALL list the tool name in `save`, the patterns the TUI
-names under "Always allow". A reply whose decision is not `once`, `always`, or
+permission request SHALL name the OpenCode permission action for the Maki tool
+(`Bash` as `shell`, `Task` as `subagent`, any other tool lower-cased), so the
+TUI renders the call's own dialog body; a shell call SHALL list its command as
+the resource and Maki's generalized session scope (`<word> *`) in `save`, the
+pattern the TUI names under "Always allow"; any other tool SHALL list the tool
+name in `save`. A reply whose decision is not `once`, `always`, or
 `reject` SHALL fail closed: the bridge answers Maki with a bare `deny`, drops
 the pending request, and answers the route 400.
 
@@ -744,6 +748,12 @@ the pending request, and answers the route 400.
 - **THEN** the child receives exactly one `control_response` named by the
   `request_id` Maki sent, with no field outside `request_id`, `behavior`,
   `updatedPermissions`, and `message`
+
+#### Scenario: A shell ask renders the command
+- **WHEN** Maki asks to run `Bash` with `{"command": "rm -f probe.txt"}`
+- **THEN** `permission.asked` names `action: "shell"`, `resources:
+  ["rm -f probe.txt"]` and `save: ["rm *"]`, and the TUI dialog shows
+  `$ rm -f probe.txt`
 
 ### Requirement: Forward image attachments to the Maki child
 The bridge SHALL translate each prompt `files[]` entry whose `uri` is a base64
@@ -1011,3 +1021,14 @@ frame arrives.
   that turn ends
 - **THEN** the bridge emits `session.inbox.delivered` for the queued prompt
   before its first assistant frame, with the same `inboxID` it enqueued
+
+### Requirement: Tool frames say the tool ran in the child
+Every `session.tool.called`, `session.tool.success`, and `session.tool.failed`
+frame SHALL carry `executed: false`: the Maki child, not the model provider,
+runs the tool (`session-event.ts` v2.0.32 L508–L566).
+
+#### Scenario: A failed tool settles in the TUI
+- **WHEN** a Maki tool result arrives with `is_error: true`
+- **THEN** the bridge emits `session.tool.failed` with `executed: false` and
+  the `{type, message}` error, and the TUI replaces the running spinner with
+  the error

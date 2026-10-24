@@ -10,7 +10,8 @@
 // Behavior per prompt: commands containing `rm` go through a
 // `can_use_tool` control request (answered by the bridge); every other
 // command runs immediately. Tool results and the turn `result` follow.
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 const cwd = process.env.OPENMAKI_CWD ?? process.cwd();
 let toolSeq = 0;
@@ -117,6 +118,16 @@ const startModel = process.env.FAKE_MAKI_MODEL ?? (flag >= 0 ? process.argv[flag
 // the run's mode, as set_permission_mode leaves it (sdk_mode.rs v0.6.4 L846–L860)
 let permissionMode = "default";
 out({ type: "system", subtype: "init", session_id: SESSION_ID, cwd, model: startModel, permissionMode, tools });
+
+function applyEdit(input: Record<string, unknown>): void {
+  const path = String(input.path ?? "");
+  const file = path.startsWith("/") ? path : join(cwd, path);
+  if (!existsSync(file)) return;
+  const text = readFileSync(file, "utf8");
+  const oldText = String(input.old_string ?? "");
+  const newText = String(input.new_string ?? "");
+  writeFileSync(file, input.replace_all ? text.split(oldText).join(newText) : text.replace(oldText, newText));
+}
 
 function toolFrames(toolUseID: string, command: string, isError: boolean, content: string): void {
   out({
@@ -319,6 +330,9 @@ async function playScript(run: { cancelled: boolean }): Promise<void> {
           out({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: subID, content: bashResult(code, output), is_error: code !== 0 }] }, parent_tool_use_id: toolUseID });
         }
       }
+      // Maki's edit tool replaces in the file it names (plugins/edit/init.lua
+      // v0.6.4 L285–L295), so the scripted child applies a scripted edit too
+      if (answer !== "deny" && turn.call.maki.name === "edit") applyEdit(turn.call.maki.input);
       if (answer === "deny") toolResult(toolUseID, true, "Permission denied: rejected by the user");
       else toolResult(toolUseID, turn.call.maki.isError === true, turn.call.maki.result);
       continue;

@@ -110,6 +110,8 @@ export class Translator {
   // tools a subagent called -> its child session: the pinned can_use_tool
   // names only the tool id (sdk_mode.rs v0.6.4 L1122–L1160)
   private subagentTools = new Map<string, string>();
+  // metadata the bridge derived for a tool's result (edit-diff.ts), keyed by id
+  private resultMetadata = new Map<string, AnyObj>();
   // the task call's own streamed block (it follows the buffered call) is the
   // parent's, not the subagent's
   private inTaskBlock = false;
@@ -257,6 +259,11 @@ export class Translator {
    * for a call not seen yet, the subagent the parent is waiting on (the
    * parent run is blocked on its task call meanwhile); undefined for the
    * session's own calls */
+  /** metadata to report with this tool's success (a Maki edit's file diff) */
+  attachResultMetadata(toolUseID: string, metadata: AnyObj): void {
+    this.resultMetadata.set(toolUseID, metadata);
+  }
+
   toolOwner(toolUseID: string): string | undefined {
     const known = this.subagentTools.get(toolUseID);
     if (known) return known;
@@ -407,7 +414,11 @@ export class Translator {
       if (part?.type !== "tool_result") continue;
       const id = String(part.tool_use_id ?? "");
       const child = this.subagents.get(id);
-      const metadata = child ? { metadata: { sessionID: child, status: part.is_error ? "error" : "completed" } } : {};
+      const derived = this.resultMetadata.get(id);
+      this.resultMetadata.delete(id);
+      const metadata = child
+        ? { metadata: { sessionID: child, status: part.is_error ? "error" : "completed" } }
+        : derived && !part.is_error ? { metadata: derived } : {};
       if (child) {
         this.runningSubagents = this.runningSubagents.filter((x) => x !== id);
         this.hooks.subagent?.end(id, part.is_error === true, resultText(part.content));

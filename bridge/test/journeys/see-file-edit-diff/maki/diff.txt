@@ -1,0 +1,39 @@
+   Use your shell tool to run ex +
+
+  ┃
+  ┃  Use your shell tool to run exactly: printf 'alpha\n' > notes.txt . Then reply with the single word MADE.
+  ┃
+
+  ┃
+  ┃  $ printf 'alpha\n' > notes.txt
+  ┃
+  ┃  Exit code: 0
+  ┃
+
+     MADE
+
+     Build · <MODEL> · <DUR>
+
+  ┃
+  ┃  Replace alpha with beta in notes.txt, then reply EDITED.
+  ┃
+
+  ┃
+  ┃  ← Edit notes.txt
+  ┃
+  ┃    1 - alpha
+  ┃    1 + beta
+  ┃
+
+     EDITED
+
+     Build · <MODEL> · <DUR>
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

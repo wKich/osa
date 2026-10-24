@@ -23,6 +23,7 @@ import { posix } from "node:path";
 import { MakiSession, type ContentBlock } from "./maki.ts";
 import { readAttachment, readSkillAttachment } from "./mentions.ts";
 import { sessionStats } from "./session-stats.ts";
+import { fileDiff as editFileDiff, undoEdit } from "./edit-diff.ts";
 import { Translator, userPayload } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
@@ -403,7 +404,11 @@ function openSession(
       model: startModel(opts.model),
       fork: opts.fork,
       onFrame: (frame) => onMakiFrame(id, frame),
-      onExit: () => onMakiExit(id),
+      // the exit is handled after the frames the child wrote before it
+      onExit: () => {
+        const next = (frameChains.get(id) ?? Promise.resolve()).then(() => onMakiExit(id));
+        frameChains.set(id, next);
+      },
     });
   } catch (err) {
     // e.g. no sandbox name and no child override: refuse rather than run
@@ -829,7 +834,44 @@ function messagePage(s: BridgeSession, url: URL): { status: number; payload: any
   return { status: 200, payload: { data: page.data, cursor: page.cursor } };
 }
 
+// A session's Maki frames are handled in arrival order; a frame that needs a
+// sandbox read first (an edit's result, edit-diff.ts) holds the ones after it
+const frameChains = new Map<string, Promise<void>>();
 function onMakiFrame(sessionID: string, frame: AnyObj): void {
+  const next = (frameChains.get(sessionID) ?? Promise.resolve())
+    .then(() => enrichFrame(sessionID, frame))
+    .then(() => handleMakiFrame(sessionID, frame))
+    .catch((err) => console.error(`[bridge] session ${sessionID}: frame failed: ${String(err)}`));
+  frameChains.set(sessionID, next);
+}
+
+// the parent's own Edit calls, by id, with their input
+const editCalls = new Map<string, AnyObj>();
+async function enrichFrame(sessionID: string, frame: AnyObj): Promise<void> {
+  if (frame.parent_tool_use_id) return;
+  const content = Array.isArray(frame.message?.content) ? frame.message.content : [];
+  if (frame.type === "assistant") {
+    for (const part of content) if (part?.type === "tool_use" && part.name === "Edit") editCalls.set(String(part.id), part.input ?? {});
+    return;
+  }
+  if (frame.type !== "user") return;
+  const s = sessions.get(sessionID);
+  for (const part of content) {
+    if (part?.type !== "tool_result" || part.is_error) continue;
+    const input = editCalls.get(String(part.tool_use_id));
+    editCalls.delete(String(part.tool_use_id));
+    if (!s || !input || typeof input.path !== "string") continue;
+    const abs = input.path.startsWith("/") ? posix.normalize(input.path) : posix.join(CANONICAL, input.path);
+    const res = await sandboxRun(["cat", "--", abs], CANONICAL);
+    if (res?.code !== 0) continue;
+    const before = undoEdit(res.stdout, input);
+    if (before === undefined) continue;
+    const file = abs.startsWith(`${CANONICAL}/`) ? abs.slice(CANONICAL.length + 1) : abs;
+    s.translator.attachResultMetadata(String(part.tool_use_id), { files: [editFileDiff(file, before, res.stdout)] });
+  }
+}
+
+function handleMakiFrame(sessionID: string, frame: AnyObj): void {
   const s = sessions.get(sessionID);
   if (!s) return;
   if (frame.type === "control_request" && frame.request?.subtype === "can_use_tool") {

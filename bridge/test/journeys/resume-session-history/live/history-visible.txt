@@ -1,12 +1,12 @@
    Reply with the word ALPHA onl +
 
+  ┃
+  ┃  Reply with the word ALPHA only.
+  ┃
 
+     ALPHA
 
-
-
-
-
-
+     Build · <MODEL> · <DUR>
 
 
 
@@ -36,4 +36,4 @@
   ┃
   ┃  Build · <MODEL> <MODEL>
   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-  <WORKDIR> shift+tab agents  ctrl+p commands
+  <WORKDIR> 2  ctrl+p commands

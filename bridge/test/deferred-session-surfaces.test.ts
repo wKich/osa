@@ -1,8 +1,9 @@
 // Offline coverage for the deferred session read surfaces (spec scenario
-// "Deferred read surfaces stay empty"): the bridge does not keep message
-// history, inbox bodies, or forms, so each route must answer an empty,
-// contract-valid list rather than a synthesized row the TUI would render as a
-// phantom entry. The same routes must 404 an unknown session, not pretend it
+// "Deferred read surfaces stay empty"): the bridge keeps no inbox bodies or
+// forms, and a session with no turn has no message history
+// (session-history.test.ts covers a projected transcript), so each route must
+// answer an empty, contract-valid list rather than a synthesized row the TUI
+// would render as a phantom entry. The same routes must 404 an unknown session, not pretend it
 // has an empty transcript. Drives the shipped entrypoint over the
 // MAKI_CHILD_CMD seam; no Docker, gateway, network, or real Maki process.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";

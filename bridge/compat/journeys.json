@@ -328,12 +328,15 @@
         ]
       },
       "routes": ["GET /api/session", "GET /api/session/{sessionID}", "GET /api/session/{sessionID}/message"],
-      "features": ["session-title", "session-crud", "deferred-session-surface-contract", "transcript-order"],
+      "features": ["session-title", "session-message-history", "session-crud", "deferred-session-surface-contract", "transcript-order"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "broken",
-      "evidence": { "reference":"bridge/test/journeys/resume-session-history/reference/","maki":"bridge/test/journeys/resume-session-history/maki/","diff":"bridge/test/journeys/resume-session-history/diff.json","live":{"snapshots":"bridge/test/journeys/resume-session-history/live/","diff":"bridge/test/journeys/resume-session-history/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"broken"} },
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/resume-session-history/reference/","maki":"bridge/test/journeys/resume-session-history/maki/","diff":"bridge/test/journeys/resume-session-history/diff.json","live":{"snapshots":"bridge/test/journeys/resume-session-history/live/","diff":"bridge/test/journeys/resume-session-history/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "session-list", "reason": "the list and tab show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "history-visible", "reason": "the list and tab show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "switch-session-tab",

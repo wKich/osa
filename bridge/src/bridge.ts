@@ -25,6 +25,7 @@ import { Translator } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
 import { makiTitle } from "./title.ts";
+import { SessionHistory } from "./history.ts";
 import { readGitState, readMcpConfig, readModelCatalog, readSkills, sandboxRun } from "./sandbox.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
@@ -63,6 +64,7 @@ interface BridgeSession {
   viewed?: number; // the idle watermark a viewer acknowledged
   outcome?: "succeeded" | "failed" | "interrupted";
   title?: string; // set when the first run ends, as Maki records it
+  history: SessionHistory; // the projected transcript a reopened TUI reads
 }
 
 const sessions = new Map<string, BridgeSession>();
@@ -96,6 +98,7 @@ function emit(type: string, data: AnyObj, durableVersion?: number): void {
     ev.durable = { aggregateID: data.sessionID, seq: durableSeq++, version: durableVersion };
   }
   projectIdle(type, data, ev.created);
+  if (typeof data.sessionID === "string") sessions.get(data.sessionID)?.history.apply(type, data, ev.created, ev.id);
   const frame = { id: ev.id, event: type, data: ev };
   seenFrames.push(frame);
   pushFrame(frame);
@@ -317,6 +320,7 @@ function createSession(body: AnyObj): { status: number; payload: any } {
     translator,
     pending: new Map(),
     controls: new Map(),
+    history: new SessionHistory(),
     created: Date.now(),
     updated: Date.now(),
   };
@@ -469,6 +473,14 @@ function viewSession(s: BridgeSession, body: AnyObj): { status: number; payload:
   return { status: 204, payload: null };
 }
 
+// session.messages: the projected transcript, paged as the real handler pages
+function messagePage(s: BridgeSession, url: URL): { status: number; payload: any } {
+  const q = url.searchParams;
+  const page = s.history.page({ limit: q.get("limit"), order: q.get("order"), cursor: q.get("cursor"), type: q.get("type") });
+  if (!page.ok) return { status: 400, payload: { _tag: "InvalidCursorError", message: page.message } };
+  return { status: 200, payload: { data: page.data, cursor: page.cursor } };
+}
+
 function onMakiFrame(sessionID: string, frame: AnyObj): void {
   const s = sessions.get(sessionID);
   if (!s) return;
@@ -542,6 +554,7 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
   }
   if (rest === "interrupt" && method === "POST") return interrupt(s);
   if (rest === "view" && method === "POST") return viewSession(s, body);
+  if (rest === "message" && method === "GET") return messagePage(s, url);
   const reply = /^permission\/([^/]+)\/reply$/.exec(rest);
   if (reply && method === "POST") return replyPermission(s, reply[1]!, body);
   // deferred session surfaces (message/inbox/form/terminal, resume/fork/…)

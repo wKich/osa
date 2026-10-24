@@ -179,6 +179,11 @@ bounded timeout that fails the run.
   Maki side, offline and live, lists `mock/mock-model` and
   `mock/mock-model-2` with no connected integration
 
+#### Scenario: A printed workdir does not wrap
+- **WHEN** a journey prints the workdir, such as a move notice or `pwd`
+- **THEN** the workdir lies under a short real root (`/tmp/mjr-…`), so the
+  line fits the terminal on every side
+
 ### Requirement: Compare normalized text snapshots per checkpoint
 Each side's terminal output SHALL be rendered by a headless terminal emulator
 into a text screen at every checkpoint. Volatile tokens (ids, timestamps,

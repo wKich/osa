@@ -67,7 +67,7 @@
 
 ## 5. Gate
 
-- [ ] 5.1 Run in one pass: `make test`, `make test-bridge`, `make compat`,
+- [x] 5.1 Run in one pass: `make test`, `make test-bridge`, `make compat`,
   `make lint`, `make test-journeys`, `openspec validate "add-journey-harness"
   --strict`; all exit 0, and `bun bridge/test/discovery.ts` followed by `git
   diff --exit-code bridge/defects.json` shows only defect entries recorded by

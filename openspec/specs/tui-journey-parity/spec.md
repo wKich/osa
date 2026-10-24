@@ -135,7 +135,13 @@ bounded timeout that fails the run.
 #### Scenario: A failing model call follows each side's retry rule
 - **WHEN** a turn answers the model call with 503 and the next turn is text
 - **THEN** both sides retry into the text turn, and the scripted Maki child
-  emits one `api_retry` naming `API error (503): <message>`
+  emits one `api_retry` worded `Server error (503)`, as the pinned agent words
+  a retry
+
+#### Scenario: A rejected model call carries the raw body
+- **WHEN** a turn answers the model call with 400
+- **THEN** the scripted Maki child ends the run with the result
+  `API error (400): <the mock provider's JSON error body>`
 
 #### Scenario: No update check runs
 - **WHEN** any journey records

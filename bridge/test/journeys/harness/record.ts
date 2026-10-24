@@ -418,7 +418,8 @@ export function normalizeRequests(log: string): string {
         .replace(/\/per_[^/]+/g, "/{requestID}")
         // message-id path parameters, named as the pinned contract names them
         .replace(/\/inbox\/msg_[^/]+/g, "/inbox/{inboxID}")
-        .replace(/\/message\/msg_[^/]+/g, "/message/{messageID}"),
+        .replace(/\/message\/msg_[^/]+/g, "/message/{messageID}")
+        .replace(/\/pty_[^/]+/g, "/{ptyID}"),
     };
     if (!BOOT_PROBES.has(`${route.method} ${route.path}`)) rows.add(JSON.stringify(route));
   }

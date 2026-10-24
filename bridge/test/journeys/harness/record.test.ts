@@ -104,5 +104,12 @@ describe("harness failures", () => {
     expect(normalizeRequests(JSON.stringify({ ts: "x", method: "GET", path: "/api/session/ses_abc123" }))).toBe(
       '{"method":"GET","path":"/api/session/{sessionID}"}\n',
     );
+    // message ids in path parameters take the contract's parameter names
+    expect(normalizeRequests(JSON.stringify({ method: "DELETE", path: "/api/session/ses_a/inbox/msg_b" }))).toBe(
+      '{"method":"DELETE","path":"/api/session/{sessionID}/inbox/{inboxID}"}\n',
+    );
+    expect(normalizeRequests(JSON.stringify({ method: "GET", path: "/api/session/ses_a/message/msg_b" }))).toBe(
+      '{"method":"GET","path":"/api/session/{sessionID}/message/{messageID}"}\n',
+    );
   });
 });

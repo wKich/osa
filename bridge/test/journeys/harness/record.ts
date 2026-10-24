@@ -410,7 +410,12 @@ export function normalizeRequests(log: string): string {
     const row = JSON.parse(line) as { method: string; path: string };
     const route = {
       method: row.method,
-      path: row.path.replace(/\/ses_[^/]+/g, "/{sessionID}").replace(/\/per_[^/]+/g, "/{requestID}"),
+      path: row.path
+        .replace(/\/ses_[^/]+/g, "/{sessionID}")
+        .replace(/\/per_[^/]+/g, "/{requestID}")
+        // message-id path parameters, named as the pinned contract names them
+        .replace(/\/inbox\/msg_[^/]+/g, "/inbox/{inboxID}")
+        .replace(/\/message\/msg_[^/]+/g, "/message/{messageID}"),
     };
     if (!BOOT_PROBES.has(`${route.method} ${route.path}`)) rows.add(JSON.stringify(route));
   }

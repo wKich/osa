@@ -47,6 +47,7 @@ interface PendingAsk {
   toolUseID: string;
   messageID: string; // the turn's assistant message id
   message: string;
+  maki?: MakiSession; // the child that asked, when not the session's own (a subagent's)
 }
 
 interface BridgeSession {
@@ -574,10 +575,12 @@ function sessionRule(toolName: string): unknown[] {
 function replyPermission(s: BridgeSession, perID: string, body: AnyObj): { status: number; payload: any } {
   const pending = s.pending.get(perID);
   if (!pending) return { status: 404, payload: { _tag: "PermissionNotFoundError", requestID: perID, message: `Permission request not found: ${perID}` } };
+  // a subagent's ask is answered by the parent's Maki child
+  const maki = pending.maki ?? s.maki;
   const decision = String(body?.decision ?? "");
   if (decision !== "once" && decision !== "always" && decision !== "reject") {
     // invalid reply: fail closed rather than letting the tool through
-    s.maki.answer(pending.requestID, "deny");
+    maki.answer(pending.requestID, "deny");
     s.pending.delete(perID);
     return { status: 400, payload: { _tag: "InvalidRequestError", message: `invalid decision: ${decision}` } };
   }
@@ -586,9 +589,9 @@ function replyPermission(s: BridgeSession, perID: string, body: AnyObj): { statu
   // and Maki decides which later calls its session rule covers; a reject
   // reason reaches the model as guidance
   const message = typeof body?.message === "string" ? body.message : "";
-  if (decision === "always") s.maki.answer(pending.requestID, "allow", { updatedPermissions: sessionRule(pending.toolName) });
-  else if (decision === "reject") s.maki.answer(pending.requestID, "deny", message ? { message } : {});
-  else s.maki.answer(pending.requestID, "allow");
+  if (decision === "always") maki.answer(pending.requestID, "allow", { updatedPermissions: sessionRule(pending.toolName) });
+  else if (decision === "reject") maki.answer(pending.requestID, "deny", message ? { message } : {});
+  else maki.answer(pending.requestID, "allow");
   s.pending.delete(perID);
   return { status: 204, payload: null };
 }
@@ -629,11 +632,14 @@ function interrupt(s: BridgeSession): { status: number; payload: any } {
   if (!s.translator.inTurn || !s.maki.running) return { status: 200, payload: { interrupted: false } };
   // a run parked on a permission ask is unparked with a deny first; the ask is
   // then settled for the TUI too, since maki forgets it when the run ends
-  for (const [perID, pending] of s.pending) {
-    s.maki.answer(pending.requestID, "deny");
-    emit("permission.replied", { sessionID: s.id, requestID: perID, reply: "reject" });
+  // (a subagent's asks wait in its child sessions)
+  for (const owner of [s, ...[...sessions.values()].filter((c) => c.parentID === s.id)]) {
+    for (const [perID, pending] of owner.pending) {
+      s.maki.answer(pending.requestID, "deny");
+      emit("permission.replied", { sessionID: owner.id, requestID: perID, reply: "reject" });
+    }
+    owner.pending.clear();
   }
-  s.pending.clear();
   s.translator.markInterrupted();
   s.controls.set(s.maki.interrupt(), () => {});
   return { status: 200, payload: { interrupted: true } };
@@ -794,23 +800,29 @@ function onMakiFrame(sessionID: string, frame: AnyObj): void {
     const toolUseID = String(req.tool_use_id ?? "");
     const perID = mintPermission();
     const ask = permissionAsk(toolName, req.input);
-    s.pending.set(perID, {
+    // a subagent's call is asked in its child session, as OpenCode asks it
+    // (the TUI then offers a reject reason: tui routes/session/permission.tsx
+    // v2.0.32 L248–L251); the answer still goes to the one Maki child
+    const childID = s.translator.toolOwner(toolUseID);
+    const owner = (childID && sessions.get(childID)) || s;
+    owner.pending.set(perID, {
       requestID: String(frame.request_id ?? ""),
       toolName,
       ask,
       toolUseID,
-      messageID: s.translator.assistantMessageID,
+      messageID: owner.translator.assistantMessageID,
       message: `Maki wants to run: ${toolName} ${JSON.stringify(req.input ?? {})}`,
+      maki: s.maki,
     });
     // object-form Permission.Source (design decision 4); `save` lists what the
     // TUI's "Always allow" names (opencode v2.0.32 tui/util/permission.ts),
     // here the scope Maki's session rule will cover
     emit("permission.asked", {
       id: perID,
-      sessionID,
+      sessionID: owner.id,
       ...ask,
       message: `Maki wants to run: ${toolName} ${JSON.stringify(req.input ?? {})}`,
-      source: { type: "tool", messageID: s.translator.assistantMessageID, id: toolUseID },
+      source: { type: "tool", messageID: owner.translator.assistantMessageID, id: toolUseID },
     });
     return;
   }

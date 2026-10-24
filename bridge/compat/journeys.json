@@ -1166,18 +1166,21 @@
       "area": "permission",
       "source": "packages/tui/src/routes/session/permission.tsx (reject stage) at v2.0.32",
       "scenario": {
-        "steps": ["trigger a permission prompt", "choose reject", "type a reason", "submit"],
+        "steps": ["prompt the agent to have a subagent run a shell command that needs permission", "choose Reject", "type a reason", "submit"],
         "checkpoints": [
-          { "id": "rejected", "after": 4, "expect": "the tool does not run and the transcript shows the rejection with the reason" }
+          { "id": "permission-prompt", "after": 1, "expect": "the subagent's permission prompt shows the command" },
+          { "id": "reason", "after": 3, "expect": "the rejection stage holds the typed reason" },
+          { "id": "rejected", "after": 4, "expect": "the subagent finishes without running the command and the reply renders" }
         ]
       },
       "routes": ["GET /api/session/{sessionID}/permission", "POST /api/session/{sessionID}/permission/{requestID}/reply"],
-      "features": ["permission-round-trip", "permission-reply-vocabulary"],
+      "features": ["permission-round-trip", "permission-reply-vocabulary", "subagent-permissions"],
       "scope": "reachable",
-      "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "blockedBy": "pin",
+      "status": "broken",
+      "evidence": { "reference":"bridge/test/journeys/reject-permission-with-reason/reference/","maki":"bridge/test/journeys/reject-permission-with-reason/maki/","diff":"bridge/test/journeys/reject-permission-with-reason/diff.json","live":{"snapshots":"bridge/test/journeys/reject-permission-with-reason/live/","diff":"bridge/test/journeys/reject-permission-with-reason/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"broken"} },
+      "acceptedDiffs": [],
+      "pinCitation": "Maki v0.6.4: a reject reason is offered only for a subagent's ask, and the SDK cannot answer one — the subagent waits on its own answer channel, whose sender is handed only to Maki's TUI through SubagentInfo.answer_tx (maki-lua/src/api/agent.rs L858–L867, L1478–L1486), while stream-json answers go to the main agent's channel (src/sdk_mode.rs L483–L495, L633), so the run never resumes"
     },
     {
       "slug": "answer-mcp-form",

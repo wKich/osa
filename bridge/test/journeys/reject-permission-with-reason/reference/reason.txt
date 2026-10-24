@@ -1,0 +1,39 @@
+ ! Journey                       +
+
+  ┃
+  ┃  Use a subagent to remove probe.txt, then reply DONE.
+  ┃
+
+     <SPINNER> General Subagent — Remove a probe
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  △ Reject permission
+  ┃
+  ┃  Tell OpenCode what to do differently
+  ┃
+  ┃
+  ┃  Keep the probe file                                                                  enter confirm  esc cancel
+  ┃

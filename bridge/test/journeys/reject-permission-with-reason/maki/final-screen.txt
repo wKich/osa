@@ -1,0 +1,39 @@
+ <SPINNER> New session                   +
+
+  ┃
+  ┃  Use a subagent to remove probe.txt, then reply DONE.
+  ┃
+
+     <SPINNER> General Subagent — Remove a probe
+
+     Press ctrl+b to move running work to the background
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   <BAR> esc interrupt                                                                ↓ 1 subagent  ctrl+p commands

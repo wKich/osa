@@ -146,5 +146,15 @@
       "slug": "see-provider-retry",
       "checkpoint": "recovered"
     }
+  },
+  {
+    "id": "subagent-ask-in-parent-session",
+    "title": "A subagent's permission ask was filed under the parent session with the parent's message as its source, so the TUI rendered the fallback resource list instead of the `$ command` body and rejected without the reason stage it offers a child session's ask (tui routes/session/permission.tsx v2.0.32 L248–L251)",
+    "status": "fixed",
+    "capture": "bridge/test/journeys/reject-permission-with-reason/live-diff.json",
+    "journey": {
+      "slug": "reject-permission-with-reason",
+      "checkpoint": "permission-prompt"
+    }
   }
 ]

@@ -4,7 +4,7 @@ Generated from `bridge/compat/statuses.json`, `bridge/compat/journeys.json` and 
 
 ## Burndown
 
-Reachable surface: **58 of 143 routes** (45 `served-live`, 10 `served-faked`, 3 `deferred`, 0 `unhandled`) and **57 of 58 features** (47 `verified`, 0 `unverified`, 10 `degraded` (10 pin-blocked), 0 `buggy`). Out of scope: 85 routes, 1 feature. Open defects: **0**.
+Reachable surface: **58 of 143 routes** (45 `served-live`, 10 `served-faked`, 3 `deferred`, 0 `unhandled`) and **58 of 59 features** (47 `verified`, 0 `unverified`, 11 `degraded` (11 pin-blocked), 0 `buggy`). Out of scope: 85 routes, 1 feature. Open defects: **0**.
 
 Untriaged reachable routes: **0**.
 
@@ -169,7 +169,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 
 Statuses: `verified` (an offline test or committed fixture proves it), `degraded` (works, with a limitation recorded in the evidence), `unverified` (no evidence yet), `buggy` (an open inventory entry in `bridge/defects.json` forces this status until the fix flips it). `pin-blocked` marks a gap that needs an upstream wire change. A `verified` row is `journey-verified` only when every reachable journey that lists it is at `parity`; otherwise the journey oracle reports it `unit-verified only`.
 
-### Reachable (57)
+### Reachable (58)
 
 | Id | Feature | Status | Journeys | Evidence |
 | --- | --- | --- | --- | --- |
@@ -226,6 +226,7 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | `tool-background` | Backgrounding a running tool (ctrl+b, session.background): the pinned Maki SDK has no request to detach a running call — only initialize, interrupt, set_permission_mode and set_model controls (sdk_mode.rs v0.6.4 L818–L880) — and its background work is background agents only (maki-agent tools/mod.rs L331–L333) | `degraded` · pin-blocked | — | [`bridge/test/journeys/background-blocking-tools/diff.json`](../bridge/test/journeys/background-blocking-tools/diff.json) |
 | `permission-reask` | `always` becomes Maki's session-scoped allow (the bridge caches nothing); it is not saved for the project as the TUI's copy says — the pinned SDK decoder has no project/global answer (sdk_mode.rs v0.6.4 L918–L927) | `degraded` · pin-blocked | — | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
 | `agent-questions` | The agent's question tool cannot ask the TUI: under the pinned SDK Maki's `question` tool runs with no UI and is dismissed (`plugins/question/question_form.lua` v0.6.4 L598–L628, `maki-lua/src/api/ui/mod.rs` L749–L755), and the wire's only outbound ask is `can_use_tool` (`sdk_mode.rs` L1122–L1160), which question never raises; the transcript shows the call, no form | `degraded` · pin-blocked | — | [`bridge/test/journeys/answer-agent-question/live-diff.json`](../bridge/test/journeys/answer-agent-question/live-diff.json) |
+| `subagent-permissions` | A subagent's permission ask is shown in its child session, as OpenCode shows it, but cannot be answered: under the pinned SDK the subagent waits on its own answer channel, whose sender only Maki's TUI receives (`maki-lua/src/api/agent.rs` v0.6.4 L858–L867, L1478–L1486), while the SDK answers on the main agent's (`src/sdk_mode.rs` L483–L495, L633); the run waits until interrupted | `degraded` · pin-blocked | — | [`bridge/test/subagent-permission.test.ts`](../bridge/test/subagent-permission.test.ts) |
 | `agent-switch-state` | Session agent selection is recorded and reported while the Maki child is not re-tasked — the pinned inbound control subtypes are `initialize`, `interrupt`, `set_permission_mode`, `set_model`, with no `set_agent` (sdk_mode.rs v0.6.4 L818–L880) | `degraded` · pin-blocked | — | [`bridge/test/agent-switch.test.ts`](../bridge/test/agent-switch.test.ts) |
 | `mid-turn-steering` | A prompt sent while a turn runs is admitted and queued: its turn starts after the running turn's result, and a `steer` is reported as `queue` (`session.inbox.delivery.changed`) — the pinned SDK sends each stdin `user` to the session's input queue, answered by its own later run, never into the running one (sdk_mode.rs v0.6.4 L682–L702, L763) | `degraded` · pin-blocked | — | [`bridge/test/steering.test.ts`](../bridge/test/steering.test.ts) |
 | `prompt-attachments` | Image attachments (`data:image/png\|jpeg\|gif\|webp`) reach the child as base64 image blocks and are reported as inline files; PDF and other data URIs are dropped — the pinned inbound `user` decodes only text and image blocks (sdk_mode.rs v0.6.4 L786–L816) | `degraded` · pin-blocked | — | [`bridge/test/prompt-attachments.test.ts`](../bridge/test/prompt-attachments.test.ts) |
@@ -247,7 +248,7 @@ Rows citing these notes are proved against fixtures that were authored or splice
 
 Statuses: `unrecorded` (no reference recording yet), `referenced` (a reference recording of real OpenCode exists, the Maki side is not yet compared), `parity` (both sides match at every checkpoint), `diverges` (the journey completes with at least one differing checkpoint), `broken` (the Maki side cannot complete it).
 
-Reachable journeys: **61 of 67** (24 `unrecorded`, 0 `referenced`, 32 `parity`, 4 `diverges`, 1 `broken`). Native parity score: **52.5%** (32 of 61 reachable journeys at `parity`).
+Reachable journeys: **61 of 67** (23 `unrecorded`, 0 `referenced`, 32 `parity`, 4 `diverges`, 2 `broken`). Native parity score: **52.5%** (32 of 61 reachable journeys at `parity`).
 
 ### Reachable (61)
 
@@ -265,7 +266,6 @@ Reachable journeys: **61 of 67** (24 `unrecorded`, 0 `referenced`, 32 `parity`, 
 | `view-debug-info` | View debug information | navigation | `unrecorded` | — | — | — |
 | `view-usage-statistics` | View usage statistics | navigation | `unrecorded` | — | — | — |
 | `exit-application` | Exit the application | navigation | `unrecorded` | — | — | — |
-| `reject-permission-with-reason` | Reject a tool with a reason | permission | `unrecorded` | — | — | — |
 | `answer-mcp-form` | Answer an MCP form | permission | `unrecorded` | — | — | — |
 | `switch-model` | Switch the model | model | `unrecorded` | — | — | — |
 | `switch-agent` | Switch the agent | model | `unrecorded` | — | — | — |
@@ -314,6 +314,7 @@ Reachable journeys: **61 of 67** (24 `unrecorded`, 0 `referenced`, 32 `parity`, 
 | `redo-reverted-message` | Redo a reverted message | session | `diverges` | `diverges` | reference: [`bridge/test/journeys/redo-reverted-message/reference/`](../bridge/test/journeys/redo-reverted-message/reference/) · maki: [`bridge/test/journeys/redo-reverted-message/maki/`](../bridge/test/journeys/redo-reverted-message/maki/) · diff: [`bridge/test/journeys/redo-reverted-message/diff.json`](../bridge/test/journeys/redo-reverted-message/diff.json) | — |
 | `answer-agent-question` | Answer a question the agent asks | permission | `diverges` | `diverges` | reference: [`bridge/test/journeys/answer-agent-question/reference/`](../bridge/test/journeys/answer-agent-question/reference/) · maki: [`bridge/test/journeys/answer-agent-question/maki/`](../bridge/test/journeys/answer-agent-question/maki/) · diff: [`bridge/test/journeys/answer-agent-question/diff.json`](../bridge/test/journeys/answer-agent-question/diff.json) | — |
 | `background-blocking-tools` | Background a blocking tool | session | `broken` | `broken` | reference: [`bridge/test/journeys/background-blocking-tools/reference/`](../bridge/test/journeys/background-blocking-tools/reference/) · maki: [`bridge/test/journeys/background-blocking-tools/maki/`](../bridge/test/journeys/background-blocking-tools/maki/) · diff: [`bridge/test/journeys/background-blocking-tools/diff.json`](../bridge/test/journeys/background-blocking-tools/diff.json) | — |
+| `reject-permission-with-reason` | Reject a tool with a reason | permission | `broken` | `broken` | reference: [`bridge/test/journeys/reject-permission-with-reason/reference/`](../bridge/test/journeys/reject-permission-with-reason/reference/) · maki: [`bridge/test/journeys/reject-permission-with-reason/maki/`](../bridge/test/journeys/reject-permission-with-reason/maki/) · diff: [`bridge/test/journeys/reject-permission-with-reason/diff.json`](../bridge/test/journeys/reject-permission-with-reason/diff.json) | — |
 
 ### Out of scope (6)
 

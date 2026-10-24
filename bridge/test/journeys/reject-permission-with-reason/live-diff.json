@@ -1,0 +1,19 @@
+{
+  "status": "broken",
+  "checkpoints": [
+    {
+      "id": "permission-prompt",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n- ! Journey                       +\n+ ! New session                   +\n \n   ┃\n   ┃  Use a subagent to remove probe.txt, then reply DONE.\n   ┃\n \n      <SPINNER> General Subagent — Remove a probe\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃  △ Permission required\n   ┃\n   ┃  $ rm -f probe.txt\n   ┃\n   ┃\n   ┃   Allow once   Always allow   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm\n   ┃"
+    },
+    {
+      "id": "reason",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n- ! Journey                       +\n+ ! New session                   +\n \n   ┃\n   ┃  Use a subagent to remove probe.txt, then reply DONE.\n   ┃\n \n      <SPINNER> General Subagent — Remove a probe\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃  △ Reject permission\n   ┃\n   ┃  Tell OpenCode what to do differently\n   ┃\n   ┃\n   ┃  Keep the probe file                                                                  enter confirm  esc cancel\n   ┃"
+    },
+    {
+      "id": "rejected",
+      "verdict": "unreached"
+    }
+  ]
+}

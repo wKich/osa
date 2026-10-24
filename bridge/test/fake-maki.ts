@@ -292,6 +292,20 @@ async function playScript(run: { cancelled: boolean }): Promise<void> {
           out({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: subID, name: "Bash", input: {} } } });
           out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify({ command: sub.tool.command }) } } });
           out({ type: "stream_event", event: { type: "content_block_stop", index: 0 } });
+          if (sub.tool.needsPermission) {
+            // the subagent's ask names only its tool id (sdk_mode.rs v0.6.4
+            // L1122–L1160), but the pinned SDK cannot answer it: the subagent
+            // waits on its own answer channel, whose sender only the TUI gets
+            // (maki-lua api/agent.rs L858–L867, L1478–L1486), while the SDK
+            // answers on the main agent's (sdk_mode.rs L483–L495, L633). The
+            // run waits until it is interrupted.
+            const requestID = `req_fake${String(toolSeq).padStart(10, "0")}`;
+            out({ type: "control_request", request_id: requestID, request: { subtype: "can_use_tool", tool_name: "Bash", tool_use_id: subID, input: { command: sub.tool.command } } });
+            while (!run.cancelled) await Bun.sleep(100);
+            runCalls = 0;
+            cancelledResult();
+            return;
+          }
           const proc = Bun.spawn(["/bin/sh", "-c", sub.tool.command], { cwd, stdout: "pipe", stderr: "pipe" });
           const code = await proc.exited;
           const output = (await new Response(proc.stdout).text()).trim();

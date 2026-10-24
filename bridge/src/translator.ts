@@ -107,6 +107,9 @@ export class Translator {
   // subagent tool ids -> their child session ids, and the ones still running
   private subagents = new Map<string, string>();
   private runningSubagents: string[] = [];
+  // tools a subagent called -> its child session: the pinned can_use_tool
+  // names only the tool id (sdk_mode.rs v0.6.4 L1122–L1160)
+  private subagentTools = new Map<string, string>();
   // the task call's own streamed block (it follows the buffered call) is the
   // parent's, not the subagent's
   private inTaskBlock = false;
@@ -250,6 +253,18 @@ export class Translator {
     return true;
   }
 
+  /** the child session a tool call belongs to: a subagent's own call, or,
+   * for a call not seen yet, the subagent the parent is waiting on (the
+   * parent run is blocked on its task call meanwhile); undefined for the
+   * session's own calls */
+  toolOwner(toolUseID: string): string | undefined {
+    const known = this.subagentTools.get(toolUseID);
+    if (known) return known;
+    if (this.toolIDs.has(toolUseID) || this.subagents.has(toolUseID)) return undefined;
+    const running = this.runningSubagents.at(-1);
+    return running ? this.subagents.get(running) : undefined;
+  }
+
   /** maki died with a turn in flight: fail the execution instead of a stuck
    * spinner, and cancel what was queued behind it (no child will answer it) */
   abortTurn(message: string): void {
@@ -274,7 +289,11 @@ export class Translator {
     }
     const owner = flagged ?? (frame.type === "stream_event" && !this.inTaskBlock ? this.runningSubagents.at(-1) : undefined);
     if (this.inTaskBlock && frame.type === "stream_event" && frame.event?.type === "content_block_stop") this.inTaskBlock = false;
-    if (owner && this.subagents.has(owner) && this.hooks.subagent?.frame(owner, frame)) return;
+    if (owner && this.subagents.has(owner)) {
+      const child = this.subagents.get(owner)!;
+      for (const id of toolUseIDs(frame)) this.subagentTools.set(id, child);
+      if (this.hooks.subagent?.frame(owner, frame)) return;
+    }
     switch (frame.type) {
       case "system":
         if (frame.subtype === "init") {
@@ -575,4 +594,17 @@ function resultContent(content: unknown): AnyObj[] {
   }
   if (content && typeof content === "object") return [content as AnyObj];
   return [{ type: "text", text: String(content ?? "") }];
+}
+
+/** the tool_use ids a frame introduces: a streamed block's start or an
+ * assistant message's tool_use blocks */
+function toolUseIDs(frame: AnyObj): string[] {
+  if (frame.type === "stream_event") {
+    const block = frame.event?.type === "content_block_start" ? frame.event.content_block : undefined;
+    return block?.type === "tool_use" && typeof block.id === "string" ? [block.id] : [];
+  }
+  if (frame.type === "assistant" && Array.isArray(frame.message?.content)) {
+    return frame.message.content.filter((b: AnyObj) => b?.type === "tool_use" && typeof b.id === "string").map((b: AnyObj) => b.id);
+  }
+  return [];
 }

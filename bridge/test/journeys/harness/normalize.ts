@@ -59,7 +59,8 @@ export function normalize(text: string, opts: NormalizeOptions = {}): string {
 
   // Clock times and calendar dates.
   out = out.replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b/g, "<TIME>");
-  out = out.replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, "<TIME>");
+  // a 12-hour clock's meridiem is part of the time of day
+  out = out.replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b(?: ?[AP]M\b)?/g, "<TIME>");
   out = out.replace(/\b\d{4}-\d{2}-\d{2}\b/g, "<TIME>");
   // A right-aligned clock pads by its own width (`9:59 PM` vs `10:05 PM`), so
   // the gap before it depends on the hour.

@@ -13,8 +13,8 @@
   ┃
                     Search
      PANG
-                    Reply with the word PANG only.  <TIME> PM
-     Build · Moc    Reply with the word PONG only.  <TIME> PM
+                    Reply with the word PANG only.  <TIME>
+     Build · Moc    Reply with the word PONG only.  <TIME>
 
 
 

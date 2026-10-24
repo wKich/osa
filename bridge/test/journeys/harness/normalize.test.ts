@@ -11,6 +11,8 @@ describe("normalize", () => {
   test("clock times and dates", () => {
     expect(normalize("10:42 10:42:09 2026-10-24", opts)).toBe("<TIME> <TIME> <TIME>");
     expect(normalize("2026-10-24T08:20:50.619Z", opts)).toBe("<TIME>");
+    // a run that crosses noon or midnight reads the same
+    expect(normalize("Reply.  11:59 PM", opts)).toBe(normalize("Reply.  12:01 AM", opts));
   });
 
   test("durations", () => {

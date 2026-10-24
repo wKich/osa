@@ -243,12 +243,17 @@ async function playScript(run: { cancelled: boolean }): Promise<void> {
       return;
     }
     if (turn.fail) {
-      // the provider error as the pinned agent formats it (maki-providers
-      // error.rs v0.6.4 L106); 429 and 5xx are retried with an api_retry
+      // the pinned agent keeps the raw response body as the error message
+      // (maki-providers error.rs v0.6.4 L387–L412, L106) — the mock
+      // provider's JSON error envelope — and words a retry by status
+      // (retry_message, L427–L440); 429 and 5xx are retried with an api_retry
       // notice (error.rs L2, sdk_mode.rs L1076–L1089), anything else ends the run
-      const message = `API error (${turn.fail.status}): ${turn.fail.message}`;
-      if (turn.fail.status === 429 || turn.fail.status >= 500) {
-        out({ type: "system", subtype: "api_retry", attempt: ++attempt, retry_delay_ms: 1000, error: message });
+      const body = JSON.stringify({ error: { message: turn.fail.message, type: "journey_error" } });
+      const message = `API error (${turn.fail.status}): ${body}`;
+      const status = turn.fail.status;
+      if (status === 429 || status >= 500) {
+        const retry = status === 429 ? "Rate limited" : status === 529 ? "Provider is overloaded" : `Server error (${status})`;
+        out({ type: "system", subtype: "api_retry", attempt: ++attempt, retry_delay_ms: 1000, error: retry });
         await Bun.sleep(1000);
         continue;
       }

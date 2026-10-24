@@ -158,11 +158,14 @@ describe("fake-maki script mode", () => {
     try {
       prompt("first");
       await waitFor(lines, () => lines.some((l) => l.type === "result"), 8000);
-      expect(lines.find((l) => l.subtype === "api_retry")).toMatchObject({ attempt: 1, error: "API error (503): busy" });
+      expect(lines.find((l) => l.subtype === "api_retry")).toMatchObject({ attempt: 1, error: "Server error (503)" });
       expect(lines.find((l) => l.type === "result").subtype).toBe("success");
       prompt("second");
       await waitFor(lines, () => lines.filter((l) => l.type === "result").length === 2, 8000);
-      expect(lines.filter((l) => l.type === "result")[1]).toMatchObject({ is_error: true, result: "API error (400): bad request" });
+      expect(lines.filter((l) => l.type === "result")[1]).toMatchObject({
+        is_error: true,
+        result: 'API error (400): {"error":{"message":"bad request","type":"journey_error"}}',
+      });
     } finally {
       proc.kill();
       await proc.exited;

@@ -1,6 +1,8 @@
-// Scripted model provider for the reference run (design decision 3): a local
-// OpenAI-compatible endpoint that replays the journey's turns in order. It is
-// bound to loopback and takes no credential.
+// Scripted model provider for a scripted journey: an OpenAI-compatible
+// endpoint that replays the journey's turns in order. Bound to loopback and
+// takes no credential. The same adapter serves the in-process reference run
+// (OpenCode) and the standalone provider the live run starts inside the
+// sandbox, so both sides see byte-identical chunks.
 import type { Turn } from "./journey.ts";
 
 export interface ModelRequest {
@@ -15,6 +17,14 @@ export interface MockProvider {
   requests: ModelRequest[];
   close(): void;
 }
+
+/** One replay cursor: the next turn to serve, and the tool-call sequence. */
+export interface TurnReplay {
+  next: number;
+  toolCalls: number;
+}
+
+export const beginReplay = (): TurnReplay => ({ next: 0, toolCalls: 0 });
 
 const titleRequest = (body: any) =>
   JSON.stringify(body?.messages?.[0]?.content ?? "").includes("title generator");
@@ -32,12 +42,12 @@ function textChunks(text: string, stream?: string[]): string[] {
   return chunks;
 }
 
-function toolChunks(command: string): string[] {
+function toolChunks(command: string, id: string, tool: string): string[] {
   const call = {
     index: 0,
-    id: "call_journey_1",
+    id,
     type: "function",
-    function: { name: "shell", arguments: JSON.stringify({ command }) },
+    function: { name: tool, arguments: JSON.stringify({ command }) },
   };
   return [
     chunk({ choices: [{ index: 0, delta: { role: "assistant", tool_calls: [call] }, finish_reason: null }] }),
@@ -45,8 +55,50 @@ function toolChunks(command: string): string[] {
   ];
 }
 
-export function startMockProvider(turns: Turn[]): MockProvider {
-  let next = 0;
+export type ModelReply =
+  | { kind: "models"; json: unknown }
+  | { kind: "chat"; title: boolean; chunks: string[] }
+  | { kind: "notFound" };
+
+/**
+ * One request against the scripted model. `tool` is the wire name the model
+ * calls: OpenCode's is `shell`, Maki's is `bash`.
+ */
+export function modelReply(
+  replay: TurnReplay,
+  turns: Turn[],
+  pathname: string,
+  body: any,
+  tool = "shell",
+): ModelReply {
+  if (pathname.endsWith("/models")) return { kind: "models", json: { data: [{ id: "mock-model", object: "model" }] } };
+  if (!pathname.endsWith("/chat/completions")) return { kind: "notFound" };
+
+  // OpenCode asks its provider for a session title first; that is harness
+  // traffic, not one of the journey's model turns. Maki makes no such request.
+  if (titleRequest(body)) return { kind: "chat", title: true, chunks: textChunks("Journey") };
+
+  const turn = turns[replay.next++];
+  if (!turn) return { kind: "chat", title: false, chunks: textChunks("No more scripted turns.") };
+  const chunks =
+    "tool" in turn
+      ? toolChunks(turn.tool.command, `call_journey_${++replay.toolCalls}`, tool)
+      : textChunks(turn.text, turn.stream);
+  return { kind: "chat", title: false, chunks };
+}
+
+/** The SSE body for one chat reply, with the beat a real model would take. */
+export async function chatBody(reply: Extract<ModelReply, { kind: "chat" }>): Promise<Response> {
+  // The beat lets the TUI render the submitted user message before the reply
+  // starts; a real model never answers in the same tick.
+  await Bun.sleep(300);
+  return new Response(reply.chunks.join("") + "data: [DONE]\n\n", {
+    headers: { "content-type": "text/event-stream" },
+  });
+}
+
+export function startMockProvider(turns: Turn[], tool = "shell"): MockProvider {
+  const replay = beginReplay();
   const requests: ModelRequest[] = [];
 
   const server = Bun.serve({
@@ -54,36 +106,16 @@ export function startMockProvider(turns: Turn[]): MockProvider {
     port: 0,
     async fetch(req) {
       const url = new URL(req.url);
-      if (url.pathname.endsWith("/models")) {
-        return Response.json({ data: [{ id: "mock-model", object: "model" }] });
+      const body = url.pathname.endsWith("/chat/completions")
+        ? await req.json().catch(() => ({}))
+        : {};
+      if (url.pathname.endsWith("/chat/completions")) {
+        requests.push({ path: url.pathname, title: titleRequest(body), body });
       }
-      if (!url.pathname.endsWith("/chat/completions")) {
-        return new Response("not found", { status: 404 });
-      }
-
-      const body = await req.json().catch(() => ({}));
-      const title = titleRequest(body);
-      requests.push({ path: url.pathname, title, body });
-      // OpenCode asks its provider for a session title first; that is harness
-      // traffic, not one of the journey's model turns.
-      if (title) {
-        return new Response(textChunks("Journey").join("") + "data: [DONE]\n\n", {
-          headers: { "content-type": "text/event-stream" },
-        });
-      }
-
-      const turn = turns[next++];
-      const chunks = !turn
-        ? textChunks("No more scripted turns.")
-        : "tool" in turn
-          ? toolChunks(turn.tool.command)
-          : textChunks(turn.text, turn.stream);
-      // A real model never answers in the same tick; the beat lets the TUI
-      // render the submitted user message before the reply starts.
-      await Bun.sleep(300);
-      return new Response(chunks.join("") + "data: [DONE]\n\n", {
-        headers: { "content-type": "text/event-stream" },
-      });
+      const reply = modelReply(replay, turns, url.pathname, body, tool);
+      if (reply.kind === "models") return Response.json(reply.json);
+      if (reply.kind === "notFound") return new Response("not found", { status: 404 });
+      return chatBody(reply);
     },
   });
 

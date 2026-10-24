@@ -15,11 +15,11 @@ import { startPty, runSteps, type Pty } from "./driver.ts";
 import { startMockProvider } from "./mock-provider.ts";
 import { normalize } from "./normalize.ts";
 import { diffCheckpoints, type CheckpointInput, type DiffResult } from "./diff.ts";
+import { updateJourneyEvidence, updateJourneyStatus } from "./catalog.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const JOURNEYS = join(HERE, "..");
 const ROOT = join(JOURNEYS, "..", "..", "..");
-const CATALOG = join(ROOT, "bridge", "compat", "journeys.json");
 
 // The scripted sandbox runs the host's real git; on macOS `/usr/bin/git` is the
 // xcrun shim, which can stall under concurrent calls.
@@ -50,7 +50,7 @@ const pathsFor = (root: string): Paths => ({
   work: join(root, "journey-work"),
 });
 
-const makePaths = (root: string): Paths => {
+export const makePaths = (root: string): Paths => {
   const paths = pathsFor(root);
   for (const dir of [paths.home, paths.config, paths.data, paths.state, paths.cache, paths.work]) {
     mkdirSync(dir, { recursive: true });
@@ -97,7 +97,7 @@ export function referenceConfig(baseURL: string) {
 }
 
 const refModels = ["Mock Model", "mock/mock-model", "mock-model", "Mock", "mock"];
-const makiModels = ["synthetic/hf:zai-org/GLM-4.7", "hf:zai-org/GLM-4.7", "synthetic/fake", "Synthetic", "synthetic", "fake"];
+export const makiModels = ["synthetic/hf:zai-org/GLM-4.7", "hf:zai-org/GLM-4.7", "synthetic/fake", "Synthetic", "synthetic", "fake"];
 
 async function referenceRun(script: Journey): Promise<Map<string, string>> {
   const root = mkdtempSync(join(tmpdir(), `maki-journey-ref-${script.slug}-`));
@@ -133,7 +133,7 @@ async function referenceRun(script: Journey): Promise<Map<string, string>> {
   }
 }
 
-async function bridgePort(proc: Bun.Subprocess, timeoutMs = 15_000): Promise<number> {
+export async function bridgePort(proc: Bun.Subprocess, timeoutMs = 15_000): Promise<number> {
   const read = (async () => {
     const reader = proc.stdout.getReader();
     const decoder = new TextDecoder();
@@ -161,7 +161,7 @@ async function bridgePort(proc: Bun.Subprocess, timeoutMs = 15_000): Promise<num
   ]);
 }
 
-async function waitForSubscriber(path: string, timeoutMs = 15_000, minimum = 1): Promise<void> {
+export async function waitForSubscriber(path: string, timeoutMs = 15_000, minimum = 1): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   const count = () =>
     existsSync(path) ? readFileSync(path, "utf8").split('"server.connected"').length - 1 : 0;
@@ -252,7 +252,7 @@ export async function makiRun(script: Journey): Promise<{ checkpoints: Map<strin
   return { checkpoints, requests, error };
 }
 
-function writeRun(dir: string, snapshots: Map<string, string>, order: string[]) {
+export function writeRun(dir: string, snapshots: Map<string, string>, order: string[]) {
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   for (const id of order) {
@@ -262,30 +262,11 @@ function writeRun(dir: string, snapshots: Map<string, string>, order: string[]) 
 }
 
 function updateCatalog(slug: string, status: string, evidence: Record<string, string>) {
-  const lines = readFileSync(CATALOG, "utf8").split("\n");
-  const at = lines.findIndex((line) => line.includes(`"slug": "${slug}"`));
-  if (at < 0) throw new Error(`catalog has no journey ${slug}`);
-  let start = at;
-  while (start > 0 && !/^    \{$/.test(lines[start])) start--;
-  let end = at;
-  while (end < lines.length && !/^    \},?$/.test(lines[end])) end++;
-
-  let sawStatus = false;
-  for (let i = start; i <= end; i++) {
-    if (/^\s*"status":/.test(lines[i])) {
-      lines[i] = lines[i].replace(/^\s*"status":.*$/, `      "status": "${status}",`);
-      sawStatus = true;
-    }
-    if (/^\s*"evidence":\s*\{.*\},?\s*$/.test(lines[i])) {
-      const value = JSON.stringify(evidence).replace(/^\{|\}$/g, "");
-      lines[i] = `      "evidence": { ${value} },`;
-    }
-  }
-  if (!sawStatus) throw new Error(`catalog journey ${slug} has no status line`);
-  writeFileSync(CATALOG, lines.join("\n"));
+  updateJourneyStatus(slug, status);
+  updateJourneyEvidence(slug, evidence);
 }
 
-const checkpointIds = (script: Journey) =>
+export const checkpointIds = (script: Journey) =>
   script.steps.flatMap((step) => (step.kind === "checkpoint" ? [step.id] : []));
 
 function evidenceFor(slug: string) {

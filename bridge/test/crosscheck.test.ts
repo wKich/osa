@@ -38,11 +38,18 @@ interface JourneyCheckpoint {
   after: number;
   expect: string;
 }
+interface LiveEvidence {
+  snapshots: string;
+  diff: string;
+  maki: string;
+  image: string;
+  verdict: string;
+}
 interface Journey {
   slug: string;
   status: string;
   scope: string;
-  evidence?: Record<string, string>;
+  evidence?: Record<string, any>;
   scenario?: { steps?: string[]; checkpoints?: JourneyCheckpoint[] };
   routes?: string[];
   features?: string[];
@@ -69,8 +76,10 @@ const journeyScripts = existsSync(path(JOURNEYS_DIR))
       .sort()
   : [];
 for (const slug of journeyScripts) {
-  const log = `${JOURNEYS_DIR}/${slug}/maki-requests.jsonl`;
-  if (existsSync(path(log))) CAPTURES.push(log);
+  for (const log of ["maki-requests.jsonl", "live-maki-requests.jsonl"]) {
+    const file = `${JOURNEYS_DIR}/${slug}/${log}`;
+    if (existsSync(path(file))) CAPTURES.push(file);
+  }
 }
 const normalizeRoute = (p: string) =>
   p.replace(/\/ses_[^/]+/g, "/{sessionID}").replace(/\/per_[^/]+/g, "/{requestID}");
@@ -355,6 +364,73 @@ test("re-diffing committed snapshots reproduces each journey's status", () => {
     const committed = JSON.parse(readFileSync(path(`${dir}/diff.json`), "utf8")).status;
     if (recomputed !== journey.status) problems.push(`${slug}: snapshots say ${recomputed}, catalog says ${journey.status}`);
     if (committed !== journey.status) problems.push(`${slug}: diff.json says ${committed}, catalog says ${journey.status}`);
+  }
+  expect(problems).toEqual([]);
+});
+
+// Live journey run (add-journey-live-run): the committed live snapshots are
+// the comparison's source of truth, so a gateway-free suite can reproduce the
+// committed live verdict; the live request log joins the measured route set.
+const liveOf = (j: Journey): LiveEvidence | undefined => j.evidence?.live;
+
+test("every live verdict cites committed snapshots, comparison, versions and request log", () => {
+  const problems: string[] = [];
+  for (const j of journeys) {
+    const live = liveOf(j);
+    if (!live) continue;
+    if (!COMMITTED(live.snapshots)) problems.push(`${j.slug}: missing live snapshots ${live.snapshots}`);
+    if (!COMMITTED(live.diff)) problems.push(`${j.slug}: missing live comparison ${live.diff}`);
+    if (!String(live.maki ?? "").trim()) problems.push(`${j.slug}: live evidence has no Maki version`);
+    if (!String(live.image ?? "").trim()) problems.push(`${j.slug}: live evidence has no image id`);
+    if (!["parity", "diverges", "broken"].includes(String(live.verdict))) {
+      problems.push(`${j.slug}: unknown live verdict ${String(live.verdict)}`);
+    }
+    if (!existsSync(path(`${JOURNEYS_DIR}/${j.slug}/live-maki-requests.jsonl`))) {
+      problems.push(`${j.slug}: missing live Maki-side request log`);
+    }
+  }
+  expect(problems).toEqual([]);
+});
+
+test("re-diffing committed live snapshots reproduces the live verdict", () => {
+  const problems: string[] = [];
+  for (const j of journeys) {
+    const live = liveOf(j);
+    if (!live || !existsSync(path(String(live.diff)))) continue;
+    const dir = `${JOURNEYS_DIR}/${j.slug}`;
+    const inputs = (j.scenario?.checkpoints ?? []).map((checkpoint) => ({
+      id: checkpoint.id,
+      reference: readFileSync(path(`${dir}/reference/${checkpoint.id}.txt`), "utf8"),
+      maki: existsSync(path(`${dir}/live/${checkpoint.id}.txt`))
+        ? readFileSync(path(`${dir}/live/${checkpoint.id}.txt`), "utf8")
+        : undefined,
+      acceptedReason: j.acceptedDiffs?.find((d) => d.checkpoint === checkpoint.id)?.reason,
+    }));
+    const recomputed = diffCheckpoints(inputs).status;
+    const committed = JSON.parse(readFileSync(path(String(live.diff)), "utf8")).status;
+    if (recomputed !== live.verdict) {
+      problems.push(`${j.slug}: live snapshots say ${recomputed}, catalog says ${live.verdict}`);
+    }
+    if (committed !== live.verdict) {
+      problems.push(`${j.slug}: live-diff.json says ${committed}, catalog says ${live.verdict}`);
+    }
+  }
+  expect(problems).toEqual([]);
+});
+
+test("live request logs join the measured route set", () => {
+  const problems: string[] = [];
+  for (const j of journeys) {
+    const live = liveOf(j);
+    if (!live) continue;
+    const log = path(`${JOURNEYS_DIR}/${j.slug}/live-maki-requests.jsonl`);
+    if (!existsSync(log)) continue; // reported above
+    for (const line of readFileSync(log, "utf8").split("\n")) {
+      if (!line.trim()) continue;
+      const row = JSON.parse(line) as { method: string; path: string };
+      const route = `${row.method} ${normalizeRoute(row.path)}`;
+      if (!measuredRoutes.has(route)) problems.push(`${j.slug}: live route not measured: ${route}`);
+    }
   }
   expect(problems).toEqual([]);
 });

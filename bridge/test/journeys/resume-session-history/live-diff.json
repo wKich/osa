@@ -1,0 +1,14 @@
+{
+  "status": "broken",
+  "checkpoints": [
+    {
+      "id": "session-list",
+      "verdict": "differs",
+      "hunk": "@@ -1,40 +1,39 @@\n-   Journey                       + New session\n+   New session                   + New session\n \n \n \n \n \n \n \n \n \n \n                     Sessions for <WORKDIR>                                                    esc\n \n                     Search\n \n                     Today\n-                    Journey\n+                    New session - <TIME>\n \n                     delete ctrl+d  rename ctrl+r                                 all projects ctrl+a\n \n \n                        ┃\n                        ┃  Ask anything… \"<HINT>\"\n                        ┃\n                        ┃  Build · <MODEL> <MODEL>\n                        ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n                        <WORKDIR>  shift+tab agents  ctrl+p commands\n \n \n \n \n \n \n \n \n \n \n \n                                                                                                                 2.0.32\n-"
+    },
+    {
+      "id": "history-visible",
+      "verdict": "unreached"
+    }
+  ]
+}

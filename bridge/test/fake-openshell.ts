@@ -1,21 +1,64 @@
 #!/usr/bin/env bun
-// Scripted `openshell` for the bridge's sandbox reads, injected through the
-// OPENSHELL_BIN variable the bridge already takes (bridge/src/sandbox.ts).
-// Accepts only the read shape the bridge may build —
+// Scripted `openshell` for the harness. The bridge's sandbox reads use
 //   sandbox exec -n <name> --no-login-shell --workdir <dir> -- <argv...>
-// — and runs <argv> on the host in <dir>, which stands in for the sandbox the
-// way fake-maki.ts runs tool calls on the host. Anything else (an --env value,
-// a missing --no-login-shell, another subcommand) exits 64 so a test sees it.
+// (bridge/src/sandbox.ts), which this runs on the host in <dir>, the way
+// fake-maki.ts runs tool calls on the host. The live journey runner additionally
+// uses the sandbox lifecycle and upload; those are recorded and, when
+// FAKE_SANDBOX_ROOT is set, mirrored into a fake sandbox filesystem. Anything
+// else exits 64 so a test sees an unexpected command.
 //
 //   FAKE_OPENSHELL_TRACE=<file>   append each argv as one JSON line
 //   FAKE_SANDBOX_HOME=<dir>       HOME for the command (the sandbox user's home)
 //   FAKE_SANDBOX_BIN=<dir>        stubs on the sandbox PATH (e.g. a scripted `maki`);
 //                                 PATH is otherwise the system dirs only, so no
 //                                 host-installed tool answers for the sandbox
-import { appendFileSync } from "node:fs";
+//   FAKE_SANDBOX_LIST=<names>     newline-separated names for `sandbox list --names`
+//   FAKE_SANDBOX_PHASE=<phase>    phase for `sandbox get` (default Ready)
+//   FAKE_SANDBOX_ROOT=<dir>       upload destination root for `/sandbox` and `/tmp`
+//   FAKE_OPENSHELL_STATUS=<code>  exit code for `status`
+import { appendFileSync, cpSync, mkdirSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 
 const args = process.argv.slice(2);
 if (process.env.FAKE_OPENSHELL_TRACE) appendFileSync(process.env.FAKE_OPENSHELL_TRACE, JSON.stringify(args) + "\n");
+
+const refuse = (): never => {
+  console.error(`fake-openshell: refused ${JSON.stringify(args)}`);
+  process.exit(64);
+};
+
+if (args[0] === "status") {
+  process.exit(Number(process.env.FAKE_OPENSHELL_STATUS ?? "0"));
+}
+
+if (args[0] !== "sandbox") refuse();
+
+if (args[1] === "list" && args.includes("--names")) {
+  console.log(process.env.FAKE_SANDBOX_LIST ?? "");
+  process.exit(0);
+}
+
+if (args[1] === "get") {
+  console.log(JSON.stringify({ phase: process.env.FAKE_SANDBOX_PHASE ?? "Ready" }));
+  process.exit(0);
+}
+
+if (args[1] === "create" || args[1] === "delete") {
+  process.exit(0);
+}
+
+if (args[1] === "upload") {
+  const [name, local, dest] = args.slice(2).filter((a) => !a.startsWith("--"));
+  if (!name || !local) refuse();
+  const root = process.env.FAKE_SANDBOX_ROOT;
+  if (root && dest) {
+    const mapped = dest.startsWith("/") ? join(root, dest) : join(root, dest);
+    const target = dest.endsWith("/") ? join(mapped, basename(local)) : mapped;
+    mkdirSync(dirname(target), { recursive: true });
+    cpSync(local, target, { recursive: true });
+  }
+  process.exit(0);
+}
 
 const sep = args.indexOf("--");
 const head = sep < 0 ? args : args.slice(0, sep);

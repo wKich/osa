@@ -19,6 +19,8 @@ const FEATURE_STATUS = ["verified", "unverified", "degraded", "buggy"];
 const SCOPES = ["reachable", "out-of-scope"];
 const BLOCKERS = ["pin", "none"];
 const JOURNEY_STATUS = ["unrecorded", "referenced", "parity", "diverges", "broken"];
+const LIVE_VERDICTS = ["parity", "diverges", "broken"];
+const LIVE_RANK: Record<string, number> = { parity: 0, diverges: 1, broken: 2 };
 const AREAS = ["session", "prompt", "permission", "navigation", "model", "tools", "files", "config"];
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -51,7 +53,7 @@ interface Journey {
   scope: string;
   blockedBy: string;
   status: string;
-  evidence?: Record<string, string>;
+  evidence?: Record<string, unknown>;
   acceptedDiffs?: AcceptedDiff[];
   reason?: string;
   pinCitation?: string;
@@ -161,6 +163,18 @@ for (const j of journeys) {
   need(BLOCKERS.includes(String(j.blockedBy)), `journey ${id}: unknown blockedBy ${j.blockedBy}`);
   need(JOURNEY_STATUS.includes(String(j.status)), `journey ${id}: unknown status ${j.status}`);
   need(j.evidence !== undefined && typeof j.evidence === "object", `journey ${id}: missing evidence`);
+  const live = (j.evidence as Record<string, any> | undefined)?.live as Record<string, any> | undefined;
+  if (live !== undefined) {
+    const shaped =
+      typeof live === "object" &&
+      live !== null &&
+      ["snapshots", "diff", "maki", "image"].every((key) => nonEmpty(live[key]));
+    need(shaped, `journey ${id}: live evidence needs snapshots, diff, maki, image`);
+    need(
+      LIVE_VERDICTS.includes(String(live.verdict)),
+      `journey ${id}: live verdict ${String(live.verdict)}`,
+    );
+  }
   need(Array.isArray(j.routes), `journey ${id}: routes must be an array`);
   need(Array.isArray(j.features), `journey ${id}: features must be an array`);
   need(Array.isArray(j.acceptedDiffs), `journey ${id}: acceptedDiffs must be an array`);
@@ -400,20 +414,48 @@ for (const scope of SCOPES) {
   );
   lines.push(scopeHeading(scope, rows.length));
   lines.push("");
-  lines.push("| Slug | Journey | Area | Status | Evidence | Accepted differences |");
-  lines.push("| --- | --- | --- | --- | --- | --- |");
+  lines.push("| Slug | Journey | Area | Status | Live | Evidence | Accepted differences |");
+  lines.push("| --- | --- | --- | --- | --- | --- | --- |");
   for (const j of rows) {
     const evidence =
       Object.entries(j.evidence ?? {})
+        .filter(([kind]) => kind !== "live")
         .map(([kind, p]) => `${kind}: ${link(String(p))}`)
         .join(" · ") || "—";
     const accepted =
       (j.acceptedDiffs ?? [])
         .map((d) => `${md(d.checkpoint)}: ${md(d.reason)}`)
         .join("; ") || "—";
+    const live = (j.evidence as Record<string, any> | undefined)?.live;
+    const liveCell = live ? `\`${md(live.verdict)}\`` : "—";
     lines.push(
-      `| \`${md(j.slug)}\` | ${md(j.name)} | ${md(j.area)} | \`${j.status}\` | ${evidence} | ${accepted} |`,
+      `| \`${md(j.slug)}\` | ${md(j.name)} | ${md(j.area)} | \`${j.status}\` | ${liveCell} | ${evidence} | ${accepted} |`,
     );
+  }
+  lines.push("");
+}
+
+// The live run can be worse than the offline comparison: that is a finding for
+// the journey loop, never a status change (design decision 5).
+const liveFindings = journeys.filter((j) => {
+  const live = (j.evidence as Record<string, any> | undefined)?.live;
+  return (
+    live &&
+    LIVE_RANK[String(j.status)] !== undefined &&
+    LIVE_RANK[String(live.verdict)] > LIVE_RANK[String(j.status)]
+  );
+});
+if (liveFindings.length) {
+  lines.push("### Live findings");
+  lines.push("");
+  lines.push(
+    "A live verdict worse than the committed offline status is a finding for the " +
+      "journey loop; the offline status is unchanged:",
+  );
+  lines.push("");
+  for (const j of liveFindings) {
+    const live = (j.evidence as Record<string, any>).live;
+    lines.push(`- \`${md(j.slug)}\`: offline \`${j.status}\`, live \`${md(live.verdict)}\``);
   }
   lines.push("");
 }

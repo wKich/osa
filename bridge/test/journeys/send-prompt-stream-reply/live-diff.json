@@ -1,0 +1,15 @@
+{
+  "status": "diverges",
+  "checkpoints": [
+    {
+      "id": "user-message",
+      "verdict": "differs",
+      "hunk": "@@ -1,40 +1,39 @@\n- <SPINNER> Journey                       +\n+ <SPINNER> New session                   +\n \n   ┃\n   ┃  Reply with the word PONG only.\n   ┃\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n    <BAR> esc interrupt                                                            shift+tab agents  ctrl+p commands\n-"
+    },
+    {
+      "id": "streamed",
+      "verdict": "differs",
+      "hunk": "@@ -1,40 +1,39 @@\n- • Journey                       +\n-\n-  ┃\n-  ┃  Reply with the word PONG only.\n-  ┃\n+ <SPINNER> New session                   +\n \n      PONG\n \n      Build · <MODEL> · <DUR>\n \n+  ┃\n+  ┃  Reply with the word PONG only.\n+  ┃\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n+\n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n-  <WORKDIR>  shift+tab agents  ctrl+p commands\n-\n+  <WORKDIR>                                                              shift+tab agents  ctrl+p commands"
+    }
+  ]
+}

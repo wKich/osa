@@ -1,0 +1,39 @@
+   New session                   + New session
+
+
+
+
+
+
+
+
+
+
+                    Sessions for <WORKDIR>                                                    esc
+
+                    Search
+
+                    Today
+                    New session - <TIME>
+
+                    delete ctrl+d  rename ctrl+r                                 all projects ctrl+a
+
+
+                       ┃
+                       ┃  Ask anything… "<HINT>"
+                       ┃
+                       ┃  Build · <MODEL> <MODEL>
+                       ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                       <WORKDIR>  shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                2.0.32

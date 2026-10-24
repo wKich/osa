@@ -8,7 +8,7 @@
 
 SHELL := /bin/sh
 
-.PHONY: test test-oskhs test-bridge test-ui test-journeys compat compat-drift lint lint-profiles install-fish
+.PHONY: test test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift lint lint-profiles install-fish
 
 test:
 	tests/run-tests.sh
@@ -52,6 +52,23 @@ test-journeys:
 		bun bridge/test/journeys/harness/record.ts && bun scripts/gen-compat.ts; \
 	else \
 		echo 'opencode or bun not found; skipping journey recording'; \
+	fi
+
+# Live journey run: the same scripted journeys against the real pinned Maki in
+# one throwaway OpenShell sandbox. Skips cleanly (exit 0, no file change) when
+# openshell, a reachable gateway, opencode, bun, or the project image is
+# unavailable; never part of `make test`.
+test-journeys-live:
+	@engine="$${MAKI_OSS_ENGINE:-docker}"; image="$${MAKI_OSS_IMAGE:-maki-agent:local}"; \
+	if command -v openshell >/dev/null 2>&1 \
+		&& openshell status >/dev/null 2>&1 \
+		&& command -v opencode >/dev/null 2>&1 \
+		&& command -v bun >/dev/null 2>&1 \
+		&& command -v "$$engine" >/dev/null 2>&1 \
+		&& "$$engine" image inspect "$$image" >/dev/null 2>&1; then \
+		bun bridge/test/journeys/harness/live.ts && bun scripts/gen-compat.ts; \
+	else \
+		echo 'live journey run skipped: openshell, a reachable gateway, opencode, bun, or the project image is unavailable'; \
 	fi
 
 # Regenerate docs/compatibility.md from statuses.json + defects.json and fail

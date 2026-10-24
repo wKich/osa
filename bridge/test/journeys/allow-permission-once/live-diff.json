@@ -1,0 +1,14 @@
+{
+  "status": "broken",
+  "checkpoints": [
+    {
+      "id": "permission-prompt",
+      "verdict": "differs",
+      "hunk": "@@ -1,40 +1,39 @@\n- ! Journey                       +\n+ ! New session                   +\n \n   ┃\n-  ┃  Use your shell tool to run exactly: rm -f probe.txt . Then reply with the single word DONE.\n+  ┃  <SPINNER> rm -f probe.txt\n   ┃\n \n   ┃\n-  ┃  <SPINNER> rm -f probe.txt\n+  ┃  Use your shell tool to run exactly: rm -f probe.txt . Then reply with the single word DONE.\n   ┃\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n-\n   ┃\n   ┃  △ Permission required\n+  ┃    ⚙ Call tool allow\n   ┃\n-  ┃  $ rm -f probe.txt\n+  ┃  Tool: allow\n   ┃\n   ┃\n   ┃   Allow once   Always allow   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm\n   ┃\n-"
+    },
+    {
+      "id": "allowed",
+      "verdict": "unreached"
+    }
+  ]
+}

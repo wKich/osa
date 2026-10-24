@@ -234,72 +234,78 @@ Reachable journeys: **53 of 59** (50 `unrecorded`, 0 `referenced`, 0 `parity`, 2
 
 ### Reachable (53)
 
-| Slug | Journey | Area | Status | Evidence | Accepted differences |
-| --- | --- | --- | --- | --- | --- |
-| `boot-project-context` | Boot and see the project context | navigation | `unrecorded` | — | — |
-| `show-command-palette` | Find and run a command from the palette | navigation | `unrecorded` | — | — |
-| `open-recent-session-or-project` | Open a recent session or project | navigation | `unrecorded` | — | — |
-| `toggle-sidebar` | Toggle the session sidebar | navigation | `unrecorded` | — | — |
-| `open-help` | Open the help dialog | navigation | `unrecorded` | — | — |
-| `view-status` | View the server and session status | navigation | `unrecorded` | — | — |
-| `switch-theme` | Switch the theme | navigation | `unrecorded` | — | — |
-| `open-settings` | Open settings | navigation | `unrecorded` | — | — |
-| `view-debug-info` | View debug information | navigation | `unrecorded` | — | — |
-| `view-usage-statistics` | View usage statistics | navigation | `unrecorded` | — | — |
-| `exit-application` | Exit the application | navigation | `unrecorded` | — | — |
-| `new-session` | Create a new session | session | `unrecorded` | — | — |
-| `switch-session-tab` | Switch between open sessions | session | `unrecorded` | — | — |
-| `rename-session` | Rename a session | session | `unrecorded` | — | — |
-| `delete-session` | Delete a session | session | `unrecorded` | — | — |
-| `pin-session` | Pin a session in the list | session | `unrecorded` | — | — |
-| `clear-session` | Clear the current session | session | `unrecorded` | — | — |
-| `fork-session-from-message` | Fork a session from a message | session | `unrecorded` | — | — |
-| `jump-to-message` | Jump to a message in the transcript | session | `unrecorded` | — | — |
-| `interrupt-running-turn` | Interrupt a running turn | session | `unrecorded` | — | — |
-| `queue-prompt-while-running` | Queue a prompt while a turn runs | session | `unrecorded` | — | — |
-| `manage-queued-prompts` | Manage queued prompts | session | `unrecorded` | — | — |
-| `compact-session` | Compact a long session | session | `unrecorded` | — | — |
-| `undo-previous-message` | Undo the previous message | session | `unrecorded` | — | — |
-| `redo-reverted-message` | Redo a reverted message | session | `unrecorded` | — | — |
-| `copy-session-content` | Copy session content | session | `unrecorded` | — | — |
-| `export-session-transcript` | Export a session transcript | session | `unrecorded` | — | — |
-| `background-blocking-tools` | Background a blocking tool | session | `unrecorded` | — | — |
-| `open-subagent-session` | Open a subagent session | session | `unrecorded` | — | — |
-| `ask-side-question` | Ask a side question | session | `unrecorded` | — | — |
-| `view-session-diff` | Review the session diff | session | `unrecorded` | — | — |
-| `open-terminal-pane` | Open a terminal pane | session | `unrecorded` | — | — |
-| `view-shell-output` | View a shell tool's output | session | `unrecorded` | — | — |
-| `attach-image-to-prompt` | Attach an image to a prompt | prompt | `unrecorded` | — | — |
-| `mention-file-in-prompt` | Mention a file in a prompt | prompt | `unrecorded` | — | — |
-| `mention-skill-in-prompt` | Mention a skill in a prompt | prompt | `unrecorded` | — | — |
-| `open-external-editor` | Compose a prompt in an external editor | prompt | `unrecorded` | — | — |
-| `stash-prompt` | Stash and restore a prompt | prompt | `unrecorded` | — | — |
-| `adjust-transcript-display` | Adjust the transcript display | session | `unrecorded` | — | — |
-| `allow-permission-always` | Allow matching tool calls for the session | permission | `unrecorded` | — | — |
-| `reject-permission-with-reason` | Reject a tool with a reason | permission | `unrecorded` | — | — |
-| `answer-mcp-form` | Answer an MCP form | permission | `unrecorded` | — | — |
-| `switch-model` | Switch the model | model | `unrecorded` | — | — |
-| `switch-agent` | Switch the agent | model | `unrecorded` | — | — |
-| `switch-model-variant` | Switch the model variant | model | `unrecorded` | — | — |
-| `manage-mcp-servers` | Manage MCP servers | tools | `unrecorded` | — | — |
-| `manage-plugins` | Manage plugins | tools | `unrecorded` | — | — |
-| `manage-workspaces` | Manage workspaces | files | `unrecorded` | — | — |
-| `change-working-directory` | Change the working directory | files | `unrecorded` | — | — |
-| `reload-configuration` | Reload the configuration | config | `unrecorded` | — | — |
-| `send-prompt-stream-reply` | Send a prompt and watch the reply stream | prompt | `diverges` | reference: [`bridge/test/journeys/send-prompt-stream-reply/reference/`](../bridge/test/journeys/send-prompt-stream-reply/reference/) · maki: [`bridge/test/journeys/send-prompt-stream-reply/maki/`](../bridge/test/journeys/send-prompt-stream-reply/maki/) · diff: [`bridge/test/journeys/send-prompt-stream-reply/diff.json`](../bridge/test/journeys/send-prompt-stream-reply/diff.json) | — |
-| `allow-permission-once` | Allow a tool once | permission | `diverges` | reference: [`bridge/test/journeys/allow-permission-once/reference/`](../bridge/test/journeys/allow-permission-once/reference/) · maki: [`bridge/test/journeys/allow-permission-once/maki/`](../bridge/test/journeys/allow-permission-once/maki/) · diff: [`bridge/test/journeys/allow-permission-once/diff.json`](../bridge/test/journeys/allow-permission-once/diff.json) | — |
-| `resume-session-history` | Resume a session and see its history | session | `broken` | reference: [`bridge/test/journeys/resume-session-history/reference/`](../bridge/test/journeys/resume-session-history/reference/) · maki: [`bridge/test/journeys/resume-session-history/maki/`](../bridge/test/journeys/resume-session-history/maki/) · diff: [`bridge/test/journeys/resume-session-history/diff.json`](../bridge/test/journeys/resume-session-history/diff.json) | — |
+| Slug | Journey | Area | Status | Live | Evidence | Accepted differences |
+| --- | --- | --- | --- | --- | --- | --- |
+| `boot-project-context` | Boot and see the project context | navigation | `unrecorded` | — | — | — |
+| `show-command-palette` | Find and run a command from the palette | navigation | `unrecorded` | — | — | — |
+| `open-recent-session-or-project` | Open a recent session or project | navigation | `unrecorded` | — | — | — |
+| `toggle-sidebar` | Toggle the session sidebar | navigation | `unrecorded` | — | — | — |
+| `open-help` | Open the help dialog | navigation | `unrecorded` | — | — | — |
+| `view-status` | View the server and session status | navigation | `unrecorded` | — | — | — |
+| `switch-theme` | Switch the theme | navigation | `unrecorded` | — | — | — |
+| `open-settings` | Open settings | navigation | `unrecorded` | — | — | — |
+| `view-debug-info` | View debug information | navigation | `unrecorded` | — | — | — |
+| `view-usage-statistics` | View usage statistics | navigation | `unrecorded` | — | — | — |
+| `exit-application` | Exit the application | navigation | `unrecorded` | — | — | — |
+| `new-session` | Create a new session | session | `unrecorded` | — | — | — |
+| `switch-session-tab` | Switch between open sessions | session | `unrecorded` | — | — | — |
+| `rename-session` | Rename a session | session | `unrecorded` | — | — | — |
+| `delete-session` | Delete a session | session | `unrecorded` | — | — | — |
+| `pin-session` | Pin a session in the list | session | `unrecorded` | — | — | — |
+| `clear-session` | Clear the current session | session | `unrecorded` | — | — | — |
+| `fork-session-from-message` | Fork a session from a message | session | `unrecorded` | — | — | — |
+| `jump-to-message` | Jump to a message in the transcript | session | `unrecorded` | — | — | — |
+| `interrupt-running-turn` | Interrupt a running turn | session | `unrecorded` | — | — | — |
+| `queue-prompt-while-running` | Queue a prompt while a turn runs | session | `unrecorded` | — | — | — |
+| `manage-queued-prompts` | Manage queued prompts | session | `unrecorded` | — | — | — |
+| `compact-session` | Compact a long session | session | `unrecorded` | — | — | — |
+| `undo-previous-message` | Undo the previous message | session | `unrecorded` | — | — | — |
+| `redo-reverted-message` | Redo a reverted message | session | `unrecorded` | — | — | — |
+| `copy-session-content` | Copy session content | session | `unrecorded` | — | — | — |
+| `export-session-transcript` | Export a session transcript | session | `unrecorded` | — | — | — |
+| `background-blocking-tools` | Background a blocking tool | session | `unrecorded` | — | — | — |
+| `open-subagent-session` | Open a subagent session | session | `unrecorded` | — | — | — |
+| `ask-side-question` | Ask a side question | session | `unrecorded` | — | — | — |
+| `view-session-diff` | Review the session diff | session | `unrecorded` | — | — | — |
+| `open-terminal-pane` | Open a terminal pane | session | `unrecorded` | — | — | — |
+| `view-shell-output` | View a shell tool's output | session | `unrecorded` | — | — | — |
+| `attach-image-to-prompt` | Attach an image to a prompt | prompt | `unrecorded` | — | — | — |
+| `mention-file-in-prompt` | Mention a file in a prompt | prompt | `unrecorded` | — | — | — |
+| `mention-skill-in-prompt` | Mention a skill in a prompt | prompt | `unrecorded` | — | — | — |
+| `open-external-editor` | Compose a prompt in an external editor | prompt | `unrecorded` | — | — | — |
+| `stash-prompt` | Stash and restore a prompt | prompt | `unrecorded` | — | — | — |
+| `adjust-transcript-display` | Adjust the transcript display | session | `unrecorded` | — | — | — |
+| `allow-permission-always` | Allow matching tool calls for the session | permission | `unrecorded` | — | — | — |
+| `reject-permission-with-reason` | Reject a tool with a reason | permission | `unrecorded` | — | — | — |
+| `answer-mcp-form` | Answer an MCP form | permission | `unrecorded` | — | — | — |
+| `switch-model` | Switch the model | model | `unrecorded` | — | — | — |
+| `switch-agent` | Switch the agent | model | `unrecorded` | — | — | — |
+| `switch-model-variant` | Switch the model variant | model | `unrecorded` | — | — | — |
+| `manage-mcp-servers` | Manage MCP servers | tools | `unrecorded` | — | — | — |
+| `manage-plugins` | Manage plugins | tools | `unrecorded` | — | — | — |
+| `manage-workspaces` | Manage workspaces | files | `unrecorded` | — | — | — |
+| `change-working-directory` | Change the working directory | files | `unrecorded` | — | — | — |
+| `reload-configuration` | Reload the configuration | config | `unrecorded` | — | — | — |
+| `send-prompt-stream-reply` | Send a prompt and watch the reply stream | prompt | `diverges` | `diverges` | reference: [`bridge/test/journeys/send-prompt-stream-reply/reference/`](../bridge/test/journeys/send-prompt-stream-reply/reference/) · maki: [`bridge/test/journeys/send-prompt-stream-reply/maki/`](../bridge/test/journeys/send-prompt-stream-reply/maki/) · diff: [`bridge/test/journeys/send-prompt-stream-reply/diff.json`](../bridge/test/journeys/send-prompt-stream-reply/diff.json) | — |
+| `allow-permission-once` | Allow a tool once | permission | `diverges` | `broken` | reference: [`bridge/test/journeys/allow-permission-once/reference/`](../bridge/test/journeys/allow-permission-once/reference/) · maki: [`bridge/test/journeys/allow-permission-once/maki/`](../bridge/test/journeys/allow-permission-once/maki/) · diff: [`bridge/test/journeys/allow-permission-once/diff.json`](../bridge/test/journeys/allow-permission-once/diff.json) | — |
+| `resume-session-history` | Resume a session and see its history | session | `broken` | `broken` | reference: [`bridge/test/journeys/resume-session-history/reference/`](../bridge/test/journeys/resume-session-history/reference/) · maki: [`bridge/test/journeys/resume-session-history/maki/`](../bridge/test/journeys/resume-session-history/maki/) · diff: [`bridge/test/journeys/resume-session-history/diff.json`](../bridge/test/journeys/resume-session-history/diff.json) | — |
 
 ### Out of scope (6)
 
-| Slug | Journey | Area | Status | Evidence | Accepted differences |
-| --- | --- | --- | --- | --- | --- |
-| `open-documentation` | Open the documentation | navigation | `unrecorded` | — | — |
-| `pair-device` | Pair a device | navigation | `unrecorded` | — | — |
-| `connect-integration` | Connect a provider integration | config | `unrecorded` | — | — |
-| `update-opencode` | Update OpenCode | config | `unrecorded` | — | — |
-| `restart-service` | Restart the OpenCode service | config | `unrecorded` | — | — |
-| `view-release-highlights` | View release highlights | config | `unrecorded` | — | — |
+| Slug | Journey | Area | Status | Live | Evidence | Accepted differences |
+| --- | --- | --- | --- | --- | --- | --- |
+| `open-documentation` | Open the documentation | navigation | `unrecorded` | — | — | — |
+| `pair-device` | Pair a device | navigation | `unrecorded` | — | — | — |
+| `connect-integration` | Connect a provider integration | config | `unrecorded` | — | — | — |
+| `update-opencode` | Update OpenCode | config | `unrecorded` | — | — | — |
+| `restart-service` | Restart the OpenCode service | config | `unrecorded` | — | — | — |
+| `view-release-highlights` | View release highlights | config | `unrecorded` | — | — | — |
+
+### Live findings
+
+A live verdict worse than the committed offline status is a finding for the journey loop; the offline status is unchanged:
+
+- `allow-permission-once`: offline `diverges`, live `broken`
 
 ## Version matrix
 

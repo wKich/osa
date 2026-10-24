@@ -156,5 +156,15 @@
       "slug": "reject-permission-with-reason",
       "checkpoint": "permission-prompt"
     }
+  },
+  {
+    "id": "model-choice-not-durable",
+    "title": "A model chosen in the TUI reverted in the composer after the next turn: the bridge started every Maki child on its configured model, ignoring the session's requested one, and reported a switch only as `model.updated`, never the durable `session.model.selected` the TUI reads the session's model from (client solid/data.ts v2.0.32 L705–L716; tui context/local.tsx L256–L264)",
+    "status": "fixed",
+    "capture": "bridge/test/journeys/switch-model/diff.json",
+    "journey": {
+      "slug": "switch-model",
+      "checkpoint": "switched"
+    }
   }
 ]

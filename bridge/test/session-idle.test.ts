@@ -58,7 +58,8 @@ test("wait answers only once the running turn is done", async () => {
   expect(await waitFor(() => bridge.frames.some((f) => f.type === "session.execution.started" && f.data?.sessionID === sid))).toBe(true);
   const res = await post(`/api/experimental/session/${sid}/wait`, {});
   expect(res.status).toBe(204);
-  expect(bridge.frames.some((f) => f.type === "session.execution.succeeded" && f.data?.sessionID === sid)).toBe(true);
+  // the turn is over when wait answers; its SSE frame can trail the reply
+  expect(await waitFor(() => bridge.frames.some((f) => f.type === "session.execution.succeeded" && f.data?.sessionID === sid), 2_000)).toBe(true);
   expect((await post(`/api/experimental/session/${sid}/wait`, {})).status).toBe(204);
   expect((await post("/api/experimental/session/ses_unknown00000000000/wait", {})).status).toBe(404);
 });

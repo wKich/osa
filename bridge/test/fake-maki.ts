@@ -418,7 +418,9 @@ for await (const chunk of Bun.stdin.stream()) {
       // (the TUI's synthesized "sample", "invalid") is refused
       const model = frame.request.model;
       const provider = typeof model === "string" && model.includes("/") ? model.slice(0, model.indexOf("/")) : "";
-      if (typeof model === "string" && model && (provider === "" || provider === "synthetic" || provider === "maki-test")) {
+      // a catalog model (FAKE_SANDBOX_MODELS, the journey catalog) is valid too
+      const catalog = process.env.FAKE_SANDBOX_MODELS?.split(/\s+/).filter(Boolean) ?? [];
+      if (typeof model === "string" && model && (provider === "" || provider === "synthetic" || provider === "maki-test" || catalog.includes(model))) {
         switchedModel = model;
         out({ type: "control_response", response: { subtype: "success", request_id: frame.request_id, response: {} } });
       } else {

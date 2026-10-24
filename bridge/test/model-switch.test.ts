@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { startBridge, waitFor, type BridgeHandle } from "./lib/bridge.ts";
+import { validateBody } from "./lib/contract.ts";
 
 const tracePath = join(tmpdir(), `maki-oss-model-switch-trace-${process.pid}.jsonl`);
 
@@ -85,6 +86,15 @@ describe("mid-session model switch over the spawned bridge", () => {
     const list = await (await fetch(`${bridge.base}/api/session`)).json();
     expect(list.data.find((s: any) => s.id === sid)?.model).toEqual(switched);
     expect(await turnStepModel()).toEqual(switched);
+    // the switch is the session's durable state and a transcript row, as the
+    // real server records it (core session/message-updater.ts v2.0.32 L105–L117)
+    const selected = bridge.frames.filter((f) => f.type === "session.model.selected" && f.data?.sessionID === sid);
+    expect(selected.map((f) => f.data)).toEqual([{ sessionID: sid, model: switched, previous: { providerID: "synthetic", id: "fake" } }]);
+    expect(selected[0]!.durable).toMatchObject({ aggregateID: sid, version: 1 });
+    const path = `/api/session/${sid}/message`;
+    const history = await (await fetch(`${bridge.base}${path}?order=asc`)).json();
+    expect(validateBody(path, "GET", 200, history)).toBeNull();
+    expect(history.data.find((m: any) => m.type === "model-switched")).toMatchObject({ model: switched, previous: { providerID: "synthetic", id: "fake" } });
   }, 60_000);
 
   test("a model under the bridge's bare-id provider is sent as the bare id", async () => {
@@ -98,12 +108,14 @@ describe("mid-session model switch over the spawned bridge", () => {
   test("a model the child rejects leaves the announced model in place", async () => {
     const before = await sessionModel();
     const updates = modelUpdates(bridge, sid);
+    const selections = bridge.frames.filter((f) => f.type === "session.model.selected").length;
     expect((await post(bridge, `/api/session/${sid}/model`, { model: { providerID: "invalid", id: "nope" } })).status).toBe(204);
     expect(await waitFor(() => setModels().length === 3, 5_000)).toBe(true);
     // give the error ack time to arrive; it must not move the model
     await new Promise((r) => setTimeout(r, 300));
     expect(await sessionModel()).toEqual(before);
     expect(modelUpdates(bridge, sid)).toBe(updates);
+    expect(bridge.frames.filter((f) => f.type === "session.model.selected").length).toBe(selections);
     expect(await turnStepModel()).toEqual(before);
   }, 60_000);
 
@@ -123,6 +135,26 @@ describe("mid-session model switch over the spawned bridge", () => {
     expect(res.json?._tag).toBe("InvalidRequestError");
     expect(setModels().length).toBe(before);
   }, 30_000);
+
+  test("a session created on a catalog model starts on it; one outside the catalog starts on the configured model", async () => {
+    const own = await startBridge({ FAKE_SANDBOX_BIN: join(import.meta.dir, "sandbox-bin"), FAKE_MAKI_TRACE: tracePath });
+    try {
+      const before = setModels().length;
+      const create = async (model: { providerID: string; id: string }) => {
+        const res = await post(own, "/api/session", { location: { directory: own.workdir }, model });
+        const id = res.json.data.id as string;
+        expect(await waitFor(() => modelUpdates(own, id) >= 1, 10_000)).toBe(true);
+        return (await (await fetch(`${own.base}/api/session/${id}`)).json()).data.model;
+      };
+      // the scripted sandbox lists anthropic/claude-sonnet-5-5
+      expect(await create({ providerID: "anthropic", id: "claude-sonnet-5-5" })).toEqual({ providerID: "anthropic", id: "claude-sonnet-5-5" });
+      expect(await create({ providerID: "nowhere", id: "unlisted" })).toEqual({ providerID: "synthetic", id: "fake" });
+      // neither start sent a model switch
+      expect(setModels().length).toBe(before);
+    } finally {
+      await own.stop();
+    }
+  }, 60_000);
 
   test("an unknown session is not a silent success and no model-control frame is sent", async () => {
     const before = inboundFrames().length;

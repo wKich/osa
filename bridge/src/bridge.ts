@@ -395,7 +395,7 @@ function openSession(
   try {
     maki = opts.parentID ? subagentChild() : new MakiSession({
       cwd: directory,
-      model: MAKI_MODEL,
+      model: startModel(opts.model),
       fork: opts.fork,
       onFrame: (frame) => onMakiFrame(id, frame),
       onExit: () => onMakiExit(id),
@@ -618,6 +618,9 @@ function selectModel(s: BridgeSession, body: AnyObj): { status: number; payload:
   s.controls.set(requestID, (ack) => {
     if (ack.subtype === "success") {
       s.translator.announceModel(model);
+      // the session's model is durable state the TUI reads back (client
+      // solid/data.ts v2.0.32 L705–L716; tui context/local.tsx L256–L264, L344)
+      emit("session.model.selected", { sessionID: s.id, model: { id, providerID }, previous: { id: current.id, providerID: current.providerID } }, 1);
       emit("model.updated", { sessionID: s.id });
     } else {
       console.error(`[bridge] session ${s.id}: maki refused model ${providerID}/${id}: ${ack.error ?? "unknown error"}`);
@@ -898,6 +901,20 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
 // the list fall back to the synthesized entry the spec permits before an
 // announcement.
 const catalogReady = readModelCatalog(CANONICAL);
+let catalogRead: Awaited<typeof catalogReady> | undefined;
+void catalogReady.then((c) => (catalogRead = c));
+
+// A session starts on the model it was created with (the TUI creates it on
+// its selection, then re-posts that model: tui component/prompt/index.tsx
+// v2.0.32 L1233–L1241, L1283–L1286), so the child is started on it when
+// Maki's catalog lists it; otherwise on the configured model, which a later
+// selection switches with set_model
+function startModel(model: { providerID: string; id: string }): string | undefined {
+  const spec = model.providerID === "maki" ? model.id : `${model.providerID}/${model.id}`;
+  if (spec === MAKI_MODEL) return spec;
+  const listed = catalogRead?.models.some((m) => m.providerID === model.providerID && m.id === model.id);
+  return listed ? spec : MAKI_MODEL;
+}
 
 function splitModel(spec?: string): { providerID: string; id: string } | undefined {
   const cut = spec ? spec.indexOf("/") : -1;

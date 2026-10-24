@@ -1,0 +1,39 @@
+
+
+
+
+
+
+
+
+
+
+
+                                  Select model                                     esc
+
+                                  Search
+
+                                ● <MODEL>
+                                  <MODEL-2>
+
+                                  View all integrations ctrl+a
+
+                       ┃
+                       ┃  Ask anything… "<HINT>"
+                       ┃
+                       ┃  Build · <MODEL> <MODEL>
+                       ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+                       <WORKDIR> shift+tab agents  ctrl+p commands
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                                                                2.0.32

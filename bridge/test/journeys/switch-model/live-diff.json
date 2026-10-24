@@ -1,0 +1,19 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "model-dialog",
+      "verdict": "equal"
+    },
+    {
+      "id": "model-picked",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n \n \n \n \n \n \n \n \n \n \n \n-                                  Select variant                                   esc\n \n-                                  Search\n \n-                                ● Default\n-                                  low\n-                                  medium\n-                                  high\n \n+                                                                          ▄\n+                                         █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█\n+                                         █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀\n+                                         ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀\n+\n+\n                        ┃\n                        ┃  Ask anything… \"<HINT>\"\n                        ┃\n                        ┃  Build · <MODEL-2> <MODEL>\n                        ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n                        <WORKDIR> shift+tab agents  ctrl+p commands\n \n \n \n \n \n \n \n \n \n \n \n \n                                                                                                                 2.0.32"
+    },
+    {
+      "id": "switched",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Reply with the word PONG only +\n \n   ┃\n   ┃  Reply with the word PONG only.\n   ┃\n \n      PONG\n \n      Build · <MODEL-2> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL-2> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

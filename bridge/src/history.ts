@@ -174,6 +174,17 @@ export class SessionHistory {
         shell.time.completed = created;
         return;
       }
+      // a model switch is a durable transcript row (core session/
+      // message-updater.ts v2.0.32 L105–L117)
+      case "session.model.selected":
+        this.messages.push({
+          id: eventID.replace(/^evt_/, "msg_"),
+          type: "model-switched",
+          model: data.model,
+          ...(data.previous ? { previous: data.previous } : {}),
+          time: { created },
+        });
+        return;
       case "session.execution.succeeded":
       case "session.execution.failed":
       case "session.execution.interrupted": {

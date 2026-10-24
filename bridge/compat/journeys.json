@@ -1232,19 +1232,23 @@
       "area": "model",
       "source": "packages/tui/src/config/keybind.ts:166 (model.list) and packages/tui/src/component/dialog-model.tsx at v2.0.32",
       "scenario": {
-        "steps": ["press leader+m", "pick another model", "send a prompt"],
+        "steps": ["press leader+m", "pick the second model", "leave the variant step with escape", "send a prompt"],
         "checkpoints": [
-          { "id": "model-dialog", "after": 1, "expect": "the model dialog lists providers and their models" },
-          { "id": "switched", "after": 3, "expect": "the footer shows the new model and the next turn uses it" }
+          { "id": "model-dialog", "after": 1, "expect": "the model dialog lists the configured models" },
+          { "id": "model-picked", "after": 2, "expect": "the footer names the picked model (OpenCode first offers its reasoning variants)" },
+          { "id": "switched", "after": 4, "expect": "the reply's footer and the composer show the new model" }
         ]
       },
       "routes": ["GET /api/model", "GET /api/provider", "GET /api/integration", "POST /api/session/{sessionID}/model"],
       "features": ["mid-session-model-switch", "model-list-refresh", "model-catalog-live"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/switch-model/reference/","maki":"bridge/test/journeys/switch-model/maki/","diff":"bridge/test/journeys/switch-model/diff.json","live":{"snapshots":"bridge/test/journeys/switch-model/live/","diff":"bridge/test/journeys/switch-model/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "model-picked", "reason": "OpenCode follows a model choice with that model's reasoning variants, which it derives for any model it can send an effort to (core variant.ts v2.0.32 L29–L40, L92); Maki's SDK switches a model by spec alone, with no effort control (sdk_mode.rs v0.6.4 L861–L906), so the bridge offers no variant it could not apply and the choice completes at once on the picked model (the variant gap itself is switch-model-variant's, pin-blocked)" },
+        { "checkpoint": "switched", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "switch-agent",

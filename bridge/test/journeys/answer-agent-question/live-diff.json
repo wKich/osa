@@ -1,0 +1,15 @@
+{
+  "status": "diverges",
+  "checkpoints": [
+    {
+      "id": "question",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n- ? Journey                       +\n+   Ask me which color to use wit +\n \n   ┃\n   ┃  Ask me which color to use with your question tool, then reply CHOSEN.\n   ┃\n \n      → Asked 1 question\n \n+     CHOSEN\n \n+     Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n-  ┃\n-  ┃  Questions\n-  ┃\n-  ┃  Which color should the journey use?\n+\n+\n+\n+\n+\n   ┃\n-  ┃  1. Red\n-  ┃     The first option\n-  ┃  2. Blue\n-  ┃     The second option\n-  ┃  3. Type your own answer\n   ┃\n-  ┃  ↑↓ select  enter submit  esc dismiss\n   ┃\n+  ┃  Build · <MODEL> <MODEL>\n+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n+  <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "answered",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Ask me which color to use wit +\n \n   ┃\n   ┃  Ask me which color to use with your question tool, then reply CHOSEN.\n   ┃\n \n-  ┃\n-  ┃  # Questions\n-  ┃\n-  ┃  Which color should the journey use?\n-  ┃  Red\n-  ┃\n+     → Asked 1 question\n \n      CHOSEN\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n+\n+\n+\n+\n+\n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

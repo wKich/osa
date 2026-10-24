@@ -1,0 +1,39 @@
+ ? Journey                       +
+
+  ┃
+  ┃  Ask me which color to use with your question tool, then reply CHOSEN.
+  ┃
+
+     → Asked 1 question
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  Questions
+  ┃
+  ┃  Which color should the journey use?
+  ┃
+  ┃  1. Red
+  ┃     The first option
+  ┃  2. Blue
+  ┃     The second option
+  ┃  3. Type your own answer
+  ┃
+  ┃  ↑↓ select  enter submit  esc dismiss
+  ┃

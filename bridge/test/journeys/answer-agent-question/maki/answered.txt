@@ -1,0 +1,39 @@
+   Ask me which color to use wit +
+
+  ┃
+  ┃  Ask me which color to use with your question tool, then reply CHOSEN.
+  ┃
+
+     → Asked 1 question
+
+     CHOSEN
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

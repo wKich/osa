@@ -1203,19 +1203,20 @@
       "area": "permission",
       "source": "packages/tui/src/routes/session/index.tsx:3463 (Question) and packages/tui/src/routes/session/form.tsx at v2.0.32",
       "scenario": {
-        "steps": ["prompt the agent to ask which option to use", "pick the first option", "wait for the reply"],
+        "steps": ["prompt the agent to ask which color to use with its question tool", "pick the first option", "wait for the reply"],
         "checkpoints": [
-          { "id": "question-shown", "after": 1, "expect": "the question form shows the question and its options" },
-          { "id": "answered", "after": 3, "expect": "a Questions block shows the question and the chosen answer, then the reply" }
+          { "id": "question", "after": 1, "expect": "the question form shows the question and its options" },
+          { "id": "answered", "after": 3, "expect": "the transcript shows the question with the picked answer and the reply" }
         ]
       },
-      "routes": ["POST /api/session/{sessionID}/prompt"],
-      "features": [],
+      "routes": ["POST /api/session/{sessionID}/prompt", "GET /api/session/{sessionID}/form"],
+      "features": ["agent-questions"],
       "scope": "reachable",
-      "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "blockedBy": "pin",
+      "status": "diverges",
+      "evidence": { "reference":"bridge/test/journeys/answer-agent-question/reference/","maki":"bridge/test/journeys/answer-agent-question/maki/","diff":"bridge/test/journeys/answer-agent-question/diff.json","live":{"snapshots":"bridge/test/journeys/answer-agent-question/live/","diff":"bridge/test/journeys/answer-agent-question/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"diverges"} },
+      "acceptedDiffs": [],
+      "pinCitation": "Maki v0.6.4: the SDK runs the question tool with no UI — `QuestionForm.open` opens a window that has no effect and returns a dismissal (plugins/question/question_form.lua L598–L628; maki-lua/src/api/ui/mod.rs L749–L755) — and the stream-json wire has no question or elicitation ask: its only outbound ask is control_request can_use_tool (src/sdk_mode.rs L1122–L1160), raised only for permissioned tools"
     },
     {
       "slug": "switch-model",

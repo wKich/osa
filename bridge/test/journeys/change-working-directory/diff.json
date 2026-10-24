@@ -1,0 +1,25 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "cd-dialog",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n \n   ┃\n   ┃  Use your shell tool to run exactly: mkdir -p sub . Then reply with the single word MADE.\n   ┃\n \n   ┃\n   ┃  $ mkdir -p sub\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      MADE\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃ sub/                                                                                                             ┃\n   ┃\n   ┃  /cd\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "cd-typed",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n \n   ┃\n   ┃  Use your shell tool to run exactly: mkdir -p sub . Then reply with the single word MADE.\n   ┃\n \n   ┃\n   ┃  $ mkdir -p sub\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      MADE\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃ sub/                                                                                                             ┃\n   ┃\n   ┃  /cd sub\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "moved",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n \n   ┃\n   ┃  Use your shell tool to run exactly: mkdir -p sub . Then reply with the single word MADE.\n   ┃\n \n   ┃\n   ┃  $ mkdir -p sub\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      MADE\n \n      Build · <MODEL> · <DUR>\n \n      ↳ Moved to <WORKDIR>/sub\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR>/sub 2  ctrl+p commands"
+    },
+    {
+      "id": "pwd",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n+\n   ┃\n   ┃  Use your shell tool to run exactly: mkdir -p sub . Then reply with the single word MADE.\n   ┃\n \n   ┃\n   ┃  $ mkdir -p sub\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      MADE\n \n      Build · <MODEL> · <DUR>\n \n      ↳ Moved to <WORKDIR>/sub\n \n-     ◈ Instructions updated: core/environment\n-\n   ┃\n   ┃  Use your shell tool to run exactly: pwd . Then reply with the single word THERE.\n   ┃\n \n   ┃\n   ┃  $ pwd\n   ┃\n   ┃  <WORKDIR>/sub\n   ┃\n \n      THERE\n \n      Build · <MODEL> · <DUR>\n \n+\n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR>/sub 2  ctrl+p commands"
+    }
+  ]
+}

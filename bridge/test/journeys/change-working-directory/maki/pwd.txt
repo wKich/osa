@@ -1,0 +1,39 @@
+   Use your shell tool to run ex +
+
+  ┃
+  ┃  Use your shell tool to run exactly: mkdir -p sub . Then reply with the single word MADE.
+  ┃
+
+  ┃
+  ┃  $ mkdir -p sub
+  ┃
+  ┃  Exit code: 0
+  ┃
+
+     MADE
+
+     Build · <MODEL> · <DUR>
+
+     ↳ Moved to <WORKDIR>/sub
+
+  ┃
+  ┃  Use your shell tool to run exactly: pwd . Then reply with the single word THERE.
+  ┃
+
+  ┃
+  ┃  $ pwd
+  ┃
+  ┃  <WORKDIR>/sub
+  ┃
+
+     THERE
+
+     Build · <MODEL> · <DUR>
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR>/sub 2  ctrl+p commands

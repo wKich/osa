@@ -61,6 +61,7 @@ interface BridgeSession {
   translator: Translator;
   makiSessionID?: string; // maki's own session_id, mapped on first system.init
   baseMode?: string; // the permission mode the child started in (system.init), which `build` restores
+  childModel?: string; // the model spec the child runs: its `-m`, or the last acked set_model
   tools?: string[]; // the tool names the child advertised on system.init
   pending: Map<string, PendingAsk>; // per_ id -> unanswered permission ask
   controls: Map<string, (ack: AnyObj) => void>; // bridge control request_id -> ack handler
@@ -368,8 +369,8 @@ function openSession(
       // design decision 5: the helper-supplied sandbox workdir is canonical
       // and maki's own cwd confirms it; a drift means the transport and the
       // helper disagree and every location answer would be wrong
-      if (info.cwd && info.cwd !== directory) {
-        console.error(`[bridge] session ${id}: maki cwd ${info.cwd} differs from canonical ${directory}`);
+      if (info.cwd && info.cwd !== s.directory) {
+        console.error(`[bridge] session ${id}: maki cwd ${info.cwd} differs from the session directory ${s.directory}`);
       }
     },
     // a subagent session has no Maki child of its own: its frames arrive
@@ -398,18 +399,10 @@ function openSession(
     },
   });
   let maki: MakiSession;
+  let childModel: string | undefined;
   try {
-    maki = opts.parentID ? subagentChild() : new MakiSession({
-      cwd: directory,
-      model: startModel(opts.model),
-      fork: opts.fork,
-      onFrame: (frame) => onMakiFrame(id, frame),
-      // the exit is handled after the frames the child wrote before it
-      onExit: () => {
-        const next = (frameChains.get(id) ?? Promise.resolve()).then(() => onMakiExit(id));
-        frameChains.set(id, next);
-      },
-    });
+    childModel = opts.parentID ? undefined : startModel(opts.model);
+    maki = opts.parentID ? subagentChild() : startChild(id, { cwd: directory, model: childModel, fork: opts.fork });
   } catch (err) {
     // e.g. no sandbox name and no child override: refuse rather than run
     // maki on the host
@@ -418,13 +411,14 @@ function openSession(
   s = {
     id,
     directory,
+    childModel,
     agent: opts.agent,
     model: opts.model,
     maki,
     translator,
     pending: new Map(),
     controls: new Map(),
-    history: new SessionHistory(),
+    history: Object.assign(new SessionHistory(), { origin: { directory } }),
     created: Date.now(),
     updated: Date.now(),
     ...(opts.parentID ? { parentID: opts.parentID } : {}),
@@ -624,9 +618,11 @@ function selectModel(s: BridgeSession, body: AnyObj): { status: number; payload:
   if (current.providerID === providerID && current.id === id) return { status: 204, payload: null };
   // ids the child announced without a provider are listed under "maki"
   // (translator parseModel), so they go back bare
-  const requestID = s.maki.setModel(providerID === "maki" ? id : `${providerID}/${id}`);
+  const spec = providerID === "maki" ? id : `${providerID}/${id}`;
+  const requestID = s.maki.setModel(spec);
   s.controls.set(requestID, (ack) => {
     if (ack.subtype === "success") {
+      s.childModel = spec;
       s.translator.announceModel(model);
       // the session's model is durable state the TUI reads back (client
       // solid/data.ts v2.0.32 L705–L716; tui context/local.tsx L256–L264, L344)
@@ -918,6 +914,60 @@ function handleMakiFrame(sessionID: string, frame: AnyObj): void {
   s.translator.onFrame(frame);
 }
 
+/** a session's Maki child; an exit counts only while it is still the
+ * session's child (a moved session replaces it) */
+function startChild(id: string, opts: { cwd: string; model?: string; fork?: string; resume?: string }): MakiSession {
+  const child: MakiSession = new MakiSession({
+    ...opts,
+    onFrame: (frame) => onMakiFrame(id, frame),
+    // the exit is handled after the frames the child wrote before it
+    onExit: () => {
+      const next = (frameChains.get(id) ?? Promise.resolve()).then(() => {
+        const s = sessions.get(id);
+        if (!s || s.maki === child) onMakiExit(id);
+      });
+      frameChains.set(id, next);
+    },
+  });
+  return child;
+}
+
+// session.move (core session/move.ts v2.0.32 L64–L157): the destination
+// resolves against the session's directory and must be a directory; here it
+// must also lie in the sandbox workdir, the one project the bridge serves.
+// Maki has no control that changes a child's workdir, so the move waits for
+// the running turn, then restarts the child there, resuming the same Maki
+// session (`-r`), and records the durable session.moved.
+async function moveSession(s: BridgeSession, body: AnyObj): Promise<{ status: number; payload: any }> {
+  const asked = typeof body?.directory === "string" ? body.directory.trim() : "";
+  const invalid = (message: string) => ({ status: 400, payload: { _tag: "InvalidRequestError", message } });
+  if (!asked) return invalid("directory is required");
+  if (s.parentID) return invalid("a subagent session moves with its parent");
+  const target = posix.resolve(s.directory, asked);
+  if (target !== CANONICAL && !target.startsWith(`${CANONICAL}/`)) return invalid(`Directory is outside the project: ${target}`);
+  const res = await sandboxRun(["sh", "-c", 'if [ -d "$1" ]; then echo D; elif [ -e "$1" ]; then echo F; else echo N; fi', "sh", target], CANONICAL);
+  const kind = res?.stdout.trim();
+  if (kind === "N" || kind === undefined) return invalid(`Directory does not exist: ${target}`);
+  if (kind === "F") return invalid(`Not a directory: ${target}`);
+  await waitIdle(s.id);
+  if (!sessions.has(s.id)) return sessionNotFound(s.id);
+  if (target !== s.directory) {
+    const old = s.maki;
+    s.directory = target;
+    // the spec the child runs (a bare announced id is no valid `-m`)
+    s.maki = startChild(s.id, { cwd: target, model: s.childModel ?? MAKI_MODEL, resume: s.makiSessionID });
+    old.kill();
+    if (s.agent === "plan") s.maki.setPermissionMode("plan");
+    emit("session.moved", {
+      sessionID: s.id,
+      location: { directory: target },
+      projectID,
+      subpath: posix.relative(CANONICAL, target),
+    }, 1);
+  }
+  return { status: 204, payload: null };
+}
+
 function onMakiExit(sessionID: string): void {
   const s = sessions.get(sessionID);
   if (!s) return;
@@ -951,6 +1001,7 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
   }
   if (rest === "interrupt" && method === "POST") return interrupt(s);
   if (rest === "view" && method === "POST") return viewSession(s, body);
+  if (rest === "move" && method === "POST") return moveSession(s, body);
   if (rest === "fork" && method === "POST") return forkSession(s, body);
   if (rest === "shell" && method === "POST") return userShell(s, body);
   if (rest === "message" && method === "GET") return messagePage(s, url);

@@ -1,0 +1,39 @@
+   Journey                       +
+  ┃
+  ┃  Use your shell tool to run exactly: mkdir -p sub . Then reply with the single word MADE.
+  ┃
+
+  ┃
+  ┃  $ mkdir -p sub
+  ┃
+  ┃  (no output)
+  ┃
+
+     MADE
+
+     Build · <MODEL> · <DUR>
+
+     ↳ Moved to <WORKDIR>/sub
+
+     ◈ Instructions updated: core/environment
+
+  ┃
+  ┃  Use your shell tool to run exactly: pwd . Then reply with the single word THERE.
+  ┃
+
+  ┃
+  ┃  $ pwd
+  ┃
+  ┃  <WORKDIR>/sub
+  ┃
+
+     THERE
+
+     Build · <MODEL> · <DUR>
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR>/sub 2  ctrl+p commands

@@ -40,7 +40,11 @@ let pendingCancel = false;
 const trace = process.env.FAKE_MAKI_TRACE;
 
 // a forked child (`-r <id> --fork-session`) runs under a new stored session id
-const SESSION_ID = process.argv.includes("--fork-session") ? "fake-maki-fork" : "fake-maki-session";
+// `-r <id>` resumes that session as itself; with --fork-session, under a new id
+const resumed = process.argv.indexOf("-r");
+const SESSION_ID = process.argv.includes("--fork-session")
+  ? "fake-maki-fork"
+  : resumed >= 0 && process.argv[resumed + 1] ? process.argv[resumed + 1]! : "fake-maki-session";
 // the model a set_model switched to; assistant frames then name it, as the
 // pinned child's do (AssistantMessage.model)
 let switchedModel: string | undefined;

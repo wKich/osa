@@ -16,6 +16,8 @@ interface Pending {
 
 export class SessionHistory {
   private messages: Message[] = [];
+  /** the session's first location, which a first move names as `previous` */
+  origin?: { directory: string };
   private pending = new Map<string, Pending>();
 
   /** every recorded message, for read-only aggregation (session-stats.ts) */
@@ -177,6 +179,21 @@ export class SessionHistory {
         shell.exit = data.shell?.exit;
         shell.output = data.output;
         shell.time.completed = created;
+        return;
+      }
+      // a move is a durable transcript row naming where the session was
+      // (client solid/data.ts v2.0.32 L747–L770)
+      case "session.moved": {
+        const last = this.messages.findLast((m) => m.type === "location-switched");
+        this.messages.push({
+          id: eventID.replace(/^evt_/, "msg_"),
+          type: "location-switched",
+          location: data.location,
+          ...(data.projectID ? { projectID: data.projectID } : {}),
+          ...(data.subpath !== undefined ? { subpath: data.subpath } : {}),
+          previous: last ? { location: last.location, ...(last.projectID ? { projectID: last.projectID } : {}), ...(last.subpath !== undefined ? { subpath: last.subpath } : {}) } : (this.origin ? { location: this.origin } : null),
+          time: { created },
+        });
         return;
       }
       // an agent switch is a durable transcript row (core session/

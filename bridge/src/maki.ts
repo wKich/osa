@@ -24,6 +24,9 @@ export interface MakiOptions {
   // continue a stored Maki session under a new id (`-r <id> --fork-session`,
   // src/cli.rs v0.6.4 L53–L63, L114–L117)
   fork?: string;
+  // continue a stored Maki session as itself (`-r <id>`, src/cli.rs v0.6.4
+  // L53–L63): a moved session's child, restarted in its new workdir
+  resume?: string;
   onFrame: (frame: any) => void;
   onExit: (code: number | null) => void;
 }
@@ -32,7 +35,10 @@ const SDK_FLAGS = ["-p", "--input-format", "stream-json", "--output-format", "st
 
 /** argv for the child; exported so the shape can be asserted without spawning */
 export function childArgv(opts: MakiOptions, env: Record<string, string | undefined> = process.env): string[] {
-  const model = [...(opts.model ? ["-m", opts.model] : []), ...(opts.fork ? ["-r", opts.fork, "--fork-session"] : [])];
+  const model = [
+    ...(opts.model ? ["-m", opts.model] : []),
+    ...(opts.fork ? ["-r", opts.fork, "--fork-session"] : opts.resume ? ["-r", opts.resume] : []),
+  ];
   const override = env.MAKI_CHILD_CMD;
   if (override) return [override, ...SDK_FLAGS, ...model];
   const name = env.OPENMAKI_SANDBOX;
@@ -59,7 +65,9 @@ export class MakiSession {
     const argv = childArgv(opts);
     // cwd is the host's; the child's working directory is the sandbox
     // workdir (--workdir), and a host-side workdir path may not exist here
-    this.child = spawn(argv[0]!, argv.slice(1), { cwd: process.cwd(), stdio: ["pipe", "pipe", "pipe"] });
+    // a scripted child (MAKI_CHILD_CMD) reads its workdir from OPENMAKI_CWD
+    const env = process.env.MAKI_CHILD_CMD ? { ...process.env, OPENMAKI_CWD: opts.cwd } : process.env;
+    this.child = spawn(argv[0]!, argv.slice(1), { cwd: process.cwd(), env, stdio: ["pipe", "pipe", "pipe"] });
     this.child.stdout.on("data", (chunk) => this.read(chunk.toString(), opts.onFrame));
     this.child.stderr.on("data", (d) => process.stderr.write(`[maki] ${d}`));
     this.child.on("exit", (code) => opts.onExit(code));

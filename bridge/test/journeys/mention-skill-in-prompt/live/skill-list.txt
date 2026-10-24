@@ -1,0 +1,39 @@
+   Use your shell tool to run ex +
+
+  ┃
+  ┃  Use your shell tool to run exactly: mkdir -p .opencode/skills/journey-greet && printf -- '---\nname: journey-
+  ┃  greet\ndescription: Greets the journey.\n---\nSay hello.\n' > .opencode/skills/journey-greet/SKILL.md . Then
+  ┃  reply with the single word READY.
+  ┃
+
+  ┃
+  ┃  $ mkdir -p .opencode/skills/journey-greet && printf -- '---\nname: journey-greet\ndescription: Greets the journey
+  ┃  .\n---\nSay
+  ┃                 Skills                                                                       esc
+  ┃  Exit code:
+  ┃                 Search
+
+     READY          <MODEL>-plugin-dev Write or modify <MODEL> plugins or init.lua config in Lua: custom t
+                    journey-greet   Greets the journey.
+     Build · moc
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

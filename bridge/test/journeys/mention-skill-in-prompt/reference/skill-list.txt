@@ -1,0 +1,39 @@
+   Journey                       +
+
+  ┃
+  ┃  Use your shell tool to run exactly: mkdir -p .opencode/skills/journey-greet && printf -- '---\nname: journey-
+  ┃  greet\ndescription: Greets the journey.\n---\nSay hello.\n' > .opencode/skills/journey-greet/SKILL.md . Then
+  ┃  reply with the single word READY.
+  ┃
+
+  ┃
+  ┃  $ mkdir -p .opencode/skills/journey-greet && printf -- '---\nname: journey-greet\ndescription: Greets the journey
+  ┃  .\n---\nSay
+  ┃                 Skills                                                                       esc
+  ┃  (no output)
+  ┃                 Search
+
+     READY          OpenCode      Use this skill for any question about OpenCode itself, including h
+                    Report        Use when the user wants to report an opencode issue or bug. Collec
+     Build · Moc    journey-greet Greets the journey.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

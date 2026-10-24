@@ -1,0 +1,39 @@
+   Use your shell tool to run ex +
+
+  ┃
+  ┃  Use your shell tool to run exactly: mkdir -p .opencode/skills/journey-greet && printf -- '---\nname: journey-
+  ┃  greet\ndescription: Greets the journey.\n---\nSay hello.\n' > .opencode/skills/journey-greet/SKILL.md . Then
+  ┃  reply with the single word READY.
+  ┃
+
+  ┃
+  ┃  $ mkdir -p .opencode/skills/journey-greet && printf -- '---\nname: journey-greet\ndescription: Greets the journey
+  ┃  .\n---\nSay hello.\n' > .opencode/skills/journey-greet/SKILL.md
+  ┃
+  ┃  Exit code: 0
+  ┃
+
+     READY
+
+     Build · <MODEL> · <DUR>
+
+  ┃
+  ┃  @journey-greet Use it.
+  ┃
+  ┃   skill  journey-greet
+  ┃
+
+     HELLO
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

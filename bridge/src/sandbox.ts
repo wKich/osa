@@ -155,11 +155,25 @@ function frontmatter(text: string): { meta: Record<string, string>; body: string
   return { meta, body: text.slice(m[0].length) };
 }
 
+// the builtin skill the plugin offers first unless `plugin_dev` is off
+// (plugins/skill/init.lua v0.6.4 L65–L67, L98–L108; name and description per
+// maki-lua docs_render.rs L17–L18). Its content is rendered inside the Maki
+// binary, so the listing names it under /builtin/, as OpenCode names its own
+// builtin skills (core plugin/skill.ts v2.0.32 L33, L42), with no content.
+export const BUILTIN_SKILL: SkillFile = {
+  id: "maki-plugin-dev",
+  name: "maki-plugin-dev",
+  description:
+    "Write or modify maki plugins or init.lua config in Lua: custom tools, slash commands, keymaps, UI. Authoring guide, real example, indexed maki Lua API reference. Load before any maki plugin work.",
+  path: "/builtin/maki-plugin-dev",
+  content: "",
+};
+
 /** the skills a Maki child in the workdir would offer; [] without a sandbox */
 export async function readSkills(workdir: string): Promise<SkillFile[]> {
   const res = await sandboxRun(["sh", "-c", SKILL_SCRIPT], workdir);
   if (!res) return [];
-  const byName = new Map<string, SkillFile>();
+  const byName = new Map<string, SkillFile>([[BUILTIN_SKILL.name, { ...BUILTIN_SKILL }]]);
   for (const record of res.stdout.split("\x1e").slice(1)) {
     const cut = record.indexOf("\x1f");
     if (cut < 0) continue;
@@ -171,7 +185,10 @@ export async function readSkills(workdir: string): Promise<SkillFile[]> {
     if (meta.description) skill.description = meta.description;
     byName.set(name, skill);
   }
-  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name));
+  // the builtin first, as the plugin registers it and OpenCode lists its own
+  const builtin = byName.get(BUILTIN_SKILL.name);
+  const rest = [...byName.values()].filter((s) => s.path !== BUILTIN_SKILL.path).sort((a, b) => a.name.localeCompare(b.name));
+  return builtin?.path === BUILTIN_SKILL.path ? [builtin, ...rest] : rest;
 }
 
 // ---------- Maki's model catalog and provider auth ----------

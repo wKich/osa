@@ -10,7 +10,7 @@
 // (sdk_mode.rs v0.6.4 L786–L816; text blocks join with a newline).
 import { posix } from "node:path";
 import type { ContentBlock } from "./maki.ts";
-import { sandboxRun } from "./sandbox.ts";
+import { BUILTIN_SKILL, sandboxRun, type SkillFile } from "./sandbox.ts";
 
 type AnyObj = Record<string, any>;
 
@@ -128,4 +128,35 @@ export async function readAttachment(file: AnyObj, clientDir: string, workdir: s
   }
   // a PDF or other binary has no block on the pinned inbound wire
   return null;
+}
+
+/** a prompt's skill attachment as OpenCode prepares it (core skill.ts v2.0.32
+ * L36–L68): the skill's body in `<skill_content>` with a sample of the files
+ * beside it. The builtin skill's body lives in the Maki binary, so it is
+ * delivered without text; the `@name` mention in the prompt names it to
+ * Maki's own skill tool. */
+export async function readSkillAttachment(skill: AnyObj, known: SkillFile[], workdir: string): Promise<{ delivered: AnyObj; blocks: ContentBlock[] } | null> {
+  const found = known.find((k) => k.id === skill?.id);
+  if (!found) return null;
+  const delivered: AnyObj = { id: found.id, name: found.name, ...(skill.mention && typeof skill.mention === "object" ? { mention: skill.mention } : {}) };
+  if (found.path === BUILTIN_SKILL.path) return { delivered, blocks: [] };
+  const directory = posix.dirname(found.path);
+  const res = await sandboxRun(["find", directory, "-type", "f", "!", "-name", "SKILL.md"], workdir);
+  const files = res?.code === 0 ? res.stdout.split("\n").filter(Boolean).sort().slice(0, 10) : [];
+  const text = [
+    `<skill_content name="${found.name}">`,
+    `# Skill: ${found.name}`,
+    "",
+    found.content.trim(),
+    "",
+    `Base directory for this skill: ${directory}`,
+    "Relative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.",
+    "Note: file list is sampled.",
+    "",
+    "<skill_files>",
+    ...files.map((file) => `<file>${file}</file>`),
+    "</skill_files>",
+    "</skill_content>",
+  ].join("\n");
+  return { delivered: { ...delivered, text }, blocks: [{ type: "text", text }] };
 }

@@ -1024,19 +1024,24 @@
       "area": "prompt",
       "source": "packages/tui/src/component/prompt/index.tsx:585 (/skills) and packages/tui/src/component/dialog-skill.tsx at v2.0.32",
       "scenario": {
-        "steps": ["run /skills", "select a skill", "submit"],
+        "steps": ["prompt the agent to create a project skill and allow its shell command", "run /skills", "filter to journey-greet and select it", "submit \"Use it.\""],
         "checkpoints": [
-          { "id": "skill-list", "after": 1, "expect": "the skill selector lists the skills the server announced" },
-          { "id": "skill-mention", "after": 2, "expect": "the skill appears as a mention in the prompt" }
+          { "id": "skill-list", "after": 2, "expect": "the skill selector lists the skills the server announced, the project skill among them" },
+          { "id": "skill-mention", "after": 3, "expect": "the skill appears as a mention in the prompt" },
+          { "id": "sent", "after": 4, "expect": "the sent prompt lists the skill and the reply renders" }
         ]
       },
-      "routes": ["GET /api/skill", "POST /api/session/{sessionID}/prompt"],
+      "routes": ["GET /api/skill", "POST /api/session/{sessionID}/prompt", "POST /api/session/{sessionID}/permission/{requestID}/reply"],
       "features": ["skill-list-live"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/mention-skill-in-prompt/reference/","maki":"bridge/test/journeys/mention-skill-in-prompt/maki/","diff":"bridge/test/journeys/mention-skill-in-prompt/diff.json","live":{"snapshots":"bridge/test/journeys/mention-skill-in-prompt/live/","diff":"bridge/test/journeys/mention-skill-in-prompt/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "skill-list", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the silent command shows Maki's real bash result \"Exit code: 0\" (plugins/bash/init.lua v0.6.4 L407–L412), where OpenCode's shell tool prints \"(no output)\" (core/src/shell.ts v2.0.32 L249) — each TUI renders its own tool's result; each server lists its own builtin skills: OpenCode's OpenCode and Report (core plugin/skill.ts v2.0.32 L24–L44), Maki's maki-plugin-dev (plugins/skill/init.lua v0.6.4 L98–L108; maki-lua docs_render.rs L17–L18); the project skill journey-greet is listed on both; the skills dialog covers the footer's model label mid-word, so each side shows the first letters of its own label for the same scripted model: the reference's provider label \"Mock Model\" and Maki's model id \"fake\" (the bridge's GET /api/model) — the whole label is normalized to <MODEL> everywhere it is not cut" },
+        { "checkpoint": "skill-mention", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the silent command shows Maki's real bash result \"Exit code: 0\" (plugins/bash/init.lua v0.6.4 L407–L412), where OpenCode's shell tool prints \"(no output)\" (core/src/shell.ts v2.0.32 L249) — each TUI renders its own tool's result" },
+        { "checkpoint": "sent", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the silent command shows Maki's real bash result \"Exit code: 0\" (plugins/bash/init.lua v0.6.4 L407–L412), where OpenCode's shell tool prints \"(no output)\" (core/src/shell.ts v2.0.32 L249) — each TUI renders its own tool's result; \"Instructions updated: core/skill-guidance\" is OpenCode's own system-instruction delta for a changed skill set (core skill/instructions.ts v2.0.32 L36–L58); Maki states its skills only in its skill tool's description and rediscovers them when the tool runs (plugins/skill/init.lua v0.6.4 L132–L136, L163), so it has no instruction update to show" }
+      ]
     },
     {
       "slug": "open-external-editor",

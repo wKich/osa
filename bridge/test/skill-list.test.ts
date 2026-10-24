@@ -8,7 +8,8 @@ import { afterAll, beforeAll, describe, expect, test, setDefaultTimeout } from "
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startBridge, type BridgeHandle } from "./lib/bridge.ts";
+import { BUILTIN_SKILL } from "../src/sandbox.ts";
+import { startBridge, waitFor, type BridgeHandle } from "./lib/bridge.ts";
 import { validateBody } from "./lib/contract.ts";
 
 // tests here boot their own bridges; the default 5s budget is too tight on a
@@ -59,10 +60,23 @@ describe("skill list", () => {
     const body = await res.json();
     expect(validateBody("/api/skill", "GET", res.status, body)).toBeNull();
     expect(body.data).toEqual([
+      BUILTIN_SKILL,
       { id: "plain-notes", name: "plain-notes", path: paths.plain, content: "just a body\n" },
       { id: "release", name: "release", description: "project release steps", path: paths.root, content: "project body\n" },
       { id: "review", name: "review", description: "code review", path: paths.home, content: "review body\n" },
     ]);
+  });
+
+  test("a skill a turn writes is announced with skill.updated", async () => {
+    const sid = (await (await fetch(`${bridge.base}/api/session`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ location: { directory: workdir } }) })).json()).data.id;
+    await fetch(`${bridge.base}/api/skill`);
+    skill(join(workdir, ".opencode", "skills"), "fresh", "---\nname: fresh\n---\nnew body\n");
+    const before = bridge.frames.filter((f) => f.type === "skill.updated").length;
+    await fetch(`${bridge.base}/api/session/${sid}/prompt`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "hi" }) });
+    expect(await waitFor(() => bridge.frames.filter((f) => f.type === "skill.updated").length > before, 15_000)).toBe(true);
+    const frame = bridge.frames.filter((f) => f.type === "skill.updated").at(-1)!;
+    expect(frame.location).toEqual({ directory: workdir });
+    expect((await (await fetch(`${bridge.base}/api/skill`)).json()).data.map((k: any) => k.name)).toContain("fresh");
   });
 
   test("without a sandbox the list is empty", async () => {

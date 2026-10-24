@@ -279,6 +279,9 @@ function sanitizeToolState(id: string, state: AnyObj): AnyObj {
   return out;
 }
 
+const mentionOf = (part: AnyObj, kind: string, i: number): AnyObj =>
+  part.mention ? { mention: { ...part.mention, text: redact(kind, String(i), part.mention.text) } } : {};
+
 function sanitizeMessage(m: AnyObj): AnyObj {
   const meta = redactMeta("message-metadata", m.id, m.metadata);
   const base = meta === undefined ? { ...m } : { ...m, metadata: meta };
@@ -286,7 +289,10 @@ function sanitizeMessage(m: AnyObj): AnyObj {
     return {
       ...base,
       text: redact("text", m.id, m.text),
-      ...(m.files ? { files: m.files.map((f: AnyObj, i: number) => ({ ...f, data: "", source: { type: "inline" }, ...(f.name === undefined ? {} : { name: redact("file-name", String(i), f.name) }), ...(f.description === undefined ? {} : { description: redact("file-description", String(i), f.description) }) })) } : {}),
+      // attachments as the pinned transfer redacts them (core session/transfer.ts v2.0.32 L215–L240)
+      ...(m.files ? { files: m.files.map((f: AnyObj, i: number) => ({ ...f, data: "", source: { type: "inline" }, ...(f.name === undefined ? {} : { name: redact("file-name", String(i), f.name) }), ...(f.description === undefined ? {} : { description: redact("file-description", String(i), f.description) }), ...mentionOf(f, "file-mention", i) })) } : {}),
+      ...(m.agents ? { agents: m.agents.map((a: AnyObj, i: number) => ({ ...a, name: redact("agent-name", String(i), a.name), ...mentionOf(a, "agent-mention", i) })) } : {}),
+      ...(m.skills ? { skills: m.skills.map((k: AnyObj, i: number) => ({ ...k, name: redact("skill-name", String(i), k.name), ...(k.text === undefined ? {} : { text: redact("skill", String(i), k.text) }), ...mentionOf(k, "skill-mention", i) })) } : {}),
     };
   }
   if (m.type === "assistant") {

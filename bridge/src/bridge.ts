@@ -21,8 +21,8 @@ import { appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { posix } from "node:path";
 import { MakiSession, type ContentBlock } from "./maki.ts";
-import { readAttachment } from "./mentions.ts";
-import { Translator } from "./translator.ts";
+import { readAttachment, readSkillAttachment } from "./mentions.ts";
+import { Translator, userPayload } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
 import { makiTitle } from "./title.ts";
@@ -103,9 +103,9 @@ function pushFrame(frame: { id: string; event: string; data: AnyObj }): void {
   }
 }
 
-function emit(type: string, data: AnyObj, durableVersion?: number, eventID?: string): void {
+function emit(type: string, data: AnyObj, durableVersion?: number, eventID?: string, directory?: string): void {
   const ev: AnyObj = { id: eventID ?? mintEvent(), created: Date.now(), type };
-  const dir = typeof data.sessionID === "string" ? sessions.get(data.sessionID)?.directory : undefined;
+  const dir = typeof data.sessionID === "string" ? sessions.get(data.sessionID)?.directory : directory;
   if (dir) ev.location = { directory: dir };
   ev.data = data;
   if (durableVersion && typeof data.sessionID === "string") {
@@ -116,6 +116,7 @@ function emit(type: string, data: AnyObj, durableVersion?: number, eventID?: str
   const frame = { id: ev.id, event: type, data: ev };
   seenFrames.push(frame);
   pushFrame(frame);
+  if (OUTCOME[type]) void checkSkills();
 }
 
 // A terminal execution transition is the session's idle marker, as the real
@@ -513,6 +514,17 @@ async function promptFiles(files: unknown, clientDir: string): Promise<{ blocks:
   return { blocks: found.flatMap((a) => a.blocks), delivered: found.map((a) => a.delivered) };
 }
 
+// skills[] -> the selected skills' prepared text (mentions.ts); an unknown id
+// is dropped
+async function promptSkills(skills: unknown): Promise<{ blocks: ContentBlock[]; delivered: AnyObj[] }> {
+  const list = Array.isArray(skills) ? skills : [];
+  if (list.length === 0) return { blocks: [], delivered: [] };
+  const known = await readSkills(CANONICAL);
+  const read = await Promise.all(list.map((k) => readSkillAttachment(k, known, CANONICAL)));
+  const found = read.filter((a): a is NonNullable<typeof a> => a !== null);
+  return { blocks: found.flatMap((a) => a.blocks), delivered: found.map((a) => a.delivered) };
+}
+
 // prompts are admitted in arrival order even when one waits on a sandbox read
 const admitting = new Map<string, Promise<unknown>>();
 function prompt(sid: string, body: AnyObj, url: URL): Promise<{ status: number; payload: any }> {
@@ -531,6 +543,7 @@ async function admitPrompt(sid: string, body: AnyObj, url: URL): Promise<{ statu
   // sandbox workdir as /api/fs/list does
   const asked = url.searchParams.get("location[directory]");
   const images = await promptFiles(body?.files, asked?.startsWith("/") ? asked : s.directory);
+  const skills = await promptSkills(body?.skills);
   if (!s.maki.running) {
     return { status: 503, payload: { _tag: "ServiceUnavailableError", message: "maki session is not running" } };
   }
@@ -543,11 +556,11 @@ async function admitPrompt(sid: string, body: AnyObj, url: URL): Promise<{ statu
   // orders Q-A-Q-A within and across turns (spec: "Prompt renders before its
   // response"; shape pinned live in evidence/cross-map.md)
   const delivery = s.translator.beginTurn(mintMessage(), {
-    text, id: userMsgID, delivery: String(body?.delivery ?? "steer"), files: images.delivered,
-    child: images.blocks, created: Date.now(),
+    text, id: userMsgID, delivery: String(body?.delivery ?? "steer"), files: images.delivered, skills: skills.delivered,
+    child: [...images.blocks, ...skills.blocks], created: Date.now(),
   });
   const { status, payload } = synthesize("POST", `/api/session/${sid}/prompt`, url, body, CANONICAL);
-  const delivered = images.delivered.length ? { text, files: images.delivered } : { text };
+  const delivered = userPayload({ text, files: images.delivered, skills: skills.delivered });
   if (payload?.data) payload.data = { ...payload.data, id: userMsgID, sessionID: sid, time: { created: Date.now() }, payload: delivered, delivery };
   return { status, payload };
 }
@@ -745,7 +758,7 @@ function sessionExport(sid: string, url: URL): { status: number; payload: any } 
 function inboxList(s: BridgeSession): AnyObj[] {
   return s.translator.pending.map((u) => ({
     id: u.id, sessionID: s.id, time: { created: u.created ?? s.updated }, type: "user",
-    payload: u.files?.length ? { text: u.text, files: u.files } : { text: u.text }, delivery: "queue",
+    payload: userPayload(u), delivery: "queue",
   }));
 }
 
@@ -980,9 +993,25 @@ async function mcpServers(url: URL): Promise<{ status: number; payload: any }> {
 
 // /api/skill: the skills the child's skill plugin discovers in the sandbox;
 // the TUI offers them as `@skill` mentions, whose text rides in the prompt
+let servedSkills: string | undefined;
 async function skillList(url: URL): Promise<{ status: number; payload: any }> {
   const { status, payload } = synthesize("GET", "/api/skill", url, null, CANONICAL);
-  return { status, payload: { ...payload, data: await readSkills(CANONICAL) } };
+  const skills = await readSkills(CANONICAL);
+  servedSkills = JSON.stringify(skills);
+  return { status, payload: { ...payload, data: skills } };
+}
+
+// The TUI caches the skill list until `skill.updated` (client solid/data.ts
+// v2.0.32 L1269–L1272), which OpenCode emits when its skill directories
+// change; Maki's skill tool rediscovers skills on every call (plugins/skill/
+// init.lua v0.6.4 L163), so a skill a turn wrote is usable at once. After each
+// turn the bridge re-reads the sandbox's skills and announces a change.
+async function checkSkills(): Promise<void> {
+  if (servedSkills === undefined) return;
+  const now = JSON.stringify(await readSkills(CANONICAL));
+  if (now === servedSkills) return;
+  servedSkills = now;
+  emit("skill.updated", {}, undefined, undefined, CANONICAL);
 }
 
 // /api/project and /api/location name the one project the bridge serves

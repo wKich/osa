@@ -70,9 +70,9 @@ describe("prompt attachments over the spawned bridge", () => {
     rmSync(tracePath, { force: true });
   });
 
-  async function send(id: string, text: string, files?: unknown[]) {
+  async function send(id: string, text: string, files?: unknown[], skills?: unknown[]) {
     const done = succeeded(bridge);
-    const res = await post(bridge, `/api/session/${sid}/prompt`, { id, text, ...(files ? { files } : {}), delivery: "steer" });
+    const res = await post(bridge, `/api/session/${sid}/prompt`, { id, text, ...(files ? { files } : {}), ...(skills ? { skills } : {}), delivery: "steer" });
     expect(res.status).toBe(200);
     expect(await waitFor(() => inbox(bridge, id).length === 1, 10_000)).toBe(true);
     expect(await waitFor(() => succeeded(bridge) > done, 30_000)).toBe(true);
@@ -147,6 +147,33 @@ describe("prompt attachments over the spawned bridge", () => {
     ]);
     // a path outside the client's directory is never read
     expect(JSON.stringify(inboundFrames())).not.toContain("localhost");
+  }, 60_000);
+
+  test("a selected skill is prepared as OpenCode prepares it; the builtin rides on its mention", async () => {
+    const dir = join(bridge.workdir, ".opencode", "skills", "greet");
+    mkdirSync(join(dir, "scripts"), { recursive: true });
+    writeFileSync(join(dir, "SKILL.md"), "---\nname: greet\ndescription: Greets.\n---\nSay hello.\n");
+    writeFileSync(join(dir, "scripts", "run.sh"), "");
+    const text = "@greet @maki-plugin-dev go";
+    const res = await send("msg_promptattach0000005", text, undefined, [
+      { id: "greet", name: "greet", mention: { start: 0, end: 6, text: "@greet" } },
+      { id: "maki-plugin-dev", name: "maki-plugin-dev" },
+      { id: "unknown-skill", name: "unknown-skill" },
+    ]);
+    const prepared = [
+      '<skill_content name="greet">', "# Skill: greet", "", "Say hello.", "",
+      `Base directory for this skill: ${dir}`,
+      "Relative paths in this skill (e.g., scripts/, reference/) are relative to this base directory.",
+      "Note: file list is sampled.", "", "<skill_files>", `<file>${join(dir, "scripts", "run.sh")}</file>`, "</skill_files>", "</skill_content>",
+    ].join("\n");
+    expect(res.json?.data?.payload).toEqual({
+      text,
+      skills: [
+        { id: "greet", name: "greet", mention: { start: 0, end: 6, text: "@greet" }, text: prepared },
+        { id: "maki-plugin-dev", name: "maki-plugin-dev" },
+      ],
+    });
+    expect(userFrame(text)[0].message.content).toEqual([{ type: "text", text }, { type: "text", text: prepared }]);
   }, 60_000);
 
   test("a prompt without files keeps the text-only payload and frame", async () => {

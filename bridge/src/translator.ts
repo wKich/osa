@@ -52,7 +52,14 @@ const DURABLE_VERSION: Record<string, number> = {
 
 // `child` is what the Maki child is sent when the prompt's turn starts (its
 // text and image blocks); the bridge holds a queued prompt until then
-type UserPrompt = { text: string; id: string; delivery: string; files?: AnyObj[]; child?: unknown; created?: number };
+type UserPrompt = { text: string; id: string; delivery: string; files?: AnyObj[]; skills?: AnyObj[]; child?: unknown; created?: number };
+
+/** the pinned Prompt payload of an admitted user prompt */
+export const userPayload = (u: { text: string; files?: AnyObj[]; skills?: AnyObj[] }): AnyObj => ({
+  text: u.text,
+  ...(u.files?.length ? { files: u.files } : {}),
+  ...(u.skills?.length ? { skills: u.skills } : {}),
+});
 
 // maki's tool names are PascalCase (Bash, Read, TodoWrite); the OpenCode side
 // spells them lowerCamel (mapping-table.md §3)
@@ -167,7 +174,7 @@ export class Translator {
       sessionID: this.hooks.sessionID,
       assistantMessageID: am,
       inboxID: user.id,
-      item: { type: "user", payload: user.files?.length ? { text: user.text, files: user.files } : { text: user.text }, delivery: user.delivery },
+      item: { type: "user", payload: userPayload(user), delivery: user.delivery },
     }, 1);
   }
 

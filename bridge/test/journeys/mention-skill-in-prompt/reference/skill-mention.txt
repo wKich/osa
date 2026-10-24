@@ -1,0 +1,39 @@
+   Journey                       +
+
+  ┃
+  ┃  Use your shell tool to run exactly: mkdir -p .opencode/skills/journey-greet && printf -- '---\nname: journey-
+  ┃  greet\ndescription: Greets the journey.\n---\nSay hello.\n' > .opencode/skills/journey-greet/SKILL.md . Then
+  ┃  reply with the single word READY.
+  ┃
+
+  ┃
+  ┃  $ mkdir -p .opencode/skills/journey-greet && printf -- '---\nname: journey-greet\ndescription: Greets the journey
+  ┃  .\n---\nSay hello.\n' > .opencode/skills/journey-greet/SKILL.md
+  ┃
+  ┃  (no output)
+  ┃
+
+     READY
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  @journey-greet
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

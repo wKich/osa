@@ -1,0 +1,20 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "skill-list",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n \n   ┃\n   ┃  Use your shell tool to run exactly: mkdir -p .opencode/skills/journey-greet && printf -- '---\\nname: journey-\n   ┃  greet\\ndescription: Greets the journey.\\n---\\nSay hello.\\n' > .opencode/skills/journey-greet/SKILL.md . Then\n   ┃  reply with the single word READY.\n   ┃\n \n   ┃\n   ┃  $ mkdir -p .opencode/skills/journey-greet && printf -- '---\\nname: journey-greet\\ndescription: Greets the journey\n   ┃  .\\n---\\nSay\n   ┃                 Skills                                                                       esc\n-  ┃  (no output)\n+  ┃  Exit code:\n   ┃                 Search\n \n-     READY          OpenCode      Use this skill for any question about OpenCode itself, including h\n-                    Report        Use when the user wants to report an opencode issue or bug. Collec\n-     Build · Moc    journey-greet Greets the journey.\n+     READY          <MODEL>-plugin-dev Write or modify <MODEL> plugins or init.lua config in Lua: custom t\n+                    journey-greet   Greets the journey.\n+     Build · moc\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "skill-mention",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n \n   ┃\n   ┃  Use your shell tool to run exactly: mkdir -p .opencode/skills/journey-greet && printf -- '---\\nname: journey-\n   ┃  greet\\ndescription: Greets the journey.\\n---\\nSay hello.\\n' > .opencode/skills/journey-greet/SKILL.md . Then\n   ┃  reply with the single word READY.\n   ┃\n \n   ┃\n   ┃  $ mkdir -p .opencode/skills/journey-greet && printf -- '---\\nname: journey-greet\\ndescription: Greets the journey\n   ┃  .\\n---\\nSay hello.\\n' > .opencode/skills/journey-greet/SKILL.md\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      READY\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃  @journey-greet\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "sent",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n \n   ┃\n   ┃  Use your shell tool to run exactly: mkdir -p .opencode/skills/journey-greet && printf -- '---\\nname: journey-\n   ┃  greet\\ndescription: Greets the journey.\\n---\\nSay hello.\\n' > .opencode/skills/journey-greet/SKILL.md . Then\n   ┃  reply with the single word READY.\n   ┃\n \n   ┃\n   ┃  $ mkdir -p .opencode/skills/journey-greet && printf -- '---\\nname: journey-greet\\ndescription: Greets the journey\n   ┃  .\\n---\\nSay hello.\\n' > .opencode/skills/journey-greet/SKILL.md\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      READY\n \n      Build · <MODEL> · <DUR>\n \n-     ◈ Instructions updated: core/skill-guidance\n-\n   ┃\n   ┃  @journey-greet Use it.\n   ┃\n   ┃   skill  journey-greet\n   ┃\n \n      HELLO\n \n      Build · <MODEL> · <DUR>\n \n \n \n+\n+\n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

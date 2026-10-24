@@ -10,6 +10,10 @@ export interface NormalizeOptions {
   models?: string[];
 }
 
+/** every label the journey catalog's second model prints on either side,
+ * longest first (record.ts referenceConfig, live-sandbox.ts providers.toml) */
+export const SECOND_MODEL_LABELS = ["maki/mock-model-2", "mock/mock-model-2", "Mock Model Two", "mock-model-2"];
+
 interface Payload {
   data?: Array<Record<string, unknown>>;
 }
@@ -102,6 +106,10 @@ export function normalize(text: string, opts: NormalizeOptions = {}): string {
 
   // Progress/context bars advance with wall-clock timing.
   out = out.replace(/[■⬝]+/g, "<BAR>");
+
+  // The journey catalog's second model keeps its own placeholder, so a
+  // model switch stays visible after normalization.
+  for (const label of SECOND_MODEL_LABELS) out = out.replace(new RegExp(escape(label), "g"), "<MODEL-2>");
 
   // Explicit per-side model labels, longest first so a prefix cannot win.
   for (const label of [...(opts.models ?? [])].sort((a, b) => b.length - a.length)) {

@@ -78,10 +78,16 @@ describe("fake-maki script mode", () => {
       expect(deltas.join("")).toBe("DONE");
       const assistant = lines.filter((l) => l.type === "assistant" && l.message.content[0]?.type === "text");
       expect(assistant.map((l) => l.message.content[0].text)).toEqual(["DONE"]);
-      const tool = lines.find((l) => l.type === "assistant" && l.message.content[0]?.type === "tool_use");
-      expect(tool.message.content[0].name).toBe("Bash");
+      const tool = lines.findIndex((l) => l.type === "assistant" && l.message.content[0]?.type === "tool_use");
+      expect(lines[tool].message.content[0].name).toBe("Bash");
+      // the pinned order: buffered tool_use, streamed tool_use block, then the ask
+      const streamed = lines.findIndex((l) => l.type === "stream_event" && l.event?.content_block?.type === "tool_use");
+      const asked = lines.findIndex((l) => l.type === "control_request");
+      expect(tool).toBeLessThan(streamed);
+      expect(streamed).toBeLessThan(asked);
+      // a silent success answers as the pinned bash plugin does
       const result = lines.find((l) => l.type === "user");
-      expect(result.message.content[0].content).toBe("");
+      expect(result.message.content[0].content).toBe("Exit code: 0");
       expect(lines.find((l) => l.type === "result").subtype).toBe("success");
     } finally {
       proc.kill();

@@ -934,7 +934,7 @@
       "scope": "reachable",
       "blockedBy": "none",
       "status": "diverges",
-      "evidence": { "reference":"bridge/test/journeys/allow-permission-once/reference/","maki":"bridge/test/journeys/allow-permission-once/maki/","diff":"bridge/test/journeys/allow-permission-once/diff.json","live":{"snapshots":"bridge/test/journeys/allow-permission-once/live/","diff":"bridge/test/journeys/allow-permission-once/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"broken"} },
+      "evidence": { "reference":"bridge/test/journeys/allow-permission-once/reference/","maki":"bridge/test/journeys/allow-permission-once/maki/","diff":"bridge/test/journeys/allow-permission-once/diff.json","live":{"snapshots":"bridge/test/journeys/allow-permission-once/live/","diff":"bridge/test/journeys/allow-permission-once/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"diverges"} },
       "acceptedDiffs": []
     },
     {

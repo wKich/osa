@@ -50,7 +50,8 @@
     "input": {
       "command": "echo precheck-ok",
       "description": "Run precheck command"
-    }
+    },
+    "executed": false
   },
   {
     "type": "session.tool.success",
@@ -59,7 +60,8 @@
         "type": "text",
         "text": "precheck-ok"
       }
-    ]
+    ],
+    "executed": false
   },
   {
     "type": "session.reasoning.started",

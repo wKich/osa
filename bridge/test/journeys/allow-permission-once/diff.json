@@ -4,12 +4,12 @@
     {
       "id": "permission-prompt",
       "verdict": "differs",
-      "hunk": "@@ -1,39 +1,39 @@\n- ! Journey                       +\n+ ! New session                   +\n \n   ┃\n   ┃  Use your shell tool to run exactly: rm -f probe.txt . Then reply with the single word DONE.\n   ┃\n \n-  ┃\n-  ┃  <SPINNER> rm -f probe.txt\n-  ┃\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n+\n+\n   ┃\n   ┃  △ Permission required\n+  ┃    ⚙ Call tool allow\n   ┃\n-  ┃  $ rm -f probe.txt\n+  ┃  Tool: allow\n   ┃\n   ┃\n   ┃   Allow once   Always allow   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm\n   ┃"
+      "hunk": "@@ -1,39 +1,39 @@\n- ! Journey                       +\n+ ! New session                   +\n \n   ┃\n   ┃  Use your shell tool to run exactly: rm -f probe.txt . Then reply with the single word DONE.\n   ┃\n \n   ┃\n   ┃  <SPINNER> rm -f probe.txt\n   ┃\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃  △ Permission required\n   ┃\n   ┃  $ rm -f probe.txt\n   ┃\n   ┃\n   ┃   Allow once   Always allow   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm\n   ┃"
     },
     {
       "id": "allowed",
       "verdict": "differs",
-      "hunk": "@@ -1,39 +1,39 @@\n- • Journey                       +\n+   New session                   +\n \n   ┃\n   ┃  Use your shell tool to run exactly: rm -f probe.txt . Then reply with the single word DONE.\n   ┃\n \n   ┃\n   ┃  $ rm -f probe.txt\n   ┃\n-  ┃  (no output)\n-  ┃\n \n      DONE\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n+\n+\n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+      "hunk": "@@ -1,39 +1,39 @@\n- • Journey                       +\n+   New session                   +\n \n   ┃\n   ┃  Use your shell tool to run exactly: rm -f probe.txt . Then reply with the single word DONE.\n   ┃\n \n   ┃\n   ┃  $ rm -f probe.txt\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      DONE\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
     }
   ]
 }

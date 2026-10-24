@@ -56,5 +56,35 @@
       "fixture": "maki-plain",
       "want": "golden/want-inbox-delivery.json"
     }
+  },
+  {
+    "id": "permission-asked-generic-action",
+    "title": "permission.asked names the action `allow` and the resource as the tool name, so the TUI permission dialog renders a generic `⚙ Call tool allow` / `Tool: allow` body instead of the shell command (`$ rm -f probe.txt`) the reference shows",
+    "status": "fixed",
+    "capture": "bridge/test/journeys/allow-permission-once/diff.json",
+    "journey": {
+      "slug": "allow-permission-once",
+      "checkpoint": "permission-prompt"
+    }
+  },
+  {
+    "id": "tool-events-omit-executed",
+    "title": "session.tool.called, session.tool.success and session.tool.failed omit the required `executed` boolean (session-event.ts v2.0.32), so the TUI cannot apply a failed tool and its running spinner never settles on the live run",
+    "status": "fixed",
+    "capture": "bridge/test/journeys/evidence/pilot-live.md",
+    "journey": {
+      "slug": "allow-permission-once",
+      "checkpoint": "allowed"
+    }
+  },
+  {
+    "id": "minimal-policy-denies-dev-null",
+    "title": "examples/policies/maki-minimal.yaml omits /dev/null, so with no provider attached every Maki bash call fails to spawn (`stdin(Stdio::null())`, maki-lua fn.rs v0.6.4 L299) with `Permission denied (os error 13)`",
+    "status": "known",
+    "capture": "bridge/test/journeys/evidence/pilot-live.md",
+    "journey": {
+      "slug": "allow-permission-once",
+      "checkpoint": "allowed"
+    }
   }
 ]

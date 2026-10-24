@@ -117,7 +117,11 @@ describe("permission egress over the spawned bridge", () => {
     // its own session: the scripted child keeps the session rule it is given
     const { asked, ask, answered, replied, reply } = await askAndReply("always", "always-probe.txt", {}, await newSession());
     expect(reply.status).toBe(204);
-    expect(asked.data?.save).toEqual(["Bash"]);
+    // the shell action and the scope Maki's session rule covers (permissions.rs
+    // v0.6.4 L1047–L1059), what the TUI's dialog renders
+    expect(asked.data?.action).toBe("shell");
+    expect(asked.data?.resources).toEqual([expect.stringContaining("always-probe.txt")]);
+    expect(asked.data?.save).toEqual(["rm *"]);
     expect(answered).toHaveLength(1);
     expect(answered[0].response).toEqual({
       request_id: ask.request_id,

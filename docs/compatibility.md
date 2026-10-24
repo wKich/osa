@@ -4,7 +4,7 @@ Generated from `bridge/compat/statuses.json`, `bridge/compat/journeys.json` and 
 
 ## Burndown
 
-Reachable surface: **35 of 143 routes** (22 `served-live`, 7 `served-faked`, 6 `deferred`, 0 `unhandled`) and **39 of 41 features** (34 `verified`, 0 `unverified`, 5 `degraded` (5 pin-blocked), 0 `buggy`). Out of scope: 108 routes, 2 features. Open defects: **0**.
+Reachable surface: **35 of 143 routes** (22 `served-live`, 7 `served-faked`, 6 `deferred`, 0 `unhandled`) and **39 of 41 features** (34 `verified`, 0 `unverified`, 5 `degraded` (5 pin-blocked), 0 `buggy`). Out of scope: 108 routes, 2 features. Open defects: **1**.
 
 Untriaged reachable routes: **0**.
 
@@ -183,10 +183,10 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | `deferred-session-surface-contract` | Deferred session message/inbox/form reads answer schema-valid empty lists and 404 unknown sessions, never a phantom row | `verified` | `unit-verified only` — `resume-session-history` | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
 | `session-isolation` | Concurrent sessions keep their children and transcripts apart | `verified` | `unit-verified only` — `delete-session` | [`bridge/test/session-isolation.test.ts`](../bridge/test/session-isolation.test.ts) |
 | `prompt-translation` | Recorded Maki turns translate to the committed golden frames | `verified` | `journey-verified` — `send-prompt-stream-reply` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
-| `tool-failure-mapping` | Failing and permission-denied tools map to session.tool.failed | `verified` | `unit-verified only` — `allow-permission-once` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
+| `tool-failure-mapping` | Failing and permission-denied tools map to session.tool.failed | `verified` | `unit-verified only` — `allow-permission-once` | [`bridge/test/tool-frames.test.ts`](../bridge/test/tool-frames.test.ts) |
 | `turn-failure-mapping` | A failed Maki turn maps to session.execution.failed with the wire's message, never to success | `verified` | `unit-verified only` — `interrupt-running-turn` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
 | `turn-abort-mapping` | A Maki child exiting mid-turn fails the turn exactly once (no success) and later prompts are refused with 503 | `verified` | `unit-verified only` — `interrupt-running-turn` | [`bridge/test/turn-abort.test.ts`](../bridge/test/turn-abort.test.ts) |
-| `permission-round-trip` | Permission ask/reply round trip runs offline over the child seam | `verified` | `unit-verified only` — `allow-permission-once`, `reject-permission-with-reason` | [`bridge/test/session-api.test.ts`](../bridge/test/session-api.test.ts) |
+| `permission-round-trip` | Permission ask/reply round trip runs offline over the child seam | `verified` | `unit-verified only` — `allow-permission-once`, `reject-permission-with-reason` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
 | `stream-deltas` | stream_event deltas translate into part delta frames | `verified` | `journey-verified` — `send-prompt-stream-reply` | [`bridge/test/fixtures/maki-stream-live.jsonl`](../bridge/test/fixtures/maki-stream-live.jsonl) |
 | `transcript-order` | User prompts render before the assistant output they caused | `verified` | `unit-verified only` — `resume-session-history`, `jump-to-message`, `send-prompt-stream-reply` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
 | `model-identity` | Session events carry Maki's real model name | `verified` | `journey-verified` — `send-prompt-stream-reply` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
@@ -287,7 +287,7 @@ Reachable journeys: **53 of 59** (50 `unrecorded`, 0 `referenced`, 1 `parity`, 1
 | `change-working-directory` | Change the working directory | files | `unrecorded` | — | — | — |
 | `reload-configuration` | Reload the configuration | config | `unrecorded` | — | — | — |
 | `send-prompt-stream-reply` | Send a prompt and watch the reply stream | prompt | `parity` | `parity` | reference: [`bridge/test/journeys/send-prompt-stream-reply/reference/`](../bridge/test/journeys/send-prompt-stream-reply/reference/) · maki: [`bridge/test/journeys/send-prompt-stream-reply/maki/`](../bridge/test/journeys/send-prompt-stream-reply/maki/) · diff: [`bridge/test/journeys/send-prompt-stream-reply/diff.json`](../bridge/test/journeys/send-prompt-stream-reply/diff.json) | streamed: the Maki side has no server-side session-title generator, so "New session" is the true placeholder; the reference's "Journey" comes from the mock provider's title turn and is not a Maki behavior |
-| `allow-permission-once` | Allow a tool once | permission | `diverges` | `broken` | reference: [`bridge/test/journeys/allow-permission-once/reference/`](../bridge/test/journeys/allow-permission-once/reference/) · maki: [`bridge/test/journeys/allow-permission-once/maki/`](../bridge/test/journeys/allow-permission-once/maki/) · diff: [`bridge/test/journeys/allow-permission-once/diff.json`](../bridge/test/journeys/allow-permission-once/diff.json) | — |
+| `allow-permission-once` | Allow a tool once | permission | `diverges` | `diverges` | reference: [`bridge/test/journeys/allow-permission-once/reference/`](../bridge/test/journeys/allow-permission-once/reference/) · maki: [`bridge/test/journeys/allow-permission-once/maki/`](../bridge/test/journeys/allow-permission-once/maki/) · diff: [`bridge/test/journeys/allow-permission-once/diff.json`](../bridge/test/journeys/allow-permission-once/diff.json) | — |
 | `resume-session-history` | Resume a session and see its history | session | `broken` | `broken` | reference: [`bridge/test/journeys/resume-session-history/reference/`](../bridge/test/journeys/resume-session-history/reference/) · maki: [`bridge/test/journeys/resume-session-history/maki/`](../bridge/test/journeys/resume-session-history/maki/) · diff: [`bridge/test/journeys/resume-session-history/diff.json`](../bridge/test/journeys/resume-session-history/diff.json) | — |
 
 ### Out of scope (6)
@@ -300,12 +300,6 @@ Reachable journeys: **53 of 59** (50 `unrecorded`, 0 `referenced`, 1 `parity`, 1
 | `update-opencode` | Update OpenCode | config | `unrecorded` | — | — | — |
 | `restart-service` | Restart the OpenCode service | config | `unrecorded` | — | — | — |
 | `view-release-highlights` | View release highlights | config | `unrecorded` | — | — | — |
-
-### Live findings
-
-A live verdict worse than the committed offline status is a finding for the journey loop; the offline status is unchanged:
-
-- `allow-permission-once`: offline `diverges`, live `broken`
 
 ## Version matrix
 

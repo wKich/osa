@@ -51,7 +51,8 @@
       "description": "Run echo marker command",
       "prompt": "Use your bash tool to run exactly this command: echo subagent-live-marker\n\nThen report the exact command output in your final result. Do not do anything else.",
       "subagent_type": "general"
-    }
+    },
+    "executed": false
   },
   {
     "type": "session.tool.input.started",
@@ -66,7 +67,8 @@
     "input": {
       "command": "echo subagent-live-marker",
       "description": "Echo marker string"
-    }
+    },
+    "executed": false
   },
   {
     "type": "session.tool.success",
@@ -75,7 +77,8 @@
         "type": "text",
         "text": "subagent-live-marker"
       }
-    ]
+    ],
+    "executed": false
   },
   {
     "type": "session.text.started",
@@ -98,7 +101,8 @@
         "type": "text",
         "text": "Command executed: `echo subagent-live-marker`\n\nExact output:\n```\nsubagent-live-marker\n```"
       }
-    ]
+    ],
+    "executed": false
   },
   {
     "type": "session.text.started",

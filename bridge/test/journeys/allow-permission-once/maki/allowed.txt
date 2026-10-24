@@ -7,12 +7,12 @@
   ┃
   ┃  $ rm -f probe.txt
   ┃
+  ┃  Exit code: 0
+  ┃
 
      DONE
 
      Build · <MODEL> · <DUR>
-
-
 
 
 

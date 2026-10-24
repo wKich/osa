@@ -50,7 +50,8 @@
     "input": {
       "command": "rm -f /tmp/maki-permission-probe.txt",
       "description": "Remove permission probe file"
-    }
+    },
+    "executed": false
   },
   {
     "type": "session.tool.success",
@@ -59,7 +60,8 @@
         "type": "text",
         "text": "Exit code: 0"
       }
-    ]
+    ],
+    "executed": false
   },
   {
     "type": "session.reasoning.started",
@@ -156,14 +158,16 @@
     "input": {
       "command": "rm -f /tmp/maki-permission-probe.txt",
       "description": "Create empty probe file and run command"
-    }
+    },
+    "executed": false
   },
   {
     "type": "session.tool.failed",
     "error": {
       "type": "Error",
       "message": "Permission denied for `bash` (rm -f /tmp/maki-permission-probe.txt): rejected by the user. Do not retry. Try a different approach or ask the user for guidance."
-    }
+    },
+    "executed": false
   },
   {
     "type": "session.reasoning.started",

@@ -50,7 +50,8 @@
     "input": {
       "command": "echo tool-turn-marker .",
       "description": "Report tool-turn-marker"
-    }
+    },
+    "executed": false
   },
   {
     "type": "session.text.started",
@@ -79,7 +80,8 @@
     "input": {
       "command": "echo subagent-marker .",
       "description": "Report subagent-marker"
-    }
+    },
+    "executed": false
   },
   {
     "type": "session.tool.success",
@@ -88,7 +90,8 @@
         "type": "text",
         "text": "subagent-marker ."
       }
-    ]
+    ],
+    "executed": false
   },
   {
     "type": "session.tool.success",
@@ -97,7 +100,8 @@
         "type": "text",
         "text": "tool-turn-marker ."
       }
-    ]
+    ],
+    "executed": false
   },
   {
     "type": "session.reasoning.started",

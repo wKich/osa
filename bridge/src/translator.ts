@@ -50,7 +50,10 @@ const toolName = (name: unknown): string => {
 };
 
 type PartKind = "reasoning" | "text" | "tool";
-interface StreamPart { ordinal: number; ended: boolean; text: string; id?: string; name?: string }
+// `replayed`: the pinned child streams a tool_use block after the buffered
+// message already carried it (sdk_mode.rs v0.6.4 L1037–L1052 after L1115), so
+// the block repeats a part the TUI has and emits nothing
+interface StreamPart { ordinal: number; ended: boolean; text: string; id?: string; name?: string; replayed?: boolean }
 
 export class Translator {
   private hooks: TranslatorHooks;
@@ -69,6 +72,8 @@ export class Translator {
   private counts: Record<PartKind, number> = { reasoning: 0, text: 0, tool: 0 };
   private streamCursor: Record<PartKind, number> = { reasoning: 0, text: 0, tool: 0 };
   private streamed = new Map<string, StreamPart>();
+  // tool ids the turn already rendered, from either path
+  private toolIDs = new Set<string>();
 
   constructor(hooks: TranslatorHooks) {
     this.hooks = hooks;
@@ -145,6 +150,7 @@ export class Translator {
     this.counts = { reasoning: 0, text: 0, tool: 0 };
     this.streamCursor = { reasoning: 0, text: 0, tool: 0 };
     this.streamed = new Map();
+    this.toolIDs = new Set();
     this.emitExec("session.execution.started", {});
     this.emit("session.step.started", {
       sessionID: this.hooks.sessionID,
@@ -242,6 +248,7 @@ export class Translator {
     const id = String(part.id ?? `tool_${index}`);
     const input = part.input ?? {};
     const streamed = this.streamed.get(`tool:${index}`);
+    this.toolIDs.add(id);
     if (!streamed) {
       this.emit("session.tool.input.started", { id, name: toolName(part.name) });
       this.emit("session.tool.input.ended", { id, text: JSON.stringify(input) });
@@ -250,7 +257,9 @@ export class Translator {
       this.emit("session.tool.input.ended", { id, text: JSON.stringify(input) });
       streamed.ended = true;
     }
-    this.emit("session.tool.called", { id, input });
+    // executed reports a provider-executed call (publish-llm-event.ts v2.0.32
+    // L391); every Maki tool runs in the child
+    this.emit("session.tool.called", { id, input, executed: false });
   }
 
   // ---------- `user` message with tool_result parts ----------
@@ -263,9 +272,9 @@ export class Translator {
       if (part.is_error) {
         // spec error shape is {type, message} (mapping-table.md §3); the
         // spike's stub emitted {name, data} and the TUI tolerated it
-        this.emit("session.tool.failed", { id, error: { type: "Error", message: resultText(part.content) } });
+        this.emit("session.tool.failed", { id, error: { type: "Error", message: resultText(part.content) }, executed: false });
       } else {
-        this.emit("session.tool.success", { id, content: resultContent(part.content) });
+        this.emit("session.tool.success", { id, content: resultContent(part.content), executed: false });
       }
     }
   }
@@ -295,8 +304,11 @@ export class Translator {
         this.streamCursor[partKind] = ordinal + 1;
         const state: StreamPart = { ordinal, ended: false, text: "", id: block.id, name: block.name };
         this.streamed.set(`${partKind}:${ordinal}`, state);
-        if (partKind === "tool") this.emit("session.tool.input.started", { id: String(block.id ?? ""), name: toolName(block.name) });
-        else this.emit(`session.${partKind}.started`, { ordinal });
+        if (partKind === "tool" && this.toolIDs.has(String(block.id ?? ""))) state.replayed = true;
+        else if (partKind === "tool") {
+          this.toolIDs.add(String(block.id ?? ""));
+          this.emit("session.tool.input.started", { id: String(block.id ?? ""), name: toolName(block.name) });
+        } else this.emit(`session.${partKind}.started`, { ordinal });
         break;
       }
       case "thinking_delta":
@@ -312,7 +324,7 @@ export class Translator {
         // no block start seen -> no id to key the delta on; the buffered tool
         // part renders it instead
         const state = this.openStreamPart("tool");
-        if (!state.id) break;
+        if (!state.id || state.replayed) break;
         const delta = String(payload?.partial_json ?? "");
         state.text += delta;
         this.emit("session.tool.input.delta", { id: state.id, delta });
@@ -327,7 +339,7 @@ export class Translator {
           if (!state) continue;
           state.ended = true;
           if (kind === "tool") {
-            if (state.id) this.emit("session.tool.input.ended", { id: state.id, text: state.text });
+            if (state.id && !state.replayed) this.emit("session.tool.input.ended", { id: state.id, text: state.text });
           } else {
             this.emit(`session.${kind}.ended`, { ordinal: state.ordinal, text: state.text });
           }

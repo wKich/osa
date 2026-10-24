@@ -114,6 +114,35 @@ function toolFrames(toolUseID: string, command: string, isError: boolean, conten
   });
 }
 
+// The pinned order for a model tool call: the turn's buffered assistant
+// message (TurnComplete, run.rs v0.6.4 L605) before dispatch, then the
+// streamed tool_use block (ToolStart, sdk_mode.rs v0.6.4 L1037–L1052), and
+// only then the permission ask (L1115–L1149)
+function toolCall(toolUseID: string, command: string): void {
+  out({
+    type: "assistant",
+    message: { role: "assistant", content: [{ type: "tool_use", id: toolUseID, name: "Bash", input: { command } }] },
+  });
+  out({ type: "stream_event", event: { type: "message_start", message: { role: "assistant", content: [] } } });
+  out({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: toolUseID, name: "Bash", input: {} } } });
+  out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify({ command }) } } });
+  out({ type: "stream_event", event: { type: "content_block_stop", index: 0 } });
+}
+
+function toolResult(toolUseID: string, isError: boolean, content: string): void {
+  out({
+    type: "user",
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: toolUseID, content, is_error: isError }] },
+  });
+}
+
+// the pinned bash plugin's result text (plugins/bash/init.lua v0.6.4
+// L407–L421): a silent success says `Exit code: 0`, a failure appends its code
+function bashResult(code: number, output: string): string {
+  if (code === 0) return output === "" ? "Exit code: 0" : output;
+  return output === "" ? `Exit code: ${code}` : `${output}\nExit code: ${code}`;
+}
+
 const success = () =>
   out({ type: "result", subtype: "success", result: "ok", usage: { input_tokens: 1, output_tokens: 1 }, total_cost_usd: 0 });
 
@@ -160,6 +189,7 @@ async function runScript(): Promise<void> {
       return;
     }
     const toolUseID = `toolu_fake${String(++toolSeq).padStart(6, "0")}`;
+    toolCall(toolUseID, turn.tool.command);
     let answer: "allow" | "deny" = "allow";
     if (turn.tool.needsPermission) {
       const requestID = `req_fake${String(toolSeq).padStart(10, "0")}`;
@@ -172,14 +202,13 @@ async function runScript(): Promise<void> {
       answer = await new Promise((resolve) => answers.set(requestID, resolve));
     }
     if (answer === "deny") {
-      toolFrames(toolUseID, turn.tool.command, true, "Permission denied: rejected by the user");
-      success();
-      return;
+      toolResult(toolUseID, true, "Permission denied: rejected by the user");
+      continue;
     }
     const proc = Bun.spawn(["/bin/sh", "-c", turn.tool.command], { stdout: "pipe", stderr: "pipe" });
     const code = await proc.exited;
     const output = (await new Response(proc.stdout).text()).trim();
-    toolFrames(toolUseID, turn.tool.command, code !== 0, code === 0 ? output : `Exit code: ${code}`);
+    toolResult(toolUseID, code !== 0, bashResult(code, output));
   }
 }
 

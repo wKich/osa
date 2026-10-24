@@ -36,6 +36,7 @@ const SSE_LOG = process.env.BRIDGE_SSE_LOG;
 interface PendingAsk {
   requestID: string; // maki's control_request id
   toolName: string;
+  ask: PermissionAsk;
   toolUseID: string;
   messageID: string; // the turn's assistant message id
   message: string;
@@ -177,9 +178,31 @@ function sessionObject(s: BridgeSession): AnyObj {
 
 function pendingList(s: BridgeSession): AnyObj[] {
   return [...s.pending.entries()].map(([perID, p]) => ({
-    id: perID, sessionID: s.id, action: "allow", resources: [p.toolName],
-    save: [p.toolName], message: p.message, source: { type: "tool", messageID: p.messageID, id: p.toolUseID },
+    id: perID, sessionID: s.id, ...p.ask, message: p.message, source: { type: "tool", messageID: p.messageID, id: p.toolUseID },
   }));
+}
+
+// The TUI picks the dialog body from the action in its own tool vocabulary
+// (tui util/tool-display.ts v2.0.32 L1–L6, util/permission.ts L24–L144); maki
+// names tools Claude-style on the wire (sdk_mode.rs v0.6.4 L43–L60)
+interface PermissionAsk { action: string; resources: string[]; save: string[] }
+const PERMISSION_ACTION: Record<string, string> = { Bash: "shell", Task: "subagent" };
+
+// Maki's AllowSession scope for one shell segment (permissions.rs v0.6.4
+// L44–L47, L1047–L1059): `<word> *` when the first word names one program
+const SHELL_KEYWORDS = new Set(["if", "then", "elif", "else", "fi", "for", "while", "until", "do", "done", "case", "esac", "select", "function", "time"]);
+function shellScope(command: string): string {
+  const word = command.trim().split(/\s+/)[0] ?? "";
+  return word && /^[A-Za-z0-9_.:\/@+-]+$/.test(word) && !SHELL_KEYWORDS.has(word) ? `${word} *` : command;
+}
+
+function permissionAsk(toolName: string, input: unknown): PermissionAsk {
+  const action = PERMISSION_ACTION[toolName] ?? toolName.toLowerCase();
+  const command = (input as AnyObj | null)?.command;
+  if (action === "shell" && typeof command === "string" && command) {
+    return { action, resources: [command], save: [shellScope(command)] };
+  }
+  return { action, resources: [toolName], save: [toolName] };
 }
 
 function sessionNotFound(sid: string): { status: number; payload: AnyObj } {
@@ -400,22 +423,22 @@ function onMakiFrame(sessionID: string, frame: AnyObj): void {
     const toolName = String(req.tool_name ?? "tool");
     const toolUseID = String(req.tool_use_id ?? "");
     const perID = mintPermission();
+    const ask = permissionAsk(toolName, req.input);
     s.pending.set(perID, {
       requestID: String(frame.request_id ?? ""),
       toolName,
+      ask,
       toolUseID,
       messageID: s.translator.assistantMessageID,
       message: `Maki wants to run: ${toolName} ${JSON.stringify(req.input ?? {})}`,
     });
     // object-form Permission.Source (design decision 4); `save` lists what the
     // TUI's "Always allow" names (opencode v2.0.32 tui/util/permission.ts),
-    // here the tool the session rule is for
+    // here the scope Maki's session rule will cover
     emit("permission.asked", {
       id: perID,
       sessionID,
-      action: "allow",
-      resources: [toolName],
-      save: [toolName],
+      ...ask,
       message: `Maki wants to run: ${toolName} ${JSON.stringify(req.input ?? {})}`,
       source: { type: "tool", messageID: s.translator.assistantMessageID, id: toolUseID },
     });

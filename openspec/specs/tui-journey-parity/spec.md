@@ -452,3 +452,11 @@ theme and exit journeys with reference, offline and live snapshots.
 #### Scenario: The palette runs a command
 - **WHEN** the user opens the palette, filters to `sidebar` and selects it
 - **THEN** both sides list the same commands and show the sidebar
+
+### Requirement: Boot, open, scroll and settings journeys are recorded at parity
+The catalog SHALL record the boot, open-recent, scroll and settings journeys
+with reference, offline and live snapshots.
+
+#### Scenario: A long reply scrolls
+- **WHEN** the user pages up, jumps to the first message and back to the last
+- **THEN** both sides show the same lines at each stop

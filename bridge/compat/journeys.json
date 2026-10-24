@@ -505,19 +505,24 @@
       "area": "session",
       "source": "packages/tui/src/routes/session/index.tsx:940 (/fork) and packages/tui/src/routes/session/dialog-fork.tsx at v2.0.32",
       "scenario": {
-        "steps": ["open a session", "run /fork", "pick an earlier message"],
+        "steps": ["prompt PONG, then prompt PANG", "run /fork", "choose Full session", "prompt \"Reply with the word PUNG only.\" in the fork"],
         "checkpoints": [
-          { "id": "fork-picker", "after": 2, "expect": "the dialog lists the session's messages to fork from" },
-          { "id": "forked", "after": 3, "expect": "a new session opens whose transcript ends at the selected message" }
+          { "id": "fork-picker", "after": 2, "expect": "the fork dialog offers Full session and each user message, newest first" },
+          { "id": "forked", "after": 3, "expect": "a new tab titled with the fork suffix opens with the copied transcript and a Forked session toast" },
+          { "id": "fork-continues", "after": 4, "expect": "the fork answers PUNG under the copied transcript" }
         ]
       },
-      "routes": ["POST /api/session/{sessionID}/fork"],
-      "features": [],
+      "routes": ["POST /api/session/{sessionID}/fork", "GET /api/session/{sessionID}/message"],
+      "features": ["session-fork"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/fork-session-from-message/reference/","maki":"bridge/test/journeys/fork-session-from-message/maki/","diff":"bridge/test/journeys/fork-session-from-message/diff.json","live":{"snapshots":"bridge/test/journeys/fork-session-from-message/live/","diff":"bridge/test/journeys/fork-session-from-message/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "fork-picker", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the timeline dialog covers the last footer line mid-label, so each side shows the first letters of its own label for the same scripted model: the reference's provider label \"Mock Model\" and Maki's model id \"fake\" (from the bridge's GET /api/model, the child's announced synthetic/fake) — the whole label is normalized to <MODEL> everywhere it is not cut" },
+        { "checkpoint": "forked", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the fork keeps that title with the pinned fork suffix (core session/projector.ts v2.0.32 L51–L56)" },
+        { "checkpoint": "fork-continues", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the fork keeps that title with the pinned fork suffix (core session/projector.ts v2.0.32 L51–L56)" }
+      ]
     },
     {
       "slug": "jump-to-message",

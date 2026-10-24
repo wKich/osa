@@ -39,3 +39,8 @@ describe("childArgv", () => {
     }
   });
 });
+
+test("a fork continues the stored Maki session under a new id", () => {
+  const argv = childArgv({ cwd: "/sandbox/w", fork: "maki-sess-1", onFrame: () => {}, onExit: () => {} }, { OPENMAKI_SANDBOX: "box" });
+  expect(argv.slice(-3)).toEqual(["-r", "maki-sess-1", "--fork-session"]);
+});

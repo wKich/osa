@@ -1,0 +1,39 @@
+   Reply with the word PONG only   Reply with the word PONG only +
+                                                                                               ┃                     ┃
+  ┃                                                                                            ┃  Forked session  x  ┃
+  ┃  Reply with the word PONG only.                                                            ┃                     ┃
+  ┃
+
+     PONG
+
+     Build · <MODEL> · <DUR>
+
+  ┃
+  ┃  Reply with the word PANG only.
+  ┃
+
+     PANG
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

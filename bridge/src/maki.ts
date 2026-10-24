@@ -21,6 +21,9 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 export interface MakiOptions {
   cwd: string; // sandbox workdir: the child's workdir on the default path
   model?: string; // provider/model spec; omit for maki's default
+  // continue a stored Maki session under a new id (`-r <id> --fork-session`,
+  // src/cli.rs v0.6.4 L53–L63, L114–L117)
+  fork?: string;
   onFrame: (frame: any) => void;
   onExit: (code: number | null) => void;
 }
@@ -29,7 +32,7 @@ const SDK_FLAGS = ["-p", "--input-format", "stream-json", "--output-format", "st
 
 /** argv for the child; exported so the shape can be asserted without spawning */
 export function childArgv(opts: MakiOptions, env: Record<string, string | undefined> = process.env): string[] {
-  const model = opts.model ? ["-m", opts.model] : [];
+  const model = [...(opts.model ? ["-m", opts.model] : []), ...(opts.fork ? ["-r", opts.fork, "--fork-session"] : [])];
   const override = env.MAKI_CHILD_CMD;
   if (override) return [override, ...SDK_FLAGS, ...model];
   const name = env.OPENMAKI_SANDBOX;

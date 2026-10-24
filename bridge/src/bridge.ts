@@ -65,6 +65,7 @@ interface BridgeSession {
   outcome?: "succeeded" | "failed" | "interrupted";
   title?: string; // set when the first run ends, as Maki records it, or by a rename
   metadata?: AnyObj; // host annotations the TUI sets (Session.Info metadata)
+  fork?: { sessionID: string; boundary: { type: "through"; messageID: string } }; // the parent it was forked from
   history: SessionHistory; // the projected transcript a reopened TUI reads
 }
 
@@ -211,6 +212,7 @@ function sessionObject(s: BridgeSession): AnyObj {
     location: { directory: s.directory },
     ...(s.title ? { title: s.title } : {}),
     ...(s.metadata ? { metadata: s.metadata } : {}),
+    ...(s.fork ? { fork: s.fork } : {}),
   };
 }
 
@@ -253,7 +255,26 @@ function createSession(body: AnyObj): { status: number; payload: any } {
   const existing = sessions.get(id);
   if (existing) return { status: 200, payload: { data: sessionObject(existing) } };
   const { status, payload } = synthesize("POST", "/api/session", asUrl("/api/session"), body, CANONICAL);
+  const opened = openSession(id, {
+    agent: typeof body?.agent === "string" ? body.agent : defaultAgent(),
+    model: (body?.model && typeof body.model === "object" && body.model.providerID && body.model.id)
+      ? { providerID: String(body.model.providerID), id: String(body.model.id) }
+      : defaultModel(),
+  });
+  if ("error" in opened) return opened.error;
+  const s = opened.session;
+  if (payload?.data) {
+    payload.data = { ...payload.data, id, projectID, time: { ...payload.data.time, created: s.created, updated: s.updated }, location: { directory: s.directory } };
+  }
+  return { status, payload };
+}
 
+/** one bridge session and its Maki child; `fork` continues a stored Maki
+ * session under a new id */
+function openSession(
+  id: string,
+  opts: { agent: string; model: { providerID: string; id: string }; fork?: string },
+): { session: BridgeSession } | { error: { status: number; payload: any } } {
   // The TUI's requested directory is its own host cwd (design decision 5):
   // the sandbox workdir is canonical, so every session runs there and no host
   // path can enter the sandbox through `sandbox exec --workdir`.
@@ -306,21 +327,20 @@ function createSession(body: AnyObj): { status: number; payload: any } {
     maki = new MakiSession({
       cwd: directory,
       model: MAKI_MODEL,
+      fork: opts.fork,
       onFrame: (frame) => onMakiFrame(id, frame),
       onExit: () => onMakiExit(id),
     });
   } catch (err) {
     // e.g. no sandbox name and no child override: refuse rather than run
     // maki on the host
-    return { status: 500, payload: { _tag: "InternalError", message: String((err as Error).message ?? err) } };
+    return { error: { status: 500, payload: { _tag: "InternalError", message: String((err as Error).message ?? err) } } };
   }
   s = {
     id,
     directory,
-    agent: typeof body?.agent === "string" ? body.agent : defaultAgent(),
-    model: (body?.model && typeof body.model === "object" && body.model.providerID && body.model.id)
-      ? { providerID: String(body.model.providerID), id: String(body.model.id) }
-      : defaultModel(),
+    agent: opts.agent,
+    model: opts.model,
     maki,
     translator,
     pending: new Map(),
@@ -330,11 +350,46 @@ function createSession(body: AnyObj): { status: number; payload: any } {
     updated: Date.now(),
   };
   sessions.set(id, s);
-  if (payload?.data) {
-    payload.data = { ...payload.data, id, projectID, time: { ...payload.data.time, created: s.created, updated: s.updated }, location: { directory } };
-  }
-  return { status, payload };
+  return { session: s };
 }
+
+// session.fork (server handlers/session.ts v2.0.32 L226–L239, core session.ts
+// L319–L358): the pinned child forks a whole stored session (`-r <id>
+// --fork-session`, src/cli.rs v0.6.4 L53–L63, L114–L117) and cannot cut its
+// history at a message, so only the full-session fork is served
+function forkSession(parent: BridgeSession, body: AnyObj): { status: number; payload: any } {
+  const before = typeof body?.before === "string" ? body.before : undefined;
+  if (before && !parent.history.has(before)) {
+    return { status: 404, payload: { _tag: "MessageNotFoundError", sessionID: parent.id, messageID: before, message: `Message not found: ${before}` } };
+  }
+  if (parent.history.size === 0 || !parent.makiSessionID) {
+    return { status: 400, payload: { _tag: "InvalidRequestError", message: `Cannot fork empty session: ${parent.id}`, kind: "empty_session" } };
+  }
+  if (before) {
+    return { status: 400, payload: { _tag: "InvalidRequestError", message: "Maki forks a whole session only; fork the full session instead" } };
+  }
+  const id = mintSession();
+  const opened = openSession(id, { agent: parent.agent, model: parent.translator.announcedModel ?? parent.model, fork: parent.makiSessionID });
+  if ("error" in opened) return opened.error;
+  const s = opened.session;
+  const eventID = mintEvent();
+  const boundary = s.history.forkFrom(parent.history, eventID);
+  // the copy keeps the parent's title with a fork suffix (core
+  // session/projector.ts L51–L56) and its first prompt, so Maki's first-run
+  // title never replaces it
+  s.title = forkTitle(parent.title);
+  s.firstPrompt = parent.firstPrompt;
+  if (parent.metadata) s.metadata = parent.metadata;
+  s.fork = { sessionID: parent.id, boundary: { type: "through", messageID: boundary! } };
+  emit("session.forked", { sessionID: id, parentID: parent.id, boundary: s.fork.boundary }, 2);
+  return { status: 200, payload: { data: sessionObject(s) } };
+}
+
+const forkTitle = (value?: string) => {
+  if (value === undefined) return undefined;
+  const match = /^(.+) \(fork #(\d+)\)$/.exec(value);
+  return match ? `${match[1]} (fork #${Number.parseInt(match[2]!, 10) + 1})` : `${value} (fork #1)`;
+};
 
 function listSessions(): { status: number; payload: AnyObj } {
   const { payload } = synthesize("GET", "/api/session", asUrl("/api/session"), null, CANONICAL);
@@ -630,6 +685,7 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
   }
   if (rest === "interrupt" && method === "POST") return interrupt(s);
   if (rest === "view" && method === "POST") return viewSession(s, body);
+  if (rest === "fork" && method === "POST") return forkSession(s, body);
   if (rest === "message" && method === "GET") return messagePage(s, url);
   if (rest === "inbox" && method === "GET") return { status: 200, payload: { data: inboxList(s) } };
   const inboxItem = /^inbox\/([^/]+)$/.exec(rest);

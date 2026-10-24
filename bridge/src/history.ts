@@ -17,6 +17,27 @@ export class SessionHistory {
   private messages: Message[] = [];
   private pending = new Map<string, Pending>();
 
+  /** a fork's transcript: the settled messages, renamed as the real
+   * projector renames copies (core session/projector.ts v2.0.32 L195–L229) */
+  forkFrom(parent: SessionHistory, eventID: string): string | undefined {
+    const prefix = eventID.replace(/^evt_/, "msg_");
+    let boundary: string | undefined;
+    parent.messages.forEach((m, i) => {
+      boundary = m.id;
+      if (m.type === "assistant" && m.time?.completed === undefined) return;
+      this.messages.push({ ...structuredClone(m), id: `${prefix}_${i + 1}` });
+    });
+    return boundary;
+  }
+
+  get size(): number {
+    return this.messages.length;
+  }
+
+  has(id: string): boolean {
+    return this.messages.some((m) => m.id === id);
+  }
+
   apply(type: string, data: AnyObj, created: number, eventID: string): void {
     switch (type) {
       case "session.inbox.enqueued":

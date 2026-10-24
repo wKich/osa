@@ -1,0 +1,20 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "fork-picker",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Reply with the word PONG only +\n \n   ┃\n   ┃  Reply with the word PONG only.\n   ┃\n \n      PONG\n \n      Build · <MODEL> · <DUR>\n \n   ┃\n   ┃  Reply with     Fork session                                                                 esc\n   ┃\n                     Search\n      PANG\n                   ● Full session\n-     Build · Moc    Reply with the word PANG only.                                           <TIME> PM\n+     Build · moc    Reply with the word PANG only.                                           <TIME> PM\n                     Reply with the word PONG only.                                           <TIME> PM\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "forked",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                         Journey (fork #1)             +\n+   Reply with the word PONG only   Reply with the word PONG only +\n                                                                                                ┃                     ┃\n   ┃                                                                                            ┃  Forked session  x  ┃\n   ┃  Reply with the word PONG only.                                                            ┃                     ┃\n   ┃\n \n      PONG\n \n      Build · <MODEL> · <DUR>\n \n   ┃\n   ┃  Reply with the word PANG only.\n   ┃\n \n      PANG\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "fork-continues",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                         Journey (fork #1)             +\n+   Reply with the word PONG only   Reply with the word PONG only +\n                                                                                                ┃                     ┃\n   ┃                                                                                            ┃  Forked session  x  ┃\n   ┃  Reply with the word PONG only.                                                            ┃                     ┃\n   ┃\n \n      PONG\n \n      Build · <MODEL> · <DUR>\n \n   ┃\n   ┃  Reply with the word PANG only.\n   ┃\n \n      PANG\n \n      Build · <MODEL> · <DUR>\n \n   ┃\n   ┃  Reply with the word PUNG only.\n   ┃\n \n      PUNG\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

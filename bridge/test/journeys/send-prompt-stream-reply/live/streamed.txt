@@ -1,4 +1,4 @@
-   New session                   +
+   Reply with the word PONG only +
 
   ┃
   ┃  Reply with the word PONG only.

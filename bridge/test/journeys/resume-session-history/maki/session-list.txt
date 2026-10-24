@@ -1,4 +1,4 @@
-   New session                   + New session
+   Reply with the word ALPHA onl + New session
 
 
 
@@ -14,7 +14,7 @@
                     Search
 
                     Today
-                    New session - <TIME>
+                    Reply with the word ALPHA only.
 
                     delete ctrl+d  rename ctrl+r                                 all projects ctrl+a
 

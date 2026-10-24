@@ -328,7 +328,7 @@
         ]
       },
       "routes": ["GET /api/session", "GET /api/session/{sessionID}", "GET /api/session/{sessionID}/message"],
-      "features": ["session-crud", "deferred-session-surface-contract", "transcript-order"],
+      "features": ["session-title", "session-crud", "deferred-session-surface-contract", "transcript-order"],
       "scope": "reachable",
       "blockedBy": "none",
       "status": "broken",
@@ -781,14 +781,12 @@
         ]
       },
       "routes": ["POST /api/session/{sessionID}/prompt", "GET /api/session/{sessionID}", "GET /api/event"],
-      "features": ["prompt-translation", "stream-deltas", "transcript-order", "model-identity", "sse-handshake", "sse-bare-data-frames", "durable-envelope", "minted-id-patterns", "maki-wire-envelope", "api-retry-tolerance"],
+      "features": ["session-title", "prompt-translation", "stream-deltas", "transcript-order", "model-identity", "sse-handshake", "sse-bare-data-frames", "durable-envelope", "minted-id-patterns", "maki-wire-envelope", "api-retry-tolerance"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "parity",
-      "evidence": { "reference":"bridge/test/journeys/send-prompt-stream-reply/reference/","maki":"bridge/test/journeys/send-prompt-stream-reply/maki/","diff":"bridge/test/journeys/send-prompt-stream-reply/diff.json","live":{"snapshots":"bridge/test/journeys/send-prompt-stream-reply/live/","diff":"bridge/test/journeys/send-prompt-stream-reply/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
-      "acceptedDiffs": [
-        { "checkpoint": "streamed", "reason": "the Maki side has no server-side session-title generator, so \"New session\" is the true placeholder; the reference's \"Journey\" comes from the mock provider's title turn and is not a Maki behavior" }
-      ]
+      "status": "diverges",
+      "evidence": { "reference":"bridge/test/journeys/send-prompt-stream-reply/reference/","maki":"bridge/test/journeys/send-prompt-stream-reply/maki/","diff":"bridge/test/journeys/send-prompt-stream-reply/diff.json","live":{"snapshots":"bridge/test/journeys/send-prompt-stream-reply/live/","diff":"bridge/test/journeys/send-prompt-stream-reply/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"diverges"} },
+      "acceptedDiffs": []
     },
     {
       "slug": "attach-image-to-prompt",

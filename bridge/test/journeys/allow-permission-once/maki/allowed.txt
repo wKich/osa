@@ -1,4 +1,4 @@
-   New session                   +
+   Use your shell tool to run ex +
 
   ┃
   ┃  Use your shell tool to run exactly: rm -f probe.txt . Then reply with the single word DONE.

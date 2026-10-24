@@ -1,20 +1,20 @@
-   New session                   + New session
+   Reply with the word ALPHA onl + New session
+                                                                ┃                                                    ┃
+                                                                ┃  MCP server failed: synthetic  › Open MCP servers  ┃
+                                                                ┃                                                    ┃
+                                                                ┃  Run /mcps to view details.                        ┃
+                                                                ┃                                                    ┃
 
 
 
 
 
-
-
-
-
-
-                    Sessions for <WORKDIR>                                                    esc
+                    Sessions for <WORKDIR> esc
 
                     Search
 
                     Today
-                    New session - <TIME>
+                    Reply with the word ALPHA only.
 
                     delete ctrl+d  rename ctrl+r                                 all projects ctrl+a
 
@@ -24,7 +24,7 @@
                        ┃
                        ┃  Build · <MODEL> <MODEL>
                        ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-                       <WORKDIR>  shift+tab agents  ctrl+p commands
+                       <WORKDIR> shift+tab agents  ctrl+p commands
 
 
 
@@ -36,4 +36,4 @@
 
 
 
-                                                                                                                2.0.32
+  ⊙ 2 MCP failed /mcps                                                                                          2.0.32

@@ -24,6 +24,7 @@ import { MakiSession, type ImageBlock } from "./maki.ts";
 import { Translator } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
+import { makiTitle } from "./title.ts";
 import { readGitState, readMcpConfig, readModelCatalog, readSkills, sandboxRun } from "./sandbox.ts";
 
 const PORT = Number(process.env.PORT ?? 4600);
@@ -57,6 +58,8 @@ interface BridgeSession {
   updated: number;
   cost?: number;
   tokens?: AnyObj;
+  firstPrompt?: string; // the first non-empty prompt text, Maki's title source
+  title?: string; // set when the first run ends, as Maki records it
 }
 
 const sessions = new Map<string, BridgeSession>();
@@ -173,6 +176,7 @@ function sessionObject(s: BridgeSession): AnyObj {
     tokens: s.tokens ?? { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: { created: s.created, updated: s.updated },
     location: { directory: s.directory },
+    ...(s.title ? { title: s.title } : {}),
   };
 }
 
@@ -243,6 +247,12 @@ function createSession(body: AnyObj): { status: number; payload: any } {
     },
     onResult: (r) => {
       s.updated = Date.now();
+      // Maki titles the session when it records the first run
+      // (maki-agent session.rs v0.6.4 L143–L166, L203–L217)
+      if (!s.title && s.firstPrompt) {
+        s.title = makiTitle(s.firstPrompt);
+        if (s.title) emit("session.renamed", { sessionID: id, title: s.title }, 1);
+      }
       if (r.total_cost_usd != null) s.cost = r.total_cost_usd;
       if (r.usage) {
         s.tokens = {
@@ -325,6 +335,7 @@ function prompt(sid: string, body: AnyObj, url: URL): { status: number; payload:
     return { status: 503, payload: { _tag: "ServiceUnavailableError", message: "maki session is not running" } };
   }
   const text = String(body?.text ?? "");
+  if (s.firstPrompt === undefined && text.trim()) s.firstPrompt = text;
   const userMsgID = typeof body?.id === "string" && /^msg_/.test(body.id) ? body.id : mintMessage();
   // mint the turn's assistant message id before maki can answer, so every part
   // event of the turn carries the same msg_ (mapping-table.md §5); the user

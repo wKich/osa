@@ -96,6 +96,11 @@ with that session alone.
 - **THEN** only that session's Maki child exits, that session reads back 404,
   and the other session's child stays alive and still runs its next turn
 
+#### Scenario: A delete is announced
+- **WHEN** the TUI deletes a session
+- **THEN** the bridge emits `session.deleted` (durable version 2) for it, and
+  the TUI leaves the deleted session for the home screen
+
 ### Requirement: Translate the prompt into an OpenCode transcript
 The bridge SHALL accept a prompt on the OpenCode prompt endpoint and emit SSE
 event frames covering reasoning, text, tool, step, and execution boundaries as

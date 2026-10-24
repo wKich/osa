@@ -1,6 +1,6 @@
 # OpenCode TUI bridge — compatibility
 
-Generated from `bridge/compat/statuses.json` and `bridge/defects.json` by `scripts/gen-compat.ts`. Do not edit by hand — run `make compat` to regenerate and `make compat-drift` to check the pinned contract against the installed OpenCode.
+Generated from `bridge/compat/statuses.json`, `bridge/compat/journeys.json` and `bridge/defects.json` by `scripts/gen-compat.ts`. Do not edit by hand — run `make compat` to regenerate and `make compat-drift` to check the pinned contract against the installed OpenCode.
 
 ## Burndown
 
@@ -225,6 +225,81 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 Rows citing these notes are proved against fixtures that were authored or spliced from the pinned source, not captured whole from a live run.
 
 1. `maki-error.jsonl` is mixed (assistant output is captured; the error_during_execution result shape is source-derived (sdk_mode.rs v0.6.4 L995-L1000)); `maki-retry.jsonl` is mixed (the two spliced frames are source-derived (error is a plain string per the pin); the surrounding turn is captured); wire shape source-derived: `maki-stream.jsonl` is authored (never captured from a live streaming provider; see the shortcut note in bridge/src/translator.ts); wire shape source-derived: `maki-subagent.jsonl` is authored (never captured from a live subagent turn)
+
+## Journeys
+
+Statuses: `unrecorded` (no reference recording yet), `referenced` (a reference recording of real OpenCode exists, the Maki side is not yet compared), `parity` (both sides match at every checkpoint), `diverges` (the journey completes with at least one differing checkpoint), `broken` (the Maki side cannot complete it).
+
+Reachable journeys: **53 of 59** (53 `unrecorded`, 0 `referenced`, 0 `parity`, 0 `diverges`, 0 `broken`). Native parity score: **0.0%** (0 of 53 reachable journeys at `parity`).
+
+### Reachable (53)
+
+| Slug | Journey | Area | Status | Evidence | Accepted differences |
+| --- | --- | --- | --- | --- | --- |
+| `boot-project-context` | Boot and see the project context | navigation | `unrecorded` | — | — |
+| `show-command-palette` | Find and run a command from the palette | navigation | `unrecorded` | — | — |
+| `open-recent-session-or-project` | Open a recent session or project | navigation | `unrecorded` | — | — |
+| `toggle-sidebar` | Toggle the session sidebar | navigation | `unrecorded` | — | — |
+| `open-help` | Open the help dialog | navigation | `unrecorded` | — | — |
+| `view-status` | View the server and session status | navigation | `unrecorded` | — | — |
+| `switch-theme` | Switch the theme | navigation | `unrecorded` | — | — |
+| `open-settings` | Open settings | navigation | `unrecorded` | — | — |
+| `view-debug-info` | View debug information | navigation | `unrecorded` | — | — |
+| `view-usage-statistics` | View usage statistics | navigation | `unrecorded` | — | — |
+| `exit-application` | Exit the application | navigation | `unrecorded` | — | — |
+| `new-session` | Create a new session | session | `unrecorded` | — | — |
+| `resume-session-history` | Resume a session and see its history | session | `unrecorded` | — | — |
+| `switch-session-tab` | Switch between open sessions | session | `unrecorded` | — | — |
+| `rename-session` | Rename a session | session | `unrecorded` | — | — |
+| `delete-session` | Delete a session | session | `unrecorded` | — | — |
+| `pin-session` | Pin a session in the list | session | `unrecorded` | — | — |
+| `clear-session` | Clear the current session | session | `unrecorded` | — | — |
+| `fork-session-from-message` | Fork a session from a message | session | `unrecorded` | — | — |
+| `jump-to-message` | Jump to a message in the transcript | session | `unrecorded` | — | — |
+| `interrupt-running-turn` | Interrupt a running turn | session | `unrecorded` | — | — |
+| `queue-prompt-while-running` | Queue a prompt while a turn runs | session | `unrecorded` | — | — |
+| `manage-queued-prompts` | Manage queued prompts | session | `unrecorded` | — | — |
+| `compact-session` | Compact a long session | session | `unrecorded` | — | — |
+| `undo-previous-message` | Undo the previous message | session | `unrecorded` | — | — |
+| `redo-reverted-message` | Redo a reverted message | session | `unrecorded` | — | — |
+| `copy-session-content` | Copy session content | session | `unrecorded` | — | — |
+| `export-session-transcript` | Export a session transcript | session | `unrecorded` | — | — |
+| `background-blocking-tools` | Background a blocking tool | session | `unrecorded` | — | — |
+| `open-subagent-session` | Open a subagent session | session | `unrecorded` | — | — |
+| `ask-side-question` | Ask a side question | session | `unrecorded` | — | — |
+| `view-session-diff` | Review the session diff | session | `unrecorded` | — | — |
+| `open-terminal-pane` | Open a terminal pane | session | `unrecorded` | — | — |
+| `view-shell-output` | View a shell tool's output | session | `unrecorded` | — | — |
+| `send-prompt-stream-reply` | Send a prompt and watch the reply stream | prompt | `unrecorded` | — | — |
+| `attach-image-to-prompt` | Attach an image to a prompt | prompt | `unrecorded` | — | — |
+| `mention-file-in-prompt` | Mention a file in a prompt | prompt | `unrecorded` | — | — |
+| `mention-skill-in-prompt` | Mention a skill in a prompt | prompt | `unrecorded` | — | — |
+| `open-external-editor` | Compose a prompt in an external editor | prompt | `unrecorded` | — | — |
+| `stash-prompt` | Stash and restore a prompt | prompt | `unrecorded` | — | — |
+| `adjust-transcript-display` | Adjust the transcript display | session | `unrecorded` | — | — |
+| `allow-permission-once` | Allow a tool once | permission | `unrecorded` | — | — |
+| `allow-permission-always` | Allow matching tool calls for the session | permission | `unrecorded` | — | — |
+| `reject-permission-with-reason` | Reject a tool with a reason | permission | `unrecorded` | — | — |
+| `answer-mcp-form` | Answer an MCP form | permission | `unrecorded` | — | — |
+| `switch-model` | Switch the model | model | `unrecorded` | — | — |
+| `switch-agent` | Switch the agent | model | `unrecorded` | — | — |
+| `switch-model-variant` | Switch the model variant | model | `unrecorded` | — | — |
+| `manage-mcp-servers` | Manage MCP servers | tools | `unrecorded` | — | — |
+| `manage-plugins` | Manage plugins | tools | `unrecorded` | — | — |
+| `manage-workspaces` | Manage workspaces | files | `unrecorded` | — | — |
+| `change-working-directory` | Change the working directory | files | `unrecorded` | — | — |
+| `reload-configuration` | Reload the configuration | config | `unrecorded` | — | — |
+
+### Out of scope (6)
+
+| Slug | Journey | Area | Status | Evidence | Accepted differences |
+| --- | --- | --- | --- | --- | --- |
+| `open-documentation` | Open the documentation | navigation | `unrecorded` | — | — |
+| `pair-device` | Pair a device | navigation | `unrecorded` | — | — |
+| `connect-integration` | Connect a provider integration | config | `unrecorded` | — | — |
+| `update-opencode` | Update OpenCode | config | `unrecorded` | — | — |
+| `restart-service` | Restart the OpenCode service | config | `unrecorded` | — | — |
+| `view-release-highlights` | View release highlights | config | `unrecorded` | — | — |
 
 ## Version matrix
 

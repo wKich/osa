@@ -1,0 +1,1253 @@
+{
+  "pin": { "opencode": "2.0.32" },
+  "journeys": [
+    {
+      "slug": "boot-project-context",
+      "name": "Boot and see the project context",
+      "description": "Start the TUI in a project and land on a ready prompt with the project, branch, model, and catalogs loaded.",
+      "area": "navigation",
+      "source": "packages/tui/src/app.tsx (boot) and packages/tui/src/component/session-frame.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["start the TUI in a project directory", "wait for the session to load"],
+        "checkpoints": [
+          { "id": "boot-renders", "after": 2, "expect": "the home screen shows the prompt, the project directory and git branch in the footer, and the server's model" },
+          { "id": "catalogs-loaded", "after": 2, "expect": "the model, agent, command, MCP, and skill lists are populated and any migration overlay has finished" }
+        ]
+      },
+      "routes": [
+        "GET /api/event",
+        "GET /api/info",
+        "GET /api/fs/list",
+        "GET /api/plugin",
+        "GET /api/session/active",
+        "GET /api/location",
+        "GET /api/project",
+        "GET /api/config",
+        "GET /api/agent",
+        "GET /api/command",
+        "GET /api/integration",
+        "GET /api/mcp/resource",
+        "GET /api/model",
+        "GET /api/provider",
+        "GET /api/reference",
+        "GET /api/shell",
+        "GET /api/form",
+        "GET /api/mcp",
+        "GET /api/vcs",
+        "GET /api/skill",
+        "GET /api/experimental/migration/v1"
+      ],
+      "features": ["server-info-live", "fs-list-sandbox", "vcs-branch-live", "project-identity-live", "session-active-live", "mcp-server-status", "skill-list-live", "model-catalog-live", "sse-handshake"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "show-command-palette",
+      "name": "Find and run a command from the palette",
+      "description": "Open the command palette, search the commands, and run one without remembering its keybind.",
+      "area": "navigation",
+      "source": "packages/tui/src/config/keybind.ts:57 (command.palette.show) and packages/tui/src/component/command-palette.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["press ctrl+p", "type part of a command name", "select the command"],
+        "checkpoints": [
+          { "id": "palette-open", "after": 1, "expect": "a searchable list of commands grouped by Session, Agent, System" },
+          { "id": "palette-runs", "after": 3, "expect": "the selected command's dialog or action appears" }
+        ]
+      },
+      "routes": ["GET /api/command"],
+      "features": ["slash-commands"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "open-recent-session-or-project",
+      "name": "Open a recent session or project",
+      "description": "Use the open menu to return to a recent session or switch to another project.",
+      "area": "navigation",
+      "source": "packages/tui/src/config/keybind.ts (open.menu) and packages/tui/src/component/dialog-open.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["press ctrl+o", "pick an earlier session or project", "confirm"],
+        "checkpoints": [
+          { "id": "open-list", "after": 1, "expect": "a dialog lists recent sessions and projects" },
+          { "id": "opened", "after": 3, "expect": "the selected session's transcript, or the selected project's home, opens" }
+        ]
+      },
+      "routes": ["GET /api/session", "GET /api/worktree"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "toggle-sidebar",
+      "name": "Toggle the session sidebar",
+      "description": "Collapse and restore the sidebar to give the transcript more width.",
+      "area": "navigation",
+      "source": "packages/tui/src/config/keybind.ts:96 (session.sidebar.toggle) and packages/tui/src/routes/session/sidebar.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["open a session", "press leader+b", "press leader+b again"],
+        "checkpoints": [
+          { "id": "sidebar-hidden", "after": 2, "expect": "the right sidebar collapses and the transcript pane widens" },
+          { "id": "sidebar-shown", "after": 3, "expect": "the sidebar returns with its previous content" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "open-help",
+      "name": "Open the help dialog",
+      "description": "Show the keybindings and commands available from the current screen.",
+      "area": "navigation",
+      "source": "packages/tui/src/app.tsx:1119 (help.show, /help) at v2.0.32",
+      "scenario": {
+        "steps": ["run /help"],
+        "checkpoints": [
+          { "id": "help-shown", "after": 1, "expect": "a dialog lists the keybindings with their descriptions" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "view-status",
+      "name": "View the server and session status",
+      "description": "Open the status dialog to read the server version, directory, and current session.",
+      "area": "navigation",
+      "source": "packages/tui/src/config/keybind.ts:103 (opencode.status) and packages/tui/src/component/dialog-status.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["press leader+s"],
+        "checkpoints": [
+          { "id": "status-shown", "after": 1, "expect": "the Status dialog shows the server version, directory, and session id" }
+        ]
+      },
+      "routes": ["GET /api/info"],
+      "features": ["server-info-live"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "switch-theme",
+      "name": "Switch the theme",
+      "description": "Pick a different theme and repaint the whole TUI without restarting.",
+      "area": "navigation",
+      "source": "packages/tui/src/app.tsx:1088 (/themes) and packages/tui/src/component/dialog-theme-list.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["run /themes", "select a theme"],
+        "checkpoints": [
+          { "id": "theme-list", "after": 1, "expect": "the theme dialog lists the available themes" },
+          { "id": "theme-applied", "after": 2, "expect": "the transcript, prompt, and borders repaint in the selected theme" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "open-settings",
+      "name": "Open settings",
+      "description": "Change theme, color mode, and other persisted TUI settings from one dialog.",
+      "area": "navigation",
+      "source": "packages/tui/src/app.tsx:1004 (/settings) and packages/tui/src/component/dialog-config.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["run /settings", "change a setting"],
+        "checkpoints": [
+          { "id": "settings-shown", "after": 1, "expect": "the settings dialog lists theme, color mode, and experiments" },
+          { "id": "setting-saved", "after": 2, "expect": "the changed setting applies immediately and survives a restart" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "view-debug-info",
+      "name": "View debug information",
+      "description": "Show the version, paths, and a copy action for support reports.",
+      "area": "navigation",
+      "source": "packages/tui/src/app.tsx:1079 (/debug) and packages/tui/src/component/dialog-debug.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["run /debug", "copy the debug info"],
+        "checkpoints": [
+          { "id": "debug-shown", "after": 1, "expect": "the debug dialog shows the version, directory, and a copy hint" },
+          { "id": "copied", "after": 2, "expect": "a toast confirms the debug info is on the clipboard" }
+        ]
+      },
+      "routes": ["GET /api/info"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "view-usage-statistics",
+      "name": "View usage statistics",
+      "description": "Open the statistics page for session and tool usage counters.",
+      "area": "navigation",
+      "source": "packages/tui/src/feature-plugins/system/stats.tsx:200 (/stats) at v2.0.32",
+      "scenario": {
+        "steps": ["run /stats", "close the page"],
+        "checkpoints": [
+          { "id": "stats-shown", "after": 1, "expect": "the stats page shows usage counters for the project" },
+          { "id": "stats-closed", "after": 2, "expect": "the previous route is restored" }
+        ]
+      },
+      "routes": ["GET /api/experimental/session/stats", "GET /api/experimental/session/{sessionID}/instructions/entries"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "open-documentation",
+      "name": "Open the documentation",
+      "description": "Open the OpenCode documentation site from the command palette.",
+      "area": "navigation",
+      "source": "packages/tui/src/app.tsx (docs.open command) at v2.0.32",
+      "scenario": {
+        "steps": ["run the Open docs command"],
+        "checkpoints": [
+          { "id": "docs-opened", "after": 1, "expect": "the host browser opens the OpenCode documentation site" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "out-of-scope",
+      "reason": "opens the OpenCode documentation site in a host browser; the sandbox has no browser or egress and Maki docs are a different surface",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "pair-device",
+      "name": "Pair a device",
+      "description": "Show the pairing code or URL used to attach another device to the server.",
+      "area": "navigation",
+      "source": "packages/tui/src/config/keybind.ts:61 (server.pair) and packages/tui/src/component/dialog-pair.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["run /pair"],
+        "checkpoints": [
+          { "id": "pair-shown", "after": 1, "expect": "the pair dialog shows a code or URL for the other device" }
+        ]
+      },
+      "routes": ["POST /api/pair"],
+      "features": [],
+      "scope": "out-of-scope",
+      "reason": "device pairing goes through the OpenCode web/cloud service; there is no Maki or sandbox counterpart",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "exit-application",
+      "name": "Exit the application",
+      "description": "Leave the TUI and restore the terminal to its previous state.",
+      "area": "navigation",
+      "source": "packages/tui/src/config/keybind.ts:48 (app.exit) and packages/tui/src/app.tsx:1137 (/exit) at v2.0.32",
+      "scenario": {
+        "steps": ["press ctrl+c"],
+        "checkpoints": [
+          { "id": "exited", "after": 1, "expect": "the TUI exits, the terminal is restored, and the shell prompt returns" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "new-session",
+      "name": "Create a new session",
+      "description": "Start a fresh session from anywhere in the TUI and send its first prompt.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:110 (session.new) and packages/tui/src/app.tsx:744 (/new) at v2.0.32",
+      "scenario": {
+        "steps": ["press leader+n", "type a prompt", "submit"],
+        "checkpoints": [
+          { "id": "session-created", "after": 2, "expect": "a new session is created and its empty transcript is shown with the prompt focused" },
+          { "id": "first-prompt", "after": 3, "expect": "the prompt renders as a user message and its turn starts" }
+        ]
+      },
+      "routes": ["POST /api/session", "GET /api/session/{sessionID}", "GET /api/session/{sessionID}/permission", "GET /api/session/{sessionID}/form"],
+      "features": ["session-crud"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "resume-session-history",
+      "name": "Resume a session and see its history",
+      "description": "Reopen an earlier session from the session list and render its transcript as it was left.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:111 (session.list) and packages/tui/src/component/dialog-session-list.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["press leader+l", "select an earlier session", "wait for its transcript"],
+        "checkpoints": [
+          { "id": "session-list", "after": 1, "expect": "the list shows earlier sessions with titles and timestamps" },
+          { "id": "history-visible", "after": 3, "expect": "the earlier exchange renders in the transcript pane in its original order" }
+        ]
+      },
+      "routes": ["GET /api/session", "GET /api/session/{sessionID}", "GET /api/session/{sessionID}/message"],
+      "features": ["session-crud", "deferred-session-surface-contract", "transcript-order"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "switch-session-tab",
+      "name": "Switch between open sessions",
+      "description": "Move between open session tabs and jump straight to a session in a quick slot.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:113 (session.tab.next) and :143 (session.quick_switch.1) at v2.0.32",
+      "scenario": {
+        "steps": ["open two sessions in tabs", "press ctrl+tab", "press leader+2"],
+        "checkpoints": [
+          { "id": "tab-switched", "after": 2, "expect": "the next tab's session becomes active with its transcript" },
+          { "id": "quick-switched", "after": 3, "expect": "the session in quick slot 2 opens" }
+        ]
+      },
+      "routes": ["GET /api/session/{sessionID}", "GET /api/session/{sessionID}/message"],
+      "features": ["session-active-live"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "rename-session",
+      "name": "Rename a session",
+      "description": "Give the current session a title that shows in the tab and session list.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:123 (session.rename) and packages/tui/src/routes/session/index.tsx:910 (/rename) at v2.0.32",
+      "scenario": {
+        "steps": ["open a session", "press ctrl+r", "type a title", "submit"],
+        "checkpoints": [
+          { "id": "renamed", "after": 4, "expect": "the new title shows in the tab, the session list, and the footer" }
+        ]
+      },
+      "routes": ["PATCH /api/session/{sessionID}"],
+      "features": ["session-crud"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "delete-session",
+      "name": "Delete a session",
+      "description": "Remove an old session from the session list after confirming the delete.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:124 (session.delete) and packages/tui/src/component/dialog-session-list.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["press leader+l", "select a session", "confirm delete"],
+        "checkpoints": [
+          { "id": "deleted", "after": 3, "expect": "the session disappears from the list and its tab closes" }
+        ]
+      },
+      "routes": ["DELETE /api/session/{sessionID}"],
+      "features": ["session-crud", "session-isolation"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "pin-session",
+      "name": "Pin a session in the list",
+      "description": "Pin an important session to the top of the session list.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:142 (session.pin.toggle) and packages/tui/src/component/dialog-session-list.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["press leader+l", "press ctrl+f on a session"],
+        "checkpoints": [
+          { "id": "pinned", "after": 2, "expect": "the session moves to the pinned group with a pin marker" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "clear-session",
+      "name": "Clear the current session",
+      "description": "Start fresh from the current screen without leaving the project.",
+      "area": "session",
+      "source": "packages/tui/src/app.tsx:770 (/clear) at v2.0.32",
+      "scenario": {
+        "steps": ["open a session with history", "run /clear"],
+        "checkpoints": [
+          { "id": "cleared", "after": 2, "expect": "the transcript is empty and a fresh session prompt is focused" }
+        ]
+      },
+      "routes": ["POST /api/session"],
+      "features": ["session-crud"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "fork-session-from-message",
+      "name": "Fork a session from a message",
+      "description": "Branch a new session from an earlier point in the transcript.",
+      "area": "session",
+      "source": "packages/tui/src/routes/session/index.tsx:940 (/fork) and packages/tui/src/routes/session/dialog-fork.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["open a session", "run /fork", "pick an earlier message"],
+        "checkpoints": [
+          { "id": "fork-picker", "after": 2, "expect": "the dialog lists the session's messages to fork from" },
+          { "id": "forked", "after": 3, "expect": "a new session opens whose transcript ends at the selected message" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/fork"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "jump-to-message",
+      "name": "Jump to a message in the transcript",
+      "description": "Use the timeline to find an earlier message and scroll the transcript to it.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:121 (session.timeline) and packages/tui/src/routes/session/dialog-timeline.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["open a long session", "run /timeline", "select an earlier message"],
+        "checkpoints": [
+          { "id": "timeline", "after": 2, "expect": "a timeline lists the session's messages" },
+          { "id": "jumped", "after": 3, "expect": "the transcript scrolls to the selected message" }
+        ]
+      },
+      "routes": ["GET /api/session/{sessionID}/message", "GET /api/session/{sessionID}"],
+      "features": ["transcript-order"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "interrupt-running-turn",
+      "name": "Interrupt a running turn",
+      "description": "Stop an in-flight turn and keep the partial reply in the transcript.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:128 (session.interrupt) and packages/tui/src/routes/session/index.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["submit a prompt that starts a long turn", "press escape"],
+        "checkpoints": [
+          { "id": "interrupted", "after": 2, "expect": "the spinner stops, the partial reply stays, and the transcript marks the turn as interrupted" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/interrupt"],
+      "features": ["interrupt-round-trip", "turn-abort-mapping", "turn-failure-mapping"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "queue-prompt-while-running",
+      "name": "Queue a prompt while a turn runs",
+      "description": "Send another prompt during a running turn and let it start after the current result.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:198 (prompt.queue) and packages/tui/src/component/prompt/index.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["start a turn", "type a second prompt", "press leader+return"],
+        "checkpoints": [
+          { "id": "queued", "after": 3, "expect": "the second prompt shows as queued while the first turn keeps streaming" },
+          { "id": "runs-next", "after": 3, "expect": "after the first result, the queued prompt starts its own turn" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/prompt", "GET /api/session/{sessionID}/inbox"],
+      "features": ["mid-turn-steering"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "manage-queued-prompts",
+      "name": "Manage queued prompts",
+      "description": "Inspect, delete, or unqueue prompts waiting behind the running turn.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:133 (session.queued_prompts) and packages/tui/src/routes/session/index.tsx:1273 at v2.0.32",
+      "scenario": {
+        "steps": ["queue two prompts", "press leader+q", "delete one"],
+        "checkpoints": [
+          { "id": "queue-list", "after": 2, "expect": "the dialog lists the queued prompts in delivery order" },
+          { "id": "removed", "after": 3, "expect": "the deleted prompt no longer runs" }
+        ]
+      },
+      "routes": ["GET /api/session/{sessionID}/inbox", "PATCH /api/session/{sessionID}/inbox/{inboxID}", "DELETE /api/session/{sessionID}/inbox/{inboxID}"],
+      "features": ["mid-turn-steering"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "compact-session",
+      "name": "Compact a long session",
+      "description": "Replace the older turns with a summary so the session fits the model's context.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:130 (session.compact) and packages/tui/src/routes/session/index.tsx:958 (/compact) at v2.0.32",
+      "scenario": {
+        "steps": ["open a session with a long history", "run /compact"],
+        "checkpoints": [
+          { "id": "compacted", "after": 2, "expect": "a compaction summary replaces the older turns and the context indicator drops" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/compact"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "undo-previous-message",
+      "name": "Undo the previous message",
+      "description": "Revert the last exchange and restore its prompt text to the input.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:193 (session.undo) and packages/tui/src/routes/session/index.tsx:981 (/undo) at v2.0.32",
+      "scenario": {
+        "steps": ["send a prompt and receive a reply", "run /undo"],
+        "checkpoints": [
+          { "id": "reverted", "after": 2, "expect": "the last exchange leaves the transcript and its prompt text returns to the input" }
+        ]
+      },
+      "routes": ["GET /api/session/{sessionID}/message", "POST /api/session/{sessionID}/interrupt", "POST /api/session/{sessionID}/revert/stage", "POST /api/experimental/session/{sessionID}/wait"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "redo-reverted-message",
+      "name": "Redo a reverted message",
+      "description": "Restore the exchange that was reverted by undo.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:194 (session.redo) and packages/tui/src/routes/session/index.tsx:1014 (/redo) at v2.0.32",
+      "scenario": {
+        "steps": ["undo the last message", "run /redo"],
+        "checkpoints": [
+          { "id": "restored", "after": 2, "expect": "the reverted exchange returns to the transcript" }
+        ]
+      },
+      "routes": ["DELETE /api/session/{sessionID}/revert", "POST /api/session/{sessionID}/revert/commit"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "copy-session-content",
+      "name": "Copy session content",
+      "description": "Copy the last assistant message, the session id, or the whole transcript to the clipboard.",
+      "area": "session",
+      "source": "packages/tui/src/routes/session/index.tsx:1140 (/copy), :1179 (copy id), :1191 (copy transcript) at v2.0.32",
+      "scenario": {
+        "steps": ["open a session with an assistant reply", "press leader+y", "copy the session id from the palette", "copy the transcript from the palette"],
+        "checkpoints": [
+          { "id": "message-copied", "after": 2, "expect": "a toast confirms the last assistant message is on the clipboard" },
+          { "id": "transcript-copied", "after": 4, "expect": "a toast confirms the transcript is on the clipboard" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "export-session-transcript",
+      "name": "Export a session transcript",
+      "description": "Save the session as Markdown or JSON, with options for thinking and tool output.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:106 (session.export) and packages/tui/src/routes/session/index.tsx:1213 (/export) at v2.0.32",
+      "scenario": {
+        "steps": ["run /export", "choose markdown", "choose save"],
+        "checkpoints": [
+          { "id": "export-options", "after": 1, "expect": "the dialog asks for format, thinking, tools, and copy or save" },
+          { "id": "exported", "after": 3, "expect": "the file is written and its path is shown" }
+        ]
+      },
+      "routes": ["GET /api/experimental/session/{sessionID}/export"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "background-blocking-tools",
+      "name": "Background a blocking tool",
+      "description": "Move a long blocking tool call to the background so the session stays usable.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:129 (session.background) and packages/tui/src/routes/session/index.tsx:1253 at v2.0.32",
+      "scenario": {
+        "steps": ["start a turn that runs a long blocking tool", "press ctrl+b"],
+        "checkpoints": [
+          { "id": "backgrounded", "after": 2, "expect": "the blocking tool is backgrounded and progress continues in the transcript" },
+          { "id": "badge", "after": 2, "expect": "the status line shows the session has a backgrounded tool" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/background"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "open-subagent-session",
+      "name": "Open a subagent session",
+      "description": "Follow a subagent's transcript and return to the parent session.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:138 (session.child.first) and packages/tui/src/routes/session/index.tsx:1263 at v2.0.32",
+      "scenario": {
+        "steps": ["start a turn that spawns a subagent", "press down", "press up"],
+        "checkpoints": [
+          { "id": "subagent-picker", "after": 2, "expect": "the subagent picker lists the child sessions" },
+          { "id": "parent", "after": 3, "expect": "the parent transcript is shown again" }
+        ]
+      },
+      "routes": ["GET /api/session/{sessionID}"],
+      "features": ["subagent-nesting", "maki-wire-envelope"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "ask-side-question",
+      "name": "Ask a side question",
+      "description": "Get a one-shot answer from the session's context without adding a turn to the conversation.",
+      "area": "session",
+      "source": "packages/tui/src/feature-plugins/prompt/btw.tsx:57 (/btw) at v2.0.32",
+      "scenario": {
+        "steps": ["open a session", "run /btw with a question"],
+        "checkpoints": [
+          { "id": "aside-answer", "after": 2, "expect": "the answer appears beside the conversation without adding a turn to the transcript" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/generate", "POST /api/experimental/generate"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "view-session-diff",
+      "name": "Review the session diff",
+      "description": "Open the diff viewer and read the files the agent changed in this session.",
+      "area": "session",
+      "source": "packages/tui/src/feature-plugins/system/diff-viewer.tsx:1319 (/diff) and packages/tui/src/config/keybind.ts:64 (diff.open) at v2.0.32",
+      "scenario": {
+        "steps": ["open a session where the agent edited files", "run /diff", "select a file"],
+        "checkpoints": [
+          { "id": "diff-open", "after": 2, "expect": "the diff viewer lists changed files with additions and deletions" },
+          { "id": "file-diff", "after": 3, "expect": "the selected file's hunks render with line numbers" }
+        ]
+      },
+      "routes": ["GET /api/session/{sessionID}/diff", "GET /api/vcs/diff"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "open-terminal-pane",
+      "name": "Open a terminal pane",
+      "description": "Open a terminal beside the transcript and run a command in the sandbox.",
+      "area": "session",
+      "source": "packages/tui/src/config/keybind.ts:100 (terminal.toggle) and packages/tui/src/component/session-frame.tsx:250 (/terminal) at v2.0.32",
+      "scenario": {
+        "steps": ["open a session", "press leader+t", "run a command in the terminal"],
+        "checkpoints": [
+          { "id": "terminal-open", "after": 2, "expect": "a terminal pane opens beside the transcript" },
+          { "id": "terminal-output", "after": 3, "expect": "the command's output renders in the pane" }
+        ]
+      },
+      "routes": ["GET /api/experimental/session/{sessionID}/terminal", "POST /api/experimental/session/{sessionID}/terminal"],
+      "features": ["server-info-live"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "view-shell-output",
+      "name": "View a shell tool's output",
+      "description": "Open the shell output for a command the agent ran and read its stdout and stderr.",
+      "area": "session",
+      "source": "packages/tui/src/routes/session/composer/shell-tab.tsx and packages/tui/src/component/dialog-shell-output.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["open a session", "submit a prompt that runs a shell tool", "select the shell in the composer"],
+        "checkpoints": [
+          { "id": "shell-tab", "after": 2, "expect": "the composer lists the running shell" },
+          { "id": "shell-output", "after": 3, "expect": "the shell output dialog shows the command's stdout and stderr" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/shell", "GET /api/shell/{id}", "GET /api/shell/{id}/output"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "send-prompt-stream-reply",
+      "name": "Send a prompt and watch the reply stream",
+      "description": "Submit a prompt and see the assistant reply stream into the transcript.",
+      "area": "prompt",
+      "source": "packages/tui/src/component/prompt/index.tsx (prompt submit) and packages/tui/src/context/event.ts at v2.0.32",
+      "scenario": {
+        "steps": ["type a prompt", "submit", "wait for the reply"],
+        "checkpoints": [
+          { "id": "user-message", "after": 2, "expect": "the prompt renders as a user message above the assistant reply" },
+          { "id": "streamed", "after": 3, "expect": "the assistant reply streams into the transcript and ends in the finished state" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/prompt", "GET /api/session/{sessionID}", "GET /api/event"],
+      "features": ["prompt-translation", "stream-deltas", "transcript-order", "model-identity", "sse-handshake", "sse-bare-data-frames", "durable-envelope", "minted-id-patterns", "maki-wire-envelope", "api-retry-tolerance"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "attach-image-to-prompt",
+      "name": "Attach an image to a prompt",
+      "description": "Paste or attach an image and send it with the prompt.",
+      "area": "prompt",
+      "source": "packages/tui/src/component/prompt/index.tsx (image paste) and packages/tui/src/component/dialog-image-preview.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["paste an image into the prompt", "submit"],
+        "checkpoints": [
+          { "id": "attachment", "after": 1, "expect": "the prompt shows an image attachment chip" },
+          { "id": "sent", "after": 2, "expect": "the image is sent with the prompt and the reply can refer to it" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/prompt"],
+      "features": ["prompt-attachments"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "mention-file-in-prompt",
+      "name": "Mention a file in a prompt",
+      "description": "Use @-autocomplete to point the agent at a project file.",
+      "area": "prompt",
+      "source": "packages/tui/src/component/prompt/autocomplete.tsx and packages/tui/src/config/keybind.ts:274 (prompt.autocomplete) at v2.0.32",
+      "scenario": {
+        "steps": ["type @ in the prompt", "pick a file", "submit"],
+        "checkpoints": [
+          { "id": "autocomplete", "after": 1, "expect": "an autocomplete list of project files appears" },
+          { "id": "mention", "after": 2, "expect": "the file mention is highlighted in the prompt" }
+        ]
+      },
+      "routes": ["GET /api/fs/list", "POST /api/session/{sessionID}/prompt"],
+      "features": ["prompt-file-mentions"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "mention-skill-in-prompt",
+      "name": "Mention a skill in a prompt",
+      "description": "Pick a skill from the skill selector and add it to the prompt.",
+      "area": "prompt",
+      "source": "packages/tui/src/component/prompt/index.tsx:585 (/skills) and packages/tui/src/component/dialog-skill.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["run /skills", "select a skill", "submit"],
+        "checkpoints": [
+          { "id": "skill-list", "after": 1, "expect": "the skill selector lists the skills the server announced" },
+          { "id": "skill-mention", "after": 2, "expect": "the skill appears as a mention in the prompt" }
+        ]
+      },
+      "routes": ["GET /api/skill", "POST /api/session/{sessionID}/prompt"],
+      "features": ["skill-list-live"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "open-external-editor",
+      "name": "Compose a prompt in an external editor",
+      "description": "Hand the current prompt to $EDITOR and bring the edited text back.",
+      "area": "prompt",
+      "source": "packages/tui/src/config/keybind.ts:92 (prompt.editor) and packages/tui/src/component/prompt/index.tsx:552 (/editor) at v2.0.32",
+      "scenario": {
+        "steps": ["press leader+e", "edit the prompt in $EDITOR", "save and quit"],
+        "checkpoints": [
+          { "id": "editor-open", "after": 1, "expect": "the external editor opens with the current prompt text" },
+          { "id": "editor-return", "after": 3, "expect": "the edited text is back in the prompt with mentions intact" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "stash-prompt",
+      "name": "Stash and restore a prompt",
+      "description": "Park a draft, start another prompt, and bring the stashed draft back later.",
+      "area": "prompt",
+      "source": "packages/tui/src/config/keybind.ts:202 (prompt.stash) and packages/tui/src/component/dialog-stash.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["type a prompt", "stash it", "list stashes", "restore it"],
+        "checkpoints": [
+          { "id": "stashed", "after": 2, "expect": "the prompt empties and the draft appears in the stash list" },
+          { "id": "restored", "after": 4, "expect": "the stashed prompt returns to the input" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "adjust-transcript-display",
+      "name": "Adjust the transcript display",
+      "description": "Cycle verbosity, toggle thinking blocks, and group related tool calls.",
+      "area": "session",
+      "source": "packages/tui/src/routes/session/index.tsx:1045 (grouping), :1073 (verbosity), :1027 (thinking) at v2.0.32",
+      "scenario": {
+        "steps": ["open a session", "cycle verbosity", "toggle thinking blocks", "toggle tool grouping"],
+        "checkpoints": [
+          { "id": "verbosity", "after": 2, "expect": "the transcript switches between low, medium, and high verbosity" },
+          { "id": "display", "after": 4, "expect": "thinking blocks and tool grouping change visibility without losing the transcript" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "allow-permission-once",
+      "name": "Allow a tool once",
+      "description": "Approve a pending permission request for a single tool call.",
+      "area": "permission",
+      "source": "packages/tui/src/routes/session/permission.tsx (once) at v2.0.32",
+      "scenario": {
+        "steps": ["prompt Maki to edit a file", "wait for the permission prompt", "choose once"],
+        "checkpoints": [
+          { "id": "permission-prompt", "after": 2, "expect": "the prompt shows the tool, the file, and the proposed diff" },
+          { "id": "allowed", "after": 3, "expect": "the tool runs and the transcript shows it completed" }
+        ]
+      },
+      "routes": ["GET /api/session/{sessionID}/permission", "POST /api/session/{sessionID}/permission/{requestID}/reply"],
+      "features": ["permission-round-trip", "permission-reply-vocabulary", "control-response-emission", "tool-failure-mapping"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "allow-permission-always",
+      "name": "Allow matching tool calls for the session",
+      "description": "Approve a permission request for the rest of the session.",
+      "area": "permission",
+      "source": "packages/tui/src/routes/session/permission.tsx (always) at v2.0.32",
+      "scenario": {
+        "steps": ["trigger a permission prompt", "choose always"],
+        "checkpoints": [
+          { "id": "always", "after": 2, "expect": "the prompt closes and a later matching tool call does not ask again in this session" }
+        ]
+      },
+      "routes": ["GET /api/session/{sessionID}/permission", "POST /api/session/{sessionID}/permission/{requestID}/reply"],
+      "features": ["permission-reask", "permission-reply-vocabulary"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "reject-permission-with-reason",
+      "name": "Reject a tool with a reason",
+      "description": "Reject a pending permission request and tell the agent why.",
+      "area": "permission",
+      "source": "packages/tui/src/routes/session/permission.tsx (reject stage) at v2.0.32",
+      "scenario": {
+        "steps": ["trigger a permission prompt", "choose reject", "type a reason", "submit"],
+        "checkpoints": [
+          { "id": "rejected", "after": 4, "expect": "the tool does not run and the transcript shows the rejection with the reason" }
+        ]
+      },
+      "routes": ["GET /api/session/{sessionID}/permission", "POST /api/session/{sessionID}/permission/{requestID}/reply"],
+      "features": ["permission-round-trip", "permission-reply-vocabulary"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "answer-mcp-form",
+      "name": "Answer an MCP form",
+      "description": "Fill the form a tool raises and send the answers back so the tool can continue.",
+      "area": "permission",
+      "source": "packages/tui/src/routes/session/form.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["a tool raises an MCP form", "answer the fields", "submit"],
+        "checkpoints": [
+          { "id": "form-shown", "after": 1, "expect": "the form dialog shows the fields, tabs, and validation" },
+          { "id": "answered", "after": 3, "expect": "the answers are sent and the tool continues" }
+        ]
+      },
+      "routes": ["GET /api/session/{sessionID}/form", "POST /api/session/{sessionID}/form/{formID}/reply"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "switch-model",
+      "name": "Switch the model",
+      "description": "Pick another model from the provider list and use it for the next turn.",
+      "area": "model",
+      "source": "packages/tui/src/config/keybind.ts:166 (model.list) and packages/tui/src/component/dialog-model.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["press leader+m", "pick another model", "send a prompt"],
+        "checkpoints": [
+          { "id": "model-dialog", "after": 1, "expect": "the model dialog lists providers and their models" },
+          { "id": "switched", "after": 3, "expect": "the footer shows the new model and the next turn uses it" }
+        ]
+      },
+      "routes": ["GET /api/model", "GET /api/provider", "GET /api/integration", "POST /api/session/{sessionID}/model"],
+      "features": ["mid-session-model-switch", "model-list-refresh", "model-catalog-live"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "switch-agent",
+      "name": "Switch the agent",
+      "description": "Choose another agent and see the footer follow the selection.",
+      "area": "model",
+      "source": "packages/tui/src/config/keybind.ts:173 (agent.list) and packages/tui/src/component/dialog-agent.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["press leader+a", "pick the agent", "send a prompt"],
+        "checkpoints": [
+          { "id": "agent-dialog", "after": 1, "expect": "the agent dialog lists the agents the server announced" },
+          { "id": "agent-switched", "after": 3, "expect": "the footer shows the selected agent" }
+        ]
+      },
+      "routes": ["GET /api/agent", "POST /api/session/{sessionID}/agent"],
+      "features": ["agent-switch-state"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "switch-model-variant",
+      "name": "Switch the model variant",
+      "description": "Cycle the current model's variant, such as its thinking effort.",
+      "area": "model",
+      "source": "packages/tui/src/config/keybind.ts (variant.cycle) and packages/tui/src/component/dialog-variant.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["press ctrl+t", "send a prompt"],
+        "checkpoints": [
+          { "id": "variant", "after": 1, "expect": "the footer shows the next variant for the current model" },
+          { "id": "variant-used", "after": 2, "expect": "the next turn reports the selected variant" }
+        ]
+      },
+      "routes": ["GET /api/model", "POST /api/session/{sessionID}/model"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "manage-mcp-servers",
+      "name": "Manage MCP servers",
+      "description": "List the MCP servers, toggle one, and inspect the resources it exposes.",
+      "area": "tools",
+      "source": "packages/tui/src/app.tsx:927 (/mcps) and packages/tui/src/component/dialog-mcp.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["run /mcps", "toggle a server", "view its resources"],
+        "checkpoints": [
+          { "id": "mcp-list", "after": 1, "expect": "the dialog lists MCP servers with connected or failed status" },
+          { "id": "mcp-toggle", "after": 2, "expect": "the server's state changes and its tools refresh" }
+        ]
+      },
+      "routes": ["GET /api/mcp", "GET /api/mcp/resource", "POST /api/experimental/mcp/{server}/connect", "DELETE /api/experimental/mcp/{server}"],
+      "features": ["mcp-server-status"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "manage-plugins",
+      "name": "Manage plugins",
+      "description": "List the server's plugins and check for updates.",
+      "area": "tools",
+      "source": "packages/tui/src/feature-plugins/system/plugins.tsx:337 (/plugins) at v2.0.32",
+      "scenario": {
+        "steps": ["run /plugins", "check for updates"],
+        "checkpoints": [
+          { "id": "plugin-list", "after": 1, "expect": "the plugin dialog lists installed OpenCode plugins, empty when none" },
+          { "id": "checked", "after": 2, "expect": "the check reports no updates or lists them" }
+        ]
+      },
+      "routes": ["GET /api/plugin", "POST /api/plugin/check", "POST /api/plugin/update"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "manage-workspaces",
+      "name": "Manage workspaces",
+      "description": "List worktrees, create one, and move the session into it.",
+      "area": "files",
+      "source": "packages/tui/src/component/prompt/index.tsx:624 (/worktrees) and packages/tui/src/component/dialog-workspaces.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["run /worktrees", "create a named worktree", "move the session into it"],
+        "checkpoints": [
+          { "id": "workspaces", "after": 1, "expect": "the dialog lists existing worktrees and their changes" },
+          { "id": "moved", "after": 3, "expect": "the session's location shows the new worktree" }
+        ]
+      },
+      "routes": ["GET /api/worktree", "POST /api/worktree", "POST /api/session/{sessionID}/move", "POST /api/worktree/refresh"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "change-working-directory",
+      "name": "Change the working directory",
+      "description": "Point the session at another sandbox directory and run the next prompt there.",
+      "area": "files",
+      "source": "packages/tui/src/component/prompt/index.tsx:269 (/cd) at v2.0.32",
+      "scenario": {
+        "steps": ["run /cd with a sandbox path", "send a prompt"],
+        "checkpoints": [
+          { "id": "directory", "after": 1, "expect": "the footer shows the new directory and the file list reloads" },
+          { "id": "prompt", "after": 2, "expect": "the prompt runs against the new directory" }
+        ]
+      },
+      "routes": ["GET /api/location", "POST /api/session/{sessionID}/move", "POST /api/location/reload", "PATCH /api/project/{projectID}"],
+      "features": ["project-identity-live"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "connect-integration",
+      "name": "Connect a provider integration",
+      "description": "Connect a provider account and make its models selectable.",
+      "area": "config",
+      "source": "packages/tui/src/app.tsx:979 (/connect) and packages/tui/src/component/dialog-integration.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["run /connect", "pick a provider", "enter credentials"],
+        "checkpoints": [
+          { "id": "integrations", "after": 1, "expect": "the dialog lists provider integrations and their connected state" },
+          { "id": "connected", "after": 3, "expect": "the provider shows connected and its models appear" }
+        ]
+      },
+      "routes": ["GET /api/integration", "POST /api/integration/{integrationID}/connect/key", "POST /api/integration/{integrationID}/connect/oauth"],
+      "features": ["model-catalog-live"],
+      "scope": "out-of-scope",
+      "reason": "provider credentials are bound outside the sandbox through OpenShell provider profiles; entering them in the TUI would break the credential boundary",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "reload-configuration",
+      "name": "Reload the configuration",
+      "description": "Pick up an edited config file without restarting the TUI.",
+      "area": "config",
+      "source": "packages/tui/src/app.tsx:1063 (/reload) and packages/tui/src/config/keybind.ts:63 (location.reload) at v2.0.32",
+      "scenario": {
+        "steps": ["edit a config file", "run /reload"],
+        "checkpoints": [
+          { "id": "reloaded", "after": 2, "expect": "a toast confirms the configuration reloaded and the TUI reflects it" }
+        ]
+      },
+      "routes": ["POST /api/location/reload", "GET /api/config"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "update-opencode",
+      "name": "Update OpenCode",
+      "description": "Check for and install a newer OpenCode release from inside the TUI.",
+      "area": "config",
+      "source": "packages/tui/src/app.tsx:1024 (/update) and packages/tui/src/component/dialog-update.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["run /update", "confirm"],
+        "checkpoints": [
+          { "id": "update-dialog", "after": 1, "expect": "the update dialog shows the installed and available versions" },
+          { "id": "updated", "after": 2, "expect": "the new version is installed and the TUI restarts" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "out-of-scope",
+      "reason": "the TUI self-updates from the OpenCode release service; Maki and the bridge image are pinned and updated by the image build, not inside the sandbox",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "restart-service",
+      "name": "Restart the OpenCode service",
+      "description": "Restart the server the TUI is attached to and reattach the event stream.",
+      "area": "config",
+      "source": "packages/tui/src/app.tsx:1044 (/restart) and packages/tui/src/config/keybind.ts:62 (service.restart) at v2.0.32",
+      "scenario": {
+        "steps": ["run /restart"],
+        "checkpoints": [
+          { "id": "restarted", "after": 1, "expect": "the service restarts and the event stream reattaches" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "out-of-scope",
+      "reason": "restarting the OpenCode service is replaced by the OpenShell sandbox lifecycle; there is no in-sandbox service for the TUI to own and restart",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "view-release-highlights",
+      "name": "View release highlights",
+      "description": "Show the highlights for the installed OpenCode release.",
+      "area": "config",
+      "source": "packages/tui/src/app.tsx:994 (/highlights) and packages/tui/src/component/dialog-highlights.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["run /highlights"],
+        "checkpoints": [
+          { "id": "highlights", "after": 1, "expect": "a dialog lists the current release highlights" }
+        ]
+      },
+      "routes": ["GET /api/info"],
+      "features": [],
+      "scope": "out-of-scope",
+      "reason": "release highlights are OpenCode release content delivered with the OpenCode app; Maki has no counterpart release feed",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    }
+  ]
+}

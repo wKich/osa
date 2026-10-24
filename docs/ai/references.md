@@ -77,6 +77,7 @@ rises, swap the text parse for JSON without changing behavior.
 | Topic | Link | Verified against |
 |---|---|---|
 | Source repository (SSE event envelopes live in `packages/schema/src/`) | [anomalyco/opencode](https://github.com/anomalyco/opencode) | tag v2.0.32 (bridge contract pin) |
+| TUI source at the pin: keybindings, commands, slash commands, dialogs, session views — the journey catalog's enumeration source | [packages/tui/src at v2.0.32](https://github.com/anomalyco/opencode/tree/v2.0.32/packages/tui/src) | tag v2.0.32 (bridge contract pin) |
 | Server docs — versionless, newer than the pin; a pointer to where to look, never a citation | [OpenCode server docs](https://opencode.ai/docs/server/) | newer than v2.0.32 |
 
 ## Ponytail (project-local YAGNI ruleset)

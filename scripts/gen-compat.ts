@@ -18,6 +18,9 @@ const ROUTE_STATUS = ["served-live", "served-faked", "deferred", "unhandled"];
 const FEATURE_STATUS = ["verified", "unverified", "degraded", "buggy"];
 const SCOPES = ["reachable", "out-of-scope"];
 const BLOCKERS = ["pin", "none"];
+const JOURNEY_STATUS = ["unrecorded", "referenced", "parity", "diverges", "broken"];
+const AREAS = ["session", "prompt", "permission", "navigation", "model", "tools", "files", "config"];
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 interface EvidenceRow {
   evidence: string;
@@ -27,9 +30,36 @@ interface Defect {
   id: string;
   status: string;
 }
+interface Checkpoint {
+  id: string;
+  after: number;
+  expect: string;
+}
+interface AcceptedDiff {
+  checkpoint: string;
+  reason: string;
+}
+interface Journey {
+  slug: string;
+  name: string;
+  description: string;
+  area: string;
+  source: string;
+  scenario?: { steps?: string[]; checkpoints?: Checkpoint[] };
+  routes?: string[];
+  features?: string[];
+  scope: string;
+  blockedBy: string;
+  status: string;
+  evidence?: Record<string, string>;
+  acceptedDiffs?: AcceptedDiff[];
+  reason?: string;
+  pinCitation?: string;
+}
 
 const statuses = JSON.parse(read("bridge/compat/statuses.json"));
 const defects: Defect[] = JSON.parse(read("bridge/defects.json"));
+const journeys: Journey[] = JSON.parse(read("bridge/compat/journeys.json")).journeys ?? [];
 const isOpen = (id: string) => defects.some((d) => d.id === id && d.status === "known");
 const effectiveStatus = (f: EvidenceRow) =>
   f.defect && isOpen(String(f.defect)) ? "buggy" : String(f.status);
@@ -113,8 +143,68 @@ for (const f of statuses.features as EvidenceRow[]) {
 for (const v of statuses.versions as EvidenceRow[]) {
   need(Boolean(v.evidence), `version row ${v.component}: missing evidence key`);
 }
+
+// Journey catalog (add-tui-journey-catalog): the same generator validates it,
+// so the report cannot disagree with the rows it renders.
+const nonEmpty = (v: unknown) => typeof v === "string" && v.trim().length > 0;
+const seenSlugs = new Set<string>();
+for (const j of journeys) {
+  const id = nonEmpty(j.slug) ? j.slug : "(missing slug)";
+  need(SLUG.test(String(j.slug)), `journey ${id}: slug must be kebab-case`);
+  need(!seenSlugs.has(String(j.slug)), `journey ${id}: duplicate slug`);
+  seenSlugs.add(String(j.slug));
+  need(nonEmpty(j.name), `journey ${id}: missing name`);
+  need(nonEmpty(j.description), `journey ${id}: missing description`);
+  need(nonEmpty(j.source), `journey ${id}: missing source`);
+  need(AREAS.includes(String(j.area)), `journey ${id}: unknown area ${j.area}`);
+  need(SCOPES.includes(String(j.scope)), `journey ${id}: unknown scope ${j.scope}`);
+  need(BLOCKERS.includes(String(j.blockedBy)), `journey ${id}: unknown blockedBy ${j.blockedBy}`);
+  need(JOURNEY_STATUS.includes(String(j.status)), `journey ${id}: unknown status ${j.status}`);
+  need(j.evidence !== undefined && typeof j.evidence === "object", `journey ${id}: missing evidence`);
+  need(Array.isArray(j.routes), `journey ${id}: routes must be an array`);
+  need(Array.isArray(j.features), `journey ${id}: features must be an array`);
+  need(Array.isArray(j.acceptedDiffs), `journey ${id}: acceptedDiffs must be an array`);
+  if (j.scope === "out-of-scope") {
+    need(nonEmpty(j.reason), `journey ${id}: out-of-scope rows need a reason`);
+  }
+  if (j.blockedBy === "pin") {
+    need(nonEmpty(j.pinCitation), `journey ${id}: blockedBy pin needs a pinCitation`);
+  }
+
+  const steps = j.scenario?.steps;
+  const checkpoints = j.scenario?.checkpoints;
+  need(Array.isArray(steps) && steps.length > 0, `journey ${id}: scenario needs at least one step`);
+  need(
+    Array.isArray(steps) && steps.every(nonEmpty),
+    `journey ${id}: every scenario step must be a non-empty string`,
+  );
+  need(Array.isArray(checkpoints) && checkpoints.length > 0, `journey ${id}: scenario needs at least one checkpoint`);
+  const checkpointIds = new Set<string>();
+  for (const c of checkpoints ?? []) {
+    const cid = nonEmpty(c.id) ? c.id : "(missing checkpoint id)";
+    need(nonEmpty(c.id), `journey ${id}: checkpoint needs an id`);
+    need(!checkpointIds.has(String(c.id)), `journey ${id}: duplicate checkpoint ${cid}`);
+    checkpointIds.add(String(c.id));
+    need(
+      Number.isInteger(c.after) && c.after >= 1 && c.after <= (steps?.length ?? 0),
+      `journey ${id}: checkpoint ${cid} has an out-of-range after`,
+    );
+    need(nonEmpty(c.expect), `journey ${id}: checkpoint ${cid} needs an expected screen`);
+  }
+  const diffCheckpoints = new Set<string>();
+  for (const d of j.acceptedDiffs ?? []) {
+    need(
+      checkpointIds.has(String(d.checkpoint)),
+      `journey ${id}: acceptedDiff names unknown checkpoint ${d.checkpoint}`,
+    );
+    need(nonEmpty(d.reason), `journey ${id}: acceptedDiff ${d.checkpoint} needs a reason`);
+    need(!diffCheckpoints.has(String(d.checkpoint)), `journey ${id}: duplicate acceptedDiff ${d.checkpoint}`);
+    diffCheckpoints.add(String(d.checkpoint));
+  }
+}
+
 if (failures.length) {
-  console.error(`gen-compat: statuses.json is invalid:\n  ${failures.join("\n  ")}`);
+  console.error(`gen-compat: compatibility data is invalid:\n  ${failures.join("\n  ")}`);
   process.exit(1);
 }
 
@@ -138,10 +228,10 @@ const lines: string[] = [];
 lines.push("# OpenCode TUI bridge — compatibility");
 lines.push("");
 lines.push(
-  "Generated from `bridge/compat/statuses.json` and `bridge/defects.json` by " +
-    "`scripts/gen-compat.ts`. Do not edit by hand — run `make compat` to " +
-    "regenerate and `make compat-drift` to check the pinned contract against " +
-    "the installed OpenCode.",
+  "Generated from `bridge/compat/statuses.json`, `bridge/compat/journeys.json` and " +
+    "`bridge/defects.json` by `scripts/gen-compat.ts`. Do not edit by hand — run " +
+    "`make compat` to regenerate and `make compat-drift` to check the pinned contract " +
+    "against the installed OpenCode.",
 );
 lines.push("");
 
@@ -276,6 +366,55 @@ if (notes.length) {
   lines.push("Rows citing these notes are proved against fixtures that were authored or spliced from the pinned source, not captured whole from a live run.");
   lines.push("");
   notes.forEach((n, i) => lines.push(`${i + 1}. ${md(n)}`));
+  lines.push("");
+}
+
+// Journey lens (add-tui-journey-catalog): the unit the user recognizes. The
+// parity score counts reachable journeys only, so an out-of-scope row can never
+// inflate or deflate the claim.
+const reachableJourneys = journeys.filter((j) => j.scope === "reachable");
+const parityJourneys = reachableJourneys.filter((j) => j.status === "parity");
+const parityScore = reachableJourneys.length
+  ? `${((100 * parityJourneys.length) / reachableJourneys.length).toFixed(1)}%`
+  : "n/a";
+lines.push("## Journeys");
+lines.push("");
+lines.push(
+  "Statuses: `unrecorded` (no reference recording yet), `referenced` (a reference " +
+    "recording of real OpenCode exists, the Maki side is not yet compared), `parity` " +
+    "(both sides match at every checkpoint), `diverges` (the journey completes with at " +
+    "least one differing checkpoint), `broken` (the Maki side cannot complete it).",
+);
+lines.push("");
+lines.push(
+  `Reachable journeys: **${reachableJourneys.length} of ${journeys.length}** ` +
+    `(${JOURNEY_STATUS.map(
+      (s) => `${reachableJourneys.filter((j) => j.status === s).length} \`${s}\``,
+    ).join(", ")}). Native parity score: **${parityScore}** ` +
+    `(${parityJourneys.length} of ${reachableJourneys.length} reachable journeys at \`parity\`).`,
+);
+lines.push("");
+for (const scope of SCOPES) {
+  const rows = [...journeys.filter((j) => j.scope === scope)].sort(
+    (a, b) => JOURNEY_STATUS.indexOf(a.status) - JOURNEY_STATUS.indexOf(b.status),
+  );
+  lines.push(scopeHeading(scope, rows.length));
+  lines.push("");
+  lines.push("| Slug | Journey | Area | Status | Evidence | Accepted differences |");
+  lines.push("| --- | --- | --- | --- | --- | --- |");
+  for (const j of rows) {
+    const evidence =
+      Object.entries(j.evidence ?? {})
+        .map(([kind, p]) => `${kind}: ${link(String(p))}`)
+        .join(" · ") || "—";
+    const accepted =
+      (j.acceptedDiffs ?? [])
+        .map((d) => `${md(d.checkpoint)}: ${md(d.reason)}`)
+        .join("; ") || "—";
+    lines.push(
+      `| \`${md(j.slug)}\` | ${md(j.name)} | ${md(j.area)} | \`${j.status}\` | ${evidence} | ${accepted} |`,
+    );
+  }
   lines.push("");
 }
 

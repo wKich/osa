@@ -31,9 +31,26 @@ interface Statuses {
   features: Row[];
   versions: Row[];
 }
+interface JourneyCheckpoint {
+  id: string;
+  after: number;
+  expect: string;
+}
+interface Journey {
+  slug: string;
+  status: string;
+  scope: string;
+  evidence?: Record<string, string>;
+  scenario?: { steps?: string[]; checkpoints?: JourneyCheckpoint[] };
+  routes?: string[];
+  features?: string[];
+  acceptedDiffs?: Array<{ checkpoint: string; reason: string }>;
+  reason?: string;
+}
 
 const defects: Defect[] = JSON.parse(readFileSync(path("bridge/defects.json"), "utf8"));
 const statuses: Statuses = JSON.parse(readFileSync(path("bridge/compat/statuses.json"), "utf8"));
+const journeys: Journey[] = JSON.parse(readFileSync(path("bridge/compat/journeys.json"), "utf8")).journeys ?? [];
 const rows = [...statuses.routes, ...statuses.features, ...statuses.versions];
 
 const SCOPES = ["reachable", "out-of-scope"];
@@ -223,4 +240,67 @@ test("the SSE stream stays live and outside the HTTP capture tally", () => {
   // SSE opens before dispatch and never reaches the request log; if a capture
   // ever records it, this assertion is the prompt to revisit the tally.
   expect(measuredRoutes.has("GET /api/event")).toBe(false);
+});
+
+// Journey catalog (add-tui-journey-catalog): a journey is only a claim about
+// the user's experience, so its links must resolve and every status past
+// `unrecorded` must be backed by committed evidence on both sides.
+const COMMITTED = (evidence: string | undefined) => Boolean(evidence) && existsSync(path(String(evidence)));
+
+test("every journey links existing route and feature rows", () => {
+  const routeNames = new Set(statuses.routes.map((r) => String(r.route)));
+  const featureIds = new Set(statuses.features.map((f) => String(f.id)));
+  const problems = journeys.flatMap((j) => [
+    ...(j.routes ?? []).filter((r) => !routeNames.has(r)).map((r) => `${j.slug}: unknown route ${r}`),
+    ...(j.features ?? []).filter((f) => !featureIds.has(f)).map((f) => `${j.slug}: unknown feature ${f}`),
+  ]);
+  expect(problems).toEqual([]);
+});
+
+test("every journey past unrecorded cites a committed reference snapshot", () => {
+  const problems = journeys
+    .filter((j) => j.status !== "unrecorded")
+    .filter((j) => !COMMITTED(j.evidence?.reference))
+    .map((j) => `${j.slug}: status ${j.status} without evidence.reference`);
+  expect(problems).toEqual([]);
+});
+
+test("every compared journey cites committed Maki-side and diff evidence", () => {
+  const problems = journeys
+    .filter((j) => ["parity", "diverges", "broken"].includes(j.status))
+    .flatMap((j) =>
+      (["maki", "diff"] as const)
+        .filter((kind) => !COMMITTED(j.evidence?.[kind]))
+        .map((kind) => `${j.slug}: status ${j.status} without evidence.${kind}`),
+    );
+  expect(problems).toEqual([]);
+});
+
+test("parity carries no unaccepted checkpoint difference", () => {
+  const problems: string[] = [];
+  for (const j of journeys) {
+    if (j.status !== "parity") continue;
+    const checkpoints = new Set((j.scenario?.checkpoints ?? []).map((c) => c.id));
+    for (const d of j.acceptedDiffs ?? []) {
+      if (!d.reason?.trim()) problems.push(`${j.slug}: accepted difference ${d.checkpoint} has no reason`);
+      if (!checkpoints.has(d.checkpoint)) {
+        problems.push(`${j.slug}: accepted difference names unknown checkpoint ${d.checkpoint}`);
+      }
+    }
+  }
+  expect(problems).toEqual([]);
+});
+
+test("a broken journey never accepts a difference", () => {
+  const problems = journeys
+    .filter((j) => j.status === "broken" && (j.acceptedDiffs?.length ?? 0) > 0)
+    .map((j) => `${j.slug}: broken with acceptedDiffs`);
+  expect(problems).toEqual([]);
+});
+
+test("every out-of-scope journey says why", () => {
+  const problems = journeys
+    .filter((j) => j.scope === "out-of-scope" && !j.reason?.trim())
+    .map((j) => `${j.slug}: out-of-scope without a reason`);
+  expect(problems).toEqual([]);
 });

@@ -16,6 +16,7 @@ scoped list for the next iteration. Recording is not implementing.
 running-feature-discovery
 ├── unverified/deferred/capability rows → proposing-coverage-change → add-… change (tests or implementation; statuses → verified on green)
 ├── open defects.json entries           → proposing-fix-change     → fix-… change (code fix, golden flip, status → fixed)
+├── diverges/broken journey             → re-triage its linked routes and features here (discovering-tui-journeys records the journey)
 └── no counterpart at the pin           → accept/out-of-scope     (status edits only, no code)
 ```
 
@@ -31,8 +32,16 @@ Compatibility is claimed only on the surface the TUI exercises. The reachable
 set is the union of `bridge/test/captures/tui-last-requests.jsonl`,
 `bridge/test/fixtures/bridge-requests.jsonl`, the SSE event stream, and the
 routes the bridge serves live; recompute it after a TUI pass adds requests.
+Once the journey harness exists, Maki-side journey request logs join that
+union, so a route only a recorded journey calls is measured too.
 Every other operation in the
 pinned contract is `out-of-scope` — recorded, never counted as a gap.
+
+A journey in `bridge/compat/journeys.json` with status `diverges` or `broken`
+is a discovery input: re-triage the routes it links and the features it
+exercises here before opening a change, because the journey localizes the
+user-visible gap. `discovering-tui-journeys` owns the journey row and its
+comparison; this skill owns the route/feature/defect rows it feeds.
 
 Done for a pin means: 0 `unhandled`; every reachable route `served-live`,
 deliberately-empty `deferred`, or `served-faked` with a triage decision (a

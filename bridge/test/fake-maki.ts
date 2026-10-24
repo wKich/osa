@@ -123,6 +123,13 @@ const startModel = process.env.FAKE_MAKI_MODEL ?? (flag >= 0 ? process.argv[flag
 let permissionMode = "default";
 out({ type: "system", subtype: "init", session_id: SESSION_ID, cwd, model: startModel, permissionMode, tools });
 
+// an MCP tool is `<server>__<tool>` to the model but `<server>.<tool>` in
+// Maki's permission ask (maki-agent mcp/mod.rs v0.6.4 L51–L52)
+function askName(name: string): string {
+  const cut = name.indexOf("__");
+  return cut > 0 ? `${name.slice(0, cut)}.${name.slice(cut + 2)}` : name;
+}
+
 function applyEdit(input: Record<string, unknown>): void {
   const path = String(input.path ?? "");
   const file = path.startsWith("/") ? path : join(cwd, path);
@@ -291,7 +298,7 @@ async function playScript(run: { cancelled: boolean }): Promise<void> {
       let answer: "allow" | "deny" = "allow";
       if (turn.call.needsPermission) {
         const requestID = `req_fake${String(toolSeq).padStart(10, "0")}`;
-        out({ type: "control_request", request_id: requestID, request: { subtype: "can_use_tool", tool_name: name, tool_use_id: toolUseID, input: turn.call.maki.input } });
+        out({ type: "control_request", request_id: requestID, request: { subtype: "can_use_tool", tool_name: askName(name), tool_use_id: toolUseID, input: turn.call.maki.input } });
         answer = await new Promise((resolve) => answers.set(requestID, resolve));
       }
       if (answer !== "deny" && turn.call.subagent) {

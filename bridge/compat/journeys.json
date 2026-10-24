@@ -1312,19 +1312,26 @@
       "area": "tools",
       "source": "packages/tui/src/app.tsx:927 (/mcps) and packages/tui/src/component/dialog-mcp.tsx at v2.0.32",
       "scenario": {
-        "steps": ["run /mcps", "toggle a server", "view its resources"],
+        "steps": ["prompt the agent to use the journey MCP server's tool", "allow the tool once", "run /mcps", "toggle the server"],
         "checkpoints": [
-          { "id": "mcp-list", "after": 1, "expect": "the dialog lists MCP servers with connected or failed status" },
-          { "id": "mcp-toggle", "after": 2, "expect": "the server's state changes and its tools refresh" }
+          { "id": "permission", "after": 1, "expect": "the MCP tool asks for permission" },
+          { "id": "tool-used", "after": 2, "expect": "the server's tool call succeeds and the reply renders" },
+          { "id": "servers", "after": 3, "expect": "the MCP dialog lists the journey server as connected" },
+          { "id": "toggled", "after": 4, "expect": "the server disconnects and its tools are withdrawn" }
         ]
       },
-      "routes": ["GET /api/mcp", "GET /api/mcp/resource", "POST /api/experimental/mcp/{server}/connect", "DELETE /api/experimental/mcp/{server}"],
-      "features": ["mcp-server-status"],
+      "routes": ["GET /api/mcp", "POST /api/session/{sessionID}/prompt", "POST /api/session/{sessionID}/permission/{requestID}/reply", "POST /api/experimental/mcp/{server}/disconnect"],
+      "features": ["mcp-server-status", "mcp-toggle"],
       "scope": "reachable",
-      "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "blockedBy": "pin",
+      "status": "diverges",
+      "evidence": { "reference":"bridge/test/journeys/manage-mcp-servers/reference/","maki":"bridge/test/journeys/manage-mcp-servers/maki/","diff":"bridge/test/journeys/manage-mcp-servers/diff.json","live":{"snapshots":"bridge/test/journeys/manage-mcp-servers/live/","diff":"bridge/test/journeys/manage-mcp-servers/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"diverges"} },
+      "acceptedDiffs": [
+        { "checkpoint": "permission", "reason": "Maki titles a session only when its first run is recorded (maki-agent session.rs v0.6.4 L143–L166, L203–L217), so mid-run the tab correctly has no title yet; OpenCode titles in parallel with the first model call and the mock answers \"Journey\"; each runtime shows its real names for the same MCP tool: OpenCode's `<server>_<tool>` for the call and its permission (core tool/mcp.ts v2.0.32 L17), Maki's `<server>__<tool>` for the call its model made and `<server>.<tool>` for its permission ask (maki-agent mcp/mod.rs v0.6.4 L51–L52)" },
+        { "checkpoint": "tool-used", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; each runtime shows its real names for the same MCP tool: OpenCode's `<server>_<tool>` for the call and its permission (core tool/mcp.ts v2.0.32 L17), Maki's `<server>__<tool>` for the call its model made and `<server>.<tool>` for its permission ask (maki-agent mcp/mod.rs v0.6.4 L51–L52)" },
+        { "checkpoint": "servers", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; each runtime shows its real names for the same MCP tool: OpenCode's `<server>_<tool>` for the call and its permission (core tool/mcp.ts v2.0.32 L17), Maki's `<server>__<tool>` for the call its model made and `<server>.<tool>` for its permission ask (maki-agent mcp/mod.rs v0.6.4 L51–L52)" }
+      ],
+      "pinCitation": "Maki v0.6.4 has no runtime MCP control: it connects the servers in mcp.toml when its child starts, and stream-json accepts only initialize, interrupt, set_permission_mode and set_model inbound (src/sdk_mode.rs L818–L880), so a server cannot be disconnected or reconnected from the TUI; its resources are not reported over the wire either"
     },
     {
       "slug": "manage-plugins",

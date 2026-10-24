@@ -1,0 +1,25 @@
+{
+  "status": "diverges",
+  "checkpoints": [
+    {
+      "id": "permission",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n- ! Journey                       +\n+ ! New session                   +\n \n   ┃\n   ┃  Use the journey marker tool, then reply MARKED.\n   ┃\n \n-     <SPINNER> journey_marker\n+     <SPINNER> journey__marker\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃  △ Permission required\n-  ┃    ⚙ Call tool journey_marker\n+  ┃    ⚙ Call tool journey.marker\n   ┃\n-  ┃  Tool: journey_marker\n+  ┃  Tool: journey.marker\n   ┃\n   ┃\n   ┃   Allow once   Always allow   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm\n   ┃"
+    },
+    {
+      "id": "tool-used",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use the journey marker tool,  +\n \n   ┃\n   ┃  Use the journey marker tool, then reply MARKED.\n   ┃\n \n-     ✓ journey_marker\n+     ✓ journey__marker\n \n      MARKED\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "servers",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use the journey marker tool,  +\n \n   ┃\n   ┃  Use the journey marker tool, then reply MARKED.\n   ┃\n \n-     ✓ journey_marker\n+     ✓ journey__marker\n \n      MARKED\n \n      Build · <MODEL> · <DUR>\n                                   MCP servers                                      esc\n \n                                   Search\n \n                                   journey                                  Connected ✓\n \n                                   disconnect space\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "toggled",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use the journey marker tool,  +\n \n   ┃\n   ┃  Use the journey marker tool, then reply MARKED.\n   ┃\n \n-     ✓ journey_marker\n+     ✓ journey__marker\n \n      MARKED\n \n      Build · <MODEL> · <DUR>\n                                   MCP servers                                      esc\n \n                                   Search\n \n-                                  journey                                   Disabled ○\n+                                  journey                                  Connected ✓\n \n-                                  connect space\n+                                  disconnect space\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

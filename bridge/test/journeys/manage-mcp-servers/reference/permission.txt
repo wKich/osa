@@ -1,0 +1,39 @@
+ ! Journey                       +
+
+  ┃
+  ┃  Use the journey marker tool, then reply MARKED.
+  ┃
+
+     <SPINNER> journey_marker
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  △ Permission required
+  ┃    ⚙ Call tool journey_marker
+  ┃
+  ┃  Tool: journey_marker
+  ┃
+  ┃
+  ┃   Allow once   Always allow   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm
+  ┃

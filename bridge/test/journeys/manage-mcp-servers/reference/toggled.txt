@@ -1,0 +1,39 @@
+   Journey                       +
+
+  ┃
+  ┃  Use the journey marker tool, then reply MARKED.
+  ┃
+
+     ✓ journey_marker
+
+     MARKED
+
+     Build · <MODEL> · <DUR>
+                                  MCP servers                                      esc
+
+                                  Search
+
+                                  journey                                   Disabled ○
+
+                                  connect space
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

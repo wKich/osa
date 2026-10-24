@@ -371,6 +371,12 @@ function openSession(
     onInit: (info) => {
       s.makiSessionID = info.sessionID;
       s.tools = info.tools;
+      // the child's tool list settles each configured MCP server's status
+      // (an MCP tool is `<server>__<tool>`); the TUI read /api/mcp at boot and
+      // refetches on mcp.status.changed (client solid/data.ts v2.0.32 L1332–L1335)
+      void readMcpConfig(CANONICAL).then((servers) => {
+        for (const server of servers) emit("mcp.status.changed", { server: server.name }, undefined, undefined, CANONICAL);
+      });
       s.baseMode = info.permissionMode ?? s.baseMode ?? "default";
       // the TUI read the model list at boot, before this child existed, and
       // gates the composer on the selected model being in that list — so the

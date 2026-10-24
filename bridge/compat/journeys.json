@@ -244,19 +244,21 @@
       "area": "navigation",
       "source": "packages/tui/src/feature-plugins/system/stats.tsx:200 (/stats) at v2.0.32",
       "scenario": {
-        "steps": ["run /stats", "close the page"],
+        "steps": ["send a prompt", "run /stats", "close the page"],
         "checkpoints": [
-          { "id": "stats-shown", "after": 1, "expect": "the stats page shows usage counters for the project" },
-          { "id": "stats-closed", "after": 2, "expect": "the previous route is restored" }
+          { "id": "stats", "after": 2, "expect": "the stats page shows the token chart, activity calendar and totals" },
+          { "id": "closed", "after": 3, "expect": "the session is back in view" }
         ]
       },
-      "routes": ["GET /api/experimental/session/stats", "GET /api/experimental/session/{sessionID}/instructions/entries"],
-      "features": [],
+      "routes": ["GET /api/experimental/session/stats"],
+      "features": ["session-stats"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {  },
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/view-usage-statistics/reference/","maki":"bridge/test/journeys/view-usage-statistics/maki/","diff":"bridge/test/journeys/view-usage-statistics/diff.json","live":{"snapshots":"bridge/test/journeys/view-usage-statistics/live/","diff":"bridge/test/journeys/view-usage-statistics/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "closed", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "open-documentation",

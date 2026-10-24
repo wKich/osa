@@ -18,6 +18,11 @@ export class SessionHistory {
   private messages: Message[] = [];
   private pending = new Map<string, Pending>();
 
+  /** every recorded message, for read-only aggregation (session-stats.ts) */
+  all(): readonly Message[] {
+    return this.messages;
+  }
+
   /** a fork's transcript: the settled messages, renamed as the real
    * projector renames copies (core session/projector.ts v2.0.32 L195–L229) */
   forkFrom(parent: SessionHistory, eventID: string): string | undefined {

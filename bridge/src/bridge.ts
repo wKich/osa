@@ -22,6 +22,7 @@ import { tmpdir } from "node:os";
 import { posix } from "node:path";
 import { MakiSession, type ContentBlock } from "./maki.ts";
 import { readAttachment, readSkillAttachment } from "./mentions.ts";
+import { sessionStats } from "./session-stats.ts";
 import { Translator, userPayload } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
@@ -1213,6 +1214,33 @@ async function fsList(url: URL): Promise<{ status: number; payload: any }> {
   return { status, payload: { ...payload, location: { directory: abs }, data: entries } };
 }
 
+// /api/experimental/session/stats aggregates the bridge's own session
+// histories (session-stats.ts); a range that ends before it starts is refused
+// as the real handler refuses it (core session/stats.ts v2.0.32 L84–L87)
+function statsRoute(url: URL): { status: number; payload: any } {
+  const time = (v: string | null) => {
+    if (v === null || v === "") return undefined;
+    const n = Number(v);
+    const t = Number.isFinite(n) ? n : Date.parse(v);
+    return Number.isFinite(t) ? t : undefined;
+  };
+  const from = time(url.searchParams.get("from"));
+  const to = time(url.searchParams.get("to"));
+  if (from !== undefined && from >= (to ?? Date.now())) {
+    return { status: 400, payload: { _tag: "InvalidRequestError", message: `invalid stats range: ${from} >= ${to ?? "now"}` } };
+  }
+  const tools = url.searchParams.get("tools");
+  const data = sessionStats(
+    [...sessions.values()].map((s) => ({ parentID: s.parentID, messages: s.history.all() })),
+    {
+      from, to,
+      timezone: url.searchParams.get("timezone") ?? undefined,
+      tools: tools === "none" || tools === "summary" || tools === "detail" ? tools : undefined,
+    },
+  );
+  return { status: 200, payload: { data } };
+}
+
 // /api/fs/find answers from the sandbox workdir's files (fs-find.ts); like
 // /api/fs/list it never reads the host directory the client names.
 async function fsFind(url: URL): Promise<{ status: number; payload: any }> {
@@ -1310,6 +1338,8 @@ async function handle(req: Request, srv: Bun.Server<SocketData>): Promise<Respon
     result = terminalRoute(method, path, url, body, req);
   } else if (method === "GET" && path === "/api/fs/list") {
     result = await fsList(url);
+  } else if (method === "GET" && path === "/api/experimental/session/stats") {
+    result = statsRoute(url);
   } else if (method === "GET" && path === "/api/fs/find") {
     result = await fsFind(url);
   } else if (method === "GET" && path === "/api/info") {

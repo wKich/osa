@@ -4,7 +4,7 @@ Generated from `bridge/compat/statuses.json`, `bridge/compat/journeys.json` and 
 
 ## Burndown
 
-Reachable surface: **58 of 143 routes** (45 `served-live`, 10 `served-faked`, 3 `deferred`, 0 `unhandled`) and **59 of 60 features** (48 `verified`, 0 `unverified`, 11 `degraded` (11 pin-blocked), 0 `buggy`). Out of scope: 85 routes, 1 feature. Open defects: **0**.
+Reachable surface: **59 of 143 routes** (46 `served-live`, 10 `served-faked`, 3 `deferred`, 0 `unhandled`) and **60 of 61 features** (49 `verified`, 0 `unverified`, 11 `degraded` (11 pin-blocked), 0 `buggy`). Out of scope: 84 routes, 1 feature. Open defects: **0**.
 
 Untriaged reachable routes: **0**.
 
@@ -12,7 +12,7 @@ Untriaged reachable routes: **0**.
 
 Statuses: `served-live` (real state behind the route), `served-faked` (answered from the pinned spec with synthesized values), `deferred` (spec-valid minimal answer, surface not implemented), `unhandled` (outside the pinned contract: answered 404).
 
-### Reachable (58)
+### Reachable (59)
 
 | Route | Status | Decision | Evidence |
 | --- | --- | --- | --- |
@@ -42,6 +42,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/experimental/persistent-pty/{ptyID}` | `served-live` | live — `sandbox-terminals` | [`bridge/test/sandbox-terminals.test.ts`](../bridge/test/sandbox-terminals.test.ts) |
 | `GET /api/experimental/persistent-pty/{ptyID}/connect` | `served-live` | live — `sandbox-terminals` | [`bridge/test/sandbox-terminals.test.ts`](../bridge/test/sandbox-terminals.test.ts) |
 | `GET /api/experimental/persistent-pty/{ptyID}/snapshot` | `served-live` | live — `sandbox-terminals` | [`bridge/test/sandbox-terminals.test.ts`](../bridge/test/sandbox-terminals.test.ts) |
+| `GET /api/experimental/session/stats` | `served-live` | live — `session-stats` | [`bridge/test/session-stats.test.ts`](../bridge/test/session-stats.test.ts) |
 | `GET /api/experimental/session/{sessionID}/export` | `served-live` | live — `session-export` | [`bridge/test/session-history.test.ts`](../bridge/test/session-history.test.ts) |
 | `GET /api/experimental/session/{sessionID}/terminal` | `served-live` | live — `sandbox-terminals` | [`bridge/test/sandbox-terminals.test.ts`](../bridge/test/sandbox-terminals.test.ts) |
 | `GET /api/fs/find` | `served-live` | live — `prompt-file-mentions` | [`bridge/test/fs-find.test.ts`](../bridge/test/fs-find.test.ts) |
@@ -75,7 +76,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/shell` | `deferred` | deferred | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
 | `GET /api/session/{sessionID}/form` | `deferred` | deferred | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
 
-### Out of scope (85)
+### Out of scope (84)
 
 | Route | Status | Evidence |
 | --- | --- | --- |
@@ -95,7 +96,6 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/config/shell` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /api/credential` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /api/debug/location` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
-| `GET /api/experimental/session/stats` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /api/experimental/session/{sessionID}/instructions/entries` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /api/experimental/session/{sessionID}/log` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /api/experimental/session/{sessionID}/terminal/read` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
@@ -169,7 +169,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 
 Statuses: `verified` (an offline test or committed fixture proves it), `degraded` (works, with a limitation recorded in the evidence), `unverified` (no evidence yet), `buggy` (an open inventory entry in `bridge/defects.json` forces this status until the fix flips it). `pin-blocked` marks a gap that needs an upstream wire change. A `verified` row is `journey-verified` only when every reachable journey that lists it is at `parity`; otherwise the journey oracle reports it `unit-verified only`.
 
-### Reachable (59)
+### Reachable (60)
 
 | Id | Feature | Status | Journeys | Evidence |
 | --- | --- | --- | --- | --- |
@@ -205,6 +205,7 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | `agent-switch-state` | Maki's agents are its build and plan modes: a selection becomes `set_permission_mode` (`plan`, or for `build` the mode the child started in) before the next turn, which runs in it (sdk_mode.rs v0.6.4 L77–L111, L688–L696, L846–L860), and is recorded as the durable `session.agent.selected` with an `agent-switched` row; named agents have no SDK surface (`initialize` ignores `agents`, L828–L839), so only those two are listed | `verified` | `journey-verified` — `switch-agent` | [`bridge/test/agent-switch.test.ts`](../bridge/test/agent-switch.test.ts) |
 | `api-retry-tolerance` | System api_retry frames are tolerated without disturbing the transcript | `verified` | `journey-verified` — `send-prompt-stream-reply` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
 | `mid-session-model-switch` | A session starts on the model it was created with when Maki's catalog lists it (`-m`), and a later selection is forwarded as `set_model`; the child's success ack moves the reported model, emits the durable `session.model.selected` and a `model-switched` transcript row, and `model.updated`; a refused model leaves the announced one | `verified` | `journey-verified` — `switch-model` | [`bridge/test/model-switch.test.ts`](../bridge/test/model-switch.test.ts) |
+| `session-stats` | `/stats` aggregates the bridge's own session histories as OpenCode aggregates its stored messages: root sessions and subagents, root prompts, one step per assistant message with its tokens, cost and model, activity per day with the longest streak, and tool calls by state (core session/stats.ts v2.0.32 L84–L360) | `verified` | `journey-verified` — `view-usage-statistics` | [`bridge/test/session-stats.test.ts`](../bridge/test/session-stats.test.ts) |
 | `interrupt-round-trip` | Interrupt cancels an in-flight turn via `control_request`/`interrupt` and ends it `session.execution.interrupted`; an idle session answers `interrupted:false` | `verified` | `journey-verified` — `interrupt-running-turn` | [`bridge/test/interrupt.test.ts`](../bridge/test/interrupt.test.ts) |
 | `control-response-emission` | Every answered permission ask writes one control_response naming Maki's request id | `verified` | `journey-verified` — `allow-permission-once` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
 | `permission-reply-vocabulary` | Permission answers use the pinned vocabulary: `once` → bare allow, `always` → allow + `updatedPermissions` (AllowSession), `reject` → deny, plus `message` as DenyWithGuidance when a reason is given | `verified` | `unit-verified only` — `allow-permission-once`, `allow-permission-always`, `reject-permission-with-reason` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
@@ -249,13 +250,12 @@ Rows citing these notes are proved against fixtures that were authored or splice
 
 Statuses: `unrecorded` (no reference recording yet), `referenced` (a reference recording of real OpenCode exists, the Maki side is not yet compared), `parity` (both sides match at every checkpoint), `diverges` (the journey completes with at least one differing checkpoint), `broken` (the Maki side cannot complete it).
 
-Reachable journeys: **61 of 67** (9 `unrecorded`, 0 `referenced`, 45 `parity`, 5 `diverges`, 2 `broken`). Native parity score: **73.8%** (45 of 61 reachable journeys at `parity`).
+Reachable journeys: **61 of 67** (8 `unrecorded`, 0 `referenced`, 46 `parity`, 5 `diverges`, 2 `broken`). Native parity score: **75.4%** (46 of 61 reachable journeys at `parity`).
 
 ### Reachable (61)
 
 | Slug | Journey | Area | Status | Live | Evidence | Accepted differences |
 | --- | --- | --- | --- | --- | --- | --- |
-| `view-usage-statistics` | View usage statistics | navigation | `unrecorded` | — | — | — |
 | `answer-mcp-form` | Answer an MCP form | permission | `unrecorded` | — | — | — |
 | `manage-mcp-servers` | Manage MCP servers | tools | `unrecorded` | — | — | — |
 | `manage-plugins` | Manage plugins | tools | `unrecorded` | — | — | — |
@@ -274,6 +274,7 @@ Reachable journeys: **61 of 67** (9 `unrecorded`, 0 `referenced`, 45 `parity`, 5
 | `switch-theme` | Switch the theme | navigation | `parity` | `parity` | reference: [`bridge/test/journeys/switch-theme/reference/`](../bridge/test/journeys/switch-theme/reference/) · maki: [`bridge/test/journeys/switch-theme/maki/`](../bridge/test/journeys/switch-theme/maki/) · diff: [`bridge/test/journeys/switch-theme/diff.json`](../bridge/test/journeys/switch-theme/diff.json) | theme-list: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; themed: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make |
 | `open-settings` | Open settings | navigation | `parity` | `parity` | reference: [`bridge/test/journeys/open-settings/reference/`](../bridge/test/journeys/open-settings/reference/) · maki: [`bridge/test/journeys/open-settings/maki/`](../bridge/test/journeys/open-settings/maki/) · diff: [`bridge/test/journeys/open-settings/diff.json`](../bridge/test/journeys/open-settings/diff.json) | settings: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make |
 | `view-debug-info` | View debug information | navigation | `parity` | `parity` | reference: [`bridge/test/journeys/view-debug-info/reference/`](../bridge/test/journeys/view-debug-info/reference/) · maki: [`bridge/test/journeys/view-debug-info/maki/`](../bridge/test/journeys/view-debug-info/maki/) · diff: [`bridge/test/journeys/view-debug-info/diff.json`](../bridge/test/journeys/view-debug-info/diff.json) | debug: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make |
+| `view-usage-statistics` | View usage statistics | navigation | `parity` | `parity` | reference: [`bridge/test/journeys/view-usage-statistics/reference/`](../bridge/test/journeys/view-usage-statistics/reference/) · maki: [`bridge/test/journeys/view-usage-statistics/maki/`](../bridge/test/journeys/view-usage-statistics/maki/) · diff: [`bridge/test/journeys/view-usage-statistics/diff.json`](../bridge/test/journeys/view-usage-statistics/diff.json) | closed: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make |
 | `exit-application` | Exit the application | navigation | `parity` | `parity` | reference: [`bridge/test/journeys/exit-application/reference/`](../bridge/test/journeys/exit-application/reference/) · maki: [`bridge/test/journeys/exit-application/maki/`](../bridge/test/journeys/exit-application/maki/) · diff: [`bridge/test/journeys/exit-application/diff.json`](../bridge/test/journeys/exit-application/diff.json) | exit-prompted: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make |
 | `new-session` | Create a new session | session | `parity` | `parity` | reference: [`bridge/test/journeys/new-session/reference/`](../bridge/test/journeys/new-session/reference/) · maki: [`bridge/test/journeys/new-session/maki/`](../bridge/test/journeys/new-session/maki/) · diff: [`bridge/test/journeys/new-session/diff.json`](../bridge/test/journeys/new-session/diff.json) | session-created: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; first-prompt: the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make |
 | `resume-session-history` | Resume a session and see its history | session | `parity` | `parity` | reference: [`bridge/test/journeys/resume-session-history/reference/`](../bridge/test/journeys/resume-session-history/reference/) · maki: [`bridge/test/journeys/resume-session-history/maki/`](../bridge/test/journeys/resume-session-history/maki/) · diff: [`bridge/test/journeys/resume-session-history/diff.json`](../bridge/test/journeys/resume-session-history/diff.json) | session-list: the list and tab show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; history-visible: the list and tab show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title "Journey" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make |

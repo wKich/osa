@@ -53,6 +53,8 @@ export interface Journey {
   slug: string;
   turns: Turn[];
   steps: Step[];
+  /** run the journeys' MCP server (mcp-server.ts) as `journey` on every side */
+  mcp?: boolean;
 }
 
 export function journey(slug: string, def: Omit<Journey, "slug">): Journey {

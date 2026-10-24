@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpath
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { journeyMcpToml, MCP_SERVER } from "./mcp.ts";
 import type { Journey } from "./journey.ts";
 import { startPty, runSteps, type Pty } from "./driver.ts";
 import { startMockProvider } from "./mock-provider.ts";
@@ -128,11 +129,20 @@ export function referenceEnv(paths: Paths, base: NodeJS.ProcessEnv = process.env
 }
 
 /** One loopback provider, no other endpoint. */
-export function referenceConfig(baseURL: string) {
+export function referenceConfig(baseURL: string, opts: { mcp?: boolean } = {}) {
   return {
+    // the journeys' MCP server, its tools called directly as Maki calls an
+    // MCP tool (Code Mode off: core tool.ts v2.0.32 L234–L235)
+    ...(opts.mcp ? { mcp: { servers: { journey: { type: "local", command: ["bun", MCP_SERVER], codemode: false } } } } : {}),
     $schema: "https://opencode.ai/config.json",
     model: "mock/mock-model",
-    permissions: [{ action: "shell", resource: "*", effect: "ask" }],
+    // Maki prompts before a shell command and before an MCP tool (its
+    // permission defaults, Maki docs permissions/_index.md), so the
+    // reference asks for both too
+    permissions: [
+      { action: "shell", resource: "*", effect: "ask" },
+      ...(opts.mcp ? [{ action: "journey_*", resource: "*", effect: "ask" }] : []),
+    ],
     // only the journey's provider: OpenCode's own catalog (its free models)
     // is host configuration, not journey content (config normalize.ts
     // v2.0.32 L408–L418)
@@ -192,7 +202,7 @@ async function referenceRun(script: Journey): Promise<Map<string, string>> {
     rmSync(root, { recursive: true, force: true });
     throw new HarnessError(`reference provider failed to bind: ${err instanceof Error ? err.message : String(err)}`);
   }
-  writeFileSync(join(paths.config, "opencode.json"), JSON.stringify(referenceConfig(provider.url), null, 2));
+  writeFileSync(join(paths.config, "opencode.json"), JSON.stringify(referenceConfig(provider.url, { mcp: script.mcp }), null, 2));
   const labels = referenceLabels(provider.url);
   const start = async () => {
     try {
@@ -320,7 +330,15 @@ export async function makiRun(script: Journey): Promise<MakiRunResult> {
     BRIDGE_SSE_LOG: framesPath,
     FAKE_MAKI_SCRIPT: JSON.stringify(script.turns),
     FAKE_MAKI_SCRIPT_STATE: join(root, "script-state.jsonl"),
+    // the scripted child advertises the journey server's tools as Maki names
+    // an MCP tool (`<server>__<tool>`); it runs no server itself
+    ...(script.mcp ? { FAKE_MAKI_TOOLS: "Bash,journey__marker,journey__ask_color" } : {}),
   };
+  // the sandbox user's MCP config, as the live journey config uploads it
+  if (script.mcp) {
+    mkdirSync(join(paths.home, ".config", "maki"), { recursive: true });
+    writeFileSync(join(paths.home, ".config", "maki", "mcp.toml"), journeyMcpToml(MCP_SERVER));
+  }
 
   let bridge: Bun.Subprocess;
   try {
@@ -443,7 +461,8 @@ export function normalizeRequests(log: string): string {
         // message-id path parameters, named as the pinned contract names them
         .replace(/\/inbox\/msg_[^/]+/g, "/inbox/{inboxID}")
         .replace(/\/message\/msg_[^/]+/g, "/message/{messageID}")
-        .replace(/\/pty_[^/]+/g, "/{ptyID}"),
+        .replace(/\/pty_[^/]+/g, "/{ptyID}")
+        .replace(/^(\/api\/experimental\/mcp\/)[^/]+/, "$1{server}"),
     };
     if (!BOOT_PROBES.has(`${route.method} ${route.path}`)) rows.add(JSON.stringify(route));
   }

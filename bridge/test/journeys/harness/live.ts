@@ -117,7 +117,7 @@ async function liveRun(
   let stderrDone: Promise<void> | undefined;
   let pty: Pty | undefined;
   try {
-    uploadJourneyConfig(env, sandbox, provider.port, join(root, "config"));
+    uploadJourneyConfig(env, sandbox, provider.port, join(root, "config"), { mcp: script.mcp });
     // The bridge spawns `openshell`, so it keeps the host env (gateway
     // metadata lives under the host's home); it never forwards an env value
     // into the sandbox.

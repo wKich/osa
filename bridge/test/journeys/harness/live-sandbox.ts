@@ -2,7 +2,8 @@
 // run (design decisions 2 and 3). Every command is plain `openshell` argv:
 // no `--env`, no `--provider`, and no policy/subcommand other than the
 // sandbox lifecycle, so the run cannot widen the boundary.
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { journeyMcpToml, MCP_SERVER } from "./mcp.ts";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -158,7 +159,7 @@ export async function withSandbox<T>(env: LiveEnvironment, body: (name: string) 
 }
 
 /** The journey-only Maki config (design decision 3): loopback provider, YOLO off, no MCP server. */
-export function journeyMakiConfig(port: number): Record<string, string> {
+export function journeyMakiConfig(port: number, opts: { mcp?: boolean } = {}): Record<string, string> {
   return {
     "init.lua": `-- Journey-only Maki config uploaded by the live journey runner.
 -- The baked image config keeps always_yolo on; the reference OpenCode asks
@@ -197,18 +198,22 @@ tier = "medium"
 context_window = 32768
 max_output_tokens = 4096
 `,
-    // the reference config declares no MCP server; this replaces the image's
-    // baked servers, which cannot connect with no provider attached
-    "mcp.toml": `# Journey-only MCP config uploaded by the live journey runner: no server,
+    // the reference config's MCP set: none, or the journeys' own server; this
+    // replaces the image's baked servers, which cannot connect with no
+    // provider attached
+    "mcp.toml": opts.mcp
+      ? journeyMcpToml(`${SANDBOX_CONFIG}/journey-mcp.ts`)
+      : `# Journey-only MCP config uploaded by the live journey runner: no server,
 # the reference OpenCode config's MCP set.
 `,
+    ...(opts.mcp ? { "journey-mcp.ts": readFileSync(MCP_SERVER, "utf8") } : {}),
   };
 }
 
 /** Writes the journey config and uploads only those files into the sandbox. */
-export function uploadJourneyConfig(env: LiveEnvironment, name: string, port: number, dir: string): void {
+export function uploadJourneyConfig(env: LiveEnvironment, name: string, port: number, dir: string, opts: { mcp?: boolean } = {}): void {
   mkdirSync(dir, { recursive: true });
-  for (const [file, content] of Object.entries(journeyMakiConfig(port))) {
+  for (const [file, content] of Object.entries(journeyMakiConfig(port, opts))) {
     const local = join(dir, file);
     writeFileSync(local, content);
     run(env, ["openshell", "sandbox", "upload", "--no-git-ignore", name, local, `${SANDBOX_CONFIG}/`]);

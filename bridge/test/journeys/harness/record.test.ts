@@ -113,6 +113,9 @@ describe("harness failures", () => {
     expect(normalizeRequests(JSON.stringify({ method: "DELETE", path: "/api/session/ses_a/inbox/msg_b" }))).toBe(
       '{"method":"DELETE","path":"/api/session/{sessionID}/inbox/{inboxID}"}\n',
     );
+    expect(normalizeRequests(JSON.stringify({ method: "POST", path: "/api/experimental/mcp/journey/disconnect" }))).toBe(
+      '{"method":"POST","path":"/api/experimental/mcp/{server}/disconnect"}\n',
+    );
     expect(normalizeRequests(JSON.stringify({ method: "GET", path: "/api/experimental/persistent-pty/pty_x/snapshot" }))).toBe(
       '{"method":"GET","path":"/api/experimental/persistent-pty/{ptyID}/snapshot"}\n',
     );

@@ -173,6 +173,12 @@ bounded timeout that fails the run.
 - **THEN** the harness editor replaces the draft with
   `Reply with the word EDITED only.` and the TUI returns it to the composer
 
+#### Scenario: Both sides offer the journey's models
+- **WHEN** a journey opens the model dialog
+- **THEN** the reference lists only the `mock` provider's two models, and the
+  Maki side, offline and live, lists `mock/mock-model` and
+  `mock/mock-model-2` with no connected integration
+
 ### Requirement: Compare normalized text snapshots per checkpoint
 Each side's terminal output SHALL be rendered by a headless terminal emulator
 into a text screen at every checkpoint. Volatile tokens (ids, timestamps,

@@ -1,0 +1,10 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "settings",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Reply with the word PONG only +\n \n   ┃\n   ┃  Reply with the word PONG only.\n   ┃\n \n      PONG\n \n      Build · <MODEL> · <DUR>\n \n \n                                   Settings                                         esc\n \n                                   Search\n \n                                   Appearance\n                                 ● Theme                                       opencode\n                                   Color mode                                    system\n                                   Animations                                       off\n \n                                   Session\n                                   Sidebar                                         auto\n                                   Scrollbar                                        off\n                                   Thinking                                        hide\n                                   Markdown                                    rendered\n                                   Tool grouping                                   auto\n                                   Verbosity                                     medium\n                                   Transcript images                                off\n                                   TPS                                               on\n \n                                   change ←/→\n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

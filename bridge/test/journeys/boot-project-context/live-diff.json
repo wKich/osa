@@ -1,0 +1,9 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "booted",
+      "verdict": "equal"
+    }
+  ]
+}

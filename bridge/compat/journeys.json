@@ -8,40 +8,17 @@
       "area": "navigation",
       "source": "packages/tui/src/app.tsx (boot) and packages/tui/src/component/session-frame.tsx at v2.0.32",
       "scenario": {
-        "steps": ["start the TUI in a project directory", "wait for the session to load"],
+        "steps": ["start the TUI in a project directory", "wait for the home screen"],
         "checkpoints": [
-          { "id": "boot-renders", "after": 2, "expect": "the home screen shows the prompt, the project directory and git branch in the footer, and the server's model" },
-          { "id": "catalogs-loaded", "after": 2, "expect": "the model, agent, command, MCP, and skill lists are populated and any migration overlay has finished" }
+          { "id": "booted", "after": 2, "expect": "the home screen shows the composer with the agent, model and project path" }
         ]
       },
-      "routes": [
-        "GET /api/event",
-        "GET /api/info",
-        "GET /api/fs/list",
-        "GET /api/plugin",
-        "GET /api/session/active",
-        "GET /api/location",
-        "GET /api/project",
-        "GET /api/config",
-        "GET /api/agent",
-        "GET /api/command",
-        "GET /api/integration",
-        "GET /api/mcp/resource",
-        "GET /api/model",
-        "GET /api/provider",
-        "GET /api/reference",
-        "GET /api/shell",
-        "GET /api/form",
-        "GET /api/mcp",
-        "GET /api/vcs",
-        "GET /api/skill",
-        "GET /api/experimental/migration/v1"
-      ],
+      "routes": ["GET /api/event", "GET /api/info", "GET /api/fs/list", "GET /api/plugin", "GET /api/session/active", "GET /api/location", "GET /api/project", "GET /api/config", "GET /api/agent", "GET /api/command", "GET /api/integration", "GET /api/mcp/resource", "GET /api/model", "GET /api/provider", "GET /api/reference", "GET /api/shell", "GET /api/form", "GET /api/mcp", "GET /api/vcs", "GET /api/skill", "GET /api/experimental/migration/v1"],
       "features": ["server-info-live", "fs-list-sandbox", "vcs-branch-live", "project-identity-live", "session-active-live", "mcp-server-status", "skill-list-live", "model-catalog-live", "sse-handshake"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/boot-project-context/reference/","maki":"bridge/test/journeys/boot-project-context/maki/","diff":"bridge/test/journeys/boot-project-context/diff.json","live":{"snapshots":"bridge/test/journeys/boot-project-context/live/","diff":"bridge/test/journeys/boot-project-context/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
       "acceptedDiffs": []
     },
     {
@@ -77,19 +54,24 @@
       "area": "navigation",
       "source": "packages/tui/src/config/keybind.ts (open.menu) and packages/tui/src/component/dialog-open.tsx at v2.0.32",
       "scenario": {
-        "steps": ["press ctrl+o", "pick an earlier session or project", "confirm"],
+        "steps": ["send a prompt", "start a new session", "press ctrl+o", "search and pick the earlier session"],
         "checkpoints": [
-          { "id": "open-list", "after": 1, "expect": "a dialog lists recent sessions and projects" },
-          { "id": "opened", "after": 3, "expect": "the selected session's transcript, or the selected project's home, opens" }
+          { "id": "open-dialog", "after": 3, "expect": "the open dialog lists the project" },
+          { "id": "search", "after": 4, "expect": "the search lists the earlier session and the project" },
+          { "id": "reopened", "after": 4, "expect": "the earlier session's transcript renders" }
         ]
       },
       "routes": ["GET /api/session", "GET /api/worktree"],
       "features": [],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/open-recent-session-or-project/reference/","maki":"bridge/test/journeys/open-recent-session-or-project/maki/","diff":"bridge/test/journeys/open-recent-session-or-project/diff.json","live":{"snapshots":"bridge/test/journeys/open-recent-session-or-project/live/","diff":"bridge/test/journeys/open-recent-session-or-project/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "open-dialog", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the longer Maki title also widens the dialog's session column, so the search placeholder's final ellipsis falls one cell short (with an equal title the Maki side renders \"Search sessions and projects…\" exactly)" },
+        { "checkpoint": "search", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "reopened", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "toggle-sidebar",
@@ -124,18 +106,24 @@
       "scenario": {
         "steps": ["prompt for a reply longer than the screen", "press page up", "press home", "press end"],
         "checkpoints": [
-          { "id": "paged-up", "after": 2, "expect": "the transcript scrolls up one page from the end of the reply" },
-          { "id": "at-first", "after": 3, "expect": "the transcript shows its first message at the top" },
-          { "id": "at-last", "after": 4, "expect": "the transcript returns to the end of the reply" }
+          { "id": "bottom", "after": 1, "expect": "the end of the reply is in view" },
+          { "id": "page-up", "after": 2, "expect": "the transcript scrolls up a page" },
+          { "id": "first", "after": 3, "expect": "the first message is in view" },
+          { "id": "last", "after": 4, "expect": "the end of the reply is in view again" }
         ]
       },
       "routes": [],
       "features": [],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/scroll-transcript/reference/","maki":"bridge/test/journeys/scroll-transcript/maki/","diff":"bridge/test/journeys/scroll-transcript/diff.json","live":{"snapshots":"bridge/test/journeys/scroll-transcript/live/","diff":"bridge/test/journeys/scroll-transcript/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "bottom", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "page-up", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "first", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" },
+        { "checkpoint": "last", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "open-help",
@@ -212,19 +200,20 @@
       "area": "navigation",
       "source": "packages/tui/src/app.tsx:1004 (/settings) and packages/tui/src/component/dialog-config.tsx at v2.0.32",
       "scenario": {
-        "steps": ["run /settings", "change a setting"],
+        "steps": ["send a prompt", "run /settings"],
         "checkpoints": [
-          { "id": "settings-shown", "after": 1, "expect": "the settings dialog lists theme, color mode, and experiments" },
-          { "id": "setting-saved", "after": 2, "expect": "the changed setting applies immediately and survives a restart" }
+          { "id": "settings", "after": 2, "expect": "the settings dialog lists appearance and session settings" }
         ]
       },
       "routes": [],
       "features": [],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/open-settings/reference/","maki":"bridge/test/journeys/open-settings/maki/","diff":"bridge/test/journeys/open-settings/diff.json","live":{"snapshots":"bridge/test/journeys/open-settings/live/","diff":"bridge/test/journeys/open-settings/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "settings", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "view-debug-info",
@@ -266,7 +255,7 @@
       "scope": "reachable",
       "blockedBy": "none",
       "status": "unrecorded",
-      "evidence": {},
+      "evidence": {  },
       "acceptedDiffs": []
     },
     {

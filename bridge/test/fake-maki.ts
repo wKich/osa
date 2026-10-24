@@ -109,7 +109,12 @@ function nextTurn() {
 // FAKE_MAKI_TOOLS (comma-separated) replaces the advertised tool list, so a
 // test can stand in for MCP tools (`<server>__<tool>`) or `tool_search`
 const tools = process.env.FAKE_MAKI_TOOLS?.split(",").filter(Boolean) ?? ["Bash"];
-out({ type: "system", subtype: "init", session_id: SESSION_ID, cwd, model: "synthetic/fake", tools });
+// the child announces the model it was started with (`-m`, or the bridge's
+// MAKI_MODEL), as the pinned init frame does (sdk_mode.rs v0.6.4 L615–L626);
+// FAKE_MAKI_MODEL stands in for a child that settled on another one
+const flag = process.argv.indexOf("-m");
+const startModel = process.env.FAKE_MAKI_MODEL ?? (flag >= 0 ? process.argv[flag + 1] : undefined) ?? process.env.MAKI_MODEL ?? "synthetic/fake";
+out({ type: "system", subtype: "init", session_id: SESSION_ID, cwd, model: startModel, tools });
 
 function toolFrames(toolUseID: string, command: string, isError: boolean, content: string): void {
   out({

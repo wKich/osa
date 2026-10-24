@@ -190,6 +190,12 @@ id = "mock-model"
 tier = "medium"
 context_window = 32768
 max_output_tokens = 4096
+
+[[mock.models]]
+id = "mock-model-2"
+tier = "medium"
+context_window = 32768
+max_output_tokens = 4096
 `,
     // the reference config declares no MCP server; this replaces the image's
     // baked servers, which cannot connect with no provider attached

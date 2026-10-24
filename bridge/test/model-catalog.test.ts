@@ -47,7 +47,7 @@ describe("model catalog", () => {
   });
 
   test("the announced model moves to the front once a child names it", async () => {
-    const bridge = await startBridge({ FAKE_SANDBOX_BIN: bin, MAKI_MODEL: "anthropic/claude-sonnet-5-5" });
+    const bridge = await startBridge({ FAKE_SANDBOX_BIN: bin, MAKI_MODEL: "anthropic/claude-sonnet-5-5", FAKE_MAKI_MODEL: "synthetic/fake" });
     try {
       await fetch(`${bridge.base}/api/session`, {
         method: "POST",

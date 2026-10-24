@@ -15,7 +15,7 @@
 
      READY          maki-plugin-dev Write or modify maki plugins or init.lua config in Lua: custom t
                     journey-greet   Greets the journey.
-     Build · fak
+     Build · moc
 
 
 

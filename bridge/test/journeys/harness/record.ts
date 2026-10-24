@@ -25,7 +25,9 @@ const ROOT = join(JOURNEYS, "..", "..", "..");
 export class HarnessError extends Error {}
 
 /** `MAKI_MODEL` the scripted child announces; the TUI selects it first. */
-export const SCRIPTED_MODEL = "synthetic/fake";
+export const SCRIPTED_MODEL = "mock/mock-model";
+/** the journey catalog the scripted sandbox lists, as the live journey config defines it */
+export const SCRIPTED_CATALOG = ["mock/mock-model", "mock/mock-model-2"];
 
 const CATALOG = join(ROOT, "bridge", "compat", "journeys.json");
 
@@ -126,6 +128,13 @@ export function referenceConfig(baseURL: string) {
     $schema: "https://opencode.ai/config.json",
     model: "mock/mock-model",
     permissions: [{ action: "shell", resource: "*", effect: "ask" }],
+    // only the journey's provider: OpenCode's own catalog (its free models)
+    // is host configuration, not journey content (config normalize.ts
+    // v2.0.32 L408–L418)
+    policies: [
+      { action: "provider.use", resource: "*", effect: "deny" },
+      { action: "provider.use", resource: "mock", effect: "allow" },
+    ],
     providers: {
       mock: {
         name: "Mock",
@@ -137,6 +146,12 @@ export function referenceConfig(baseURL: string) {
             capabilities: { tools: true, input: ["text"], output: ["text"] },
             // The bridge's model rows carry no context limit, so the reference
             // omits the context percentage the TUI would otherwise print.
+            limit: { context: 0, output: 0 },
+          },
+          // a second model to switch to
+          "mock-model-2": {
+            name: "Mock Model Two",
+            capabilities: { tools: true, input: ["text"], output: ["text"] },
             limit: { context: 0, output: 0 },
           },
         },
@@ -294,6 +309,8 @@ export async function makiRun(script: Journey): Promise<MakiRunResult> {
     // The helper's invocation: production selects the configured model, so a
     // scenario cannot silently run the sandbox's first catalog model.
     MAKI_MODEL: SCRIPTED_MODEL,
+    FAKE_SANDBOX_MODELS: SCRIPTED_CATALOG.join(" "),
+    FAKE_SANDBOX_AUTH: "none",
     BRIDGE_LOG: requestsPath,
     BRIDGE_SSE_LOG: framesPath,
     FAKE_MAKI_SCRIPT: JSON.stringify(script.turns),

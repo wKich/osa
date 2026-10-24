@@ -93,6 +93,14 @@ export function normalize(text: string, opts: NormalizeOptions = {}): string {
     if (base) out = out.replace(new RegExp(`\\S*${escape(base)}\\b`, "g"), token);
   }
 
+  // A narrow pane elides the middle of the workdir and cuts its end
+  // (`/…/fold…/bb/…/T/maki-journey-ref-x`): a `/…`-led token whose kept
+  // segments run along the workdir's, in order, is the workdir too.
+  if (opts.workdir) {
+    const segments = opts.workdir.split("/").filter(Boolean);
+    out = out.replace(/\/…\/\S+/g, (token) => (elidedWorkdir(token, segments) ? "<WORKDIR>" : token));
+  }
+
   // The footer pads the workdir to the terminal width; the raw path length is
   // a harness property (a temp dir vs the sandbox workdir), so keep one gap.
   // A branch suffix (`<WORKDIR>:main`) is padded the same way.
@@ -127,4 +135,21 @@ export function normalize(text: string, opts: NormalizeOptions = {}): string {
   out = out.replace(/\$\s?\d+(?:\.\d+)?/g, "$<N>");
 
   return out;
+}
+
+/** whether an elided path token is a cut of the workdir: each kept segment
+ * (a `…`-ended or final one may be a prefix) matches the next workdir
+ * segment at or after the previous match, and the token keeps at least two */
+function elidedWorkdir(token: string, segments: string[]): boolean {
+  const kept = token.split("/").filter((s) => s && s !== "…");
+  if (kept.length < 2) return false;
+  let at = 0;
+  for (const [i, raw] of kept.entries()) {
+    const prefix = raw.endsWith("…") || i === kept.length - 1;
+    const seg = raw.replace(/…$/, "");
+    const found = segments.findIndex((s, j) => j >= at && (prefix ? s.startsWith(seg) : s === seg));
+    if (found < 0) return false;
+    at = found + 1;
+  }
+  return true;
 }

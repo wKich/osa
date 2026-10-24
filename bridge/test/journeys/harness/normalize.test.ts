@@ -27,6 +27,12 @@ describe("normalize", () => {
     expect(normalize("  /tmp/x/journey-work:main            2  ctrl+p", { ...opts, workdir: "/tmp/x/journey-work" })).toBe("  <WORKDIR>:main 2  ctrl+p");
     // the second journey model stays distinct from the first
     expect(normalize("Build · Mock Model Two Mock · mock/mock-model-2", { models: ["Mock Model", "Mock", "mock-model", "mock/mock-model"] })).toBe("Build · <MODEL-2> <MODEL> · <MODEL-2>");
+    // a narrow pane elides the workdir's middle and cuts its end
+    const wd = { ...opts, workdir: "/private/var/folders/bb/4_lkm/T/maki-journey-ref-toggle-sidebar-Ab12/journey-work" };
+    expect(normalize("  /…/fold…/bb/4_lkm/T/maki-journey-ref-toggle-sidebar  x", wd)).toBe("  <WORKDIR> x");
+    expect(normalize("  /…/4_lkm/T/maki-journey-ref-toggle-sidebar-A  x", wd)).toBe("  <WORKDIR> x");
+    // an elided path elsewhere is left alone
+    expect(normalize("  /…/usr/lib/thing  x", wd)).toBe("  /…/usr/lib/thing  x");
     // a live sandbox's prompt names its container
     expect(normalize("sandbox@f328cbd028b1:/tmp$ ", opts)).toBe("sandbox@<HOST>:/tmp$ ");
     // a dialog cut the duration mid-unit

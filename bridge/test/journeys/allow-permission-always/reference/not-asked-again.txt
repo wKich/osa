@@ -1,0 +1,39 @@
+   Journey                       +
+
+  ┃
+  ┃  Use your shell tool to run exactly: rm -f probe1.txt . Then reply with the single word DONE1.
+  ┃
+
+  ┃
+  ┃  $ rm -f probe1.txt
+  ┃
+  ┃  (no output)
+  ┃
+
+     DONE1
+
+     Build · <MODEL> · <DUR>
+
+  ┃
+  ┃  Use your shell tool to run exactly: rm -f probe2.txt . Then reply with the single word DONE2.
+  ┃
+
+  ┃
+  ┃  $ rm -f probe2.txt
+  ┃
+  ┃  (no output)
+  ┃
+
+     DONE2
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

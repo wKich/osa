@@ -1142,18 +1142,22 @@
       "area": "permission",
       "source": "packages/tui/src/routes/session/permission.tsx (always) at v2.0.32",
       "scenario": {
-        "steps": ["trigger a permission prompt", "choose always"],
+        "steps": ["prompt a shell command that needs permission", "select Always allow", "confirm", "prompt a second command of the same pattern"],
         "checkpoints": [
-          { "id": "always", "after": 2, "expect": "the prompt closes and a later matching tool call does not ask again in this session" }
+          { "id": "always-selected", "after": 2, "expect": "the dialog shows the patterns that will always be allowed" },
+          { "id": "not-asked-again", "after": 4, "expect": "the second command runs without a permission prompt and both replies render" }
         ]
       },
       "routes": ["GET /api/session/{sessionID}/permission", "POST /api/session/{sessionID}/permission/{requestID}/reply"],
       "features": ["permission-reask", "permission-reply-vocabulary"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/allow-permission-always/reference/","maki":"bridge/test/journeys/allow-permission-always/maki/","diff":"bridge/test/journeys/allow-permission-always/diff.json","live":{"snapshots":"bridge/test/journeys/allow-permission-always/live/","diff":"bridge/test/journeys/allow-permission-always/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "always-selected", "reason": "Maki titles a session only when its first run is recorded (maki-agent session.rs v0.6.4 L143–L166, L203–L217), so mid-run the tab correctly has no title yet; OpenCode titles in parallel with the first model call and the mock answers \"Journey\"" },
+        { "checkpoint": "not-asked-again", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the silent command shows Maki's real bash result \"Exit code: 0\" (plugins/bash/init.lua v0.6.4 L407–L412), where OpenCode's shell tool prints \"(no output)\" (core/src/shell.ts v2.0.32 L249) — each TUI renders its own tool's result" }
+      ]
     },
     {
       "slug": "reject-permission-with-reason",

@@ -1,0 +1,15 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "always-selected",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n- ! Journey                       +\n+ ! New session                   +\n \n   ┃\n   ┃  Use your shell tool to run exactly: rm -f probe1.txt . Then reply with the single word DONE1.\n   ┃\n \n   ┃\n   ┃  <SPINNER> rm -f probe1.txt\n   ┃\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃  △ Permission required\n   ┃\n   ┃  This will always allow the following patterns for this project.\n   ┃\n   ┃  - rm *\n   ┃\n   ┃\n   ┃   Allow once   Always allow   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm\n   ┃"
+    },
+    {
+      "id": "not-asked-again",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n \n   ┃\n   ┃  Use your shell tool to run exactly: rm -f probe1.txt . Then reply with the single word DONE1.\n   ┃\n \n   ┃\n   ┃  $ rm -f probe1.txt\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      DONE1\n \n      Build · <MODEL> · <DUR>\n \n   ┃\n   ┃  Use your shell tool to run exactly: rm -f probe2.txt . Then reply with the single word DONE2.\n   ┃\n \n   ┃\n   ┃  $ rm -f probe2.txt\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      DONE2\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

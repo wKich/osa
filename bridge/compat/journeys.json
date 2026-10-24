@@ -108,6 +108,28 @@
       "acceptedDiffs": []
     },
     {
+      "slug": "scroll-transcript",
+      "name": "Scroll through a long transcript",
+      "description": "Page up and down a transcript longer than the screen and jump to its first and last message.",
+      "area": "navigation",
+      "source": "packages/tui/src/config/keybind.ts:196 (session.page.up), :202 (session.first), :203 (session.last) and packages/tui/src/routes/session/index.tsx:782 at v2.0.32",
+      "scenario": {
+        "steps": ["prompt for a reply longer than the screen", "press page up", "press home", "press end"],
+        "checkpoints": [
+          { "id": "paged-up", "after": 2, "expect": "the transcript scrolls up one page from the end of the reply" },
+          { "id": "at-first", "after": 3, "expect": "the transcript shows its first message at the top" },
+          { "id": "at-last", "after": 4, "expect": "the transcript returns to the end of the reply" }
+        ]
+      },
+      "routes": [],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
       "slug": "open-help",
       "name": "Open the help dialog",
       "description": "Show the keybindings and commands available from the current screen.",
@@ -353,6 +375,27 @@
       },
       "routes": ["GET /api/session/{sessionID}", "GET /api/session/{sessionID}/message"],
       "features": ["session-active-live"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "close-reopen-session-tab",
+      "name": "Close a session tab and reopen it",
+      "description": "Close the current session tab and bring it back with reopen-last-closed.",
+      "area": "navigation",
+      "source": "packages/tui/src/config/keybind.ts:120 (session.tab.close), :121 (session.tab.reopen) and packages/tui/src/component/session-tabs.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["prompt \"Reply with the word PONG only.\"", "press leader+w", "press ctrl+shift+t"],
+        "checkpoints": [
+          { "id": "tab-closed", "after": 2, "expect": "the session tab is gone and the TUI shows the home screen" },
+          { "id": "tab-reopened", "after": 3, "expect": "the closed session reopens in its tab with the PONG exchange" }
+        ]
+      },
+      "routes": [],
+      "features": [],
       "scope": "reachable",
       "blockedBy": "none",
       "status": "unrecorded",
@@ -771,6 +814,47 @@
       "acceptedDiffs": []
     },
     {
+      "slug": "see-failed-turn-error",
+      "name": "See why a turn failed",
+      "description": "A turn whose model call fails ends with the error rendered under the transcript.",
+      "area": "session",
+      "source": "packages/tui/src/routes/session/index.tsx:1835 (ExecutionError) at v2.0.32",
+      "scenario": {
+        "steps": ["prompt a turn the model fails", "wait for the turn to end"],
+        "checkpoints": [
+          { "id": "turn-error", "after": 2, "expect": "the transcript ends with the turn error in the error color and the composer is idle" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/prompt"],
+      "features": ["turn-failure-mapping"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "see-provider-retry",
+      "name": "See a provider retry in progress",
+      "description": "While the model provider is retried the transcript shows the retry attempt and its reason, then the reply.",
+      "area": "session",
+      "source": "packages/tui/src/routes/session/index.tsx:2379 (AssistantRetry) at v2.0.32",
+      "scenario": {
+        "steps": ["prompt a turn whose first model call fails with a retryable error", "wait for the retry notice", "wait for the reply"],
+        "checkpoints": [
+          { "id": "retrying", "after": 2, "expect": "a warning row names the retry attempt and the provider error" },
+          { "id": "recovered", "after": 3, "expect": "the reply renders and the retry row is gone" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/prompt"],
+      "features": ["retry-scheduled"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
       "slug": "send-prompt-stream-reply",
       "name": "Send a prompt and watch the reply stream",
       "description": "Submit a prompt and see the assistant reply stream into the transcript.",
@@ -792,6 +876,27 @@
       "acceptedDiffs": [
         { "checkpoint": "streamed", "reason": "the tab shows the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
       ]
+    },
+    {
+      "slug": "recall-prompt-history",
+      "name": "Recall an earlier prompt from history",
+      "description": "Press up in an empty composer to bring back the previous prompt and send it again.",
+      "area": "prompt",
+      "source": "packages/tui/src/config/keybind.ts:304 (prompt.history.previous) and packages/tui/src/component/prompt/index.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["prompt \"Reply with the word PONG only.\"", "press up in the empty composer", "press enter"],
+        "checkpoints": [
+          { "id": "recalled", "after": 2, "expect": "the composer holds the previous prompt text" },
+          { "id": "resent", "after": 3, "expect": "the recalled prompt and its reply render as a second exchange" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/prompt"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
     },
     {
       "slug": "attach-image-to-prompt",
@@ -1005,6 +1110,27 @@
       "acceptedDiffs": []
     },
     {
+      "slug": "answer-agent-question",
+      "name": "Answer a question the agent asks",
+      "description": "The agent asks a multiple-choice question; the user picks an answer and the transcript records it.",
+      "area": "permission",
+      "source": "packages/tui/src/routes/session/index.tsx:3463 (Question) and packages/tui/src/routes/session/form.tsx at v2.0.32",
+      "scenario": {
+        "steps": ["prompt the agent to ask which option to use", "pick the first option", "wait for the reply"],
+        "checkpoints": [
+          { "id": "question-shown", "after": 1, "expect": "the question form shows the question and its options" },
+          { "id": "answered", "after": 3, "expect": "a Questions block shows the question and the chosen answer, then the reply" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/prompt"],
+      "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
       "slug": "switch-model",
       "name": "Switch the model",
       "description": "Pick another model from the provider list and use it for the next turn.",
@@ -1103,6 +1229,47 @@
       },
       "routes": ["GET /api/plugin", "POST /api/plugin/check", "POST /api/plugin/update"],
       "features": [],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "see-file-reads-and-searches",
+      "name": "See the files the agent read and searched",
+      "description": "The agent reads a file and searches the workdir; each call renders as an inline tool row naming its path or pattern.",
+      "area": "tools",
+      "source": "packages/tui/src/routes/session/index.tsx:3025 (Glob), :3038 (Read), :3076 (Grep) at v2.0.32",
+      "scenario": {
+        "steps": ["prompt the agent to read README.md and grep for a word", "wait for the reply"],
+        "checkpoints": [
+          { "id": "reads-rendered", "after": 2, "expect": "inline Read and Grep rows name README.md and the pattern, then the reply renders" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/prompt"],
+      "features": ["prompt-translation"],
+      "scope": "reachable",
+      "blockedBy": "none",
+      "status": "unrecorded",
+      "evidence": {},
+      "acceptedDiffs": []
+    },
+    {
+      "slug": "see-file-edit-diff",
+      "name": "See the agent edit a file as a diff",
+      "description": "The agent edits a workdir file; the transcript renders the edit with its diff.",
+      "area": "tools",
+      "source": "packages/tui/src/routes/session/index.tsx:2989 (Write), :3279 (Edit) at v2.0.32",
+      "scenario": {
+        "steps": ["prompt the agent to edit notes.txt", "answer the edit permission", "wait for the reply"],
+        "checkpoints": [
+          { "id": "edit-permission", "after": 1, "expect": "the permission dialog shows Edit notes.txt with the diff" },
+          { "id": "edit-rendered", "after": 3, "expect": "the transcript shows the edit block with removed and added lines" }
+        ]
+      },
+      "routes": ["POST /api/session/{sessionID}/prompt", "POST /api/session/{sessionID}/permission/{requestID}/reply"],
+      "features": ["permission-round-trip"],
       "scope": "reachable",
       "blockedBy": "none",
       "status": "unrecorded",

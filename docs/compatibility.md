@@ -185,11 +185,11 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | `session-message-history` | GET /api/session/{sessionID}/message answers the transcript the bridge projected from its own frames (user, assistant parts, idle markers), paged like the real handler, so a reopened TUI renders the session's history (server/src/handlers/message.ts v2.0.32 L9–L65) | `verified` | `journey-verified` — `resume-session-history` | [`bridge/test/session-history.test.ts`](../bridge/test/session-history.test.ts) |
 | `deferred-session-surface-contract` | Deferred session inbox/form reads, and a session with no turn, answer schema-valid empty lists and 404 unknown sessions, never a phantom row | `verified` | `journey-verified` — `resume-session-history` | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
 | `session-isolation` | Concurrent sessions keep their children and transcripts apart | `verified` | `unit-verified only` — `delete-session` | [`bridge/test/session-isolation.test.ts`](../bridge/test/session-isolation.test.ts) |
-| `prompt-translation` | Recorded Maki turns translate to the committed golden frames | `verified` | `journey-verified` — `send-prompt-stream-reply` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
+| `prompt-translation` | Recorded Maki turns translate to the committed golden frames | `verified` | `unit-verified only` — `send-prompt-stream-reply`, `see-file-reads-and-searches` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
 | `tool-failure-mapping` | Failing and permission-denied tools map to session.tool.failed | `verified` | `journey-verified` — `allow-permission-once` | [`bridge/test/tool-frames.test.ts`](../bridge/test/tool-frames.test.ts) |
-| `turn-failure-mapping` | A failed Maki turn maps to session.execution.failed with the wire's message, never to success | `verified` | `unit-verified only` — `interrupt-running-turn` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
+| `turn-failure-mapping` | A failed Maki turn maps to session.execution.failed with the wire's message, never to success | `verified` | `unit-verified only` — `interrupt-running-turn`, `see-failed-turn-error` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
 | `turn-abort-mapping` | A Maki child exiting mid-turn fails the turn exactly once (no success) and later prompts are refused with 503 | `verified` | `unit-verified only` — `interrupt-running-turn` | [`bridge/test/turn-abort.test.ts`](../bridge/test/turn-abort.test.ts) |
-| `permission-round-trip` | Permission ask/reply round trip runs offline over the child seam | `verified` | `unit-verified only` — `allow-permission-once`, `reject-permission-with-reason` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
+| `permission-round-trip` | Permission ask/reply round trip runs offline over the child seam | `verified` | `unit-verified only` — `allow-permission-once`, `reject-permission-with-reason`, `see-file-edit-diff` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
 | `stream-deltas` | stream_event deltas translate into part delta frames | `verified` | `journey-verified` — `send-prompt-stream-reply` | [`bridge/test/fixtures/maki-stream-live.jsonl`](../bridge/test/fixtures/maki-stream-live.jsonl) |
 | `transcript-order` | User prompts render before the assistant output they caused | `verified` | `unit-verified only` — `resume-session-history`, `jump-to-message`, `send-prompt-stream-reply` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
 | `model-identity` | Session events carry Maki's real model name | `verified` | `journey-verified` — `send-prompt-stream-reply` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
@@ -201,7 +201,7 @@ Statuses: `verified` (an offline test or committed fixture proves it), `degraded
 | `permission-reply-vocabulary` | Permission answers use the pinned vocabulary: `once` → bare allow, `always` → allow + `updatedPermissions` (AllowSession), `reject` → deny, plus `message` as DenyWithGuidance when a reason is given | `verified` | `unit-verified only` — `allow-permission-once`, `allow-permission-always`, `reject-permission-with-reason` | [`bridge/test/permission-egress.test.ts`](../bridge/test/permission-egress.test.ts) |
 | `subagent-nesting` | Subagent transcript nesting via parent_tool_use_id | `verified` | `unit-verified only` — `open-subagent-session` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
 | `maki-wire-envelope` | Maki's per-message envelope (top-level session_id + uuid) rides every wire frame; the bridge keeps the child on its OpenCode-minted session instead of rebinding on the envelope id | `verified` | `unit-verified only` — `open-subagent-session`, `send-prompt-stream-reply` | [`bridge/test/envelope.test.ts`](../bridge/test/envelope.test.ts) |
-| `retry-scheduled` | Maki `system api_retry` surfaces as the pinned `session.retry.scheduled` event | `verified` | `unit-verified only` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
+| `retry-scheduled` | Maki `system api_retry` surfaces as the pinned `session.retry.scheduled` event | `verified` | `unit-verified only` — `see-provider-retry` | [`bridge/test/golden.test.ts`](../bridge/test/golden.test.ts) — fixture provenance: [note 1](#fixture-provenance) |
 | `server-info-live` | `GET /api/info` reports the bridge's own pid and listen URL with the pinned version, and `capabilities.persistentPty: false` because the bridge serves no persistent PTY (the TUI offers terminals unless it is false: `tui/src/context/session-terminals.tsx` v2.0.32 L62–L77) | `verified` | `unit-verified only` — `boot-project-context`, `view-status`, `open-terminal-pane` | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
 | `fs-list-sandbox` | `GET /api/fs/list` lists the sandbox workdir through the OpenShell exec transport, never a host directory the client names | `verified` | `unit-verified only` — `boot-project-context` | [`bridge/test/fs-list.test.ts`](../bridge/test/fs-list.test.ts) |
 | `vcs-branch-live` | `GET /api/vcs` reports the sandbox checkout's current branch (the footer's `dir:branch`, `tui/src/component/prompt/index.tsx` v2.0.32 L1620) through the exec transport | `verified` | `unit-verified only` — `boot-project-context` | [`bridge/test/sandbox-git.test.ts`](../bridge/test/sandbox-git.test.ts) |
@@ -233,9 +233,9 @@ Rows citing these notes are proved against fixtures that were authored or splice
 
 Statuses: `unrecorded` (no reference recording yet), `referenced` (a reference recording of real OpenCode exists, the Maki side is not yet compared), `parity` (both sides match at every checkpoint), `diverges` (the journey completes with at least one differing checkpoint), `broken` (the Maki side cannot complete it).
 
-Reachable journeys: **53 of 59** (50 `unrecorded`, 0 `referenced`, 3 `parity`, 0 `diverges`, 0 `broken`). Native parity score: **5.7%** (3 of 53 reachable journeys at `parity`).
+Reachable journeys: **61 of 67** (58 `unrecorded`, 0 `referenced`, 3 `parity`, 0 `diverges`, 0 `broken`). Native parity score: **4.9%** (3 of 61 reachable journeys at `parity`).
 
-### Reachable (53)
+### Reachable (61)
 
 | Slug | Journey | Area | Status | Live | Evidence | Accepted differences |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -243,6 +243,7 @@ Reachable journeys: **53 of 59** (50 `unrecorded`, 0 `referenced`, 3 `parity`, 0
 | `show-command-palette` | Find and run a command from the palette | navigation | `unrecorded` | — | — | — |
 | `open-recent-session-or-project` | Open a recent session or project | navigation | `unrecorded` | — | — | — |
 | `toggle-sidebar` | Toggle the session sidebar | navigation | `unrecorded` | — | — | — |
+| `scroll-transcript` | Scroll through a long transcript | navigation | `unrecorded` | — | — | — |
 | `open-help` | Open the help dialog | navigation | `unrecorded` | — | — | — |
 | `view-status` | View the server and session status | navigation | `unrecorded` | — | — | — |
 | `switch-theme` | Switch the theme | navigation | `unrecorded` | — | — | — |
@@ -252,6 +253,7 @@ Reachable journeys: **53 of 59** (50 `unrecorded`, 0 `referenced`, 3 `parity`, 0
 | `exit-application` | Exit the application | navigation | `unrecorded` | — | — | — |
 | `new-session` | Create a new session | session | `unrecorded` | — | — | — |
 | `switch-session-tab` | Switch between open sessions | session | `unrecorded` | — | — | — |
+| `close-reopen-session-tab` | Close a session tab and reopen it | navigation | `unrecorded` | — | — | — |
 | `rename-session` | Rename a session | session | `unrecorded` | — | — | — |
 | `delete-session` | Delete a session | session | `unrecorded` | — | — | — |
 | `pin-session` | Pin a session in the list | session | `unrecorded` | — | — | — |
@@ -272,6 +274,9 @@ Reachable journeys: **53 of 59** (50 `unrecorded`, 0 `referenced`, 3 `parity`, 0
 | `view-session-diff` | Review the session diff | session | `unrecorded` | — | — | — |
 | `open-terminal-pane` | Open a terminal pane | session | `unrecorded` | — | — | — |
 | `view-shell-output` | View a shell tool's output | session | `unrecorded` | — | — | — |
+| `see-failed-turn-error` | See why a turn failed | session | `unrecorded` | — | — | — |
+| `see-provider-retry` | See a provider retry in progress | session | `unrecorded` | — | — | — |
+| `recall-prompt-history` | Recall an earlier prompt from history | prompt | `unrecorded` | — | — | — |
 | `attach-image-to-prompt` | Attach an image to a prompt | prompt | `unrecorded` | — | — | — |
 | `mention-file-in-prompt` | Mention a file in a prompt | prompt | `unrecorded` | — | — | — |
 | `mention-skill-in-prompt` | Mention a skill in a prompt | prompt | `unrecorded` | — | — | — |
@@ -281,11 +286,14 @@ Reachable journeys: **53 of 59** (50 `unrecorded`, 0 `referenced`, 3 `parity`, 0
 | `allow-permission-always` | Allow matching tool calls for the session | permission | `unrecorded` | — | — | — |
 | `reject-permission-with-reason` | Reject a tool with a reason | permission | `unrecorded` | — | — | — |
 | `answer-mcp-form` | Answer an MCP form | permission | `unrecorded` | — | — | — |
+| `answer-agent-question` | Answer a question the agent asks | permission | `unrecorded` | — | — | — |
 | `switch-model` | Switch the model | model | `unrecorded` | — | — | — |
 | `switch-agent` | Switch the agent | model | `unrecorded` | — | — | — |
 | `switch-model-variant` | Switch the model variant | model | `unrecorded` | — | — | — |
 | `manage-mcp-servers` | Manage MCP servers | tools | `unrecorded` | — | — | — |
 | `manage-plugins` | Manage plugins | tools | `unrecorded` | — | — | — |
+| `see-file-reads-and-searches` | See the files the agent read and searched | tools | `unrecorded` | — | — | — |
+| `see-file-edit-diff` | See the agent edit a file as a diff | tools | `unrecorded` | — | — | — |
 | `manage-workspaces` | Manage workspaces | files | `unrecorded` | — | — | — |
 | `change-working-directory` | Change the working directory | files | `unrecorded` | — | — | — |
 | `reload-configuration` | Reload the configuration | config | `unrecorded` | — | — | — |

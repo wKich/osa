@@ -713,6 +713,13 @@ The bridge MUST answer `404` `SessionNotFoundError` for an unknown session.
 - **THEN** it answers `404` with `_tag: "SessionNotFoundError"` and no frame is
   written to any child
 
+#### Scenario: The interrupted step reads as interrupted
+- **WHEN** an interrupted turn's error result arrives
+- **THEN** the bridge emits `session.step.failed` with error
+  `{type: "aborted", message: "Step interrupted"}` and no usage, then
+  `session.execution.interrupted`, and the TUI footer marks the turn
+  `interrupted`
+
 ### Requirement: Round-trip tool permissions in Maki's answer vocabulary
 The bridge SHALL forward each Maki `can_use_tool` control request to the TUI as
 a permission request, block that tool call until the TUI answers, and map the

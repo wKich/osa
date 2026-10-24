@@ -558,6 +558,63 @@ function viewSession(s: BridgeSession, body: AnyObj): { status: number; payload:
   return { status: 204, payload: null };
 }
 
+// session.generate: a transient answer from the session's context that leaves
+// its history untouched (server handlers/session.ts v2.0.32 L596–L609). The
+// pinned child has no such request, so a throwaway child forks the stored
+// session (`-r <id> --fork-session`), answers once with every tool ask denied
+// (generate runs no tool loop), and its fork is deleted from Maki's store
+// (`maki session delete <id> --force`, src/cli.rs v0.6.4 L303–L321)
+function generateAside(sid: string, body: AnyObj): Promise<{ status: number; payload: any }> {
+  const parent = sessions.get(sid);
+  if (!parent) return Promise.resolve(sessionNotFound(sid));
+  const prompt = typeof body?.prompt === "string" ? body.prompt : "";
+  if (!prompt) return Promise.resolve({ status: 400, payload: { _tag: "InvalidRequestError", message: "prompt is required" } });
+  return new Promise((resolve) => {
+    let forkID: string | undefined;
+    let text = "";
+    let settled = false;
+    const finish = (out: { status: number; payload: any }) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill();
+      // the fork's id is Maki's own; the scripted sandbox has no store
+      if (forkID && forkID !== parent.makiSessionID) {
+        void sandboxRun(["maki", "session", "delete", forkID, "--force"], CANONICAL);
+      }
+      resolve(out);
+    };
+    const unavailable = (message: string) =>
+      finish({ status: 503, payload: { _tag: "ServiceUnavailableError", message, service: "session generation" } });
+    let child: MakiSession;
+    try {
+      child = new MakiSession({
+        cwd: parent.directory,
+        model: MAKI_MODEL,
+        fork: parent.makiSessionID,
+        onFrame: (frame) => {
+          if (frame.type === "system" && frame.subtype === "init") {
+            forkID = typeof frame.session_id === "string" ? frame.session_id : undefined;
+          } else if (frame.type === "control_request" && frame.request?.subtype === "can_use_tool") {
+            child.answer(String(frame.request_id ?? ""), "deny", { message: "Answer from what you already know; no tools in a side question." });
+          } else if (frame.type === "assistant" && !frame.parent_tool_use_id && Array.isArray(frame.message?.content)) {
+            const parts = frame.message.content.filter((p: AnyObj) => p?.type === "text").map((p: AnyObj) => String(p.text ?? ""));
+            if (parts.length) text = parts.join("\n");
+          } else if (frame.type === "result") {
+            if (frame.subtype === "success" && !frame.is_error) finish({ status: 200, payload: { data: { text: text || String(frame.result ?? "") } } });
+            else unavailable(String(frame.result ?? "maki generation failed"));
+          }
+        },
+        onExit: () => unavailable("maki exited before answering"),
+      });
+    } catch (err) {
+      return resolve({ status: 503, payload: { _tag: "ServiceUnavailableError", message: String((err as Error).message ?? err), service: "session generation" } });
+    }
+    const timer = setTimeout(() => unavailable("maki did not answer in time"), 120_000);
+    child.prompt(prompt);
+  });
+}
+
 // session.wait: answers once the session's agent loop is idle — no turn
 // running and no prompt waiting (server handlers/session.ts v2.0.32 L456–L460)
 async function waitIdle(sid: string): Promise<{ status: number; payload: any }> {
@@ -911,7 +968,9 @@ async function handle(req: Request): Promise<Response> {
 
   let result: { status: number; payload: any; matched?: boolean };
   const parts = path.split("/"); // ["", "api", "session", <sid>, ...rest]
-  if (parts[1] === "api" && parts[2] === "session" && parts.length === 3) {
+  if (method === "POST" && parts[1] === "api" && parts[2] === "session" && parts[4] === "generate" && parts.length === 5) {
+    result = await generateAside(parts[3]!, body);
+  } else if (parts[1] === "api" && parts[2] === "session" && parts.length === 3) {
     // a session names its project, so creation waits for the id like every
     // other answer that names one
     if (method === "POST") result = (await projectReady, createSession(body));

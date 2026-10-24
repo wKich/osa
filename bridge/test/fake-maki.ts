@@ -38,7 +38,8 @@ let pendingCancel = false;
 // outbound can_use_tool asks are recorded with dir:"out"
 const trace = process.env.FAKE_MAKI_TRACE;
 
-const SESSION_ID = "fake-maki-session";
+// a forked child (`-r <id> --fork-session`) runs under a new stored session id
+const SESSION_ID = process.argv.includes("--fork-session") ? "fake-maki-fork" : "fake-maki-session";
 // the model a set_model switched to; assistant frames then name it, as the
 // pinned child's do (AssistantMessage.model)
 let switchedModel: string | undefined;
@@ -108,7 +109,7 @@ function nextTurn() {
 // FAKE_MAKI_TOOLS (comma-separated) replaces the advertised tool list, so a
 // test can stand in for MCP tools (`<server>__<tool>`) or `tool_search`
 const tools = process.env.FAKE_MAKI_TOOLS?.split(",").filter(Boolean) ?? ["Bash"];
-out({ type: "system", subtype: "init", session_id: "fake-maki-session", cwd, model: "synthetic/fake", tools });
+out({ type: "system", subtype: "init", session_id: SESSION_ID, cwd, model: "synthetic/fake", tools });
 
 function toolFrames(toolUseID: string, command: string, isError: boolean, content: string): void {
   out({

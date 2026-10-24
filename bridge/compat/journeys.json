@@ -780,18 +780,20 @@
       "area": "session",
       "source": "packages/tui/src/feature-plugins/prompt/btw.tsx:57 (/btw) at v2.0.32",
       "scenario": {
-        "steps": ["open a session", "run /btw with a question"],
+        "steps": ["prompt \"Reply with the word PONG only.\"", "run /btw with a question"],
         "checkpoints": [
-          { "id": "aside-answer", "after": 2, "expect": "the answer appears beside the conversation without adding a turn to the transcript" }
+          { "id": "aside-answer", "after": 2, "expect": "the answer shows in a /btw dialog over the conversation without adding a turn to the transcript" }
         ]
       },
-      "routes": ["POST /api/session/{sessionID}/generate", "POST /api/experimental/generate"],
-      "features": [],
+      "routes": ["POST /api/session/{sessionID}/generate"],
+      "features": ["session-generate"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/ask-side-question/reference/","maki":"bridge/test/journeys/ask-side-question/maki/","diff":"bridge/test/journeys/ask-side-question/diff.json","live":{"snapshots":"bridge/test/journeys/ask-side-question/live/","diff":"bridge/test/journeys/ask-side-question/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "aside-answer", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "view-session-diff",

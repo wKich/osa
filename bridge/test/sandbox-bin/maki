@@ -8,5 +8,10 @@ case "$1 $2" in
     printf '\033[33m~\033[0m %-14s %s (via %s)\n' synthetic Synthetic SYNTHETIC_API_KEY
     printf '\033[31m✗\033[0m %-14s %s (run: maki auth login %s)\n' openai OpenAI openai
     printf '\033[33m~\033[0m %-14s %s (via %s)\n' anthropic Anthropic ANTHROPIC_API_KEY ;;
+  # a throwaway fork's cleanup (src/cli.rs v0.6.4 L313–L321); the scripted
+  # sandbox keeps no store, so it only records the call
+  "session delete")
+    [ -n "$FAKE_SANDBOX_MAKI_TRACE" ] && printf '%s\n' "$*" >> "$FAKE_SANDBOX_MAKI_TRACE"
+    printf 'Deleted session %s\n' "$3" ;;
   *) exit 2 ;;
 esac

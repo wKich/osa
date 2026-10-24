@@ -98,7 +98,8 @@ pinned OpenCode version against a local scripted model provider that replays
 those turns, in a temporary home and workdir, with no credentials and no
 network beyond loopback. The Maki side SHALL run the same TUI against the
 bridge, with a scripted Maki child that replays the same turns as Maki wire
-frames. A model turn SHALL be one of: a text reply, optionally paced chunk by
+frames and runs their commands in the journey workdir, as the pinned child
+runs in its sandbox workdir. A model turn SHALL be one of: a text reply, optionally paced chunk by
 chunk; a shell call; a tool call spelled per side, carrying the result the
 pinned Maki tool returns; or a model-call failure with an HTTP status. Both
 sides SHALL run with the TUI's update check disabled, so no run asks the
@@ -147,6 +148,11 @@ bounded timeout that fails the run.
 - **WHEN** any journey records
 - **THEN** the TUI's environment carries `OPENCODE_DISABLE_AUTOUPDATE=1` and no
   home-screen snapshot shows an update hint
+
+#### Scenario: Scripted commands stay in the workdir
+- **WHEN** a scripted tool turn writes a file
+- **THEN** the file lands in the journey workdir and nothing is written to
+  the directory the scripted child was started from
 
 ### Requirement: Compare normalized text snapshots per checkpoint
 Each side's terminal output SHALL be rendered by a headless terminal emulator

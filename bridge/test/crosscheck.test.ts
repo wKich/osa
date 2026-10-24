@@ -8,8 +8,10 @@
 // scope/blockedBy, and every route measured in the committed captures is
 // recorded as reachable.
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
+import { diffCheckpoints } from "./journeys/harness/diff.ts";
 
 const ROOT = new URL("../..", import.meta.url); // repository root (from bridge/test/)
 const path = (rel: string) => fileURLToPath(new URL(rel, ROOT));
@@ -59,6 +61,17 @@ const CAPTURES = [
   "bridge/test/captures/tui-last-requests.jsonl",
   "bridge/test/fixtures/bridge-requests.jsonl",
 ];
+const JOURNEYS_DIR = "bridge/test/journeys";
+const journeyScripts = existsSync(path(JOURNEYS_DIR))
+  ? readdirSync(path(JOURNEYS_DIR), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(path(`${JOURNEYS_DIR}/${entry.name}/script.ts`)))
+      .map((entry) => entry.name)
+      .sort()
+  : [];
+for (const slug of journeyScripts) {
+  const log = `${JOURNEYS_DIR}/${slug}/maki-requests.jsonl`;
+  if (existsSync(path(log))) CAPTURES.push(log);
+}
 const normalizeRoute = (p: string) =>
   p.replace(/\/ses_[^/]+/g, "/{sessionID}").replace(/\/per_[^/]+/g, "/{requestID}");
 
@@ -295,6 +308,54 @@ test("a broken journey never accepts a difference", () => {
   const problems = journeys
     .filter((j) => j.status === "broken" && (j.acceptedDiffs?.length ?? 0) > 0)
     .map((j) => `${j.slug}: broken with acceptedDiffs`);
+  expect(problems).toEqual([]);
+});
+
+// Journey harness (add-journey-harness): the script is the executable form of
+// the catalog row, and the committed snapshots are the comparison's source of
+// truth, so the offline suite can reproduce the committed status without a PTY.
+test("every journey script's checkpoint ids match its catalog row", async () => {
+  const bySlug = new Map(journeys.map((j) => [j.slug, j]));
+  const problems: string[] = [];
+  for (const slug of journeyScripts) {
+    const journey = bySlug.get(slug);
+    if (!journey) {
+      problems.push(`${slug}: script has no catalog row`);
+      continue;
+    }
+    const script = (await import(pathToFileURL(path(`${JOURNEYS_DIR}/${slug}/script.ts`)).href)).default;
+    const scriptIds = (script.steps ?? [])
+      .flatMap((step: any) => (step.kind === "checkpoint" ? [step.id] : []))
+      .sort();
+    const catalogIds = (journey.scenario?.checkpoints ?? []).map((c) => c.id).sort();
+    if (JSON.stringify(scriptIds) !== JSON.stringify(catalogIds)) {
+      problems.push(`${slug}: script [${scriptIds}] vs catalog [${catalogIds}]`);
+    }
+  }
+  expect(problems).toEqual([]);
+});
+
+test("re-diffing committed snapshots reproduces each journey's status", () => {
+  const problems: string[] = [];
+  for (const slug of journeyScripts) {
+    const dir = `${JOURNEYS_DIR}/${slug}`;
+    const journey = journeys.find((j) => j.slug === slug);
+    if (!journey || !existsSync(path(`${dir}/diff.json`))) continue;
+    const inputs = (journey.scenario?.checkpoints ?? []).map((checkpoint) => {
+      const reference = readFileSync(path(`${dir}/reference/${checkpoint.id}.txt`), "utf8");
+      const makiPath = `${dir}/maki/${checkpoint.id}.txt`;
+      return {
+        id: checkpoint.id,
+        reference,
+        maki: existsSync(path(makiPath)) ? readFileSync(path(makiPath), "utf8") : undefined,
+        acceptedReason: journey.acceptedDiffs?.find((d) => d.checkpoint === checkpoint.id)?.reason,
+      };
+    });
+    const recomputed = diffCheckpoints(inputs).status;
+    const committed = JSON.parse(readFileSync(path(`${dir}/diff.json`), "utf8")).status;
+    if (recomputed !== journey.status) problems.push(`${slug}: snapshots say ${recomputed}, catalog says ${journey.status}`);
+    if (committed !== journey.status) problems.push(`${slug}: diff.json says ${committed}, catalog says ${journey.status}`);
+  }
   expect(problems).toEqual([]);
 });
 

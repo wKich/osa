@@ -10,7 +10,7 @@
 // Behavior per prompt: commands containing `rm` go through a
 // `can_use_tool` control request (answered by the bridge); every other
 // command runs immediately. Tool results and the turn `result` follow.
-import { appendFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
 
 const cwd = process.env.OPENMAKI_CWD ?? process.cwd();
 let toolSeq = 0;
@@ -64,14 +64,38 @@ const streaming = process.env.FAKE_MAKI_STREAM === "1";
 const crash = process.env.FAKE_MAKI_CRASH === "1";
 
 /** the captured stream_event spelling (maki-stream-live.jsonl), before the buffered message */
-function streamText(text: string): void {
+function streamParts(parts: string[]): void {
   out({ type: "stream_event", event: { type: "message_start", message: { role: "assistant", content: [] } } });
   out({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } });
-  for (const delta of [text.slice(0, 3), text.slice(3)]) {
+  for (const delta of parts) {
     out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: delta } } });
   }
   out({ type: "stream_event", event: { type: "content_block_stop", index: 0 } });
   out({ type: "stream_event", event: { type: "message_stop" } });
+}
+
+function streamText(text: string): void {
+  streamParts([text.slice(0, 3), text.slice(3)]);
+}
+
+// FAKE_MAKI_SCRIPT=<json> replays one journey script's model turns as Maki
+// wire frames (design decision 3), so the Maki side consumes the same turns
+// as the reference run's mock provider.
+const script: Array<{ text?: string; stream?: string[]; tool?: { command: string; needsPermission?: boolean } }> =
+  process.env.FAKE_MAKI_SCRIPT ? JSON.parse(process.env.FAKE_MAKI_SCRIPT) : [];
+// Turns are consumed in order across prompts, like the reference provider's
+// one-turn-per-request: a text turn ends its run, a tool turn continues it.
+// The bridge spawns one child per session, so an optional state file carries
+// the consumed count across child processes.
+const scriptState = process.env.FAKE_MAKI_SCRIPT_STATE;
+let scriptNext =
+  scriptState && existsSync(scriptState)
+    ? readFileSync(scriptState, "utf8").split("\n").filter(Boolean).length
+    : 0;
+function nextTurn() {
+  const index = scriptNext++;
+  if (scriptState) appendFileSync(scriptState, `${index}\n`);
+  return script[index];
 }
 
 // FAKE_MAKI_TOOLS (comma-separated) replaces the advertised tool list, so a
@@ -110,6 +134,52 @@ async function runCommand(command: string): Promise<void> {
     await runTool(command, run);
   } finally {
     if (current === run) current = undefined;
+  }
+}
+
+// Play the journey's turns in order: text turns become stream deltas plus the
+// buffered assistant message, and a tool turn asks for permission when the
+// turn says so, runs the command, then moves to the next turn.
+async function runScript(): Promise<void> {
+  // A short beat so the TUI has registered the prompt and its session before
+  // the scripted frames arrive; a real model never answers in the same tick.
+  await Bun.sleep(300);
+  for (;;) {
+    const turn = nextTurn();
+    if (!turn) {
+      streamParts(["No more scripted turns."]);
+      out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "No more scripted turns." }] } });
+      success();
+      return;
+    }
+    if (!turn.tool) {
+      const text = turn.text ?? "";
+      streamParts(turn.stream ?? [text]);
+      out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } });
+      success();
+      return;
+    }
+    const toolUseID = `toolu_fake${String(++toolSeq).padStart(6, "0")}`;
+    let answer: "allow" | "deny" = "allow";
+    if (turn.tool.needsPermission) {
+      const requestID = `req_fake${String(toolSeq).padStart(10, "0")}`;
+      out({
+        type: "control_request",
+        request_id: requestID,
+        request: { subtype: "can_use_tool", tool_name: "Bash", tool_use_id: toolUseID, input: { command: turn.tool.command } },
+      });
+      askedCommands.set(requestID, turn.tool.command);
+      answer = await new Promise((resolve) => answers.set(requestID, resolve));
+    }
+    if (answer === "deny") {
+      toolFrames(toolUseID, turn.tool.command, true, "Permission denied: rejected by the user");
+      success();
+      return;
+    }
+    const proc = Bun.spawn(["/bin/sh", "-c", turn.tool.command], { stdout: "pipe", stderr: "pipe" });
+    const code = await proc.exited;
+    const output = (await new Response(proc.stdout).text()).trim();
+    toolFrames(toolUseID, turn.tool.command, code !== 0, code === 0 ? output : `Exit code: ${code}`);
   }
 }
 
@@ -202,6 +272,10 @@ async function answerPrompt(frame: any): Promise<void> {
   if (pendingCancel) {
     pendingCancel = false;
     cancelledResult();
+    return;
+  }
+  if (script.length) {
+    await runScript();
     return;
   }
   const text = frame.message.content.find((p: any) => p?.type === "text")?.text ?? "";

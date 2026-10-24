@@ -141,8 +141,8 @@
     { "route": "GET /auth/connect/{code}", "status": "served-faked", "scope": "out-of-scope", "blockedBy": "none", "evidence": "openspec/changes/archive/2026-10-23-rebaseline-compat-iteration-3/evidence/discovery-log.md" },
 
     { "route": "GET /api/session/{sessionID}/form", "status": "deferred", "scope": "reachable", "blockedBy": "none", "evidence": "bridge/test/deferred-session-surfaces.test.ts" },
-    { "route": "GET /api/session/{sessionID}/message", "status": "deferred", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/test/deferred-session-surfaces.test.ts" },
-    { "route": "GET /api/session/{sessionID}/inbox", "status": "deferred", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/test/deferred-session-surfaces.test.ts" },
+    { "route": "GET /api/session/{sessionID}/message", "status": "deferred", "scope": "reachable", "blockedBy": "none", "evidence": "bridge/test/deferred-session-surfaces.test.ts" },
+    { "route": "GET /api/session/{sessionID}/inbox", "status": "deferred", "scope": "reachable", "blockedBy": "none", "evidence": "bridge/test/deferred-session-surfaces.test.ts" },
     { "route": "POST /api/session/{sessionID}/fork", "status": "deferred", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/src/bridge.ts" },
 
     { "route": "GET /api/fs/read/*", "status": "served-faked", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/src/spec-answers.ts" }

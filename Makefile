@@ -8,7 +8,7 @@
 
 SHELL := /bin/sh
 
-.PHONY: test test-oskhs test-bridge test-ui compat compat-drift lint lint-profiles install-fish
+.PHONY: test test-oskhs test-bridge test-ui test-journeys compat compat-drift lint lint-profiles install-fish
 
 test:
 	tests/run-tests.sh
@@ -41,6 +41,17 @@ test-ui:
 		bridge/test/tui-discovery.sh; \
 	else \
 		echo 'opencode or bun not found; skipping TUI discovery pass'; \
+	fi
+
+# Journey recording: drive the real OpenCode TUI against a loopback scripted
+# provider and the same TUI against the bridge, then compare normalized screen
+# snapshots per checkpoint and rewrite catalog status/evidence. Needs a PTY and
+# the real opencode binary; skips cleanly and never joins `make test`.
+test-journeys:
+	@if command -v opencode >/dev/null 2>&1 && command -v bun >/dev/null 2>&1; then \
+		bun bridge/test/journeys/harness/record.ts && bun scripts/gen-compat.ts; \
+	else \
+		echo 'opencode or bun not found; skipping journey recording'; \
 	fi
 
 # Regenerate docs/compatibility.md from statuses.json + defects.json and fail

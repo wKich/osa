@@ -1,0 +1,39 @@
+ • Journey                       +
+
+  ┃
+  ┃  Use your shell tool to run exactly: rm -f probe.txt . Then reply with the single word DONE.
+  ┃
+
+  ┃
+  ┃  $ rm -f probe.txt
+  ┃
+  ┃  (no output)
+  ┃
+
+     DONE
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR>  shift+tab agents  ctrl+p commands

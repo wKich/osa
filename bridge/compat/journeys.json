@@ -331,8 +331,8 @@
       "features": ["session-crud", "deferred-session-surface-contract", "transcript-order"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
+      "status": "broken",
+      "evidence": { "reference":"bridge/test/journeys/resume-session-history/reference/","maki":"bridge/test/journeys/resume-session-history/maki/","diff":"bridge/test/journeys/resume-session-history/diff.json" },
       "acceptedDiffs": []
     },
     {
@@ -784,8 +784,8 @@
       "features": ["prompt-translation", "stream-deltas", "transcript-order", "model-identity", "sse-handshake", "sse-bare-data-frames", "durable-envelope", "minted-id-patterns", "maki-wire-envelope", "api-retry-tolerance"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
+      "status": "diverges",
+      "evidence": { "reference":"bridge/test/journeys/send-prompt-stream-reply/reference/","maki":"bridge/test/journeys/send-prompt-stream-reply/maki/","diff":"bridge/test/journeys/send-prompt-stream-reply/diff.json" },
       "acceptedDiffs": []
     },
     {
@@ -931,8 +931,8 @@
       "features": ["permission-round-trip", "permission-reply-vocabulary", "control-response-emission", "tool-failure-mapping"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
+      "status": "diverges",
+      "evidence": { "reference":"bridge/test/journeys/allow-permission-once/reference/","maki":"bridge/test/journeys/allow-permission-once/maki/","diff":"bridge/test/journeys/allow-permission-once/diff.json" },
       "acceptedDiffs": []
     },
     {

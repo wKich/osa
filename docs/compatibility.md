@@ -4,7 +4,7 @@ Generated from `bridge/compat/statuses.json`, `bridge/compat/journeys.json` and 
 
 ## Burndown
 
-Reachable surface: **33 of 143 routes** (22 `served-live`, 7 `served-faked`, 4 `deferred`, 0 `unhandled`) and **39 of 41 features** (34 `verified`, 0 `unverified`, 5 `degraded` (5 pin-blocked), 0 `buggy`). Out of scope: 110 routes, 2 features. Open defects: **0**.
+Reachable surface: **35 of 143 routes** (22 `served-live`, 7 `served-faked`, 6 `deferred`, 0 `unhandled`) and **39 of 41 features** (34 `verified`, 0 `unverified`, 5 `degraded` (5 pin-blocked), 0 `buggy`). Out of scope: 108 routes, 2 features. Open defects: **0**.
 
 Untriaged reachable routes: **0**.
 
@@ -12,7 +12,7 @@ Untriaged reachable routes: **0**.
 
 Statuses: `served-live` (real state behind the route), `served-faked` (answered from the pinned spec with synthesized values), `deferred` (spec-valid minimal answer, surface not implemented), `unhandled` (outside the pinned contract: answered 404).
 
-### Reachable (33)
+### Reachable (35)
 
 | Route | Status | Decision | Evidence |
 | --- | --- | --- | --- |
@@ -49,8 +49,10 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/shell` | `deferred` | deferred | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
 | `GET /api/experimental/session/{sessionID}/terminal` | `deferred` | deferred | [`bridge/test/boot-surface.test.ts`](../bridge/test/boot-surface.test.ts) |
 | `GET /api/session/{sessionID}/form` | `deferred` | deferred | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
+| `GET /api/session/{sessionID}/message` | `deferred` | deferred | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
+| `GET /api/session/{sessionID}/inbox` | `deferred` | deferred | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
 
-### Out of scope (110)
+### Out of scope (108)
 
 | Route | Status | Evidence |
 | --- | --- | --- |
@@ -161,8 +163,6 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `PUT /api/session/{sessionID}/environment` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
 | `GET /auth/connect/{code}` | `served-faked` | [`openspec/changes/archive/2026-10-23-rebaseline-compat-iteration-3/evidence/discovery-log.md`](../openspec/changes/archive/2026-10-23-rebaseline-compat-iteration-3/evidence/discovery-log.md) |
 | `GET /api/fs/read/*` | `served-faked` | [`bridge/src/spec-answers.ts`](../bridge/src/spec-answers.ts) |
-| `GET /api/session/{sessionID}/message` | `deferred` | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
-| `GET /api/session/{sessionID}/inbox` | `deferred` | [`bridge/test/deferred-session-surfaces.test.ts`](../bridge/test/deferred-session-surfaces.test.ts) |
 | `POST /api/session/{sessionID}/fork` | `deferred` | [`bridge/src/bridge.ts`](../bridge/src/bridge.ts) |
 
 ## Wire features
@@ -230,7 +230,7 @@ Rows citing these notes are proved against fixtures that were authored or splice
 
 Statuses: `unrecorded` (no reference recording yet), `referenced` (a reference recording of real OpenCode exists, the Maki side is not yet compared), `parity` (both sides match at every checkpoint), `diverges` (the journey completes with at least one differing checkpoint), `broken` (the Maki side cannot complete it).
 
-Reachable journeys: **53 of 59** (53 `unrecorded`, 0 `referenced`, 0 `parity`, 0 `diverges`, 0 `broken`). Native parity score: **0.0%** (0 of 53 reachable journeys at `parity`).
+Reachable journeys: **53 of 59** (50 `unrecorded`, 0 `referenced`, 0 `parity`, 2 `diverges`, 1 `broken`). Native parity score: **0.0%** (0 of 53 reachable journeys at `parity`).
 
 ### Reachable (53)
 
@@ -248,7 +248,6 @@ Reachable journeys: **53 of 59** (53 `unrecorded`, 0 `referenced`, 0 `parity`, 0
 | `view-usage-statistics` | View usage statistics | navigation | `unrecorded` | — | — |
 | `exit-application` | Exit the application | navigation | `unrecorded` | — | — |
 | `new-session` | Create a new session | session | `unrecorded` | — | — |
-| `resume-session-history` | Resume a session and see its history | session | `unrecorded` | — | — |
 | `switch-session-tab` | Switch between open sessions | session | `unrecorded` | — | — |
 | `rename-session` | Rename a session | session | `unrecorded` | — | — |
 | `delete-session` | Delete a session | session | `unrecorded` | — | — |
@@ -270,14 +269,12 @@ Reachable journeys: **53 of 59** (53 `unrecorded`, 0 `referenced`, 0 `parity`, 0
 | `view-session-diff` | Review the session diff | session | `unrecorded` | — | — |
 | `open-terminal-pane` | Open a terminal pane | session | `unrecorded` | — | — |
 | `view-shell-output` | View a shell tool's output | session | `unrecorded` | — | — |
-| `send-prompt-stream-reply` | Send a prompt and watch the reply stream | prompt | `unrecorded` | — | — |
 | `attach-image-to-prompt` | Attach an image to a prompt | prompt | `unrecorded` | — | — |
 | `mention-file-in-prompt` | Mention a file in a prompt | prompt | `unrecorded` | — | — |
 | `mention-skill-in-prompt` | Mention a skill in a prompt | prompt | `unrecorded` | — | — |
 | `open-external-editor` | Compose a prompt in an external editor | prompt | `unrecorded` | — | — |
 | `stash-prompt` | Stash and restore a prompt | prompt | `unrecorded` | — | — |
 | `adjust-transcript-display` | Adjust the transcript display | session | `unrecorded` | — | — |
-| `allow-permission-once` | Allow a tool once | permission | `unrecorded` | — | — |
 | `allow-permission-always` | Allow matching tool calls for the session | permission | `unrecorded` | — | — |
 | `reject-permission-with-reason` | Reject a tool with a reason | permission | `unrecorded` | — | — |
 | `answer-mcp-form` | Answer an MCP form | permission | `unrecorded` | — | — |
@@ -289,6 +286,9 @@ Reachable journeys: **53 of 59** (53 `unrecorded`, 0 `referenced`, 0 `parity`, 0
 | `manage-workspaces` | Manage workspaces | files | `unrecorded` | — | — |
 | `change-working-directory` | Change the working directory | files | `unrecorded` | — | — |
 | `reload-configuration` | Reload the configuration | config | `unrecorded` | — | — |
+| `send-prompt-stream-reply` | Send a prompt and watch the reply stream | prompt | `diverges` | reference: [`bridge/test/journeys/send-prompt-stream-reply/reference/`](../bridge/test/journeys/send-prompt-stream-reply/reference/) · maki: [`bridge/test/journeys/send-prompt-stream-reply/maki/`](../bridge/test/journeys/send-prompt-stream-reply/maki/) · diff: [`bridge/test/journeys/send-prompt-stream-reply/diff.json`](../bridge/test/journeys/send-prompt-stream-reply/diff.json) | — |
+| `allow-permission-once` | Allow a tool once | permission | `diverges` | reference: [`bridge/test/journeys/allow-permission-once/reference/`](../bridge/test/journeys/allow-permission-once/reference/) · maki: [`bridge/test/journeys/allow-permission-once/maki/`](../bridge/test/journeys/allow-permission-once/maki/) · diff: [`bridge/test/journeys/allow-permission-once/diff.json`](../bridge/test/journeys/allow-permission-once/diff.json) | — |
+| `resume-session-history` | Resume a session and see its history | session | `broken` | reference: [`bridge/test/journeys/resume-session-history/reference/`](../bridge/test/journeys/resume-session-history/reference/) · maki: [`bridge/test/journeys/resume-session-history/maki/`](../bridge/test/journeys/resume-session-history/maki/) · diff: [`bridge/test/journeys/resume-session-history/diff.json`](../bridge/test/journeys/resume-session-history/diff.json) | — |
 
 ### Out of scope (6)
 

@@ -1,0 +1,39 @@
+ <SPINNER> New session                   +
+
+  ┃
+  ┃  $ rm -f probe.txt
+  ┃
+
+     DONE
+
+     Build · <MODEL> · <DUR>
+
+  ┃
+  ┃  Use your shell tool to run exactly: rm -f probe.txt . Then reply with the single word DONE.
+  ┃
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR>   2  ctrl+p commands

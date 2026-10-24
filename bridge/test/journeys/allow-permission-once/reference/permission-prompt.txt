@@ -1,0 +1,39 @@
+ ! Journey                       +
+
+  ┃
+  ┃  Use your shell tool to run exactly: rm -f probe.txt . Then reply with the single word DONE.
+  ┃
+
+  ┃
+  ┃  <SPINNER> rm -f probe.txt
+  ┃
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  △ Permission required
+  ┃
+  ┃  $ rm -f probe.txt
+  ┃
+  ┃
+  ┃   Allow once   Always allow   Reject                                 ctrl+f fullscreen  ⇆ select  enter confirm
+  ┃

@@ -1,0 +1,39 @@
+   Journey                       +
+
+  ┃
+  ┃  Use your shell tool to run exactly: printf 'hello journey\n' > README.md . Then reply with the single word MADE.
+  ┃
+
+  ┃
+  ┃  $ printf 'hello journey\n' > README.md
+  ┃
+  ┃  (no output)
+  ┃
+
+     MADE
+
+     Build · <MODEL> · <DUR>
+
+  ┃
+  ┃  Read README.md, then grep for journey, then reply FOUND.
+  ┃
+
+     → Explored: 1 read, 1 search
+
+     FOUND
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

@@ -1,0 +1,10 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "tools",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n \n   ┃\n   ┃  Use your shell tool to run exactly: printf 'hello journey\\n' > README.md . Then reply with the single word MADE.\n   ┃\n \n   ┃\n   ┃  $ printf 'hello journey\\n' > README.md\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      MADE\n \n      Build · <MODEL> · <DUR>\n \n   ┃\n   ┃  Read README.md, then grep for journey, then reply FOUND.\n   ┃\n \n      → Explored: 1 read, 1 search\n \n      FOUND\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

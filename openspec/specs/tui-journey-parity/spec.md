@@ -173,7 +173,11 @@ render and normalize the screens with the same rules as the offline
 comparison, and compare them with the journey's committed reference
 snapshots. The live verdict SHALL follow the offline verdict rule and SHALL be
 recorded on the journey row as live evidence: the live snapshots, the
-comparison, the Maki and image versions, and the verdict. The target SHALL
+comparison, the Maki and image versions, and the verdict. The live Maki
+side SHALL run with a journey-only config that mirrors the reference
+OpenCode config: the same loopback model provider, permission asking on, and
+the same MCP server set (none unless the journey declares one), uploaded over
+the image's baked files inside the run's sandbox. The target SHALL
 skip cleanly, changing no file, when `openshell`, a reachable gateway, or the
 project image is unavailable, and SHALL NOT join the default offline
 `make test`.
@@ -194,6 +198,12 @@ project image is unavailable, and SHALL NOT join the default offline
 - **WHEN** `make test-journeys-live` runs without a reachable OpenShell
   gateway
 - **THEN** it prints a skip message, exits 0, and changes no file
+
+#### Scenario: The live Maki side has the reference's MCP set
+- **WHEN** a live journey runs in a sandbox built from an image that bakes
+  MCP servers
+- **THEN** the journey config replaces the baked MCP file with one that
+  declares no server, and the bridge's `GET /api/mcp` lists none
 
 ### Requirement: Live runs keep the sandbox boundary
 A live journey run SHALL use a dedicated sandbox created for the run from the

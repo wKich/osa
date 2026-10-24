@@ -307,7 +307,8 @@ async function playScript(run: { cancelled: boolean }): Promise<void> {
       toolResult(toolUseID, true, "Permission denied: rejected by the user");
       continue;
     }
-    const proc = Bun.spawn(["/bin/sh", "-c", turn.tool.command], { stdout: "pipe", stderr: "pipe" });
+    // in the workdir, as the pinned child runs under `sandbox exec --workdir`
+    const proc = Bun.spawn(["/bin/sh", "-c", turn.tool.command], { cwd, stdout: "pipe", stderr: "pipe" });
     const code = await proc.exited;
     const output = (await new Response(proc.stdout).text()).trim();
     toolResult(toolUseID, code !== 0, bashResult(code, output));
@@ -336,7 +337,7 @@ async function runTool(command: string, run: { proc?: { kill(): void }; cancelle
     else success();
     return;
   }
-  const proc = Bun.spawn(["/bin/sh", "-c", command], { stdout: "pipe", stderr: "pipe" });
+  const proc = Bun.spawn(["/bin/sh", "-c", command], { cwd, stdout: "pipe", stderr: "pipe" });
   run.proc = proc;
   const code = await proc.exited;
   if (run.cancelled) cancelledResult();

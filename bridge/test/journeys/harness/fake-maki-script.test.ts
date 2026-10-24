@@ -171,4 +171,30 @@ describe("fake-maki script mode", () => {
       await proc.exited;
     }
   });
+
+  test("a tool turn runs its command in the workdir, never the process cwd", async () => {
+    const { mkdtempSync, existsSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const work = mkdtempSync(join(tmpdir(), "fake-workdir-"));
+    const proc = Bun.spawn({
+      cmd: ["bun", FAKE],
+      cwd: fileURLToPath(new URL("../../..", import.meta.url)),
+      env: { ...process.env, OPENMAKI_CWD: work, FAKE_MAKI_SCRIPT: JSON.stringify([{ tool: { command: "touch marker.txt" } }, { text: "OK" }]) },
+      stdin: "pipe",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    try {
+      proc.stdin.write(JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text: "go" }] } }) + "\n");
+      proc.stdin.flush();
+      const deadline = Date.now() + 5000;
+      while (!existsSync(join(work, "marker.txt")) && Date.now() < deadline) await Bun.sleep(20);
+      expect(existsSync(join(work, "marker.txt"))).toBe(true);
+      expect(existsSync(fileURLToPath(new URL("../../../marker.txt", import.meta.url)))).toBe(false);
+    } finally {
+      proc.kill();
+      await proc.exited;
+    }
+  });
 });

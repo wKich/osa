@@ -60,6 +60,6 @@
 
 ## 5. Gate
 
-- [ ] 5.1 Run in one pass: `make test`, `make test-bridge`, `make compat`,
+- [x] 5.1 Run in one pass: `make test`, `make test-bridge`, `make compat`,
   `make lint`, `make test-journeys`, `make test-journeys-live`, `openspec
   validate "add-journey-live-run" --strict`; all exit 0.

@@ -47,6 +47,8 @@ export interface ImageBlock {
   source: { type: "base64"; media_type: string; data: string };
 }
 
+export type ContentBlock = ImageBlock | { type: "text"; text: string };
+
 export class MakiSession {
   private child: ChildProcessWithoutNullStreams;
   private buf = "";
@@ -76,8 +78,8 @@ export class MakiSession {
 
   // image blocks ride after the text block in the same content array, the
   // stream-json shape the pinned child decodes (sdk_mode.rs v0.6.4 L807–L816)
-  prompt(text: string, images: ImageBlock[] = []): void {
-    this.write({ type: "user", message: { role: "user", content: [{ type: "text", text }, ...images] } });
+  prompt(text: string, blocks: ContentBlock[] = []): void {
+    this.write({ type: "user", message: { role: "user", content: [{ type: "text", text }, ...blocks] } });
   }
 
   // the pinned decoder (sdk_mode.rs v0.6.4 L918–L927) reads `allow` plus an

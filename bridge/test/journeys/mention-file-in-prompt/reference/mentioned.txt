@@ -1,0 +1,39 @@
+   Journey                       +
+
+  ┃
+  ┃  Use your shell tool to run exactly: printf 'alpha\n' > notes.txt . Then reply with the single word READY.
+  ┃
+
+  ┃
+  ┃  $ printf 'alpha\n' > notes.txt
+  ┃
+  ┃  (no output)
+  ┃
+
+     READY
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  Summarize @notes.txt
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

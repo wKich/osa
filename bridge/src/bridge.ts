@@ -20,13 +20,15 @@
 import { appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { posix } from "node:path";
-import { MakiSession, type ImageBlock } from "./maki.ts";
+import { MakiSession, type ContentBlock } from "./maki.ts";
+import { readAttachment } from "./mentions.ts";
 import { Translator } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
 import { synthesize, type AnyObj } from "./spec-answers.ts";
 import { makiTitle } from "./title.ts";
 import { runUserShell, shellNotice } from "./user-shell.ts";
 import { reviewBase, reviewDiff, reviewStatus, VcsError, type Mode } from "./vcs.ts";
+import { find as findFiles, LIST_FILES } from "./fs-find.ts";
 import { SandboxTerminals, type SocketData } from "./terminals.ts";
 import { exportSession, SessionHistory } from "./history.ts";
 import { readGitState, readMcpConfig, readModelCatalog, readSkills, sandboxRun } from "./sandbox.ts";
@@ -367,7 +369,7 @@ function openSession(
     ...(opts.parentID ? {} : { subagent: subagentHooks(() => s) }),
     // a prompt is written to the child when its turn starts, so one still
     // waiting can be cancelled
-    deliver: (user, preamble) => s.maki.prompt([...preamble, user.text].join("\n\n"), (user.child as ImageBlock[] | undefined) ?? []),
+    deliver: (user, preamble) => s.maki.prompt([...preamble, user.text].join("\n\n"), (user.child as ContentBlock[] | undefined) ?? []),
     onResult: (r) => {
       s.updated = Date.now();
       // Maki titles the session when it records the first run
@@ -501,34 +503,34 @@ function listSessions(url: URL): { status: number; payload: AnyObj } {
   return { status: 200, payload: { ...payload, data: list.map(sessionObject) } };
 }
 
-// files[] -> what the pinned child can take: base64 image blocks in Maki's
-// media types (maki-providers types.rs v0.6.4 L30–L35). PDFs and other data
-// URIs have no block on the inbound `user` wire (sdk_mode.rs L786–L816), and a
-// `file://` URI names a host path the bridge does not read on a client's
-// behalf; the mention text stays in the prompt either way
-const IMAGE_DATA_URI = /^data:(image\/(?:png|jpeg|gif|webp));base64,((?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?)$/;
-
-function promptImages(files: unknown): { blocks: ImageBlock[]; delivered: AnyObj[] } {
-  const blocks: ImageBlock[] = [];
-  const delivered: AnyObj[] = [];
-  for (const file of Array.isArray(files) ? files : []) {
-    const m = IMAGE_DATA_URI.exec(typeof file?.uri === "string" ? file.uri : "");
-    if (!m || !m[2]) continue;
-    blocks.push({ type: "image", source: { type: "base64", media_type: m[1]!, data: m[2] } });
-    // the admitted prompt reports a delivered file in the pinned Prompt shape
-    // (opencode v2.0.32 schema/src/prompt.ts FileAttachment)
-    delivered.push({
-      data: m[2], mime: m[1], source: { type: "inline" },
-      ...(typeof file.name === "string" ? { name: file.name } : {}),
-      ...(typeof file.description === "string" ? { description: file.description } : {}),
-    });
-  }
-  return { blocks, delivered };
+// files[] -> what the pinned child can take (mentions.ts): image data URIs
+// and mentioned sandbox paths; a host path is never read, and a PDF or other
+// binary has no block on the inbound `user` wire (sdk_mode.rs L786–L816) —
+// the mention text stays in the prompt either way
+async function promptFiles(files: unknown, clientDir: string): Promise<{ blocks: ContentBlock[]; delivered: AnyObj[] }> {
+  const read = await Promise.all((Array.isArray(files) ? files : []).map((f) => readAttachment(f, clientDir, CANONICAL)));
+  const found = read.filter((a): a is NonNullable<typeof a> => a !== null);
+  return { blocks: found.flatMap((a) => a.blocks), delivered: found.map((a) => a.delivered) };
 }
 
-function prompt(sid: string, body: AnyObj, url: URL): { status: number; payload: any } {
+// prompts are admitted in arrival order even when one waits on a sandbox read
+const admitting = new Map<string, Promise<unknown>>();
+function prompt(sid: string, body: AnyObj, url: URL): Promise<{ status: number; payload: any }> {
+  const next = (admitting.get(sid) ?? Promise.resolve()).then(() => admitPrompt(sid, body, url));
+  admitting.set(sid, next.catch(() => {}));
+  return next;
+}
+
+async function admitPrompt(sid: string, body: AnyObj, url: URL): Promise<{ status: number; payload: any }> {
   const s = sessions.get(sid);
   if (!s) return sessionNotFound(sid);
+  if (!s.maki.running) {
+    return { status: 503, payload: { _tag: "ServiceUnavailableError", message: "maki session is not running" } };
+  }
+  // a mention names a path under the client's directory, which maps onto the
+  // sandbox workdir as /api/fs/list does
+  const asked = url.searchParams.get("location[directory]");
+  const images = await promptFiles(body?.files, asked?.startsWith("/") ? asked : s.directory);
   if (!s.maki.running) {
     return { status: 503, payload: { _tag: "ServiceUnavailableError", message: "maki session is not running" } };
   }
@@ -540,7 +542,6 @@ function prompt(sid: string, body: AnyObj, url: URL): { status: number; payload:
   // frame goes out first, before the child is written to, so the transcript
   // orders Q-A-Q-A within and across turns (spec: "Prompt renders before its
   // response"; shape pinned live in evidence/cross-map.md)
-  const images = promptImages(body?.files);
   const delivery = s.translator.beginTurn(mintMessage(), {
     text, id: userMsgID, delivery: String(body?.delivery ?? "steer"), files: images.delivered,
     child: images.blocks, created: Date.now(),
@@ -818,7 +819,7 @@ function onMakiExit(sessionID: string): void {
   console.error(`[bridge] maki exited behind session ${sessionID}`);
 }
 
-function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, url: URL): { status: number; payload: any } {
+function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, url: URL): { status: number; payload: any } | Promise<{ status: number; payload: any }> {
   if (rest === "") {
     const s = sessions.get(sid);
     if (method === "GET") return s ? { status: 200, payload: { data: sessionObject(s) } } : sessionNotFound(sid);
@@ -1122,6 +1123,23 @@ async function fsList(url: URL): Promise<{ status: number; payload: any }> {
   return { status, payload: { ...payload, location: { directory: abs }, data: entries } };
 }
 
+// /api/fs/find answers from the sandbox workdir's files (fs-find.ts); like
+// /api/fs/list it never reads the host directory the client names.
+async function fsFind(url: URL): Promise<{ status: number; payload: any }> {
+  const { status, payload } = synthesize("GET", "/api/fs/find", url, null, CANONICAL);
+  const type = url.searchParams.get("type");
+  const limit = Number(url.searchParams.get("limit"));
+  const res = await sandboxRun(LIST_FILES, CANONICAL);
+  const files = res?.code === 0 ? res.stdout.split("\n").filter(Boolean) : [];
+  const data = findFiles(files, {
+    query: url.searchParams.get("query") ?? "",
+    type: type === "file" || type === "directory" ? type : undefined,
+    limit: Number.isInteger(limit) && limit > 0 ? limit : undefined,
+  });
+  const asked = url.searchParams.get("location[directory]");
+  return { status, payload: { ...payload, location: asked?.startsWith("/") ? { ...payload.location, directory: asked } : payload.location, data } };
+}
+
 // ---------- request logging (redacted; design decision 6 hygiene) ----------
 const SECRET_KEY = /\b(authorization|api[-_]?key|access[-_]?token|refresh[-_]?token|secret|password|cookie|credential)\b/i;
 const SECRET_VALUE = /\b(sk-[A-Za-z0-9_-]{8,}|Bearer\s+[A-Za-z0-9._-]{8,})/g;
@@ -1173,7 +1191,7 @@ async function handle(req: Request, srv: Bun.Server<SocketData>): Promise<Respon
     else if (method === "GET") result = listSessions(url);
     else result = synthesize(method, path, url, body, CANONICAL);
   } else if (parts[1] === "api" && parts[2] === "session" && parts[3] && parts[3] !== "active") {
-    result = sessionRoute(method, parts[3]!, parts.slice(4).join("/"), body, url);
+    result = await sessionRoute(method, parts[3]!, parts.slice(4).join("/"), body, url);
   } else if (method === "POST" && /^\/api\/experimental\/session\/[^/]+\/wait$/.test(path)) {
     result = await waitIdle(parts[4]!);
   } else if (method === "GET" && /^\/api\/experimental\/session\/[^/]+\/export$/.test(path)) {
@@ -1202,6 +1220,8 @@ async function handle(req: Request, srv: Bun.Server<SocketData>): Promise<Respon
     result = terminalRoute(method, path, url, body, req);
   } else if (method === "GET" && path === "/api/fs/list") {
     result = await fsList(url);
+  } else if (method === "GET" && path === "/api/fs/find") {
+    result = await fsFind(url);
   } else if (method === "GET" && path === "/api/info") {
     result = serverInfo(url);
   } else {

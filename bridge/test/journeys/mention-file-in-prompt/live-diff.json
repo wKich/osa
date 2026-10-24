@@ -1,0 +1,20 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "suggestions",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n \n   ┃\n   ┃  Use your shell tool to run exactly: printf 'alpha\\n' > notes.txt . Then reply with the single word READY.\n   ┃\n \n   ┃\n   ┃  $ printf 'alpha\\n' > notes.txt\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      READY\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃ notes.txt                                                                                                        ┃\n   ┃\n   ┃  Summarize @note\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "mentioned",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n \n   ┃\n   ┃  Use your shell tool to run exactly: printf 'alpha\\n' > notes.txt . Then reply with the single word READY.\n   ┃\n \n   ┃\n   ┃  $ printf 'alpha\\n' > notes.txt\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      READY\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃  Summarize @notes.txt\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    },
+    {
+      "id": "sent",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use your shell tool to run ex +\n \n   ┃\n   ┃  Use your shell tool to run exactly: printf 'alpha\\n' > notes.txt . Then reply with the single word READY.\n   ┃\n \n   ┃\n   ┃  $ printf 'alpha\\n' > notes.txt\n   ┃\n-  ┃  (no output)\n+  ┃  Exit code: 0\n   ┃\n \n      READY\n \n      Build · <MODEL> · <DUR>\n \n   ┃\n   ┃  Summarize @notes.txt\n   ┃\n   ┃   file  notes.txt\n   ┃\n \n      SEEN\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

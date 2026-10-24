@@ -1,0 +1,39 @@
+   Use your shell tool to run ex +
+
+  ┃
+  ┃  Use your shell tool to run exactly: printf 'alpha\n' > notes.txt . Then reply with the single word READY.
+  ┃
+
+  ┃
+  ┃  $ printf 'alpha\n' > notes.txt
+  ┃
+  ┃  Exit code: 0
+  ┃
+
+     READY
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃ notes.txt                                                                                                        ┃
+  ┃
+  ┃  Summarize @note
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

@@ -975,19 +975,21 @@
       "area": "prompt",
       "source": "packages/tui/src/component/prompt/index.tsx (image paste) and packages/tui/src/component/dialog-image-preview.tsx at v2.0.32",
       "scenario": {
-        "steps": ["paste an image into the prompt", "submit"],
+        "steps": ["type a prompt and paste the path of a PNG", "submit"],
         "checkpoints": [
-          { "id": "attachment", "after": 1, "expect": "the prompt shows an image attachment chip" },
-          { "id": "sent", "after": 2, "expect": "the image is sent with the prompt and the reply can refer to it" }
+          { "id": "attached", "after": 1, "expect": "the composer shows the prompt with an [Image 1] attachment" },
+          { "id": "sent", "after": 2, "expect": "the sent prompt lists the attached file and the reply renders" }
         ]
       },
       "routes": ["POST /api/session/{sessionID}/prompt"],
       "features": ["prompt-attachments"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/attach-image-to-prompt/reference/","maki":"bridge/test/journeys/attach-image-to-prompt/maki/","diff":"bridge/test/journeys/attach-image-to-prompt/diff.json","live":{"snapshots":"bridge/test/journeys/attach-image-to-prompt/live/","diff":"bridge/test/journeys/attach-image-to-prompt/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "sent", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "mention-file-in-prompt",
@@ -996,19 +998,24 @@
       "area": "prompt",
       "source": "packages/tui/src/component/prompt/autocomplete.tsx and packages/tui/src/config/keybind.ts:274 (prompt.autocomplete) at v2.0.32",
       "scenario": {
-        "steps": ["type @ in the prompt", "pick a file", "submit"],
+        "steps": ["prompt the agent to create notes.txt and allow its shell command", "type \"Summarize @note\"", "press tab to pick notes.txt", "submit"],
         "checkpoints": [
-          { "id": "autocomplete", "after": 1, "expect": "an autocomplete list of project files appears" },
-          { "id": "mention", "after": 2, "expect": "the file mention is highlighted in the prompt" }
+          { "id": "suggestions", "after": 2, "expect": "the autocomplete lists notes.txt from the project" },
+          { "id": "mentioned", "after": 3, "expect": "the prompt holds the @notes.txt mention" },
+          { "id": "sent", "after": 4, "expect": "the sent prompt lists notes.txt as an attached file and the reply renders" }
         ]
       },
-      "routes": ["GET /api/fs/list", "POST /api/session/{sessionID}/prompt"],
+      "routes": ["GET /api/fs/find", "POST /api/session/{sessionID}/prompt", "POST /api/session/{sessionID}/permission/{requestID}/reply"],
       "features": ["prompt-file-mentions"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/mention-file-in-prompt/reference/","maki":"bridge/test/journeys/mention-file-in-prompt/maki/","diff":"bridge/test/journeys/mention-file-in-prompt/diff.json","live":{"snapshots":"bridge/test/journeys/mention-file-in-prompt/live/","diff":"bridge/test/journeys/mention-file-in-prompt/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "suggestions", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the silent command shows Maki's real bash result \"Exit code: 0\" (plugins/bash/init.lua v0.6.4 L407–L412), where OpenCode's shell tool prints \"(no output)\" (core/src/shell.ts v2.0.32 L249) — each TUI renders its own tool's result" },
+        { "checkpoint": "mentioned", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the silent command shows Maki's real bash result \"Exit code: 0\" (plugins/bash/init.lua v0.6.4 L407–L412), where OpenCode's shell tool prints \"(no output)\" (core/src/shell.ts v2.0.32 L249) — each TUI renders its own tool's result" },
+        { "checkpoint": "sent", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the silent command shows Maki's real bash result \"Exit code: 0\" (plugins/bash/init.lua v0.6.4 L407–L412), where OpenCode's shell tool prints \"(no output)\" (core/src/shell.ts v2.0.32 L249) — each TUI renders its own tool's result" }
+      ]
     },
     {
       "slug": "mention-skill-in-prompt",

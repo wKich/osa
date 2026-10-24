@@ -6,7 +6,8 @@
 // wire cannot carry (PDF and other data URIs) and what the bridge must not read
 // (host `file://` paths) is not forwarded. One spawned bridge with the scripted
 // child on MAKI_CHILD_CMD; no Docker, gateway, network, or real Maki process.
-import { existsSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -116,6 +117,36 @@ describe("prompt attachments over the spawned bridge", () => {
     ]);
     expect(res.json?.data?.payload).toEqual({ text });
     expect(userFrame(text)[0].message.content).toEqual([{ type: "text", text }]);
+  }, 60_000);
+
+  test("a mentioned project path is read in the sandbox and attached as OpenCode attaches it", async () => {
+    mkdirSync(join(bridge.workdir, "notes"), { recursive: true });
+    writeFileSync(join(bridge.workdir, "notes.txt"), "alpha\nbeta\ngamma\n");
+    writeFileSync(join(bridge.workdir, "notes", "a.md"), "");
+    mkdirSync(join(bridge.workdir, "notes", "sub"), { recursive: true });
+    const text = "Summarize @notes.txt#2 @notes";
+    const fileUri = `${pathToFileURL(join(bridge.workdir, "notes.txt")).href}?start=2&end=2`;
+    const dirUri = pathToFileURL(join(bridge.workdir, "notes")).href;
+    const res = await send("msg_promptattach0000004", text, [
+      { uri: fileUri, name: "notes.txt#2", mention: { start: 10, end: 22, text: "@notes.txt#2" } },
+      { uri: dirUri, name: "notes/" },
+      { uri: "file:///etc/hosts", name: "hosts" },
+    ]);
+    const beta = Buffer.from("beta").toString("base64");
+    expect(res.json?.data?.payload).toEqual({
+      text,
+      files: [
+        { data: beta, mime: "text/plain", source: { type: "uri", uri: fileUri }, name: "notes.txt#2", mention: { start: 10, end: 22, text: "@notes.txt#2" } },
+        { data: Buffer.from("sub/\na.md").toString("base64"), mime: "application/x-directory", source: { type: "uri", uri: dirUri }, name: "notes/" },
+      ],
+    });
+    expect(userFrame(text)[0].message.content).toEqual([
+      { type: "text", text },
+      { type: "text", text: "\n\nAttached file: notes.txt#2\n\nbeta" },
+      { type: "text", text: `\n\nAttached directory: ${join(bridge.workdir, "notes")}\n\nsub/\na.md` },
+    ]);
+    // a path outside the client's directory is never read
+    expect(JSON.stringify(inboundFrames())).not.toContain("localhost");
   }, 60_000);
 
   test("a prompt without files keeps the text-only payload and frame", async () => {

@@ -14,8 +14,8 @@
                     Search
      PANG
                   ● Full session
-     Build · Moc    Reply with the word PANG only.                                           <TIME> PM
-                    Reply with the word PONG only.                                           <TIME> PM
+     Build · Moc    Reply with the word PANG only.  <TIME> PM
+                    Reply with the word PONG only.  <TIME> PM
 
 
 

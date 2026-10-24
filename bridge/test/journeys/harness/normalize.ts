@@ -61,6 +61,9 @@ export function normalize(text: string, opts: NormalizeOptions = {}): string {
   out = out.replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\b/g, "<TIME>");
   out = out.replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, "<TIME>");
   out = out.replace(/\b\d{4}-\d{2}-\d{2}\b/g, "<TIME>");
+  // A right-aligned clock pads by its own width (`9:59 PM` vs `10:05 PM`), so
+  // the gap before it depends on the hour.
+  out = out.replace(/ {2,}<TIME>/g, "  <TIME>");
 
   // Durations.
   out = out.replace(/\b\d+(?:\.\d+)?\s?(?:ms|s)\b/g, "<DUR>");
@@ -99,6 +102,11 @@ export function normalize(text: string, opts: NormalizeOptions = {}): string {
   for (const label of [...(opts.models ?? [])].sort((a, b) => b.length - a.length)) {
     if (label) out = out.replace(new RegExp(escape(label), "g"), "<MODEL>");
   }
+
+  // A dialog drawn over a turn footer can cut its duration mid-unit
+  // (`312ms` shows as `312m`); whatever stands after the footer's model is the
+  // duration.
+  out = out.replace(/(<MODEL> · )\d+(?:\.\d+)?[a-z]*(?= |$)/gm, "$1<DUR>");
 
   // Token and cost counters.
   out = out.replace(/\b\d[\d,.]*\s+(?:input|output)\s+tokens?\b/g, "<N> tokens");

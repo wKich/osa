@@ -19,6 +19,10 @@ describe("normalize", () => {
 
   test("token rate is wall-clock derived", () => {
     expect(normalize("Build · mock-model · 1.2s · 3.2 tok/s", opts)).toBe("Build · <MODEL> · <DUR>");
+    // a right-aligned clock's gap depends on the hour's width
+    expect(normalize("Reply.          9:59 PM", opts)).toBe(normalize("Reply.         10:05 PM", opts));
+    // a dialog cut the duration mid-unit
+    expect(normalize("     Build · mock-model · 700m    Last turn", opts)).toBe("     Build · <MODEL> · <DUR>    Last turn");
   });
 
   test("ports", () => {

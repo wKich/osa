@@ -279,6 +279,9 @@ function createSession(body: AnyObj): { status: number; payload: any } {
         console.error(`[bridge] session ${id}: maki cwd ${info.cwd} differs from canonical ${directory}`);
       }
     },
+    // a prompt is written to the child when its turn starts, so one still
+    // waiting can be cancelled
+    deliver: (user) => s.maki.prompt(user.text, (user.child as ImageBlock[] | undefined) ?? []),
     onResult: (r) => {
       s.updated = Date.now();
       // Maki titles the session when it records the first run
@@ -378,8 +381,10 @@ function prompt(sid: string, body: AnyObj, url: URL): { status: number; payload:
   // orders Q-A-Q-A within and across turns (spec: "Prompt renders before its
   // response"; shape pinned live in evidence/cross-map.md)
   const images = promptImages(body?.files);
-  const delivery = s.translator.beginTurn(mintMessage(), { text, id: userMsgID, delivery: String(body?.delivery ?? "steer"), files: images.delivered });
-  s.maki.prompt(text, images.blocks);
+  const delivery = s.translator.beginTurn(mintMessage(), {
+    text, id: userMsgID, delivery: String(body?.delivery ?? "steer"), files: images.delivered,
+    child: images.blocks, created: Date.now(),
+  });
   const { status, payload } = synthesize("POST", `/api/session/${sid}/prompt`, url, body, CANONICAL);
   const delivered = images.delivered.length ? { text, files: images.delivered } : { text };
   if (payload?.data) payload.data = { ...payload.data, id: userMsgID, sessionID: sid, time: { created: Date.now() }, payload: delivered, delivery };
@@ -506,6 +511,28 @@ function sessionExport(sid: string, url: URL): { status: number; payload: any } 
   return { status: 200, payload: { data: exportSession(sessionObject(s), s.history, url.searchParams.get("sanitize") === "true") } };
 }
 
+// session.inbox.list: the prompts the bridge holds for the child
+function inboxList(s: BridgeSession): AnyObj[] {
+  return s.translator.pending.map((u) => ({
+    id: u.id, sessionID: s.id, time: { created: u.created ?? s.updated }, type: "user",
+    payload: u.files?.length ? { text: u.text, files: u.files } : { text: u.text }, delivery: "queue",
+  }));
+}
+
+// session.inbox.update: every held prompt already waits for the next turn, so
+// `queue` is a no-op; `steer` would merge it into the running turn, which the
+// pinned child cannot take mid-run (feature mid-turn-steering), so it is the
+// pinned conflict (server handlers/session.ts v2.0.32 L562–L571)
+function updateInbox(s: BridgeSession, inboxID: string, body: AnyObj): { status: number; payload: any } {
+  const delivery = body?.delivery;
+  if (delivery !== "queue" && delivery !== "steer") {
+    return { status: 400, payload: { _tag: "InvalidRequestError", message: "delivery must be steer or queue" } };
+  }
+  const held = s.translator.pending.some((u) => u.id === inboxID);
+  if (delivery === "queue" && held) return { status: 204, payload: null };
+  return { status: 409, payload: { _tag: "ConflictError", message: `Pending input cannot change to ${delivery}` } };
+}
+
 // session.messages: the projected transcript, paged as the real handler pages
 function messagePage(s: BridgeSession, url: URL): { status: number; payload: any } {
   const q = url.searchParams;
@@ -592,6 +619,13 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
   if (rest === "interrupt" && method === "POST") return interrupt(s);
   if (rest === "view" && method === "POST") return viewSession(s, body);
   if (rest === "message" && method === "GET") return messagePage(s, url);
+  if (rest === "inbox" && method === "GET") return { status: 200, payload: { data: inboxList(s) } };
+  const inboxItem = /^inbox\/([^/]+)$/.exec(rest);
+  if (inboxItem && method === "DELETE") {
+    s.translator.cancelPending(inboxItem[1]!);
+    return { status: 204, payload: null };
+  }
+  if (inboxItem && method === "PATCH") return updateInbox(s, inboxItem[1]!, body);
   const reply = /^permission\/([^/]+)\/reply$/.exec(rest);
   if (reply && method === "POST") return replyPermission(s, reply[1]!, body);
   // deferred session surfaces (message/inbox/form/terminal, resume/fork/…)

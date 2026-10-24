@@ -1,0 +1,39 @@
+ <SPINNER> New session                   +
+
+  ┃
+  ┃  Count to four slowly.
+  ┃
+
+     ONE TWO
+
+
+
+
+                                  Queued prompts                                   esc
+
+                                  Search
+
+                                  Reply with the word PANG only.                1 of 2
+                                  Reply with the word PUNG only.                2 of 2
+
+                                  delete ctrl+d  undo ctrl+u  steer enter
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  2 queued · Reply with the word PANG only.
+  ┃
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   <BAR> esc interrupt                                                            shift+tab agents  ctrl+p commands

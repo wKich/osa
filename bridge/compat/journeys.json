@@ -574,19 +574,22 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:198 (prompt.queue) and packages/tui/src/component/prompt/index.tsx at v2.0.32",
       "scenario": {
-        "steps": ["start a turn", "type a second prompt", "press leader+return"],
+        "steps": ["prompt a slowly streamed reply", "type a second prompt while it streams", "press leader+return"],
         "checkpoints": [
-          { "id": "queued", "after": 3, "expect": "the second prompt shows as queued while the first turn keeps streaming" },
-          { "id": "runs-next", "after": 3, "expect": "after the first result, the queued prompt starts its own turn" }
+          { "id": "queued", "after": 3, "expect": "the composer dock shows 1 queued with the second prompt while the first turn keeps streaming" },
+          { "id": "runs-next", "after": 3, "expect": "after the first reply ends, the queued prompt and its reply render as the next exchange" }
         ]
       },
       "routes": ["POST /api/session/{sessionID}/prompt", "GET /api/session/{sessionID}/inbox"],
-      "features": ["mid-turn-steering"],
+      "features": ["mid-turn-steering", "transcript-order"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/queue-prompt-while-running/reference/","maki":"bridge/test/journeys/queue-prompt-while-running/maki/","diff":"bridge/test/journeys/queue-prompt-while-running/diff.json","live":{"snapshots":"bridge/test/journeys/queue-prompt-while-running/live/","diff":"bridge/test/journeys/queue-prompt-while-running/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "queued", "reason": "Maki titles a session only when its first run is recorded (maki-agent session.rs v0.6.4 L143–L166, L203–L217), so mid-run the tab correctly has no title yet; OpenCode titles in parallel with the first model call and the mock answers \"Journey\"" },
+        { "checkpoint": "runs-next", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "manage-queued-prompts",
@@ -595,19 +598,24 @@
       "area": "session",
       "source": "packages/tui/src/config/keybind.ts:133 (session.queued_prompts) and packages/tui/src/routes/session/index.tsx:1273 at v2.0.32",
       "scenario": {
-        "steps": ["queue two prompts", "press leader+q", "delete one"],
+        "steps": ["prompt a slowly streamed reply", "queue two prompts while it streams", "press leader+q", "press ctrl+d on the first queued prompt", "close the dialog and let the turns run"],
         "checkpoints": [
-          { "id": "queue-list", "after": 2, "expect": "the dialog lists the queued prompts in delivery order" },
-          { "id": "removed", "after": 3, "expect": "the deleted prompt no longer runs" }
+          { "id": "queue-list", "after": 3, "expect": "the dialog lists both queued prompts in delivery order, 1 of 2 and 2 of 2" },
+          { "id": "removed", "after": 4, "expect": "the deleted prompt leaves the list and the dock shows 1 queued" },
+          { "id": "ran-remaining", "after": 5, "expect": "only the remaining queued prompt runs after the first reply" }
         ]
       },
-      "routes": ["GET /api/session/{sessionID}/inbox", "PATCH /api/session/{sessionID}/inbox/{inboxID}", "DELETE /api/session/{sessionID}/inbox/{inboxID}"],
-      "features": ["mid-turn-steering"],
+      "routes": ["GET /api/session/{sessionID}/inbox", "DELETE /api/session/{sessionID}/inbox/{inboxID}", "PATCH /api/session/{sessionID}/inbox/{inboxID}"],
+      "features": ["mid-turn-steering", "session-inbox-held"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/manage-queued-prompts/reference/","maki":"bridge/test/journeys/manage-queued-prompts/maki/","diff":"bridge/test/journeys/manage-queued-prompts/diff.json","live":{"snapshots":"bridge/test/journeys/manage-queued-prompts/live/","diff":"bridge/test/journeys/manage-queued-prompts/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "queue-list", "reason": "Maki titles a session only when its first run is recorded (maki-agent session.rs v0.6.4 L143–L166, L203–L217), so mid-run the tab correctly has no title yet; OpenCode titles in parallel with the first model call and the mock answers \"Journey\"" },
+        { "checkpoint": "removed", "reason": "Maki titles a session only when its first run is recorded (maki-agent session.rs v0.6.4 L143–L166, L203–L217), so mid-run the tab correctly has no title yet; OpenCode titles in parallel with the first model call and the mock answers \"Journey\"" },
+        { "checkpoint": "ran-remaining", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "compact-session",

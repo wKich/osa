@@ -1,0 +1,20 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "queue-list",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n- <SPINNER> Journey                       +\n+ <SPINNER> New session                   +\n \n   ┃\n   ┃  Count to four slowly.\n   ┃\n \n      ONE TWO\n \n \n \n \n                                   Queued prompts                                   esc\n \n                                   Search\n \n                                   Reply with the word PANG only.                1 of 2\n                                   Reply with the word PUNG only.                2 of 2\n \n                                   delete ctrl+d  undo ctrl+u  steer enter\n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃  2 queued · Reply with the word PANG only.\n   ┃\n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n    <BAR> esc interrupt                                                            shift+tab agents  ctrl+p commands"
+    },
+    {
+      "id": "removed",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n- <SPINNER> Journey                       +\n+ <SPINNER> New session                   +\n \n   ┃\n   ┃  Count to four slowly.\n   ┃\n \n      ONE TWO\n \n \n \n \n                                   Queued prompts                                   esc\n \n                                   Search\n \n                                   Reply with the word PUNG only.                1 of 1\n \n                                   delete ctrl+d  undo ctrl+u  steer enter\n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃  1 queued · Reply with the word PUNG only.\n   ┃\n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n    <BAR> esc interrupt                                                            shift+tab agents  ctrl+p commands"
+    },
+    {
+      "id": "ran-remaining",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Count to four slowly.         +\n \n   ┃\n   ┃  Count to four slowly.\n   ┃\n \n      ONE TWO THREE FOUR\n \n      Build · <MODEL> · <DUR>\n \n   ┃\n   ┃  Reply with the word PUNG only.\n   ┃\n \n      PANG\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+    }
+  ]
+}

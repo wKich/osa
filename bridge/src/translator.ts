@@ -16,6 +16,8 @@ export interface TranslatorHooks {
   onInit?: (info: { sessionID: string; cwd: string; model: string; tools: string[] }) => void;
   /** turn result, for session cost/token bookkeeping */
   onResult?: (result: AnyObj) => void;
+  /** a prompt's turn starts: write it to the child now */
+  deliver?: (user: UserPrompt) => void;
 }
 
 // the child is the single source of model identity (design decision 3):
@@ -40,7 +42,9 @@ const DURABLE_VERSION: Record<string, number> = {
   "session.inbox.delivered": 1, "session.inbox.delivery.changed": 1, "session.inbox.cancelled": 1,
 };
 
-type UserPrompt = { text: string; id: string; delivery: string; files?: AnyObj[] };
+// `child` is what the Maki child is sent when the prompt's turn starts (its
+// text and image blocks); the bridge holds a queued prompt until then
+type UserPrompt = { text: string; id: string; delivery: string; files?: AnyObj[]; child?: unknown; created?: number };
 
 // maki's tool names are PascalCase (Bash, Read, TodoWrite); the OpenCode side
 // spells them lowerCamel (mapping-table.md §3)
@@ -62,7 +66,8 @@ export class Translator {
   private interruptRequested = false;
   // prompts admitted while a turn runs: the pinned child answers each stdin
   // prompt in its own run after the current one (sdk_mode.rs v0.6.4 L701,
-  // L763), so their turns start in order as results land
+  // L763) and cannot take one back, so the bridge holds them and writes each
+  // when its turn starts; until then the TUI can list or cancel them
   private queued: { am: string; user?: UserPrompt }[] = [];
   // the model the child last announced (system.init / assistant.model);
   // synthesized defaults serve only until then (design decision 3)
@@ -149,7 +154,10 @@ export class Translator {
   }
 
   private startTurn(assistantMessageID: string, user?: UserPrompt): void {
-    if (user) this.emitExec("session.inbox.delivered", { inboxID: user.id });
+    if (user) {
+      this.emitExec("session.inbox.delivered", { inboxID: user.id });
+      this.hooks.deliver?.(user);
+    }
     this.am = assistantMessageID;
     this.turnOpen = true;
     this.interruptRequested = false;
@@ -187,6 +195,22 @@ export class Translator {
     const next = this.queued.shift();
     if (!next) return;
     this.startTurn(next.am, next.user);
+  }
+
+  /** prompts waiting for their turn, in delivery order (session.inbox.list) */
+  get pending(): UserPrompt[] {
+    return this.queued.flatMap((q) => (q.user ? [q.user] : []));
+  }
+
+  /** drops a waiting prompt before the child sees it; false when it is not
+   * waiting (already delivered or unknown), which the pinned cancel treats as
+   * a no-op (server handlers/session.ts v2.0.32 L552–L560) */
+  cancelPending(inboxID: string): boolean {
+    const at = this.queued.findIndex((q) => q.user?.id === inboxID);
+    if (at < 0) return false;
+    this.queued.splice(at, 1);
+    this.emitExec("session.inbox.cancelled", { inboxID });
+    return true;
   }
 
   /** maki died with a turn in flight: fail the execution instead of a stuck

@@ -1,0 +1,39 @@
+ <SPINNER> Journey                       +
+
+  ┃
+  ┃  Count to four slowly.
+  ┃
+
+     ONE TWO
+
+
+
+
+                                  Queued prompts                                   esc
+
+                                  Search
+
+                                  Reply with the word PUNG only.                1 of 1
+
+                                  delete ctrl+d  undo ctrl+u  steer enter
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃  1 queued · Reply with the word PUNG only.
+  ┃
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+   <BAR> esc interrupt                                                            shift+tab agents  ctrl+p commands

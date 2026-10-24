@@ -1,0 +1,39 @@
+   Journey                       +
+
+  ┃
+  ┃  Use your shell tool to run exactly: git init -q -b main && git -c user.name=journey -c user.
+  ┃  email=journey@example.invalid commit -q --allow-empty -m init . Then reply with the single word COMMITTED.
+  ┃
+
+  ┃
+  ┃  $ git init -q -b main && git -c user.name=journey -c user.email=journey@example.invalid commit -q --allow-empty -
+  ┃  m init
+
+      Worktrees                                                                                                esc
+
+      Search
+
+      Current
+    ● <WORKDIR>
+
+      move ctrl+m  new ctrl+a  delete ctrl+d  refresh ctrl+r
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

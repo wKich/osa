@@ -23,6 +23,7 @@ import { posix } from "node:path";
 import { MakiSession, type ContentBlock } from "./maki.ts";
 import { readAttachment, readSkillAttachment } from "./mentions.ts";
 import { sessionStats } from "./session-stats.ts";
+import { ProjectWorktrees } from "./worktrees.ts";
 import { fileDiff as editFileDiff, undoEdit } from "./edit-diff.ts";
 import { Translator, userPayload } from "./translator.ts";
 import { mintEvent, mintMessage, mintPermission, mintSession } from "./ids.ts";
@@ -195,8 +196,12 @@ function defaultModel(): { providerID: string; id: string } {
 const BOOTED = Date.now();
 let projectID = "global";
 let projectVcs: string | undefined;
+// every id this project has been reported under: a client that read the id
+// before the checkout gained its first commit still names the old one
+const reportedProjectIDs = new Set<string>(["global"]);
 const applyGit = (git: { root?: string }) => {
   projectID = git.root ?? "global";
+  reportedProjectIDs.add(projectID);
   projectVcs = git.root ? "git" : undefined;
 };
 const projectReady = readGitState(CANONICAL).then(applyGit);
@@ -325,7 +330,11 @@ function createSession(body: AnyObj): { status: number; payload: any } {
   const existing = sessions.get(id);
   if (existing) return { status: 200, payload: { data: sessionObject(existing) } };
   const { status, payload } = synthesize("POST", "/api/session", asUrl("/api/session"), body, CANONICAL);
+  // a session opens in the workdir, or in one of the project's worktrees the
+  // TUI names (a worktree is its own checkout, unlike a host directory)
+  const asked = typeof body?.location?.directory === "string" ? posix.normalize(body.location.directory) : undefined;
   const opened = openSession(id, {
+    directory: asked && asked !== CANONICAL && worktrees.contains(asked) ? asked : undefined,
     agent: typeof body?.agent === "string" ? body.agent : defaultAgent(),
     model: (body?.model && typeof body.model === "object" && body.model.providerID && body.model.id)
       ? { providerID: String(body.model.providerID), id: String(body.model.id) }
@@ -345,12 +354,13 @@ function createSession(body: AnyObj): { status: number; payload: any } {
  * session under a new id */
 function openSession(
   id: string,
-  opts: { agent: string; model: { providerID: string; id: string }; fork?: string; parentID?: string },
+  opts: { agent: string; model: { providerID: string; id: string }; fork?: string; parentID?: string; directory?: string },
 ): { session: BridgeSession } | { error: { status: number; payload: any } } {
   // The TUI's requested directory is its own host cwd (design decision 5):
-  // the sandbox workdir is canonical, so every session runs there and no host
-  // path can enter the sandbox through `sandbox exec --workdir`.
-  const directory = CANONICAL;
+  // the sandbox workdir is canonical, so a session runs there — or in one of
+  // the project's worktrees, which live in the sandbox too — and no host path
+  // can enter the sandbox through `sandbox exec --workdir`.
+  const directory = opts.directory ?? CANONICAL;
 
   let s: BridgeSession;
   const translator = new Translator({
@@ -944,7 +954,7 @@ async function moveSession(s: BridgeSession, body: AnyObj): Promise<{ status: nu
   if (!asked) return invalid("directory is required");
   if (s.parentID) return invalid("a subagent session moves with its parent");
   const target = posix.resolve(s.directory, asked);
-  if (target !== CANONICAL && !target.startsWith(`${CANONICAL}/`)) return invalid(`Directory is outside the project: ${target}`);
+  if (!worktrees.contains(target)) return invalid(`Directory is outside the project: ${target}`);
   const res = await sandboxRun(["sh", "-c", 'if [ -d "$1" ]; then echo D; elif [ -e "$1" ]; then echo F; else echo N; fi', "sh", target], CANONICAL);
   const kind = res?.stdout.trim();
   if (kind === "N" || kind === undefined) return invalid(`Directory does not exist: ${target}`);
@@ -1193,7 +1203,10 @@ async function location(url: URL): Promise<{ status: number; payload: any }> {
 // every location sync
 async function vcsInfo(url: URL): Promise<{ status: number; payload: any }> {
   const { status, payload } = synthesize("GET", "/api/vcs", url, null, CANONICAL);
-  const git = await readGitState(CANONICAL);
+  // a worktree is its own checkout, with its own HEAD
+  const asked = url.searchParams.get("location[directory]");
+  const checkout = asked && asked !== CANONICAL && worktrees.contains(asked) ? posix.normalize(asked) : CANONICAL;
+  const git = await readGitState(checkout);
   const branch: AnyObj = {};
   if (git.branch) branch.current = git.branch;
   if (git.defaultBranch) branch.default = git.defaultBranch;
@@ -1305,6 +1318,46 @@ async function fsList(url: URL): Promise<{ status: number; payload: any }> {
       .sort((a, b) => a.path.localeCompare(b.path));
   }
   return { status, payload: { ...payload, location: { directory: abs }, data: entries } };
+}
+
+// /api/worktree: the project's worktrees in the sandbox (worktrees.ts)
+const worktrees = new ProjectWorktrees(CANONICAL);
+const worktreeError = (err: unknown) => ({
+  status: 400,
+  payload: { _tag: "WorktreeError", name: "WorktreeError", data: { message: err instanceof Error ? err.message : String(err) } },
+});
+async function worktreeRoute(method: string, path: string, url: URL, body: AnyObj): Promise<{ status: number; payload: any }> {
+  await refreshProject();
+  const asked = method === "GET" ? url.searchParams.get("projectID") : body?.projectID;
+  if (typeof asked !== "string" || !reportedProjectIDs.has(asked)) return { status: 404, payload: { _tag: "ProjectNotFoundError", projectID: asked, message: `Project not found: ${asked}` } };
+  // the event names the id the client asked with, which it filters on
+  const updated = () => emit("worktree.updated", { projectID: asked }, undefined, undefined, CANONICAL);
+  try {
+    if (path === "/api/worktree/refresh") {
+      if (await worktrees.refresh()) updated();
+      return { status: 204, payload: null };
+    }
+    // the checkout is listed from the first read, as the real server's stored rows are
+    if (method === "GET") {
+      if (worktrees.list().length === 0) await worktrees.refresh();
+      return { status: 200, payload: worktrees.list() };
+    }
+    if (method === "POST") {
+      const created = await worktrees.create({
+        projectID,
+        name: typeof body?.name === "string" ? body.name : undefined,
+        branch: typeof body?.branch === "string" ? body.branch : undefined,
+        from: typeof body?.from === "string" ? body.from : undefined,
+      });
+      updated();
+      return { status: 200, payload: created };
+    }
+    await worktrees.remove(String(body?.directory ?? ""), body?.force === true);
+    updated();
+    return { status: 204, payload: null };
+  } catch (err) {
+    return worktreeError(err);
+  }
 }
 
 // /api/experimental/session/stats aggregates the bridge's own session
@@ -1431,6 +1484,8 @@ async function handle(req: Request, srv: Bun.Server<SocketData>): Promise<Respon
     result = terminalRoute(method, path, url, body, req);
   } else if (method === "GET" && path === "/api/fs/list") {
     result = await fsList(url);
+  } else if (path === "/api/worktree" || (method === "POST" && path === "/api/worktree/refresh")) {
+    result = await worktreeRoute(method, path, url, body);
   } else if (method === "GET" && path === "/api/experimental/session/stats") {
     result = statsRoute(url);
   } else if (method === "GET" && path === "/api/fs/find") {

@@ -197,4 +197,25 @@ describe("fake-maki script mode", () => {
       await proc.exited;
     }
   });
+
+  test("a subagent call emits the subagent's turn flagged with the task id", async () => {
+    const { proc, lines, prompt } = startScript([
+      { call: { opencode: { name: "subagent", input: {} }, maki: { name: "task", input: { description: "d", prompt: "p" }, result: "MARK" }, subagent: true } },
+      { text: "MARK" },
+      { text: "DONE" },
+    ]);
+    try {
+      prompt("go");
+      await waitFor(lines, () => lines.some((l) => l.type === "result"));
+      const task = lines.find((l) => l.type === "assistant" && l.message.content[0]?.name === "Task").message.content[0].id;
+      const sub = lines.filter((l) => l.parent_tool_use_id === task);
+      expect(sub.map((l) => l.message.content[0].text)).toEqual(["MARK"]);
+      expect(lines.find((l) => l.type === "user" && !l.parent_tool_use_id).message.content[0]).toMatchObject({ tool_use_id: task, content: "MARK" });
+      const texts = lines.filter((l) => l.type === "assistant" && !l.parent_tool_use_id && l.message.content[0]?.type === "text");
+      expect(texts.map((l) => l.message.content[0].text)).toEqual(["DONE"]);
+    } finally {
+      proc.kill();
+      await proc.exited;
+    }
+  });
 });

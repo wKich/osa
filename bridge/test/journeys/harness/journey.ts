@@ -22,6 +22,13 @@ export type Turn =
         opencode: CallSpelling;
         maki: CallSpelling & { result: string; isError?: boolean };
         needsPermission?: boolean;
+        /**
+         * The call starts a subagent: the turns after it, through the first
+         * text turn, are the subagent's own model calls (both sides serve
+         * them in order); the scripted child emits them flagged with the
+         * call's `parent_tool_use_id`, and `maki.result` is that text.
+         */
+        subagent?: boolean;
       };
     }
   /** The model call fails with this HTTP status and error message. */

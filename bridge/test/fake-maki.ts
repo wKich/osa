@@ -87,7 +87,7 @@ type ScriptTurn = {
   stream?: string[];
   delayMs?: number;
   tool?: { command: string; needsPermission?: boolean };
-  call?: { maki: { name: string; input: Record<string, unknown>; result: string; isError?: boolean }; needsPermission?: boolean };
+  call?: { maki: { name: string; input: Record<string, unknown>; result: string; isError?: boolean }; needsPermission?: boolean; subagent?: boolean };
   fail?: { status: number; message: string };
 };
 const script: ScriptTurn[] = process.env.FAKE_MAKI_SCRIPT ? JSON.parse(process.env.FAKE_MAKI_SCRIPT) : [];
@@ -271,6 +271,24 @@ async function playScript(run: { cancelled: boolean }): Promise<void> {
         const requestID = `req_fake${String(toolSeq).padStart(10, "0")}`;
         out({ type: "control_request", request_id: requestID, request: { subtype: "can_use_tool", tool_name: name, tool_use_id: toolUseID, input: turn.call.maki.input } });
         answer = await new Promise((resolve) => answers.set(requestID, resolve));
+      }
+      if (answer !== "deny" && turn.call.subagent) {
+        // the subagent's own calls arrive as buffered frames flagged with the
+        // task's id, with no stream events (captured fixture
+        // maki-subagent-live.jsonl), until its final text
+        for (;;) {
+          const sub = nextTurn();
+          if (!sub || sub.text !== undefined || !sub.tool) {
+            out({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: sub?.text ?? "No more scripted turns." }], usage: CALL_USAGE }, parent_tool_use_id: toolUseID });
+            break;
+          }
+          const subID = `toolu_fake${String(++toolSeq).padStart(6, "0")}`;
+          out({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: subID, name: "Bash", input: { command: sub.tool.command } }], usage: CALL_USAGE }, parent_tool_use_id: toolUseID });
+          const proc = Bun.spawn(["/bin/sh", "-c", sub.tool.command], { cwd, stdout: "pipe", stderr: "pipe" });
+          const code = await proc.exited;
+          const output = (await new Response(proc.stdout).text()).trim();
+          out({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: subID, content: bashResult(code, output), is_error: code !== 0 }] }, parent_tool_use_id: toolUseID });
+        }
       }
       if (answer === "deny") toolResult(toolUseID, true, "Permission denied: rejected by the user");
       else toolResult(toolUseID, turn.call.maki.isError === true, turn.call.maki.result);

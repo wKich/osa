@@ -239,6 +239,10 @@ a completed run is `parity`, a completed run with a differing checkpoint is
 - **WHEN** a pane prints the workdir as `/…/fold…/bb/…/T/maki-journey-ref-x`
 - **THEN** it normalizes to `<WORKDIR>`, and `/…/usr/lib/x` is left alone
 
+#### Scenario: A subdirectory footer's padding is not a difference
+- **WHEN** the footer reads `<WORKDIR>/sub` padded by the raw path's length
+- **THEN** the padding normalizes to one space
+
 ### Requirement: Gated journey recording target
 `make test-journeys` SHALL record and compare every journey that has a script,
 write its snapshots, comparison, and Maki-side request log, and update the

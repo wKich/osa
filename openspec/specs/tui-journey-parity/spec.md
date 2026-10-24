@@ -157,9 +157,10 @@ bounded timeout that fails the run.
 #### Scenario: A subagent call plays the subagent's turn
 - **WHEN** a script's `call` turn sets `subagent: true` and the next turn is
   the text `MARK`
-- **THEN** the scripted Maki child emits `MARK` flagged with the task call's
-  `parent_tool_use_id` and answers the task with `MARK`, and the reference's
-  subagent consumes the same turn from the mock provider
+- **THEN** the scripted Maki child streams `MARK` unflagged, as the pinned
+  child streams a subagent's deltas, then emits it flagged with the task
+  call's `parent_tool_use_id` and answers the task with `MARK`, and the
+  reference's subagent consumes the same turn from the mock provider
 
 ### Requirement: Compare normalized text snapshots per checkpoint
 Each side's terminal output SHALL be rendered by a headless terminal emulator

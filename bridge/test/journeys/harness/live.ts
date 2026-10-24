@@ -28,6 +28,7 @@ import {
   referenceEnv,
   waitForSubscriber,
   writeRun,
+  JOURNEY_TMP,
 } from "./record.ts";
 import { journeyRow, updateJourneyLive } from "./catalog.ts";
 import {
@@ -101,7 +102,7 @@ async function liveRun(
   env: LiveEnvironment,
   work: string,
 ): Promise<{ checkpoints: Map<string, string>; requests: string }> {
-  const root = mkdtempSync(join(tmpdir(), `maki-journey-live-${script.slug}-`));
+  const root = mkdtempSync(join(JOURNEY_TMP, "mjl-"));
   const paths = makePaths(root);
   const requestsPath = join(root, "live-requests.jsonl");
   const framesPath = join(root, "live-frames.jsonl");

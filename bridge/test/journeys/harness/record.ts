@@ -6,7 +6,7 @@
 // compares them, and updates the journey catalog.
 //
 //   bun bridge/test/journeys/harness/record.ts
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -18,6 +18,11 @@ import { diffCheckpoints, type CheckpointInput, type DiffResult } from "./diff.t
 import { journeyRow, updateJourneyEvidence, updateJourneyStatus } from "./catalog.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
+// Journey roots live under a short real path: a TUI line that prints the
+// workdir (a move notice, a sidebar, a `pwd`) then fits the terminal on every
+// side instead of wrapping where each side's temp path happens to end, and
+// both sides print the same resolved prefix.
+export const JOURNEY_TMP = realpathSync(existsSync("/tmp") ? "/tmp" : tmpdir());
 const JOURNEYS = join(HERE, "..");
 const ROOT = join(JOURNEYS, "..", "..", "..");
 
@@ -178,7 +183,7 @@ export function referenceLabels(baseURL: string): string[] {
 }
 
 async function referenceRun(script: Journey): Promise<Map<string, string>> {
-  const root = mkdtempSync(join(tmpdir(), `maki-journey-ref-${script.slug}-`));
+  const root = mkdtempSync(join(JOURNEY_TMP, "mjr-"));
   const paths = makePaths(root);
   let provider: ReturnType<typeof startMockProvider>;
   try {
@@ -292,7 +297,7 @@ export interface MakiRunResult {
 }
 
 export async function makiRun(script: Journey): Promise<MakiRunResult> {
-  const root = mkdtempSync(join(tmpdir(), `maki-journey-maki-${script.slug}-`));
+  const root = mkdtempSync(join(JOURNEY_TMP, "mjm-"));
   const paths = makePaths(root);
   const requestsPath = join(root, "maki-requests.jsonl");
   const framesPath = join(root, "maki-frames.jsonl");

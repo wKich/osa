@@ -52,16 +52,10 @@
     "text": "PONG"
   },
   {
-    "type": "session.step.ended",
-    "finish": "error",
-    "tokens": {
-      "input": 8211,
-      "output": 61,
-      "reasoning": 0,
-      "cache": {
-        "read": 0,
-        "write": 0
-      }
+    "type": "session.step.failed",
+    "error": {
+      "type": "Error",
+      "message": "API error: the model request failed mid-turn"
     }
   },
   {

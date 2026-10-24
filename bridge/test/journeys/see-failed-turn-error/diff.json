@@ -1,0 +1,10 @@
+{
+  "status": "parity",
+  "checkpoints": [
+    {
+      "id": "turn-error",
+      "verdict": "differs",
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n-                                                                              ┃                                      ┃\n-  ┃                                                                           ┃  Session failed                   x  ┃\n-  ┃  Reply with the word PONG only.                                           ┃                                      ┃\n-  ┃                                                                           ┃  journey model rejected the request  ┃\n-                                                                              ┃                                      ┃\n-     Error: journey model rejected the request\n+   Reply with the word PONG only +\n+                                                          ┃                                                          ┃\n+  ┃                                                       ┃  Session failed                                       x  ┃\n+  ┃  Reply with the word PONG only.                       ┃                                                          ┃\n+  ┃                                                       ┃  API error (400): {\"error\":{\"message\":\"journey model     ┃\n+                                                          ┃  rejected the request\",\"type\":\"journey_error\"}}          ┃\n+     Error: API error (400): {\"error\":{\"message\":\"journey ┃                                                          ┃\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> shift+tab agents  ctrl+p commands"
+    }
+  ]
+}

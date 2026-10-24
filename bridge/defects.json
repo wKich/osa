@@ -116,5 +116,35 @@
       "slug": "interrupt-running-turn",
       "checkpoint": "interrupted"
     }
+  },
+  {
+    "id": "retry-scheduled-attempt-and-time",
+    "title": "session.retry.scheduled passes Maki’s failure count as attempt and the current time as at, where the pinned event names the upcoming attempt and the time it runs (core runner/retry.ts v2.0.32 L67–L110), so the TUI says `Retry due · attempt 1` instead of `Retrying in 1s · attempt 2`",
+    "status": "fixed",
+    "capture": "bridge/test/journeys/see-provider-retry/diff.json",
+    "journey": {
+      "slug": "see-provider-retry",
+      "checkpoint": "retrying"
+    }
+  },
+  {
+    "id": "failed-step-not-failed",
+    "title": "A failed run ends its step with session.step.ended finish error instead of session.step.failed carrying the error, so the TUI shows no Error line under the failed turn (client data.ts v2.0.32 L933–L945, tui routes/session/index.tsx L1905–L1909)",
+    "status": "fixed",
+    "capture": "bridge/test/journeys/see-failed-turn-error/diff.json",
+    "journey": {
+      "slug": "see-failed-turn-error",
+      "checkpoint": "turn-error"
+    }
+  },
+  {
+    "id": "retry-row-never-clears",
+    "title": "After a provider retry the retried attempt does not restart the step, so the TUI keeps the `Retry due` row under the recovered reply; OpenCode starts the retried attempt with session.step.started on the same assistant message, which clears it (client data.ts v2.0.32 L881–L895)",
+    "status": "fixed",
+    "capture": "bridge/test/journeys/see-provider-retry/diff.json",
+    "journey": {
+      "slug": "see-provider-retry",
+      "checkpoint": "recovered"
+    }
   }
 ]

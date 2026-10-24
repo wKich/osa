@@ -25,10 +25,18 @@
   },
   {
     "type": "session.retry.scheduled",
-    "attempt": 1,
+    "attempt": 2,
     "error": {
       "type": "Error",
       "message": "Overloaded"
+    }
+  },
+  {
+    "type": "session.step.started",
+    "agent": "build",
+    "model": {
+      "providerID": "maki",
+      "id": "syn:small:text"
     }
   },
   {
@@ -61,7 +69,7 @@
   },
   {
     "type": "session.retry.scheduled",
-    "attempt": 2,
+    "attempt": 3,
     "error": {
       "type": "Error",
       "message": "Internal server error"

@@ -847,18 +847,20 @@
       "area": "session",
       "source": "packages/tui/src/routes/session/index.tsx:1835 (ExecutionError) at v2.0.32",
       "scenario": {
-        "steps": ["prompt a turn the model fails", "wait for the turn to end"],
+        "steps": ["prompt a turn whose model call is rejected with 400", "wait for the turn to end"],
         "checkpoints": [
-          { "id": "turn-error", "after": 2, "expect": "the transcript ends with the turn error in the error color and the composer is idle" }
+          { "id": "turn-error", "after": 2, "expect": "the session-failed toast and an Error line under the turn name the provider error, and the composer is idle" }
         ]
       },
       "routes": ["POST /api/session/{sessionID}/prompt"],
       "features": ["turn-failure-mapping"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/see-failed-turn-error/reference/","maki":"bridge/test/journeys/see-failed-turn-error/maki/","diff":"bridge/test/journeys/see-failed-turn-error/diff.json","live":{"snapshots":"bridge/test/journeys/see-failed-turn-error/live/","diff":"bridge/test/journeys/see-failed-turn-error/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "turn-error", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make; the error text is Maki's own: a failed call is \"API error (<status>): <response body>\" and a retry is worded by status, e.g. \"Server error (503)\" (maki-providers error.rs v0.6.4 L106, L387–L412, L427–L440), which the bridge passes through unchanged; OpenCode's provider client shows the parsed message — each TUI shows its agent's real error" }
+      ]
     },
     {
       "slug": "see-provider-retry",
@@ -867,9 +869,9 @@
       "area": "session",
       "source": "packages/tui/src/routes/session/index.tsx:2379 (AssistantRetry) at v2.0.32",
       "scenario": {
-        "steps": ["prompt a turn whose first model call fails with a retryable error", "wait for the retry notice", "wait for the reply"],
+        "steps": ["prompt a turn whose first model call answers 503", "wait for the retry notice", "wait for the reply"],
         "checkpoints": [
-          { "id": "retrying", "after": 2, "expect": "a warning row names the retry attempt and the provider error" },
+          { "id": "retrying", "after": 2, "expect": "a warning row names the countdown, the upcoming attempt, and the provider error" },
           { "id": "recovered", "after": 3, "expect": "the reply renders and the retry row is gone" }
         ]
       },
@@ -877,9 +879,12 @@
       "features": ["retry-scheduled"],
       "scope": "reachable",
       "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "status": "parity",
+      "evidence": { "reference":"bridge/test/journeys/see-provider-retry/reference/","maki":"bridge/test/journeys/see-provider-retry/maki/","diff":"bridge/test/journeys/see-provider-retry/diff.json","live":{"snapshots":"bridge/test/journeys/see-provider-retry/live/","diff":"bridge/test/journeys/see-provider-retry/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"parity"} },
+      "acceptedDiffs": [
+        { "checkpoint": "retrying", "reason": "the error text is Maki's own: a failed call is \"API error (<status>): <response body>\" and a retry is worded by status, e.g. \"Server error (503)\" (maki-providers error.rs v0.6.4 L106, L387–L412, L427–L440), which the bridge passes through unchanged; OpenCode's provider client shows the parsed message — each TUI shows its agent's real error" },
+        { "checkpoint": "recovered", "reason": "the tab and list show the title Maki gives a session, its first prompt cut by generate_title (maki-storage sessions.rs v0.6.4 L677–L695), written when the first run is recorded (maki-agent session.rs L143–L166); the reference title \"Journey\" is the mock model's answer to OpenCode's title request, a model-generated title Maki does not make" }
+      ]
     },
     {
       "slug": "send-prompt-stream-reply",

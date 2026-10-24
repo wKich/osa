@@ -1,0 +1,39 @@
+   Journey                       +
+                                                                              ┃                                      ┃
+  ┃                                                                           ┃  Session failed                   x  ┃
+  ┃  Reply with the word PONG only.                                           ┃                                      ┃
+  ┃                                                                           ┃  journey model rejected the request  ┃
+                                                                              ┃                                      ┃
+     Error: journey model rejected the request
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> shift+tab agents  ctrl+p commands

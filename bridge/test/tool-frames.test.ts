@@ -58,3 +58,18 @@ test("a multi-call turn's step carries the last call's tokens, not the run total
   const ended = out.find((f) => f.type === "session.step.ended")!;
   expect(ended.data.tokens).toMatchObject({ input: 1, output: 1 });
 });
+
+test("a failed run fails its step with the error; each retried attempt restarts the step", () => {
+  const failed = run([{ type: "result", subtype: "error_during_execution", is_error: true, result: "API error (400): no" }]);
+  expect(failed.find((f) => f.type === "session.step.failed")!.data.error).toEqual({ type: "Error", message: "API error (400): no" });
+  expect(failed.some((f) => f.type === "session.step.ended")).toBe(false);
+
+  const retried = run([
+    { type: "system", subtype: "api_retry", attempt: 1, retry_delay_ms: 1000, error: "API error (503): busy" },
+    { type: "system", subtype: "api_retry", attempt: 2, retry_delay_ms: 2000, error: "API error (503): busy" },
+    { type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } },
+  ]);
+  const kinds = retried.filter((f) => f.type === "session.step.started" || f.type === "session.retry.scheduled").map((f) => f.type.split(".")[1]);
+  expect(kinds).toEqual(["step", "retry", "step", "retry", "step"]);
+  expect(retried.filter((f) => f.type === "session.retry.scheduled").map((f) => f.data.attempt)).toEqual([2, 3]);
+});

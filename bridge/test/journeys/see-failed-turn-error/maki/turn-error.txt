@@ -1,0 +1,39 @@
+   Reply with the word PONG only +
+                                                          ┃                                                          ┃
+  ┃                                                       ┃  Session failed                                       x  ┃
+  ┃  Reply with the word PONG only.                       ┃                                                          ┃
+  ┃                                                       ┃  API error (400): {"error":{"message":"journey model     ┃
+                                                          ┃  rejected the request","type":"journey_error"}}          ┃
+     Error: API error (400): {"error":{"message":"journey ┃                                                          ┃
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> shift+tab agents  ctrl+p commands

@@ -119,17 +119,27 @@ test("every defect expected-failure marker has a golden file", () => {
 test("golden translation: maki-retry surfaces retries without disturbing the turn", () => {
   const events = runFixture("maki-retry");
   const retries = events.filter((e) => e.type === "session.retry.scheduled");
-  expect(retries.map((e) => e.data.attempt)).toEqual([1, 2]);
+  // the upcoming attempt: Maki's failure count plus one (core runner/retry.ts
+  // v2.0.32 L67–L90), run after the child's backoff
+  expect(retries.map((e) => e.data.attempt)).toEqual([2, 3]);
   expect(retries.map((e) => e.data.error)).toEqual([
     { type: "Error", message: "Overloaded" },
     { type: "Error", message: "Internal server error" },
   ]);
-  for (const retry of retries) {
+  const before = Date.now();
+  for (const [i, retry] of retries.entries()) {
     expect(retry.data.assistantMessageID).toMatch(/^msg_/);
-    expect(retry.data.at).toBeGreaterThanOrEqual(0);
+    // the fixture's backoff: 2000 then 4000 ms after emission
+    expect(retry.data.at).toBeGreaterThan(before + [1500, 3500][i]!);
     expect(retry.durableVersion).toBe(1);
   }
-  const withoutRetries = events.filter((e) => e.type !== "session.retry.scheduled");
+  // each retried attempt restarts the step on the same message (OpenCode's
+  // attempt shape), so the retry frames and those restarts are the only extras
+  const restarts = events.filter((e) => e.type === "session.step.started").slice(1);
+  // the fixture retries, streams the reply, then retries again with no later
+  // attempt frame: only the first retry is followed by a restarted attempt
+  expect(restarts).toHaveLength(1);
+  const withoutRetries = events.filter((e) => e.type !== "session.retry.scheduled" && !restarts.includes(e));
   const diff = firstDiff(project(withoutRetries), readGolden("golden/maki-plain.json"));
   if (diff) throw new Error(`api_retry frames disturbed the transcript:\n      ${diff}`);
   expect(diff).toBeNull();

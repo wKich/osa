@@ -78,6 +78,8 @@ export class Translator {
   // own call's, while `result` carries the run total (sdk_mode.rs v0.6.4
   // L1090–L1112, L1162–L1178)
   private lastUsage?: AnyObj;
+  // a provider retry was announced: the next attempt restarts the step
+  private retryPending = false;
 
   constructor(hooks: TranslatorHooks) {
     this.hooks = hooks;
@@ -156,7 +158,12 @@ export class Translator {
     this.streamed = new Map();
     this.toolIDs = new Set();
     this.lastUsage = undefined;
+    this.retryPending = false;
     this.emitExec("session.execution.started", {});
+    this.startStep();
+  }
+
+  private startStep(): void {
     this.emit("session.step.started", {
       sessionID: this.hooks.sessionID,
       assistantMessageID: this.am,
@@ -164,6 +171,15 @@ export class Translator {
       model: this.modelNow(),
       started: Date.now(),
     });
+  }
+
+  /** the attempt after a retry starts its step again on the same message,
+   * as OpenCode's retried attempt does, which clears the retry row (client
+   * data.ts v2.0.32 L881–L895) */
+  private resumeAfterRetry(): void {
+    if (!this.retryPending) return;
+    this.retryPending = false;
+    this.startStep();
   }
 
   /** the running turn ended: the next queued prompt's run begins */
@@ -198,17 +214,25 @@ export class Translator {
         } else if (frame.subtype === "api_retry" && this.turnOpen) {
           // the pinned event names the turn's assistant message, so a retry
           // outside a turn has nothing to attach to and stays tolerated
-          const attempt = Number.isInteger(frame.attempt) && frame.attempt > 0 ? frame.attempt : 1;
+          // Maki counts the failures so far and names the backoff
+          // (maki-agent streaming.rs v0.6.4 L214–L325); the pinned event names
+          // the upcoming attempt and when it runs (core runner/retry.ts
+          // v2.0.32 L67–L110)
+          // a second retry means the retried attempt ran (and failed) first
+          this.resumeAfterRetry();
+          const failures = Number.isInteger(frame.attempt) && frame.attempt > 0 ? frame.attempt : 1;
+          const delay = typeof frame.retry_delay_ms === "number" && frame.retry_delay_ms > 0 ? frame.retry_delay_ms : 0;
           this.emit("session.retry.scheduled", {
-            attempt,
-            at: Date.now(),
+            attempt: failures + 1,
+            at: Date.now() + delay,
             error: { type: "Error", message: String(frame.error ?? "provider retry") },
           });
+          this.retryPending = true;
         }
         break;
-      case "assistant": this.handleAssistant(frame); break;
+      case "assistant": this.resumeAfterRetry(); this.handleAssistant(frame); break;
       case "user": this.handleUser(frame); break;
-      case "stream_event": this.handleStreamEvent(frame); break;
+      case "stream_event": this.resumeAfterRetry(); this.handleStreamEvent(frame); break;
       case "result": this.handleResult(frame); break;
       default: break; // control_* and unknown types are the bridge's business
     }
@@ -412,8 +436,13 @@ export class Translator {
     // an interrupted step fails with the pinned interruption error and no
     // usage, which the TUI shows as `· interrupted` (core runner/step.ts
     // v2.0.32 L63, L225; publish-llm-event.ts L420–L437)
+    const message = String(frame.result ?? frame.subtype ?? "maki turn failed");
     if (!ok && this.interruptRequested) {
       this.emit("session.step.failed", { error: { type: "aborted", message: "Step interrupted" } });
+    } else if (!ok) {
+      // a failed step carries its error, which the TUI renders under the turn
+      // (client data.ts v2.0.32 L933–L945; tui session/index.tsx L1905–L1909)
+      this.emit("session.step.failed", { error: { type: "Error", message } });
     } else this.emit("session.step.ended", data);
     if (ok) this.emitExec("session.execution.succeeded", {});
     // maki reports a cancelled run as an error result (sdk_mode.rs v0.6.4
@@ -421,9 +450,7 @@ export class Translator {
     // (session-event.ts v2.0.32 Execution.Interrupted), not a failure
     else if (this.interruptRequested) this.emitExec("session.execution.interrupted", { reason: "user" });
     else {
-      this.emitExec("session.execution.failed", {
-        error: { type: "Error", message: String(frame.result ?? frame.subtype ?? "maki turn failed") },
-      });
+      this.emitExec("session.execution.failed", { error: { type: "Error", message } });
     }
     this.hooks.onResult?.(frame);
     this.startNext();

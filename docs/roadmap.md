@@ -367,26 +367,110 @@ in one go; remote gateways and resumable large seeds are B5.
   own MRs (`taskRepositories.mrIid` …) and moves the task to `review`.
   **Exit:** a dev-stand task that asks for a code change ends with an MR
   linked in the thread.
-- **B1.5 — Production, opt-in** (1). oskhs deployed near prod Mongo (secrets,
+- **B1.5 — Production, opt-in** (1). *Paused 2026-10-24: oskhs runs
+  against the local kiss deployment (the dev stand) until further notice;
+  B2 onward proceeds without it.* oskhs deployed near prod Mongo (secrets,
   mirror volume) with a co-located gateway; the kiss marker change deployed
   first; one channel marked whose repos seed in one go; runbook with
   rollback = unmark the channel. **Exit:** tasks in the marked prod channel
   run in a sandbox; every other task still goes through KHS; the sandbox
   holds only placeholders and cannot reach prod Mongo.
 
-### B2 — Conversations that survive (W4) — 1½–2 sessions
+### B2 — Conversations that survive (W4) — 1½–2 sessions, two slices
 
-- Follow-ups: thread messages arrive as `AgentSubTask`s; each round is a
-  headless `maki-oss run --resume` in the task's worktree (maki's flock is
-  free between rounds); idle-stop honors `idleTtlMs`.
-- Session durability: the task's Maki state saved by oskhs to GridFS (the
-  sandbox never touches Mongo) and restored into a fresh worktree; starts as
-  a minimal tar, converges on the A2 (P5) export format.
-- Warm-sandbox lifecycle: worktree GC, re-seed on sandbox loss, per-ref tip
-  tracking survives oskhs restarts.
+Each kiss task gets one Maki session that lives across its rounds: warm in
+the sandbox between rounds, checkpointed by oskhs to GridFS after each one,
+so losing the sandbox costs a re-seed and a restore, not the conversation.
 
-**Exit:** a thread drives multi-round maki work; deleting the sandbox
-mid-conversation and continuing re-seeds and restores from GridFS.
+*Starting point (B1.4).* Follow-ups (`thread_instruction`) already run, but
+every round is stateless: a fresh worktree and a fresh Maki session, and the
+workspace is removed when the round ends, so a follow-up sees only the
+sub-task prompt kiss built. The worker writes `idle_stopped` as soon as the
+sub-tasks are drained; `idleTtlMs` is unused. Ref tips already survive
+oskhs restarts (the sandbox is the record), and a lost sandbox already
+yields a full bundle on the next sync.
+
+```
+            ┌─ oskhs (host, holds Mongo URI) ─────────────────────────────┐
+ kiss task  │ claim ─► ensure workspace ─► round ─► checkpoint ─► release  │
+ + subtasks │            │                   │          │                  │
+            │            │ warm? reuse        │          └► GridFS          │
+            │            │ else restore ◄─────┼───────────  agent-sessions  │
+            │            ▼                   ▼             + task.sessionInfo
+            └────────────┼───────────────────┼─────────────────────────────┘
+ sandbox    /sandbox/tasks/<id>/  (worktrees on task/MR branch, kept warm)
+ repo-<p>   Maki session <sid>    maki --session-id <sid> | --resume <sid>
+            GC sweeper: idle > idleTtlMs ─► checkpoint, remove workspace
+```
+
+- *Session identity.* One session per task, its id derived from the task id
+  (16 bytes, base58, as Maki requires): the first round runs
+  `--session-id <sid>`, later ones `--resume <sid>`. Recorded in kiss's
+  existing `task.sessionInfo` (`sessionId`, `sessionArchiveId`). The
+  workspace path `/sandbox/tasks/<id>` is the same on every gateway, so the
+  session's recorded cwd matches after any restore.
+- *Two tiers.* Hot: the workspace and Maki's state in the sandbox. Cold: a
+  tar of this task's session files only (no auth, no config) in kiss's
+  `agent-sessions` GridFS bucket with kiss's metadata, so kiss's purge
+  covers it; the archive is tagged as a Maki session so kiss's readers can
+  tell it from a Pi one. Checkpoint after every round, rotated as kiss does
+  (write the new archive, then remove the previous one). oskhs carries the
+  tar; the sandbox never touches Mongo. Starts minimal, converges on the A2
+  (P5) export format.
+- *Code needs no archive.* Code rounds commit and push to the task's MR
+  branch, so a restore is re-sync, worktree on the task's branch, unpack
+  the session, `--resume`. Only the agent's memory is irreplaceable.
+- *Lifecycle.* `absent → warm → archived → warm`; terminal or cancelled →
+  removed. The claim stays short — the worker still releases the task to
+  `idle_stopped` after its rounds (holding it would block the project's
+  slot); warmth lives in the sandbox. A GC sweeper removes workspaces idle
+  longer than `idleTtlMs` (else a default) after a final checkpoint, and
+  caps warm workspaces per sandbox (LRU). On wake: warm → resume in place;
+  absent → restore from GridFS; no usable archive → a fresh session with
+  the full task prompt plus the follow-up, logged `session-lost` and noted
+  in the reply — never silent (G1).
+- *Sandbox loss.* `ensureSandbox` recreates it, sync seeds with a full
+  bundle, the round re-pins the provider and rewrites Maki's config as it
+  already does; restore covers the session.
+
+Slices, both against the local kiss stack (B1.5 paused):
+
+- **B2.1 — Warm continuity** (½–1). *Research first, findings in the
+  change's design before any code:* where Maki keeps sessions in the sandbox
+  (`~/.local/state/maki/…`?) and whether one session's files can be tarred
+  alone; whether `--resume` accepts a different `--model` when the
+  project's kiss provider changes between rounds (and what to do if not).
+  Then: session id, workspace kept between rounds, `--resume`, the GC
+  sweeper on `idleTtlMs`. **Exit:** a three-round dev-stand thread whose
+  later answers depend on earlier rounds' context.
+- **B2.2 — Durable sessions** (1). GridFS checkpoint and restore,
+  `sessionInfo`, the `session-lost` fallback. Until B2b lands, kiss's
+  admin Session tab shows the archive's metadata but cannot render a Maki
+  transcript. **Exit:** deleting the sandbox mid-conversation and
+  continuing re-seeds, restores from GridFS, and the next answer still
+  depends on earlier rounds.
+
+### B2b — Maki transcripts in kiss admin (kiss repo) — 1–1½ sessions
+
+kiss's admin task page has a Session tab (`SessionTab`,
+`SessionTranscript`) fed by `/tasks/:id/session-archive` and a transcript
+built from the Pi archive (`buildSessionTranscript`). B2.2 puts Maki
+archives in the same place. This milestone teaches kiss to read them:
+
+- Audit every kiss reader of `sessionInfo` and `agent-sessions` (admin API,
+  `TaskExecutor`, purge) so none tries to restore or parse a Maki archive
+  as Pi's; dispatch on the archive's tag.
+- A Maki transcript builder next to the Pi one, mapping Maki's session
+  records onto the transcript model the admin UI already renders, extended
+  where Maki has more: per-round boundaries (one per kiss round or
+  follow-up), tool calls with arguments and folded output, file edits as
+  diffs, model and token usage per turn, and restore/`session-lost` markers.
+- Stories and tests next to the existing `SessionTranscript` ones, with a
+  fixture archive captured from a B2.2 dev-stand run.
+
+**Exit:** opening an oskhs task in kiss admin shows its full Maki
+conversation across rounds, readable as the Pi transcripts are; Pi tasks
+render unchanged.
 
 ### B3 — Feature parity (W4) — 2–3 sessions
 
@@ -398,7 +482,8 @@ accounting. Each lands as an oskhs feature over the task-document contract.
 **Exit:** an existing project's config works unchanged when its channel is
 marked for oskhs.
 
-B2 and B3 can swap if parity matters more than durability.
+B2 and B3 can swap if parity matters more than durability. B2b needs only
+B2.2 and can run alongside B3 in the kiss repo; it lands before B4.
 
 ### B4 — git LFS (W4) — ½–1 session
 
@@ -553,8 +638,10 @@ support (option B only).
 
 ```
 Track A (maki-oss):  A1 ─► A2 ─► A3 ─► A4 ─► A5
-Track B (kiss):      B1.1a ─► B1.1b ─► B1.2 ─► B1.3a ─► B1.3b ─► B1.3c ─► B1.3d ─► B1.4 ─► B1.5
-                     ─► B2 ─► B3 ─► B4 ─► B5 ─► B6 ─► B7
+Track B (kiss):      B1.1a ─► B1.1b ─► B1.2 ─► B1.3a ─► B1.3b ─► B1.3c ─► B1.3d ─► B1.4
+                     ─► B2.1 ─► B2.2 ─► B3 ─► B2b ─► B4 ─► B5 ─► B6 ─► B7
+                     B1.5 paused (local kiss stack until resumed); B2b may
+                     start right after B2.2, alongside B3
 Cross:               A1 ─► B5    (remote gateway selection)
                      A2 ┄► B2    (soft: session tar converges on P5's format)
                      A5 ─► B7    (headless rounds for the second agent)
@@ -567,7 +654,7 @@ in the kiss repo and can run alongside them.
 | Track | Milestones | Sessions |
 |---|---|---|
 | A | A1 1½, A2 2–2½, A3 1½–2, A4 1, A5 ~1 | 7–8 |
-| B | B1 6–8½, B2 1½–2, B3 2–3, B4 ½–1, B5 ½–1, B6 1–1½, B7 ~1 | 12½–18 |
+| B | B1 6–8½, B2 1½–2, B3 2–3, B2b 1–1½, B4 ½–1, B5 ½–1, B6 1–1½, B7 ~1 | 13½–19½ |
 
 Track B grew from the first draft's 3½–5 sessions after a kiss code read:
 the Mongo credentials force the agent and the task process apart, oskhs

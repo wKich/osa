@@ -184,6 +184,12 @@ bounded timeout that fails the run.
 - **THEN** the workdir lies under a short real root (`/tmp/mjr-…`), so the
   line fits the terminal on every side
 
+#### Scenario: An MCP journey runs one server everywhere
+- **WHEN** a journey sets `mcp: true`
+- **THEN** the reference, the offline Maki side and the live sandbox each
+  configure the harness's `journey` MCP server, and its `marker` tool returns
+  `MCP-MARKER`
+
 ### Requirement: Compare normalized text snapshots per checkpoint
 Each side's terminal output SHALL be rendered by a headless terminal emulator
 into a text screen at every checkpoint. Volatile tokens (ids, timestamps,

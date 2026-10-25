@@ -47,7 +47,8 @@ export type Step =
   | { kind: "type"; text: string }
   | { kind: "waitFor"; pattern: string; flags: string; idleMs?: number; timeoutMs?: number; name?: string }
   | { kind: "checkpoint"; id: string; step: Step }
-  | { kind: "restart" };
+  | { kind: "restart" }
+  | { kind: "pause"; ms: number };
 
 export interface Journey {
   slug: string;
@@ -82,6 +83,12 @@ export function checkpoint(id: string, step: Step): Step {
 }
 
 /** Restart the TUI in place; the harness keeps the server on the other side. */
+/** wait a fixed time: for a screen that never settles on one side (a call the
+ * reference keeps pending) while the other side finishes */
+export function pause(ms: number): Step {
+  return { kind: "pause", ms };
+}
+
 export function restart(): Step {
   return { kind: "restart" };
 }

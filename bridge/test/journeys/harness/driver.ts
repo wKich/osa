@@ -73,6 +73,7 @@ function label(step: Step): string {
   if (step.kind === "checkpoint") return step.id;
   if (step.kind === "waitFor") return step.name ?? `/${step.pattern}/`;
   if (step.kind === "restart") return "restart";
+  if (step.kind === "pause") return `pause ${step.ms}ms`;
   return "type";
 }
 
@@ -125,6 +126,10 @@ async function runStep(ctx: RunContext, step: Step): Promise<void> {
   if (step.kind === "waitFor") return runWait(ctx, step);
   if (step.kind === "restart") {
     ctx.pty = await ctx.restart();
+    return;
+  }
+  if (step.kind === "pause") {
+    await Bun.sleep(step.ms);
     return;
   }
   await runStep(ctx, step.step);

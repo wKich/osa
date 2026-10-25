@@ -115,8 +115,11 @@ maki-oss doctor --provider maki-anthropic
 
 ### image build
 
-Builds `examples/maki-image/` with the configured engine and tags it as the
-configured image. `MAKI_VERSION` is passed as a build argument.
+Builds `examples/maki-image/` with the configured engine and tags it
+`maki-agent:local`. `--image` or `MAKI_OSS_IMAGE` may choose another tag for an
+explicit base build. The `image` setting is ignored here: it names the sandbox
+image and may be a derived environment, which a base build must not overwrite.
+`MAKI_VERSION` is passed as a build argument.
 
 This builds the generic **base** image: the agent runtime and safety baseline,
 with no MCP servers, no MCP-specific runtime, and no personal UI preferences. To
@@ -178,16 +181,19 @@ documented in the upstream reference pack
 
 Sessions live in the sandbox's container filesystem, not on the host: they
 survive `stop` and `start`, but are lost when the sandbox is deleted and
-recreated (`maki-oss rm`). The helper's sync state (baseline, patches,
-worktrees, pending marker) lives on the host under
+recreated (`maki-oss rm`). The helper's sync state (baseline, synced pair,
+patches, worktrees, pending marker) lives on the host under
 `${XDG_STATE_HOME:-$HOME/.local/state}/maki-oss/sessions/<sandbox>/`.
 
 A session that **reuses** an existing sandbox does not re-upload the project,
 so the sandbox may still hold an earlier copy of your files. The helper prints
-a `Reusing ...` note to stderr and compares the sandbox baseline tree with the
-host tree. If they differ, the sandbox is stale: no patch is applied
-automatically, and the collected patch is kept for review. Run
-`maki-oss upload` first to refresh the sandbox from the current host tree.
+a `Reusing ...` note to stderr and compares each side with the tree pair it
+recorded at the last upload or clean apply. If either side moved, the sandbox
+is stale: no patch is applied automatically, and the collected patch is kept
+for review. Run `maki-oss upload` first to refresh the sandbox from the
+current host tree. The recorded pair is what keeps a clean filter (LFS) or a
+submodule from looking like a host change: those hash differently on each
+side, and comparing them directly would mark a fresh sandbox stale.
 
 ```sh
 cd ~/code/myproject
@@ -213,6 +219,7 @@ directory (mode `700`; files `600`):
 | Path | Meaning |
 |---|---|
 | `baseline` | Mode, branch, commit, tree, dirty flag, upload mode, staleness |
+| `synced` | Host and sandbox tree pair recorded at the last upload or clean apply |
 | `patch-<timestamp>.patch` | Collected patch, retained until you remove it |
 | `worktrees/<id>/` | Review worktree kept when no fast-forward happened |
 | `review-<timestamp>/` | Selective export used when the host has no git |

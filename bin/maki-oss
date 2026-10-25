@@ -1090,6 +1090,23 @@ read_baseline() { # FILE KEY
     sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n 1
 }
 
+# Records the host tree and the sandbox tree that were in sync at upload or
+# after a clean apply. A clean filter (LFS) or a submodule hashes differently
+# on each side, so comparing the two trees directly calls a fresh sandbox
+# stale; each side is compared with its own earlier value instead.
+write_synced_marker() { # STATE_DIR HOST_TREE SANDBOX_TREE
+    [ -n "$2" ] && [ -n "$3" ] || return 0
+    synced_tmp=$1/synced.$$
+    if ! (
+        umask 077
+        printf 'host_tree=%s\nsandbox_tree=%s\n' "$2" "$3" >"$synced_tmp"
+    ); then
+        rm -f "$synced_tmp"
+        return 0
+    fi
+    mv -- "$synced_tmp" "$1/synced" 2>/dev/null || rm -f "$synced_tmp"
+}
+
 # Records the host tree in the state directory. A clean repository uses HEAD;
 # a dirty or untracked one gets a synthetic commit built from a temporary
 # index, so the user's index, branch, and working tree are untouched.
@@ -1174,6 +1191,17 @@ write_session_baseline() { # DIR NAME WORKDIR SANDBOX_TREE STALE UPLOAD
     return 0
 }
 
+# After a clean apply the host and sandbox moved together, so the recorded
+# pair moves with them and the next session stays on the automatic path.
+# shellcheck disable=SC2329  # reached through the sync exit path
+refresh_synced_marker() {
+    capture_host_baseline "$sync_state_dir"
+    refresh_sandbox_tree=$(sandbox_script "$sync_name" "$sync_workdir" "$SANDBOX_PROBE_SCRIPT" 2>/dev/null) || refresh_sandbox_tree=
+    if [ "$bl_ok" -eq 1 ] && [ -n "$refresh_sandbox_tree" ]; then
+        write_synced_marker "$sync_state_dir" "$bl_tree" "$refresh_sandbox_tree"
+    fi
+}
+
 # Captures the host baseline, records or reads the sandbox baseline, and marks
 # the sandbox stale when the two trees differ. Runs before Maki attaches.
 prepare_session_sync() { # NAME CREATED
@@ -1193,12 +1221,18 @@ prepare_session_sync() { # NAME CREATED
     bl_dirty=0
     bl_base=
     bl_ok=0
+    synced_host_tree=
+    synced_sandbox_tree=
     if [ "$opt_no_sync" -eq 1 ]; then
         return 0
     fi
     if ! (umask 077 && mkdir -p "$sync_state_dir" && chmod 700 "$sync_state_dir" 2>/dev/null); then
         warn "cannot create session state directory $sync_state_dir; changes will stay in the sandbox"
         return 0
+    fi
+    if [ -f "$sync_state_dir/synced" ]; then
+        synced_host_tree=$(read_baseline "$sync_state_dir/synced" host_tree)
+        synced_sandbox_tree=$(read_baseline "$sync_state_dir/synced" sandbox_tree)
     fi
     if [ -f "$sync_state_dir/pending" ]; then
         sync_pending_blocked=1
@@ -1231,9 +1265,25 @@ prepare_session_sync() { # NAME CREATED
         warn "cannot read or record the sandbox baseline; automatic apply is disabled for '$prepare_name'"
     fi
     if [ "$opt_no_git_ignore" -eq 0 ] && [ "$bl_ok" -eq 1 ]; then
-        if [ -z "$sync_sandbox_tree" ] || [ "$bl_tree" != "$sync_sandbox_tree" ]; then
+        # Compare each side with the recorded pair, not with the other side:
+        # filters and submodules hash differently on the host and the sandbox.
+        if [ "$prepare_created" -eq 1 ]; then
+            # A sandbox created by this run was uploaded from this tree.
+            [ "$sync_probe_ok" -eq 1 ] || sync_stale=1
+        elif [ -n "$synced_host_tree" ] && [ -n "$synced_sandbox_tree" ]; then
+            if [ "$bl_tree" != "$synced_host_tree" ] \
+                || [ "$sync_sandbox_tree" != "$synced_sandbox_tree" ]; then
+                sync_stale=1
+            fi
+        elif [ -z "$sync_sandbox_tree" ] || [ "$bl_tree" != "$sync_sandbox_tree" ]; then
+            # No recorded pair (state from an older version): keep the direct
+            # tree comparison until an upload or clean apply records one.
             sync_stale=1
         fi
+    fi
+    if [ "$sync_stale" -eq 0 ] && [ "$sync_probe_ok" -eq 1 ] && [ "$bl_ok" -eq 1 ] \
+        && [ "$opt_no_git_ignore" -eq 0 ] && [ -n "$sync_sandbox_tree" ]; then
+        write_synced_marker "$sync_state_dir" "$bl_tree" "$sync_sandbox_tree"
     fi
     if [ "$sync_stale" -eq 1 ]; then
         note "Sandbox '$prepare_name' is stale: its baseline tree differs from the host."
@@ -1480,6 +1530,7 @@ worktree_apply() { # PATCH
     git worktree remove "$wa_wt" >/dev/null 2>&1 || true
     git branch -d "$wa_name" >/dev/null 2>&1 || true
     advance_sandbox_baseline
+    refresh_synced_marker
     rm -f "$sync_state_dir/pending"
     note "Applied sandbox changes to branch '$wa_branch'."
     return 0
@@ -2065,11 +2116,15 @@ cmd_upload() {
     if [ "$dest" = "$(resolved_workdir)" ]; then
         upload_state=$(session_state_dir "$name")
         if (umask 077 && mkdir -p "$upload_state" && chmod 700 "$upload_state" 2>/dev/null); then
-            if sandbox_script "$name" "$dest" "$SANDBOX_INIT_SCRIPT" >/dev/null 2>&1; then
+            if upload_sandbox_tree=$(sandbox_script "$name" "$dest" "$SANDBOX_INIT_SCRIPT" 2>/dev/null); then
                 # The user explicitly refreshed the sandbox, so any earlier
                 # pending patch no longer blocks automatic apply.
                 rm -f "$upload_state/pending"
                 note "Recorded a new sandbox baseline for '$name'."
+                capture_host_baseline "$upload_state"
+                if [ "$bl_ok" -eq 1 ] && [ "$opt_no_git_ignore" -eq 0 ]; then
+                    write_synced_marker "$upload_state" "$bl_tree" "$upload_sandbox_tree"
+                fi
             else
                 warn "uploaded, but could not record the sandbox baseline for '$name'"
             fi
@@ -3461,7 +3516,9 @@ cmd_image_build() {
     if ! command -v "$engine" >/dev/null 2>&1; then
         die_dep "container engine '$engine' not found on PATH"
     fi
-    image=$(resolved_image)
+    # The base build never uses the configured `image`: that may name a derived
+    # environment, and tagging the base with it would overwrite the environment.
+    image=$(resolve_setting "$opt_image" "${MAKI_OSS_IMAGE:-}" "" "$DEFAULT_IMAGE")
     version=$opt_maki_version
     if [ -z "$version" ]; then
         version=${MAKI_VERSION:-}

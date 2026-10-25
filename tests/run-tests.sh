@@ -1165,6 +1165,17 @@ test_image_build_argv() {
     assert_log_has "examples/maki-image"
 }
 
+test_image_build_ignores_configured_image() {
+    begin "image build tags the base, not the configured environment image"
+    new_case image-build-env
+    mkdir -p "$XDG_CONFIG_HOME/maki-oss"
+    printf 'image = "maki-agent:personal"\n' >"$XDG_CONFIG_HOME/maki-oss/config.toml"
+    run_maki image build
+    assert_rc 0
+    assert_log_line "maki-agent:local"
+    assert_log_line_missing "maki-agent:personal"
+}
+
 test_asset_environment_split() {
     begin "assets: base has no MCP environment; reference store carries it"
     new_case assets-environment-split
@@ -3080,6 +3091,34 @@ test_sandbox_baseline_after_upload() {
     [ "$(baseline_value maki-repo mode)" = clean ] || bad "baseline was not recorded"
 }
 
+test_filtered_baseline_is_not_stale_after_upload() {
+    begin "a filtered host tree and its raw uploaded tree are not stale after upload"
+    new_case filter-baseline
+    RUN_DIR=$CASE/project/repo
+    mkdir -p "$RUN_DIR"
+    (
+        cd "$RUN_DIR" || exit 1
+        git init -q
+        git config user.name "Test User"
+        git config user.email test@example.com
+        git config filter.pointer.clean "sed 's/^/pointer:/'"
+        printf '*.dat filter=pointer\n' >.gitattributes
+        printf 'payload\n' >data.dat
+        git add .gitattributes data.dat
+        git commit -q -m initial
+    )
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    run_maki upload .
+    assert_rc 0
+    reset_log
+    run_maki maki
+    assert_rc 0
+    assert_err_missing "is stale"
+    assert_err_has "No sandbox changes to sync."
+}
+
 test_existing_sandbox_baseline_migration() {
     begin "a reused sandbox without a baseline gets one and warns once"
     new_case sandbox-migration
@@ -3663,6 +3702,7 @@ run_test test_mcp_status_none_configured
 run_test test_doctor_mcp_section_informational
 run_test test_doctor_mcp_none_configured
 run_test test_image_build_argv
+run_test test_image_build_ignores_configured_image
 run_test test_asset_environment_split
 run_test test_status_list_logs
 run_test test_start_stop
@@ -3716,6 +3756,7 @@ run_test test_session_plain_conflict_keeps_project
 run_test test_baseline_capture_clean_git
 run_test test_baseline_capture_dirty_git
 run_test test_sandbox_baseline_after_upload
+run_test test_filtered_baseline_is_not_stale_after_upload
 run_test test_existing_sandbox_baseline_migration
 run_test test_stale_sandbox_keeps_patch
 run_test test_session_state_permissions_and_second_session

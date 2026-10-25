@@ -10,8 +10,10 @@
 
 # Container image for the sandbox. The default is the generic base built by
 # `maki-oss image build`: agent runtime and safety baseline, no MCP servers.
-# A derived environment image (for example maki-agent:reference, built from
-# examples/environments/reference) can be named here; see
+# `image build` always tags the base `maki-agent:local` (or an explicit
+# `--image`/`MAKI_OSS_IMAGE` tag), so this setting cannot be overwritten by a
+# base rebuild. A derived environment image (for example maki-agent:reference,
+# built from examples/environments/reference) can be named here; see
 # docs/ai/environment-playbook.md.
 image = "maki-agent:local"
 

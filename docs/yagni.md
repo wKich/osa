@@ -52,6 +52,14 @@ test ! -d .opencode/skills/ponytail && echo ok                 # expect ok
 The six skills: `ponytail`, `ponytail-review`, `ponytail-audit`,
 `ponytail-debt`, `ponytail-gain`, `ponytail-help`.
 
+## Dev-only note
+
+The `.maki/skills/ponytail*/` copies and the `opencode.json` plugin declaration
+are maintainer tooling for working on this repository. They are not part of the
+base image (`examples/maki-image/`) and not part of the reference environment
+store (`examples/environments/reference/`); a user's environment store is theirs
+to compose and does not inherit them.
+
 ## Refresh (bump the pin and re-copy the skills together)
 
 The pinned version and the `.maki/skills/` copies must move in one step so

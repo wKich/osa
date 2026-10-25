@@ -9,6 +9,9 @@ Start here:
 - `docs/ai/host-playbook.md` — provision a bare macOS or Linux host (engine,
   OpenShell, Maki, shell) before running Maki; hands off to the agent
   playbook for the sandbox phases.
+- `docs/ai/environment-playbook.md` — compose a personal environment (MCP
+  servers, runtimes, preferences) on the base image; hands off to the
+  reference store under `examples/environments/reference/`.
 - `docs/ai/agent-playbook.md` — ordered, executable steps to build the image,
   load provider profiles, create a sandbox, and run Maki.
 - `docs/ai/references.md` — curated upstream documentation (OpenShell and
@@ -18,7 +21,9 @@ Supporting docs: `docs/setup-guide.md` (full walkthrough),
 `docs/verification.md` (isolation checklist), `docs/glossary.md` (vocabulary),
 `docs/verification-log.md` (dry-run record), `docs/oskhs.md` (kiss
 adapter, Track B). Canonical configuration lives in
-`examples/`; docs reference those files instead of duplicating them.
+`examples/`; docs reference those files instead of duplicating them. The base
+image is agent-only; personal MCP servers, runtimes, and UI preferences belong
+in an environment store built from `examples/environments/reference/`.
 
 ## Security invariants
 

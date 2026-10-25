@@ -8,6 +8,23 @@ reference pack.
   manages sandboxes, policies, providers, and access.
 - **Sandbox** — the isolated workload environment (Docker container or MicroVM)
   that OpenShell creates to run an agent such as Maki.
+- **Base image** — `maki-agent:local`, built by `maki-oss image build`: the
+  pinned Maki runtime, non-root sandbox identity, filesystem/Landlock settings,
+  folder trust, and the deny rules that protect the baked configuration. It
+  declares no MCP servers, installs no MCP-specific runtime, and sets no
+  personal UI or YOLO preference.
+- **Environment store** — a user-owned Docker build context, outside this
+  repository, whose `Dockerfile` builds `FROM` the base image. It carries the
+  user's MCP configuration, runtime and package installs, skills, plugins, and
+  personal preferences. It contains no credential value; the repository ships
+  only the opt-in reference store at `examples/environments/reference/`.
+- **Derived image** — the tag produced by building an environment store (for
+  example `maki-agent:reference`). The helper selects it through the existing
+  `image` setting; `maki-oss image build` still builds only the base.
+- **Global, project-local, and credential state** — global environment content
+  lives in the environment store and its derived image; project-local agent
+  configuration (`.maki/`, `.opencode/`) travels with the uploaded project; and
+  credentials plus egress stay in OpenShell provider profiles.
 - **Supervisor** — the OpenShell runtime process that starts and watches the
   sandbox workload, mediates DNS and TCP, and enforces policy at the boundary.
 - **Base policy** — the sandbox's own policy, before attached providers
@@ -58,9 +75,10 @@ reference pack.
 - **Template** — a reusable sandbox workload definition (image, resources,
   settings) that `openshell sandbox create --template` can instantiate.
 - **MCP config** — Maki's table of MCP servers: `~/.config/maki/mcp.toml` on the
-  host, baked into the image as `/sandbox/.config/maki/mcp.toml` for the
-  sandbox. The sandbox never reads the host's file, so changing the server set
-  means rebuilding the image.
+  host, and `/sandbox/.config/maki/mcp.toml` in the sandbox baked from an
+  environment image. The sandbox never reads the host's file, so changing the
+  server set means rebuilding the environment store and selecting its derived
+  image. The base image's file declares zero servers.
 - **MCP readiness** — the per-server report printed by `maki-oss mcp status`
   and, as an informational section, by `maki-oss doctor`: for each server
   whether it is present in the sandbox's MCP config, its provider is attached,
@@ -69,8 +87,9 @@ reference pack.
   credential value.
 - **Stdio runtime gate** — the MCP readiness check that the command a stdio
   server's `command` array names exists in the sandbox. A missing runtime is
-  reported with `maki-oss image build` as the fix; the helper never installs a
-  runtime or package into a running sandbox.
+  reported with the environment-image build guidance and the environment
+  playbook as the fix; the helper never installs a runtime or package into a
+  running sandbox.
 - **oskhs** — the host-side adapter (`oskhs/`) that runs kiss agent rounds in
   OpenShell sandboxes; holds every database and GitLab credential outside
   the sandbox ([docs/oskhs.md](oskhs.md)).

@@ -58,12 +58,19 @@ endpoint answers (HTTP) before touching the config again.
 
 ## 4. Run a server inside the sandbox
 
-The OpenShell sandbox has its own `/sandbox/.config/maki`, baked from
-[`examples/maki-image`](../examples/maki-image), and never reads the host's
-`mcp.toml`. Moving a server across the boundary needs more than a copied
+The OpenShell sandbox has its own `/sandbox/.config/maki`, baked from an
+**environment image** built on top of the generic base, and never reads the
+host's `mcp.toml`. Moving a server across the boundary needs more than a copied
 config: the endpoint must be reachable under deny-by-default egress, and its
 credential must be present without ever entering the sandbox. OpenShell
 provider profiles supply both.
+
+The base image declares no MCP servers. To add one, copy
+[`examples/environments/reference/`](../examples/environments/reference/) outside
+the repository, put the server in that store's `config/mcp.toml`, build the
+store, and set the helper's `image` setting to its derived tag. The full
+procedure is [`docs/ai/environment-playbook.md`](ai/environment-playbook.md);
+the reference store is the worked example.
 
 An MCP server works inside the sandbox when all four hold:
 
@@ -88,8 +95,9 @@ An MCP server works inside the sandbox when all four hold:
    `maki-oss provider setup --profile examples/providers/mcp-<server>.yaml --env <VAR>`
    (details in [`docs/providers.md`](providers.md)).
 2. **Config travels with the sandbox, without credentials** — the server's
-   definition is baked at
-   [`examples/maki-image/config/mcp.toml`](../examples/maki-image/config/mcp.toml)
+   definition is baked at image build in the environment store's
+   `config/mcp.toml` (the reference store's file is
+   [`examples/environments/reference/config/mcp.toml`](../examples/environments/reference/config/mcp.toml))
    and copied to `/sandbox/.config/maki/mcp.toml`. Every `headers` and
    `environment` entry
    expands a `${VAR}` placeholder that the attached provider injects; no
@@ -118,23 +126,24 @@ An MCP server works inside the sandbox when all four hold:
    effective policy for HTTP and the runtime gate — the command its
    `command` array names present in the sandbox — for stdio. It exits
    non-zero on any failing gate and prints
-   the command that fixes it
-   ([`docs/helper.md`](helper.md)). Because the config is baked at image
-   build, adding or removing a server means rebuilding the image —
-   `maki-oss image build`.
+   the command or guidance that fixes it
+   ([`docs/helper.md`](helper.md)). Because the config is baked at environment
+   image build, adding or removing a server means rebuilding that store and
+   selecting its derived tag — not rebuilding the base.
 
-**A stdio server runs when the image provides its runtime.** A stdio server
-(one configured with a `command` array) works in the sandbox when the image
-provides the command that array names and the server's package is installed
-in the image — both at image build: the Dockerfile pins the runtime (bun) and
-pre-installs the declared server's package as uid 1500, so a session resolves
-installed files only and never fetches from a registry. The helper never
-installs a runtime, fetches a package, or otherwise adds code to a running
-sandbox; when the runtime is missing, `maki-oss mcp status` names the command
-and prints the image-build command as the fix. Credentials cross only as
-`${VAR}` expansion of a provider-injected placeholder — a host literal in
-`~/.config/maki/mcp.toml` is migration input for
-`maki-oss provider setup --env <VAR>`, never a value to copy — and the
+**A stdio server runs when the environment image provides its runtime.** A
+stdio server (one configured with a `command` array) works in the sandbox when
+the environment image provides the command that array names and the server's
+package is installed in that image — both at image build: the store's
+Dockerfile pins the runtime (bun in the reference store) and pre-installs the
+declared server's package as uid 1500, so a session resolves installed files
+only and never fetches from a registry. The helper never installs a runtime,
+fetches a package, or otherwise adds code to a running sandbox; when the
+runtime is missing, `maki-oss mcp status` names the command and prints the
+environment-image build guidance and the environment playbook as the fix.
+Credentials cross only as `${VAR}` expansion of a provider-injected
+placeholder — a host literal in `~/.config/maki/mcp.toml` is migration input
+for `maki-oss provider setup --env <VAR>`, never a value to copy — and the
 upstream API the server process calls is reached through its own
 `protocol: rest` profile.
 

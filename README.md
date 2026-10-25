@@ -22,6 +22,12 @@ cd maki-oss
 export PATH="$PWD/bin:$PATH"
 ```
 
+`image build` builds the generic base: the agent runtime and safety baseline,
+with no MCP servers and no personal UI preferences. To add MCP servers or a
+runtime they need, compose an environment image on top of it — see
+[`docs/ai/environment-playbook.md`](docs/ai/environment-playbook.md) and the
+[reference store](examples/environments/reference/README.md).
+
 Fish users can install the plugin with [fisher](https://github.com/jorgebucaran/fisher)
 instead — it bundles the function and completions.
 
@@ -92,6 +98,8 @@ sandboxes by hand is a chore. maki-oss gives you:
 
 - [`docs/ai/host-playbook.md`](docs/ai/host-playbook.md) — provision a bare
   macOS or Linux host (engine, OpenShell, Maki, shell) before running Maki.
+- [`docs/ai/environment-playbook.md`](docs/ai/environment-playbook.md) — compose
+  a personal environment (MCP servers, runtimes, preferences) on the base image.
 - [`docs/setup-guide.md`](docs/setup-guide.md) — clean machine to a running
   sandboxed Maki, step by step.
 - [`docs/providers.md`](docs/providers.md) — any-provider catalog, the

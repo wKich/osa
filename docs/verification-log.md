@@ -1065,3 +1065,17 @@ models already in its built-in catalog. The dry run therefore used
 `deepseek/deepseek-chat`. Baking a models.dev snapshot into the image or
 adding a narrow catalog rule is a follow-up change, not part of this one; the
 documented examples were corrected to the verified spec.
+
+### Follow-up resolved — model catalog in the image — 2026-10-25
+
+The base image now runs `maki models --refresh` at build time, storing a
+models.dev snapshot at `/sandbox/.cache/maki/models-dev-catalog.json`. The
+OpenCode TUI bridge reads `maki models` from the sandbox at boot, so the model
+picker now lists providers from that snapshot instead of only Maki's bundled
+defaults. Host-only providers and plan settings belong in an environment
+store's `config/providers.toml`; the personal layer built for this host adds
+Kontur and the Z.AI coding plan. Verified in a fresh `maki-agent:personal`
+sandbox: `maki models` listed `kontur`, `inception`, `opencode-go`, `kimi`,
+`minimax`, `nano-gpt`, `xiaomi`, `zai`, `deepseek`, and `synthetic`, and a
+headless `kontur/code-ultra` call returned `OK`. Existing sandboxes keep the
+old image until recreated.

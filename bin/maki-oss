@@ -2327,7 +2327,7 @@ mcp_readiness_report() { # NAME
     mcp_failed=0
     mcp_servers_in_toml "$host_mcp_config" >"$mcp_tmp.host"
     # An unreadable sandbox config counts as absent: the gate then names the
-    # image rebuild, which is also the fix for a pre-MCP image.
+    # environment image that supplies the server, not a base-image rebuild.
     os sandbox exec -n "$mcp_name" --no-login-shell -- cat "$sandbox_mcp_path" \
         >"$mcp_tmp.config" 2>/dev/null || :
     mcp_servers_in_toml "$mcp_tmp.config" >"$mcp_tmp.sandbox"
@@ -2383,11 +2383,11 @@ mcp_readiness_report() { # NAME
             say "  $mcp_server: sandbox=$mcp_sandbox_gate runtime=$mcp_runtime_gate provider=$mcp_provider_gate transport=stdio"
             mcp_build_fix=0
             if [ "$mcp_sandbox_gate" = missing ]; then
-                say "    fix: $PROGRAM image build (the host config has '$mcp_server' but the baked sandbox config does not)"
+                say "    fix: build and select an environment image that declares '$mcp_server' (see docs/ai/environment-playbook.md)"
                 mcp_build_fix=1
             fi
             if [ "$mcp_runtime_gate" = missing ] && [ "$mcp_build_fix" -eq 0 ]; then
-                say "    fix: $PROGRAM image build (the runtime '$mcp_argv0' that '$mcp_server' runs with is missing from the sandbox)"
+                say "    fix: build and select an environment image that provides the runtime '$mcp_argv0' for '$mcp_server' (see docs/ai/environment-playbook.md)"
             fi
             if [ "$mcp_provider_gate" = missing ]; then
                 say "    fix: $PROGRAM provider attach $mcp_provider"
@@ -2407,7 +2407,7 @@ mcp_readiness_report() { # NAME
         mcp_failed=$((mcp_failed + 1))
         say "  $mcp_server: sandbox=$mcp_sandbox_gate provider=$mcp_provider_gate endpoint=$mcp_endpoint_gate transport=http"
         if [ "$mcp_sandbox_gate" = missing ]; then
-            say "    fix: $PROGRAM image build (the host config has '$mcp_server' but the baked sandbox config does not)"
+            say "    fix: build and select an environment image that declares '$mcp_server' (see docs/ai/environment-playbook.md)"
         fi
         if [ "$mcp_provider_gate" = missing ]; then
             say "    fix: $PROGRAM provider attach $mcp_provider"

@@ -8,7 +8,11 @@
 #
 # Supported keys (all values are quoted strings):
 
-# Container image for the sandbox. Build it with `maki-oss image build`.
+# Container image for the sandbox. The default is the generic base built by
+# `maki-oss image build`: agent runtime and safety baseline, no MCP servers.
+# A derived environment image (for example maki-agent:reference, built from
+# examples/environments/reference) can be named here; see
+# docs/ai/environment-playbook.md.
 image = "maki-agent:local"
 
 # Sandbox policy YAML. A relative path is tried against the current directory
@@ -20,8 +24,10 @@ policy = "examples/policies/maki-minimal.yaml"
 # already stored by Maki or OpenCode) or `maki-oss provider add`. The value is
 # the provider instance name, for example "maki-anthropic",
 # "maki-opencode-go", or a custom id; see examples/providers/ and
-# docs/providers.md.
-providers = "maki-anthropic"
+# docs/providers.md. No provider is selected by default, so a copied config
+# does not pick one person's provider. Example:
+# providers = "maki-anthropic"
+providers = ""
 
 # Optional default model for sessions and headless runs, in the
 # provider/model form (for example "deepseek/deepseek-chat"). The provider id

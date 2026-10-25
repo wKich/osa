@@ -151,6 +151,21 @@ Build the sandbox image (bakes the pinned Maki release) and verify it:
 docker run --rm maki-agent:local maki --version
 ```
 
+The base is agent-only: it declares no MCP servers and sets no personal UI or
+YOLO preference. If you want the reference environment (the `context7` and
+`synthetic` MCP servers, Bun, and the YOLO/compact-UI preferences), build it on
+top of the base and select it through the helper's `image` setting; otherwise
+skip this optional step:
+
+```sh
+docker build -t maki-agent:reference examples/environments/reference
+# then set image = "maki-agent:reference" in the helper config
+```
+
+For your own MCP servers, runtimes, or preferences, follow
+[`docs/ai/environment-playbook.md`](environment-playbook.md) instead of editing
+`examples/maki-image/`.
+
 The one-time provider wizard needs one input: a model API key — exported in
 the environment, or already stored by Maki or OpenCode. It scans those
 credential stores, lints and imports a profile, and creates the provider; the
@@ -230,8 +245,9 @@ under zsh and bash. Stop on any mismatch.
 ## Phase 5 — Daily driver
 
 **Once per machine** (completed in Phase 3; listed here only to keep it
-separate from the loop): `maki-oss doctor`, `maki-oss image build`,
-`maki-oss provider setup`.
+separate from the loop): `maki-oss doctor`, `maki-oss image build`, an optional
+environment-store build, `maki-oss provider setup`, and setting `image` when a
+derived environment image is used.
 
 **Every project** — the everyday loop:
 

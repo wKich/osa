@@ -24,7 +24,7 @@ current state and a working OAuth-gated MCP server in the sandbox.
 - Re-add the OAuth exemplar profile `examples/providers/mcp-linear.yaml`
   (`refresh: oauth2_refresh_token`, `token_url` spelled for the pinned
   gateway) and the `[mcp.linear]` entry in
-  `examples/maki-image/config/mcp.toml`, with the discovered Linear
+  `examples/environments/reference/config/mcp.toml`, with the discovered Linear
   limitation documented in the profile header until the gateway-side fix
   lands.
 - Document the full host-side flow: declare the server in the host's
@@ -52,8 +52,9 @@ current state and a working OAuth-gated MCP server in the sandbox.
 
 ## Impact
 
-- `examples/providers/mcp-linear.yaml`, `examples/maki-image/config/mcp.toml`
-  (+ image rebuild), `docs/mcp-migration.md` §4 (OAuth point restored),
+- `examples/providers/mcp-linear.yaml`,
+  `examples/environments/reference/config/mcp.toml` (+ environment-image
+  rebuild), `docs/mcp-migration.md` §4 (OAuth point restored),
   `docs/verification-log.md` (§5.2 follow-up).
 - No helper code changes expected: `maki-oss mcp status` already reports the
   attachment and endpoint gates; the OAuth flow reuses `provider setup`,

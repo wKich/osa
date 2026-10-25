@@ -190,6 +190,10 @@ bounded timeout that fails the run.
   configure the harness's `journey` MCP server, and its `marker` tool returns
   `MCP-MARKER`
 
+#### Scenario: A pause waits for a screen that never settles
+- **WHEN** a step is `pause(5000)` while a spinner keeps the screen changing
+- **THEN** the run continues after five seconds
+
 ### Requirement: Compare normalized text snapshots per checkpoint
 Each side's terminal output SHALL be rendered by a headless terminal emulator
 into a text screen at every checkpoint. Volatile tokens (ids, timestamps,

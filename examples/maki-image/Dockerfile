@@ -62,4 +62,9 @@ ENV HOME=/sandbox
 WORKDIR /sandbox
 USER sandbox
 
+# Seed Maki's models.dev catalog so `maki models` and the OpenCode TUI can
+# list every provider with deny-by-default egress. The build takes a snapshot;
+# a sandbox can refresh it later only when a policy allows models.dev.
+RUN maki models --refresh >/dev/null
+
 CMD ["/bin/bash"]

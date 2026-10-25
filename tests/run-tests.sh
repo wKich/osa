@@ -1035,6 +1035,8 @@ test_asset_environment_split() {
         || bad "reference mcp.toml does not declare synthetic"
     grep -q 'always_yolo = true' "$ROOT/examples/environments/reference/config/init.lua" \
         || bad "reference init.lua does not carry the relocated preference"
+    grep -q 'maki models --refresh' "$ROOT/examples/maki-image/Dockerfile" \
+        || bad "base Dockerfile does not seed Maki's models.dev catalog"
 }
 
 test_status_list_logs() {

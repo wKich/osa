@@ -53,7 +53,7 @@ Put each audited item in exactly one bucket:
 
 | Class | Belongs in | Rule |
 |---|---|---|
-| Portable config | store `config/mcp.toml`, `config/init.lua` | Copy the definition, never a literal secret |
+| Portable config | store `config/mcp.toml`, `config/init.lua`, `config/providers.toml` | Copy the definition, never a literal secret |
 | Package or runtime | store `Dockerfile` | Pin the version and install it at image build; the helper never installs into a running sandbox |
 | Credential | OpenShell provider profile | Value stays on the host; the store and sandbox see only a `${VAR}` name |
 | Unsupported | the report, not the store | Name it and explain why; never drop it silently |
@@ -97,7 +97,8 @@ my-environment/
 ├── README.md
 └── config/
     ├── mcp.toml
-    └── init.lua
+    ├── init.lua
+    └── providers.toml
 ```
 
 Start from the reference store:
@@ -118,6 +119,12 @@ Then edit only your copy:
   the base.
 - **`config/init.lua`** — the trust block plus the preferences you want. Keep
   the trust block intact; headless runs need it.
+- **`config/providers.toml`** — optional host-only Maki provider settings:
+  custom OpenAI-compatible providers, plan selection (for example Z.AI
+  `coding`), or explicit model rows. The base seeds the models.dev catalog, so
+  most providers need no entry here; add one only for a provider or plan the
+  catalog cannot express. Copy it to `/sandbox/.config/maki/providers.toml`
+  in the store's Dockerfile.
 - **`.dockerignore`** — exclude `.git`, local credential files, and host-only
   profile copies so they cannot enter the image. The reference file is a safe
   starting point.

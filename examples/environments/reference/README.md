@@ -88,6 +88,16 @@ not at `maki-oss image build`.
 - `.dockerignore` excludes `.git`, local credential files, and host-only
   profile copies so they cannot enter the image build context.
 
+## Model catalog and custom providers
+
+The base image seeds Maki's models.dev catalog at build time, so `maki models`
+and the OpenCode TUI model picker list the full catalog even though sandbox
+egress is deny-by-default. Add a `config/providers.toml` to your own store for
+host-only provider settings — custom OpenAI-compatible providers, plan
+selection, or model rows — and copy it to `/sandbox/.config/maki/providers.toml`.
+Rebuild the environment image after changing it; the TUI reads the catalog
+once per bridge start.
+
 For the full audit → classify → generate → build → verify procedure for any
 host agent, follow
 [`docs/ai/environment-playbook.md`](../../../docs/ai/environment-playbook.md).

@@ -216,7 +216,12 @@ maki-oss --no-sync    # same, without the exit download
 The mode requires `bun` (to run the bridge) and the `opencode` binary on the
 host; `maki-oss doctor` checks all three only when the setting resolves to
 `opencode`. The bridge binds `127.0.0.1` and is killed when the TUI exits,
-including Ctrl-C. Session resume flags (`--continue`, `--resume`,
+including Ctrl-C. The model picker is Maki's `maki models` list, read by the
+bridge once at boot. The base image seeds a models.dev catalog snapshot at
+build time, so the picker lists the full catalog even with deny-by-default
+egress; host-only providers and plan settings belong in the environment
+store's `providers.toml` and require an environment-image rebuild and a TUI
+restart. Session resume flags (`--continue`, `--resume`,
 `--session-id`) are refused in this mode — a bridge session has no
 replayable transcript yet — and `maki-oss run` is unaffected by the
 setting. Known rendering defects (message order and the status-line model

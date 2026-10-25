@@ -1,0 +1,12 @@
+.git
+.gitignore
+.env
+.env.*
+*.pem
+*.key
+credentials*
+auth.json
+profiles/
+**/*.yaml
+**/*.yml
+README.md

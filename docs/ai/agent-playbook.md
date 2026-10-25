@@ -55,9 +55,25 @@ extracting tokens.
 ```sh
 docker build --build-arg MAKI_VERSION=0.6.4 -t maki-agent:local examples/maki-image
 docker run --rm maki-agent:local maki --version
+IMAGE=maki-agent:local
 ```
 
 Verify: the build succeeds and prints `maki 0.6.4`.
+
+The base image is agent-only: no MCP servers, no MCP-specific runtime, and no
+personal UI/YOLO preferences. If the task needs a server, runtime, or personal
+preference, build an environment image on top and use its tag instead of the
+base:
+
+```sh
+docker build -t maki-agent:reference examples/environments/reference
+IMAGE=maki-agent:reference
+```
+
+For a user-owned store, follow the environment playbook
+([`docs/ai/environment-playbook.md`](environment-playbook.md)); never edit
+`examples/maki-image/` for a personal choice. Set the same tag in the helper's
+`image` setting when using `maki-oss`.
 
 ## Phase 2 — Load the provider profile and create the provider
 
@@ -123,14 +139,14 @@ git add -A && git commit -qm init
 # With a project (uploads require the create command to have no trailing
 # main command; Maki is launched later with sandbox exec):
 openshell sandbox create --name maki \
-  --from maki-agent:local \
+  --from "$IMAGE" \
   --policy examples/policies/maki-minimal.yaml \
   --provider maki-anthropic \
   --upload "$PROJECT_PATH:/sandbox/project"
 
 # Without a project:
 openshell sandbox create --name maki \
-  --from maki-agent:local \
+  --from "$IMAGE" \
   --policy examples/policies/maki-minimal.yaml \
   --provider maki-anthropic
 ```

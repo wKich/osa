@@ -123,12 +123,28 @@ failed download warns on stderr but preserves Maki's exit code.
 
 ## 8. MCP smoke test
 
-Run this after an MCP server is configured end to end: profile imported and
-provider attached, the server declared in
-[`examples/maki-image/config/mcp.toml`](../examples/maki-image/config/mcp.toml),
-and the image rebuilt so the config is baked in. The examples use `context7`.
+Run this after the reference environment image is built and selected. The base
+declares no MCP servers; the reference store declares `context7` and
+`mcp-context7` supplies its profile. If the current sandbox was created from the
+base, recreate it from the derived tag before starting.
 
-**8a. Attach the profile and create the provider.** The profile carries both
+**8a. Build and select the reference environment image.** The base must exist
+first (`maki-oss image build` builds it). Then build the store and set the
+helper's `image` setting to the derived tag:
+
+```sh
+maki-oss image build
+docker build -t maki-agent:reference examples/environments/reference
+# set image = "maki-agent:reference" in the helper config
+maki-oss rm --yes       # the old sandbox keeps its old image
+maki-oss up
+```
+
+**Expected:** both builds succeed; the recreated sandbox reports the derived
+image in `maki-oss status`. A raw `openshell sandbox create` uses
+`--from maki-agent:reference` instead.
+
+**8b. Attach the profile and create the provider.** The profile carries both
 the egress rule and the credential binding, so these two commands are the whole
 setup:
 
@@ -143,7 +159,7 @@ maki-oss provider attach mcp-context7
 (The profile's id and the provider instance name differ; use the name printed
 by `maki-oss provider list` in the next step if you chose `--name`.)
 
-**8b. Confirm the endpoint entered the effective policy.**
+**8c. Confirm the endpoint entered the effective policy.**
 
 ```sh
 openshell policy get maki --full
@@ -153,7 +169,7 @@ openshell policy get maki --full
 `port: 443`, and `protocol: mcp`. No `mcp` endpoint appears in `--base`: the
 base policy stays free of MCP, and reach comes only from the attached profile.
 
-**8c. Read the readiness table.**
+**8d. Read the readiness table.**
 
 ```sh
 maki-oss mcp status
@@ -168,13 +184,14 @@ MCP readiness for sandbox 'maki':
 
 A failing gate prints its fix on the next line and the command exits non-zero:
 `provider=missing` names `maki-oss provider attach mcp-context7`;
-`sandbox=missing` names `maki-oss image build` (the server was added to the
-host config after the image was built). A stdio server is reported with its
-runtime gate instead of its transport:
-`sandbox=ok runtime=missing provider=ok transport=stdio` names the missing
-command with `maki-oss image build` as the fix.
+`sandbox=missing` names the environment-image build guidance and
+[`docs/ai/environment-playbook.md`](ai/environment-playbook.md) — the server is
+absent from the selected environment image, and rebuilding the base is not the
+fix. A stdio server is reported with its runtime gate instead of its transport:
+`runtime=missing` names the missing command with the same environment-image
+guidance.
 
-**8d. Call a tool from a session.** The tool names are namespaced
+**8e. Call a tool from a session.** The tool names are namespaced
 `<server>__<tool>`; ask the agent to list what it sees rather than assuming a
 name:
 
@@ -184,22 +201,24 @@ maki-oss run --no-sync "List every MCP tool available to you, one per line. Do n
 
 **Expected:** `context7__` names appear in the output (for example
 `context7__resolve-library-id` and `context7__query-docs`). A tool that is
-missing here but present on the host means a gate failed in 8c — check that
+missing here but present on the host means a gate failed in 8d — check that
 before touching the config again.
 
 ## 9. stdio MCP smoke test
 
-Runs a stdio MCP server (`synthetic`) end to end: runtime and package baked
-into the image, the credential crossing only as a placeholder through its
-profile, and `mcp status` judging the runtime gate. Each step names its
-command and expected output.
+Runs a stdio MCP server (`synthetic`) end to end: the runtime and package baked
+into the reference environment image, the credential crossing only as a
+placeholder through its profile, and `mcp status` judging the runtime gate. Each
+step names its command and expected output.
 
-**9a. Rebuild so the stdio entry and the pre-warmed package are baked in.**
+**9a. Build the reference environment image and verify the runtime and
+package.** The base is built by `maki-oss image build`; the store layers Bun
+and the pre-warmed package on top:
 
 ```sh
-maki-oss image build
-docker run --rm maki-agent:local bun --version
-docker run --rm maki-agent:local sh -c 'command -v synthetic-search-mcp'
+docker build -t maki-agent:reference examples/environments/reference
+docker run --rm maki-agent:reference bun --version
+docker run --rm --entrypoint sh maki-agent:reference -c 'command -v synthetic-search-mcp'
 ```
 
 **Expected:** the build completes; the pinned bun version prints (for example
@@ -236,10 +255,11 @@ MCP readiness for sandbox 'maki':
   synthetic: sandbox=ok runtime=ok provider=ok transport=stdio
 ```
 
-A sandbox that predates the rebuild instead prints
-`synthetic: sandbox=ok runtime=missing provider=ok transport=stdio` with
-`fix: maki-oss image build (the runtime 'bun' that 'synthetic' runs with is
-missing from the sandbox)` — rebuild and rerun; the helper installs nothing.
+A sandbox that predates the environment image instead prints
+`synthetic: sandbox=ok runtime=missing provider=ok transport=stdio` with the
+environment-image build guidance and
+[`docs/ai/environment-playbook.md`](ai/environment-playbook.md) — recreate the
+sandbox from the derived tag and rerun; the helper installs nothing.
 
 **9d. Call the tool from a session.**
 

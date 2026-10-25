@@ -1,15 +1,20 @@
-# Baked global MCP config for the sandbox image
+# Global MCP config for the sandbox base image
 # (/sandbox/.config/maki/mcp.toml). Copied by examples/maki-image/Dockerfile.
 #
-# HTTP servers need only their endpoint reachable through their profile.
-# Stdio servers (a `command` array) must also have their runtime and package
-# in the image: the Dockerfile installs the pinned runtime and pre-installs
-# each declared server's package at build as uid 1500, so a session resolves
-# the installed files only and never fetches from a registry (egress stays
+# The base image declares no MCP servers: a server is a personal environment
+# choice, so it belongs in an environment image built FROM this base. See
+# examples/environments/reference/ and docs/ai/environment-playbook.md. Keep
+# this file comments-only; it exists so the config path is present.
+#
+# An environment store's mcp.toml carries the servers. HTTP servers need only
+# their endpoint reachable through their provider profile. Stdio servers (a
+# `command` array) must also have their runtime and package in the environment
+# image: install them at image build as uid 1500, so a session resolves the
+# installed files only and never fetches from a registry (egress stays
 # deny-by-default; no npm endpoint is in any policy). The helper never installs
-# anything into a running sandbox — adding or changing a server here means a
-# rebuild (`maki-oss image build`), which is what `maki-oss mcp status`
-# reports when the runtime or config is missing.
+# anything into a running sandbox — adding or changing a server means rebuilding
+# the environment image, which is what `maki-oss mcp status` reports when the
+# runtime or config is missing.
 #
 # Headers and environment values expand ${VAR} from the sandbox environment.
 # OpenShell injects each var as an opaque placeholder from the attached
@@ -18,22 +23,3 @@
 # baked into this file or the image. A server whose variable is unset
 # (provider detached) fails with the variable named in its status; the other
 # servers still work.
-
-[mcp.context7]
-url = "https://mcp.context7.com/mcp"
-headers = { CONTEXT7_API_KEY = "${CONTEXT7_API_KEY}" }
-enabled = true
-
-# stdio server pre-warmed by the Dockerfile (bun add -g synthetic-search-mcp).
-# The package's own bin carries a node shebang and the image ships no node, so
-# the entry runs it under the pinned bun binary instead; `command[0]` is the
-# name the readiness gate checks in the sandbox (command -v bun). Two variable
-# names meet here: the child-facing key stays SYNTHETIC_API_KEY because that
-# is what the package reads, while the expansion sources the provider-injected
-# MCP_SYNTHETIC_API_KEY — a sandbox can attach only one provider per credential
-# key and maki-synthetic owns SYNTHETIC_API_KEY (see
-# examples/providers/mcp-synthetic.yaml).
-[mcp.synthetic]
-command = ["bun", "/sandbox/.bun/install/global/node_modules/synthetic-search-mcp/bin/index.js"]
-environment = { SYNTHETIC_API_KEY = "${MCP_SYNTHETIC_API_KEY}" }
-enabled = true

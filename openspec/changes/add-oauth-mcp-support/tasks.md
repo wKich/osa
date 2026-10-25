@@ -4,12 +4,13 @@
 
 - [ ] 1.1 Restore `examples/providers/mcp-linear.yaml` (carrying the Linear
   client-auth limitation in its header until fixed upstream) and the
-  `[mcp.linear]` entry in `examples/maki-image/config/mcp.toml`, then rebuild
-  the image; verify with `openshell profile lint -f examples/providers/mcp-linear.yaml`
-  passing, `python3 -c 'import tomllib; tomllib.load(open("examples/maki-image/config/mcp.toml","rb"))'`
-  parsing, `grep -Ei "sk-|ghp_|Bearer [A-Za-z0-9]" examples/maki-image/config/mcp.toml`
-  returning nothing, and `docker run --rm maki-agent:local cat /sandbox/.config/maki/mcp.toml`
-  showing both servers with no credential value
+  `[mcp.linear]` entry in `examples/environments/reference/config/mcp.toml`,
+  then rebuild the reference environment image; verify with
+  `openshell profile lint -f examples/providers/mcp-linear.yaml`
+  passing, `python3 -c 'import tomllib; tomllib.load(open("examples/environments/reference/config/mcp.toml","rb"))'`
+  parsing, `grep -Ei "sk-|ghp_|Bearer [A-Za-z0-9]" examples/environments/reference/config/mcp.toml`
+  returning nothing, and `docker run --rm maki-agent:reference cat /sandbox/.config/maki/mcp.toml`
+  showing every server with no credential value
 
 ## 2. Document the host-side flow
 

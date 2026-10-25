@@ -841,7 +841,7 @@ test_mcp_status_failing_gate_names_fix() {
 }
 
 test_mcp_status_host_only_server() {
-    begin "mcp status names a host-only server with the rebuild command"
+    begin "mcp status names a host-only server with the environment-image guidance"
     new_case mcp-status-hostonly
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
@@ -853,7 +853,31 @@ test_mcp_status_host_only_server() {
     run_maki mcp status
     assert_rc 3
     assert_out_has "context7: sandbox=missing"
-    assert_out_has "fix: maki-oss image build"
+    assert_out_has "fix: build and select an environment image that declares 'context7' (see docs/ai/environment-playbook.md)"
+    assert_out_missing "fix: maki-oss image build"
+}
+
+test_mcp_status_zero_mcp_base() {
+    begin "mcp status points a zero-MCP base at the environment image"
+    new_case mcp-status-zero-base
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_host_mcp
+    # The sandbox returns the real base config: comments only, zero servers.
+    EXEC_STDOUT=$(cat "$ROOT/examples/maki-image/config/mcp.toml")
+
+    run_maki mcp status
+    assert_rc 3
+    assert_out_has "context7: sandbox=missing"
+    assert_out_has "fix: build and select an environment image that declares 'context7' (see docs/ai/environment-playbook.md)"
+    assert_out_missing "fix: maki-oss image build"
+    # Reporting stays read-only.
+    assert_log_missing "create"
+    assert_log_missing "attach"
+    assert_log_missing "import"
+    assert_log_missing "update"
+    assert_log_missing "build"
 }
 
 test_mcp_status_stdio_all_gates_satisfied() {
@@ -886,7 +910,7 @@ test_mcp_status_stdio_all_gates_satisfied() {
 }
 
 test_mcp_status_stdio_missing_runtime_names_build_fix() {
-    begin "mcp status names a missing stdio runtime with the image-build fix"
+    begin "mcp status names a missing stdio runtime with the environment-image fix"
     new_case mcp-status-stdio-missing
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
@@ -900,8 +924,9 @@ test_mcp_status_stdio_missing_runtime_names_build_fix() {
     run_maki mcp status
     assert_rc 3
     assert_out_has "synthetic: sandbox=ok runtime=missing provider=ok transport=stdio"
-    assert_out_has "fix: maki-oss image build (the runtime 'bun' that 'synthetic' runs with is missing from the sandbox)"
+    assert_out_has "fix: build and select an environment image that provides the runtime 'bun' for 'synthetic' (see docs/ai/environment-playbook.md)"
     assert_out_missing "fix: maki-oss provider attach"
+    assert_out_missing "fix: maki-oss image build"
     # Read-only: the fix is printed, never performed; nothing is installed.
     assert_log_missing "create"
     assert_log_missing "attach"
@@ -985,6 +1010,31 @@ test_image_build_argv() {
     assert_log_line "-t"
     assert_log_line "maki-agent:local"
     assert_log_has "examples/maki-image"
+}
+
+test_asset_environment_split() {
+    begin "assets: base has no MCP environment; reference store carries it"
+    new_case assets-environment-split
+    if grep -Eq 'BUN_VERSION|bun add|synthetic-search-mcp' \
+        "$ROOT/examples/maki-image/Dockerfile"; then
+        bad "base Dockerfile still installs Bun or synthetic-search-mcp"
+    fi
+    if grep -Eq '^\[mcp\.' "$ROOT/examples/maki-image/config/mcp.toml"; then
+        bad "base mcp.toml declares an MCP server"
+    fi
+    if grep -q 'always_yolo' "$ROOT/examples/maki-image/config/init.lua"; then
+        bad "base init.lua still sets a personal preference"
+    fi
+    grep -q 'BUN_VERSION' "$ROOT/examples/environments/reference/Dockerfile" \
+        || bad "reference Dockerfile does not pin Bun"
+    grep -q 'synthetic-search-mcp' "$ROOT/examples/environments/reference/Dockerfile" \
+        || bad "reference Dockerfile does not install synthetic-search-mcp"
+    grep -q '^\[mcp.context7\]' "$ROOT/examples/environments/reference/config/mcp.toml" \
+        || bad "reference mcp.toml does not declare context7"
+    grep -q '^\[mcp.synthetic\]' "$ROOT/examples/environments/reference/config/mcp.toml" \
+        || bad "reference mcp.toml does not declare synthetic"
+    grep -q 'always_yolo = true' "$ROOT/examples/environments/reference/config/init.lua" \
+        || bad "reference init.lua does not carry the relocated preference"
 }
 
 test_status_list_logs() {
@@ -2517,14 +2567,14 @@ test_fish_completions() {
 }
 
 test_example_config() {
-    begin "examples/config.toml is accepted unchanged"
+    begin "examples/config.toml selects the base image and no provider"
     new_case example-config
     mkdir -p "$XDG_CONFIG_HOME/maki-oss"
     cp "$ROOT/examples/config.toml" "$XDG_CONFIG_HOME/maki-oss/config.toml"
     run_maki up
     assert_rc 0
-    assert_log_has "--provider"
-    assert_log_line "maki-anthropic"
+    assert_log_missing "--provider"
+    assert_log_line "maki-agent:local"
     assert_log_line "2"
     assert_log_line "4Gi"
     assert_log_has "maki-minimal.yaml"
@@ -2579,6 +2629,7 @@ run_test test_doctor_all_pass
 run_test test_mcp_status_all_gates_satisfied
 run_test test_mcp_status_failing_gate_names_fix
 run_test test_mcp_status_host_only_server
+run_test test_mcp_status_zero_mcp_base
 run_test test_mcp_status_stdio_all_gates_satisfied
 run_test test_mcp_status_stdio_missing_runtime_names_build_fix
 run_test test_mcp_status_no_sandbox
@@ -2586,6 +2637,7 @@ run_test test_mcp_status_none_configured
 run_test test_doctor_mcp_section_informational
 run_test test_doctor_mcp_none_configured
 run_test test_image_build_argv
+run_test test_asset_environment_split
 run_test test_status_list_logs
 run_test test_start_stop
 run_test test_policy_wrappers

@@ -88,23 +88,46 @@ docker run --rm maki-agent:local ls /sandbox/.config/maki
 ```
 
 Expected: `maki 0.6.4`, and `init.lua`, `mcp.toml`, and `permissions.toml` in
-the config directory. The baked configuration pre-answers folder trust for
-`/sandbox/**` and starts Maki in YOLO mode; the `permissions.toml` deny rules
-(no `sudo`, no `maki auth`, no writes to the baked config) still apply under
-YOLO. `mcp.toml` carries the MCP servers Maki may call from the sandbox. See
+the config directory. This is the **base image**: the agent runtime and safety
+baseline only. `init.lua` pre-answers folder trust for `/sandbox/**` and sets no
+YOLO or UI preference; `mcp.toml` declares zero MCP servers (it is
+comments-only); and `permissions.toml` keeps the deny rules (no `sudo`, no
+`maki auth`, no writes to the baked config). The image installs no
+MCP-specific runtime. See
 [`examples/maki-image/config/`](../examples/maki-image/config/).
 
-The same build is what makes an MCP server usable from inside the sandbox — the
-server set is baked at image build, so adding, removing, or changing a server
-in the host's `~/.config/maki/mcp.toml` means rebuilding
-(`maki-oss image build`). Once a project sandbox exists, check what is ready:
+Personal MCP servers, runtimes they need, and UI/YOLO preferences belong in an
+**environment image** built on top of the base. The repository ships a
+reference store for the previous behavior — the `context7` and `synthetic`
+servers, Bun, and the YOLO/compact-UI preferences:
+
+```sh
+docker build -t maki-agent:reference examples/environments/reference
+docker run --rm maki-agent:reference maki --version
+```
+
+Select it through the helper's existing `image` setting (in
+`${XDG_CONFIG_HOME:-$HOME/.config}/maki-oss/config.toml`):
+
+```toml
+image = "maki-agent:reference"
+```
+
+`maki-oss status`, `maki-oss doctor`, and new sandboxes then use the derived
+tag. For a store of your own, follow
+[`docs/ai/environment-playbook.md`](ai/environment-playbook.md); never edit
+`examples/maki-image/` for a personal choice.
+
+Once a project sandbox exists, check what is ready:
 
 ```sh
 maki-oss mcp status
 ```
 
 The gate-by-gate checklist for getting a server ready — and the failures it
-reports — lives in [`docs/mcp-migration.md`](mcp-migration.md).
+reports — lives in [`docs/mcp-migration.md`](mcp-migration.md). A missing server
+or runtime points at the environment-image build and the environment playbook,
+not at a base `maki-oss image build`.
 
 ## 4. Model access through a provider profile
 
@@ -115,7 +138,8 @@ NanoGPT, Xiaomi, OpenCode Zen, and OpenCode Go — every profile file, its
 environment variable, and its endpoint are listed in the curated catalog
 below. The catalog, the credential-store mapping, and the wizard reference live
 in [`docs/providers.md`](providers.md). MCP server profiles (`mcp-context7`,
-`mcp-synthetic`) are set up through the MCP step in §3 instead.
+`mcp-synthetic`) are set up through the environment-image step in §3 and
+[`docs/mcp-migration.md`](mcp-migration.md) instead.
 
 The fastest path takes a key you already hold — including the ones Maki and
 OpenCode keep in their own stores — and does the profile lint/import and

@@ -429,12 +429,14 @@ config, the command named by its
 attached — the endpoint gate is carried by the attached profile, because a
 stdio server's config names no URL. A server enabled on the host but absent
 from the sandbox SHALL be reported by name as missing from the sandbox,
-together with the command that rebuilds the image. It SHALL exit non-zero when
-any server fails a gate, and SHALL print the command that fixes each failing
-gate — for a missing runtime, the image-build command. When no sandbox exists
-for the project, or neither the host config nor the sandbox config declares an
-enabled server, it SHALL report that and exit zero. It SHALL NOT mutate the
-sandbox, gateway, profiles, or policy, and MUST NOT print any credential value.
+together with the environment-image build guidance and the environment
+playbook. It SHALL exit non-zero when any server fails a gate, and SHALL print
+the command or guidance that fixes each failing gate — for a missing runtime,
+the environment-image build guidance, not a base-image rebuild. When no sandbox
+exists for the project, or neither the host config nor the sandbox config
+declares an enabled server, it SHALL report that and exit zero. It SHALL NOT
+mutate the sandbox, gateway, profiles, or policy, and MUST NOT print any
+credential value.
 
 #### Scenario: All gates satisfied exits zero
 - **WHEN** a server's gates for its transport all hold and the user runs `maki-oss mcp status`
@@ -446,11 +448,15 @@ sandbox, gateway, profiles, or policy, and MUST NOT print any credential value.
 
 #### Scenario: A stdio server missing its runtime names the image-build fix
 - **WHEN** a stdio server is present in both configs but its command is absent from the sandbox, and the user runs `maki-oss mcp status`
-- **THEN** the output names the runtime gate as failing with the missing command and the image-build command as the fix, the command exits non-zero, and no install or image change is attempted
+- **THEN** the output names the runtime gate as failing with the missing command and the environment-image build guidance as the fix, the command exits non-zero, and no install or image change is attempted
 
 #### Scenario: A host server missing from the sandbox is named
 - **WHEN** the host's `~/.config/maki/mcp.toml` enables a server that the sandbox's MCP config does not contain, and the user runs `maki-oss mcp status`
-- **THEN** that server is reported by name as missing from the sandbox with the image-rebuild command, and the command exits non-zero
+- **THEN** that server is reported by name as missing from the sandbox with the environment-image build guidance, and the command exits non-zero
+
+#### Scenario: A zero-MCP base points at the environment layer
+- **WHEN** the sandbox is built from the base image and the host enables a server the base does not declare
+- **THEN** the output names the server as missing and directs the user to the environment image and playbook rather than `maki-oss image build`
 
 #### Scenario: No sandbox reports cleanly
 - **WHEN** the user runs `maki-oss mcp status` with no project sandbox

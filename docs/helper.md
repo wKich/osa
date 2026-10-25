@@ -115,6 +115,15 @@ maki-oss doctor --provider maki-anthropic
 Builds `examples/maki-image/` with the configured engine and tags it as the
 configured image. `MAKI_VERSION` is passed as a build argument.
 
+This builds the generic **base** image: the agent runtime and safety baseline,
+with no MCP servers, no MCP-specific runtime, and no personal UI preferences. To
+add MCP servers or a runtime they need, build an environment store `FROM` the
+base, set the helper's `image` setting to its derived tag, and rebuild that
+store when it changes — see
+[`docs/ai/environment-playbook.md`](ai/environment-playbook.md) and
+[`examples/environments/reference/`](../examples/environments/reference/).
+`image build` never builds or inspects a store.
+
 ```sh
 maki-oss image build
 MAKI_VERSION=0.6.1 maki-oss image build
@@ -438,10 +447,12 @@ cases exit clean: no sandbox exists yet, neither side declares a server, or
 every gate holds.
 
 **The host-vs-sandbox drift check** covers the failure this command exists to
-end: a server added to `~/.config/maki/mcp.toml` *after* the image was built is
-silently absent in the sandbox. `mcp status` names it as `sandbox=missing` with
-`maki-oss image build` as the fix. Because the config is baked at image build,
-any change to the server set means a rebuild — see
+end: a server added to `~/.config/maki/mcp.toml` *after* the environment image
+was built is silently absent in the sandbox. `mcp status` names it as
+`sandbox=missing` and prints the environment-image build guidance plus
+[`docs/ai/environment-playbook.md`](ai/environment-playbook.md) as the fix. The
+base image declares no MCP servers, so a server is added by building and
+selecting an environment image, not by rebuilding the base — see
 [`docs/mcp-migration.md`](mcp-migration.md) §4.
 
 An OAuth-gated server reports its provider as missing until the host-side login
@@ -450,9 +461,8 @@ the access token. A stdio server is judged by its **runtime gate** — the
 command its `command` array names, checked read-only in the sandbox — instead
 of being rejected for its transport. A missing runtime reads
 `synthetic: sandbox=ok runtime=missing provider=ok transport=stdio` followed by
-`fix: maki-oss image build (the runtime 'bun' that 'synthetic' runs with is
-missing from the sandbox)`: the output names the missing command and the
-image-build fix, and the helper never installs a runtime itself.
+the environment-image build guidance and the environment playbook: the output
+names the missing command, and the helper never installs a runtime itself.
 
 **Reporting is read-only.** It never mutates the sandbox, the gateway, any
 profile, or the policy, and it never prints a credential value — headers and
@@ -487,6 +497,9 @@ maki-oss help
 # Maki or OpenCode).
 maki-oss doctor
 maki-oss image build
+# Optional: build a derived environment image (MCP servers, runtimes,
+# preferences) and set `image` to its tag; see the environment playbook.
+docker build -t maki-agent:reference examples/environments/reference
 maki-oss provider setup          # wizard; remembers the provider
 
 # Every project, afterwards:
@@ -546,7 +559,7 @@ directory, so with fisher put the repository's `bin/` on `PATH` or set
 | `no curated profile matches` on a non-TTY | Custom generation needs prompts | Pass `--profile FILE`, or rerun interactively |
 | `policy file not found` | Point `--policy` / the config at an existing YAML file |
 | `sandbox '<name>' not found` | Run `maki-oss up` first |
-| `image ... not found` | Run `maki-oss image build` |
+| `image ... not found` | Run `maki-oss image build` for the base, or build the environment store named by `image` |
 
 The test suite (`make test`) covers every command above with a stubbed
 OpenShell binary, so it runs without Docker, a gateway, or network access.

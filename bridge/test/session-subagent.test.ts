@@ -3,7 +3,7 @@
 // agent) announced with session.created; the subagent's frames — flagged
 // buffered frames and the unflagged stream while the task runs — render
 // there; the task's tool part names the child (core tool/plugin/subagent.ts
-// v2.0.32 L184–L215; sdk_mode.rs v0.6.4 L1022–L1050).
+// v2.1.4 L184–L215; sdk_mode.rs v0.6.5 L1022–L1050).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { startBridge, waitFor, type BridgeHandle } from "./lib/bridge.ts";
 import { validateBody } from "./lib/contract.ts";

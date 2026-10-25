@@ -32,7 +32,7 @@ describe("boot surface", () => {
     const { status, body } = await get(bridge, "/api/info");
     expect(status).toBe(200);
     expect(validateBody("/api/info", "GET", status, body)).toBeNull();
-    expect(body.version).toBe("2.0.32");
+    expect(body.version).toBe("2.1.4");
     expect(body.pid).toBe(bridge.pid);
     expect(new URL(body.urls[0]).port).toBe(String(bridge.port));
     expect(body.paths.tmp.startsWith("/")).toBe(true);

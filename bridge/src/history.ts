@@ -1,8 +1,8 @@
 // Session message history: the transcript a reopened TUI reads from
 // `GET /api/session/{sessionID}/message`. The bridge is the server, so it
 // projects its own emitted frames the way the real server projects its events
-// (the client mirror is client/src/solid/data.ts v2.0.32 L792–L1106; the
-// message shapes are schema/src/session-message.ts L75–L300). Only the frame
+// (the client mirror is client/src/solid/data.ts v2.1.4 L799–L1113; the
+// message shapes are schema/src/session-message.ts L77–L302). Only the frame
 // types the bridge emits are projected.
 import type { AnyObj } from "./spec-answers.ts";
 
@@ -26,7 +26,7 @@ export class SessionHistory {
   }
 
   /** a fork's transcript: the settled messages, renamed as the real
-   * projector renames copies (core session/projector.ts v2.0.32 L195–L229) */
+   * projector renames copies (core session/projector.ts v2.1.4 L189–L236) */
   forkFrom(parent: SessionHistory, eventID: string): string | undefined {
     const prefix = eventID.replace(/^evt_/, "msg_");
     let boundary: string | undefined;
@@ -182,7 +182,7 @@ export class SessionHistory {
         return;
       }
       // a move is a durable transcript row naming where the session was
-      // (client solid/data.ts v2.0.32 L747–L770)
+      // (client solid/data.ts v2.1.4 L754–L777)
       case "session.moved": {
         const last = this.messages.findLast((m) => m.type === "location-switched");
         this.messages.push({
@@ -197,7 +197,7 @@ export class SessionHistory {
         return;
       }
       // an agent switch is a durable transcript row (core session/
-      // message-updater.ts v2.0.32 L91–L103)
+      // message-updater.ts v2.1.4 L93–L105)
       case "session.agent.selected":
         this.messages.push({
           id: eventID.replace(/^evt_/, "msg_"),
@@ -208,7 +208,7 @@ export class SessionHistory {
         });
         return;
       // a model switch is a durable transcript row (core session/
-      // message-updater.ts v2.0.32 L105–L117)
+      // message-updater.ts v2.1.4 L107–L119)
       case "session.model.selected":
         this.messages.push({
           id: eventID.replace(/^evt_/, "msg_"),
@@ -238,7 +238,7 @@ export class SessionHistory {
   }
 
   /** One page, as the real handler pages (server/src/handlers/message.ts
-   * v2.0.32 L9–L65): default 50, newest first unless `order` says otherwise,
+   * v2.1.4 L9–L65): default 50, newest first unless `order` says otherwise,
    * and a cursor naming the boundary message, its order, and its direction. */
   page(query: { limit?: string | null; order?: string | null; cursor?: string | null; type?: string | null }):
     | { ok: true; data: Message[]; cursor: { previous?: string; next?: string } }
@@ -302,9 +302,9 @@ export class SessionHistory {
   }
 }
 
-// session.export (core session/transfer.ts v2.0.32 L56–L62): the session and
+// session.export (core session/transfer.ts v2.1.4 L56–L62): the session and
 // its settled messages oldest first; `sanitize` redacts content the way the
-// real transfer does (L165–L348) for the message types the bridge projects
+// real transfer does (L165–L330) for the message types the bridge projects
 const settled = (m: AnyObj) => (m.type === "assistant" ? m.time?.completed !== undefined : true);
 const redact = (kind: string, id: string, value: string) => (value.trim() ? `[redacted:${kind}:${id}]` : value);
 const redactMeta = (kind: string, id: string, value: AnyObj | undefined) =>
@@ -333,7 +333,7 @@ function sanitizeMessage(m: AnyObj): AnyObj {
     return {
       ...base,
       text: redact("text", m.id, m.text),
-      // attachments as the pinned transfer redacts them (core session/transfer.ts v2.0.32 L215–L240)
+      // attachments as the pinned transfer redacts them (core session/transfer.ts v2.1.4 L215–L240)
       ...(m.files ? { files: m.files.map((f: AnyObj, i: number) => ({ ...f, data: "", source: { type: "inline" }, ...(f.name === undefined ? {} : { name: redact("file-name", String(i), f.name) }), ...(f.description === undefined ? {} : { description: redact("file-description", String(i), f.description) }), ...mentionOf(f, "file-mention", i) })) } : {}),
       ...(m.agents ? { agents: m.agents.map((a: AnyObj, i: number) => ({ ...a, name: redact("agent-name", String(i), a.name), ...mentionOf(a, "agent-mention", i) })) } : {}),
       ...(m.skills ? { skills: m.skills.map((k: AnyObj, i: number) => ({ ...k, name: redact("skill-name", String(i), k.name), ...(k.text === undefined ? {} : { text: redact("skill", String(i), k.text) }), ...mentionOf(k, "skill-mention", i) })) } : {}),

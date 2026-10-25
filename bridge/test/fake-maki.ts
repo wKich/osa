@@ -17,7 +17,7 @@ const cwd = process.env.OPENMAKI_CWD ?? process.cwd();
 let toolSeq = 0;
 const answers = new Map<string, (a: "allow" | "deny") => void>();
 // Maki's AllowSession: an `allow` carrying `updatedPermissions` adds a session
-// rule for the call's generalized scope (maki-agent permissions.rs v0.6.4
+// rule for the call's generalized scope (maki-agent permissions.rs v0.6.5
 // apply_decision L685, generalize_bash_segment L1047–L1059: `<word> *`), and a
 // later call inside a rule runs without asking
 const sessionRules = new Set<string>();
@@ -31,7 +31,7 @@ const generalize = (command: string) => {
 let current: { proc?: { kill(): void }; cancelled: boolean } | undefined;
 // an interrupt that lands before its run starts is kept, as the pinned
 // bounded(1) cancel channel keeps it for the run that picks it up
-// (maki-agent headless.rs v0.6.4 L335, L366–L374)
+// (maki-agent headless.rs v0.6.5 L335, L366–L374)
 let pendingCancel = false;
 
 // opt-in trace so a test can prove which frames the bridge sent the child
@@ -115,16 +115,16 @@ function nextTurn() {
 // test can stand in for MCP tools (`<server>__<tool>`) or `tool_search`
 const tools = process.env.FAKE_MAKI_TOOLS?.split(",").filter(Boolean) ?? ["Bash"];
 // the child announces the model it was started with (`-m`, or the bridge's
-// MAKI_MODEL), as the pinned init frame does (sdk_mode.rs v0.6.4 L615–L626);
+// MAKI_MODEL), as the pinned init frame does (sdk_mode.rs v0.6.5 L615–L626);
 // FAKE_MAKI_MODEL stands in for a child that settled on another one
 const flag = process.argv.indexOf("-m");
 const startModel = process.env.FAKE_MAKI_MODEL ?? (flag >= 0 ? process.argv[flag + 1] : undefined) ?? process.env.MAKI_MODEL ?? "synthetic/fake";
-// the run's mode, as set_permission_mode leaves it (sdk_mode.rs v0.6.4 L846–L860)
+// the run's mode, as set_permission_mode leaves it (sdk_mode.rs v0.6.5 L846–L860)
 let permissionMode = "default";
 out({ type: "system", subtype: "init", session_id: SESSION_ID, cwd, model: startModel, permissionMode, tools });
 
 // an MCP tool is `<server>__<tool>` to the model but `<server>.<tool>` in
-// Maki's permission ask (maki-agent mcp/mod.rs v0.6.4 L51–L52)
+// Maki's permission ask (maki-agent mcp/mod.rs v0.6.5 L51–L52)
 function askName(name: string): string {
   const cut = name.indexOf("__");
   return cut > 0 ? `${name.slice(0, cut)}.${name.slice(cut + 2)}` : name;
@@ -152,14 +152,14 @@ function toolFrames(toolUseID: string, command: string, isError: boolean, conten
 }
 
 // The pinned order for a model tool call: the turn's buffered assistant
-// message (TurnComplete, run.rs v0.6.4 L605) before dispatch, then the
-// streamed tool_use block (ToolStart, sdk_mode.rs v0.6.4 L1037–L1052), and
+// message (TurnComplete, run.rs v0.6.5 L607) before dispatch, then the
+// streamed tool_use block (ToolStart, sdk_mode.rs v0.6.5 L1037–L1052), and
 // only then the permission ask (L1115–L1149)
 // one scripted model call's usage, as the journey's mock provider reports it
 const CALL_USAGE = { input_tokens: 1, output_tokens: 1 };
 let runCalls = 0;
 
-// Maki's wire names its tools Claude-style (sdk_mode.rs v0.6.4 L43–L60)
+// Maki's wire names its tools Claude-style (sdk_mode.rs v0.6.5 L43–L60)
 const CLAUDE_NAME: Record<string, string> = {
   bash: "Bash", read: "Read", edit: "Edit", write: "Write", grep: "Grep", glob: "Glob", todo_write: "TodoWrite",
   webfetch: "WebFetch", websearch: "WebSearch", task: "Task", multiedit: "MultiEdit", code_execution: "CodeExecution",
@@ -180,7 +180,7 @@ function toolCall(toolUseID: string, command: string, name = "Bash", input: Reco
 
 // A paced stream checks for an interrupt between chunks; a cancelled stream
 // ends with no buffered message (TurnComplete never fires), only the error
-// result (run.rs v0.6.4 L560–L571, sdk_mode.rs L1162–L1178)
+// result (run.rs v0.6.5 L562–L573, sdk_mode.rs L1162–L1178)
 async function pacedParts(parts: string[], delayMs: number, run: { cancelled: boolean }): Promise<boolean> {
   out({ type: "stream_event", event: { type: "message_start", message: { role: "assistant", content: [] } } });
   out({ type: "stream_event", event: { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } } });
@@ -203,7 +203,7 @@ function toolResult(toolUseID: string, isError: boolean, content: string): void 
   });
 }
 
-// the pinned bash plugin's result text (plugins/bash/init.lua v0.6.4
+// the pinned bash plugin's result text (plugins/bash/init.lua v0.6.5
 // L407–L421): a silent success says `Exit code: 0`, a failure appends its code
 function bashResult(code: number, output: string): string {
   if (code === 0) return output === "" ? "Exit code: 0" : output;
@@ -213,7 +213,7 @@ function bashResult(code: number, output: string): string {
 const success = () =>
   out({ type: "result", subtype: "success", result: "ok", usage: { input_tokens: 1, output_tokens: 1 }, total_cost_usd: 0 });
 
-// a cancelled run ends with the pinned error subtype (sdk_mode.rs v0.6.4
+// a cancelled run ends with the pinned error subtype (sdk_mode.rs v0.6.5
 // L1168–L1172, L996–L1000)
 const cancelledResult = () =>
   out({ type: "result", subtype: "error_during_execution", is_error: true, result: "", usage: { input_tokens: 1, output_tokens: 0 }, total_cost_usd: 0 });
@@ -236,7 +236,7 @@ async function runCommand(command: string): Promise<void> {
 // Play the journey's turns in order: text turns become stream deltas plus the
 // buffered assistant message, and a tool turn asks for permission when the
 // turn says so, runs the command, then moves to the next turn.
-// the pinned result carries the run's ledger total (run.rs v0.6.4 L868–L882)
+// the pinned result carries the run's ledger total (run.rs v0.6.5 L870–L884)
 const runResult = () => {
   const n = runCalls;
   runCalls = 0;
@@ -274,7 +274,7 @@ async function playScript(run: { cancelled: boolean }): Promise<void> {
     }
     if (turn.fail) {
       // the pinned agent keeps the raw response body as the error message
-      // (maki-providers error.rs v0.6.4 L387–L412, L106) — the mock
+      // (maki-providers error.rs v0.6.5 L407–L432, L106) — the mock
       // provider's JSON error envelope — and words a retry by status
       // (retry_message, L427–L440); 429 and 5xx are retried with an api_retry
       // notice (error.rs L2, sdk_mode.rs L1076–L1089), anything else ends the run
@@ -305,7 +305,7 @@ async function playScript(run: { cancelled: boolean }): Promise<void> {
         // the subagent's own calls arrive as buffered frames flagged with the
         // task's id (captured fixture maki-subagent-live.jsonl), and — with
         // partial messages on — as stream events the pinned child does not
-        // flag (sdk_mode.rs v0.6.4 L1022–L1050), until its final text; each
+        // flag (sdk_mode.rs v0.6.5 L1022–L1050), until its final text; each
         // call takes the model's beat
         for (;;) {
           const sub = nextTurn();
@@ -322,7 +322,7 @@ async function playScript(run: { cancelled: boolean }): Promise<void> {
           out({ type: "stream_event", event: { type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: JSON.stringify({ command: sub.tool.command }) } } });
           out({ type: "stream_event", event: { type: "content_block_stop", index: 0 } });
           if (sub.tool.needsPermission) {
-            // the subagent's ask names only its tool id (sdk_mode.rs v0.6.4
+            // the subagent's ask names only its tool id (sdk_mode.rs v0.6.5
             // L1122–L1160), but the pinned SDK cannot answer it: the subagent
             // waits on its own answer channel, whose sender only the TUI gets
             // (maki-lua api/agent.rs L858–L867, L1478–L1486), while the SDK
@@ -342,7 +342,7 @@ async function playScript(run: { cancelled: boolean }): Promise<void> {
         }
       }
       // Maki's edit tool replaces in the file it names (plugins/edit/init.lua
-      // v0.6.4 L285–L295), so the scripted child applies a scripted edit too
+      // v0.6.5 L285–L295), so the scripted child applies a scripted edit too
       if (answer !== "deny" && turn.call.maki.name === "edit") applyEdit(turn.call.maki.input);
       if (answer === "deny") toolResult(toolUseID, true, "Permission denied: rejected by the user");
       else toolResult(toolUseID, turn.call.maki.isError === true, turn.call.maki.result);
@@ -440,7 +440,7 @@ for await (const chunk of Bun.stdin.stream()) {
     }
     if (frame.type === "control_request" && frame.request?.subtype === "set_model") {
       // the pinned resolution: a string spec is resolved and policy-checked,
-      // anything refused acks an error (sdk_mode.rs v0.6.4 L861–L874); here a
+      // anything refused acks an error (sdk_mode.rs v0.6.5 L861–L874); here a
       // bare id or a provider this child knows resolves, any other provider
       // (the TUI's synthesized "sample", "invalid") is refused
       const model = frame.request.model;
@@ -477,7 +477,7 @@ for await (const chunk of Bun.stdin.stream()) {
     }
     if (frame.type === "user" && Array.isArray(frame.message?.content)) {
       // the pinned headless session runs one stdin prompt at a time, each to
-      // its own result (maki-agent headless.rs v0.6.4 L365)
+      // its own result (maki-agent headless.rs v0.6.5 L365)
       const prompt = frame;
       runs = runs.then(() => answerPrompt(prompt));
     }

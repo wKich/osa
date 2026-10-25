@@ -1,6 +1,6 @@
 # Setup guide: Maki in an OpenShell sandbox
 
-> **Verified against OpenShell v0.1.5 and Maki v0.6.4 on 2026-10-22 (the
+> **Verified against OpenShell v0.1.5 and Maki v0.6.5 on 2026-10-25 (the
 > v0.1.5 upgrade's checks were re-run; the full dry run was not repeated).** Tested on macOS 26.5
 > (Apple Silicon) with Docker Engine 29.4.0 (OrbStack). Docker Desktop 28+ is
 > the upstream-supported macOS path; Linux hosts work the same way. What the
@@ -72,12 +72,12 @@ installs a package and a systemd user service. If the status is not
 ## 3. Build the Maki image
 
 [`examples/maki-image/Dockerfile`](../examples/maki-image/Dockerfile) pins the
-Maki release with `ARG MAKI_VERSION=0.6.4`, installs the static binary to
+Maki release with `ARG MAKI_VERSION=0.6.5`, installs the static binary to
 `/usr/local/bin/maki`, creates the non-root `sandbox` user (uid/gid 1500), and
 bakes the global Maki configuration into `/sandbox/.config/maki/`.
 
 ```sh
-docker build --build-arg MAKI_VERSION=0.6.4 -t maki-agent:local examples/maki-image
+docker build --build-arg MAKI_VERSION=0.6.5 -t maki-agent:local examples/maki-image
 ```
 
 Verify the build and the baked configuration:
@@ -87,7 +87,7 @@ docker run --rm maki-agent:local maki --version
 docker run --rm maki-agent:local ls /sandbox/.config/maki
 ```
 
-Expected: `maki 0.6.4`, and `init.lua`, `mcp.toml`, and `permissions.toml` in
+Expected: `maki 0.6.5`, and `init.lua`, `mcp.toml`, and `permissions.toml` in
 the config directory. This is the **base image**: the agent runtime and safety
 baseline only. `init.lua` pre-answers folder trust for `/sandbox/**` and sets no
 YOLO or UI preference; `mcp.toml` declares zero MCP servers (it is

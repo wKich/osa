@@ -4,7 +4,7 @@ Planning document. Implementation goes through OpenSpec changes, one per
 roadmap item; nothing here ships without its spec delta. Item IDs (`G`, `A`,
 `B`, `P`) are stable references for discussion.
 
-**Status:** draft, 2026-10-22. Research basis: OpenShell v0.1.5, Maki v0.6.4,
+**Status:** draft, 2026-10-22. Research basis: OpenShell v0.1.5, Maki v0.6.5,
 kiss repo survey (same date). Restructured the same day into two independently
 numbered tracks of vertical slices; see [Renumbering](#renumbering) for the
 mapping from the earlier M0–M8 draft.

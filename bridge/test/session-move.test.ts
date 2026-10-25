@@ -1,4 +1,4 @@
-// Moving a session (`/cd`, core session/move.ts v2.0.32 L64–L157): the
+// Moving a session (`/cd`, core session/move.ts v2.1.4 L64–L157): the
 // destination must be a directory in the sandbox workdir; Maki has no control
 // that changes a child's workdir, so the bridge restarts the child there,
 // resuming the same Maki session (`-r`), and records session.moved.

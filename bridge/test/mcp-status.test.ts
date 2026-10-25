@@ -83,7 +83,7 @@ describe("MCP server list", () => {
 
   test("a child's tool announcement is announced as each configured server's status change", async () => {
     await withSession({ FAKE_MAKI_TOOLS: "Bash,context7__resolve-library-id" }, async (bridge) => {
-      // the TUI refetches /api/mcp on mcp.status.changed (client solid/data.ts v2.0.32 L1332–L1335)
+      // the TUI refetches /api/mcp on mcp.status.changed (client solid/data.ts v2.1.4 L1331–L1334)
       expect(await waitFor(() => bridge.frames.some((f) => f.type === "mcp.status.changed"))).toBe(true);
       const servers = bridge.frames.filter((f) => f.type === "mcp.status.changed").map((f) => f.data?.server).sort();
       expect(servers.length).toBeGreaterThan(0);

@@ -25,15 +25,15 @@
 
 
 
-
-
-
-
-
-
   ┃
+  ┃  journey is requesting input
   ┃
+  ┃  Which color should the journey use?
   ┃
-  ┃  Build · <MODEL> <MODEL>
-  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
-   <BAR> esc interrupt                                                            shift+tab agents  ctrl+p commands
+  ┃  color
+  ┃
+  ┃  1. red
+  ┃  2. blue
+  ┃
+  ┃  ↑↓ select  enter submit  esc dismiss
+  ┃

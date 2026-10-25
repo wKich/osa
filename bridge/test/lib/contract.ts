@@ -1,11 +1,11 @@
 // Contract + wire validation, ported from the archived harness
 // (evidence/harness/validate-bridge.mjs): bridge response bodies against the
-// vendored OpenAPI 2.0.32, and the measured SSE wire rules. OpenAPI 3.1 is
+// vendored OpenAPI 2.1.4, and the measured SSE wire rules. OpenAPI 3.1 is
 // JSON Schema 2020-12, so ajv/dist/2020 — not draft-07.
 import { readFileSync } from "node:fs";
 import Ajv2020 from "ajv/dist/2020.js";
 
-export const spec = JSON.parse(readFileSync(new URL("../../src/openapi-2.0.32.json", import.meta.url), "utf8"));
+export const spec = JSON.parse(readFileSync(new URL("../../src/openapi-2.1.4.json", import.meta.url), "utf8"));
 
 const ID = "https://spec.local/openapi.json";
 const ajv = new Ajv2020({ strict: false, allErrors: true });

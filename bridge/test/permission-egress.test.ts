@@ -3,7 +3,7 @@
 // actually unblocks the tool. The scripted child records inbound frames with
 // FAKE_MAKI_TRACE, so this file asserts the exact `control_response` written
 // for each decision path — Maki's request_id, exactly once, in the pinned
-// vocabulary (sdk_mode.rs v0.6.4 L918–L927): bare allow (AllowOnce), allow +
+// vocabulary (sdk_mode.rs v0.6.5 L918–L927): bare allow (AllowOnce), allow +
 // `updatedPermissions` (AllowSession), bare deny, deny + `message`
 // (DenyWithGuidance).
 // One spawned bridge; no Docker, gateway, network, or real Maki process.
@@ -118,7 +118,7 @@ describe("permission egress over the spawned bridge", () => {
     const { asked, ask, answered, replied, reply } = await askAndReply("always", "always-probe.txt", {}, await newSession());
     expect(reply.status).toBe(204);
     // the shell action and the scope Maki's session rule covers (permissions.rs
-    // v0.6.4 L1047–L1059), what the TUI's dialog renders
+    // v0.6.5 L1047–L1059), what the TUI's dialog renders
     expect(asked.data?.action).toBe("shell");
     expect(asked.data?.resources).toEqual([expect.stringContaining("always-probe.txt")]);
     expect(asked.data?.save).toEqual(["rm *"]);

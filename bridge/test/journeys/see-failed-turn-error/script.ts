@@ -10,7 +10,7 @@ export default journey("see-failed-turn-error", {
     waitFor(/Session failed/, { name: "error-shown" }),
     waitFor(/^(?![\s\S]*esc interrupt)/, { name: "turn-finished" }),
     settled,
-    // the failure toast lasts 5 s (tui ui/toast.tsx v2.0.32 L160); the
+    // the failure toast lasts 5 s (tui ui/toast.tsx v2.1.4 L160); the
     // settled screen is captured while it is up
     checkpoint("turn-error", waitFor(/Session failed/)),
   ],

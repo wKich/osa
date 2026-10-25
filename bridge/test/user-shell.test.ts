@@ -1,7 +1,7 @@
 // User shell (add-user-shell): `!command` runs in the sandbox; the pinned
 // started/ended frames carry Shell.Info and the combined output, and the
 // user-shell notice reaches the child with the next prompt
-// (core session/session.ts v2.0.32 L179–L222, shell/result.ts L36–L81).
+// (core session/session.ts v2.1.4 L189–L232, shell/result.ts L36–L81).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";

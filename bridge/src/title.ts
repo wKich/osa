@@ -1,4 +1,4 @@
-// Maki's session title rule (maki-storage/src/sessions.rs v0.6.4 L672–L695):
+// Maki's session title rule (maki-storage/src/sessions.rs v0.6.5 L672–L695):
 // the first user text, whitespace collapsed, kept whole up to 60 bytes, else
 // cut at a word boundary past the midpoint (or the last char boundary) + "…".
 const MAX_TITLE_LEN = 60;

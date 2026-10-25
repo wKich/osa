@@ -53,12 +53,12 @@ extracting tokens.
 ## Phase 1 — Build the image
 
 ```sh
-docker build --build-arg MAKI_VERSION=0.6.4 -t maki-agent:local examples/maki-image
+docker build --build-arg MAKI_VERSION=0.6.5 -t maki-agent:local examples/maki-image
 docker run --rm maki-agent:local maki --version
 IMAGE=maki-agent:local
 ```
 
-Verify: the build succeeds and prints `maki 0.6.4`.
+Verify: the build succeeds and prints `maki 0.6.5`.
 
 The base image is agent-only: no MCP servers, no MCP-specific runtime, and no
 personal UI/YOLO preferences. If the task needs a server, runtime, or personal

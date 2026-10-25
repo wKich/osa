@@ -1,5 +1,5 @@
 // Task 6.3 — validates what the bridge actually emitted (captured live by
-// harness/capture-bridge.sh) against the pinned OpenAPI 2.0.32 contract and
+// harness/capture-bridge.sh) against the pinned OpenAPI 2.1.4 contract and
 // the measured SSE wire format. OpenAPI 3.1 is JSON Schema 2020-12
 // (`prefixItems` needs ajv/dist/2020, not draft-07).
 //
@@ -21,7 +21,7 @@ import Ajv2020 from "ajv/dist/2020.js";
 const here = url.fileURLToPath(new URL(".", import.meta.url));
 // this repo keeps the harness inside evidence/harness/, one level down
 const EV = `${here}/..`;
-const spec = JSON.parse(fs.readFileSync(`${here}/../../../../../bridge/src/openapi-2.0.32.json`, "utf8"));
+const spec = JSON.parse(fs.readFileSync(`${here}/../../../../../bridge/src/openapi-2.1.4.json`, "utf8"));
 
 const ID = "https://spec.local/openapi.json";
 const ajv = new Ajv2020({ strict: false, allErrors: true });

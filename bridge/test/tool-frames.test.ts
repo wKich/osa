@@ -1,6 +1,6 @@
 // Tool frames in the pinned child's order (fix-tool-permission-frames): the
 // buffered tool_use precedes its streamed block, and every tool frame says the
-// child, not the provider, ran the tool (session-event.ts v2.0.32 L508–L566).
+// child, not the provider, ran the tool (session-event.ts v2.1.4 L513–L571).
 import { expect, test } from "bun:test";
 import { Translator } from "../src/translator.ts";
 
@@ -72,4 +72,27 @@ test("a failed run fails its step with the error; each retried attempt restarts 
   const kinds = retried.filter((f) => f.type === "session.step.started" || f.type === "session.retry.scheduled").map((f) => f.type.split(".")[1]);
   expect(kinds).toEqual(["step", "retry", "step", "retry", "step"]);
   expect(retried.filter((f) => f.type === "session.retry.scheduled").map((f) => f.data.attempt)).toEqual([2, 3]);
+});
+
+test("tool parts use the TUI's rendering vocabulary and keep their input", () => {
+  const todos = [
+    { content: "Map the names", status: "completed" },
+    { content: "Render the list", status: "in_progress" },
+  ];
+  const cases: [string, string][] = [
+    ["TodoWrite", "todowrite"],
+    ["todo_write", "todowrite"],
+    ["WebFetch", "webfetch"],
+    ["WebSearch", "websearch"],
+    ["CodeExecution", "execute"],
+    ["Bash", "bash"],
+  ];
+  for (const [wire, rendered] of cases) {
+    const input = wire === "TodoWrite" ? { todos } : { sample: true };
+    const out = run([{ type: "assistant", message: { role: "assistant", content: [
+      { type: "tool_use", id: "toolu_1", name: wire, input },
+    ] } }]);
+    expect(out.find((f) => f.type === "session.tool.input.started")!.data.name).toBe(rendered);
+    expect(out.find((f) => f.type === "session.tool.called")!.data.input).toEqual(input);
+  }
 });

@@ -45,7 +45,7 @@ const FIXTURES = [
   // tool-input edges a single text turn does not reproduce
   "maki-stream-live",
   // subagent-nesting row evidence: the flagged frames' shape is source-pinned
-  // from sdk_mode.rs v0.6.4, never captured from a live subagent turn; the
+  // from sdk_mode.rs v0.6.5, never captured from a live subagent turn; the
   // rendering pinned here is inline flattening in the owning transcript, not
   // OpenCode-style child-session separation (add-subagent-nesting-coverage,
   // design decision 1)
@@ -58,6 +58,9 @@ const FIXTURES = [
   // with two source-derived api_retry frames; the equality test below also
   // proves they do not disturb the turn
   "maki-retry",
+  // todo rendering (update-maki-and-opencode-pins): a source-derived TodoWrite
+  // call whose todos input must survive as the TUI's `todowrite` part
+  "maki-todo",
 ];
 
 for (const name of FIXTURES) {
@@ -120,7 +123,7 @@ test("golden translation: maki-retry surfaces retries without disturbing the tur
   const events = runFixture("maki-retry");
   const retries = events.filter((e) => e.type === "session.retry.scheduled");
   // the upcoming attempt: Maki's failure count plus one (core runner/retry.ts
-  // v2.0.32 L67–L90), run after the child's backoff
+  // v2.1.4 L32–L55), run after the child's backoff
   expect(retries.map((e) => e.data.attempt)).toEqual([2, 3]);
   expect(retries.map((e) => e.data.error)).toEqual([
     { type: "Error", message: "Overloaded" },

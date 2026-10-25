@@ -1,8 +1,8 @@
 {
   "bridge-requests.jsonl": {
     "kind": "captured",
-    "derivedFrom": "openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/bridge-requests.jsonl (byte-identical)",
-    "note": "redacted request/response log of one live TUI run; redaction removed credentials, not wire shape"
+    "derivedFrom": "bridge/test/captures/tui-last-requests.jsonl captured by bridge/test/tui-discovery.sh with opencode 2.1.4 against the bridge (make test-ui, 2026-10-25)",
+    "note": "redacted request/response log of one live TUI run: pid, urls and tmp are placeholders; redaction removed credentials and run identity, not wire shape"
   },
   "bridge-sse-raw.txt": {
     "kind": "captured",
@@ -53,6 +53,11 @@
     "kind": "captured",
     "derivedFrom": "bridge/test/capture-subagent.sh (maki 0.6.4 in maki-agent:local, maki-synthetic profile)",
     "note": "live capture of one subagent turn: Task call, flagged subagent Bash call and tool_result"
+  },
+  "maki-todo.jsonl": {
+    "kind": "authored",
+    "derivedFrom": "tontinton/maki plugins/todo_write/init.lua @ v0.6.5 (register_tool `todo_write`; todos[{content,status}]) and src/sdk_mode.rs L50 (`todo_write` renders as `TodoWrite` on the wire)",
+    "note": "never captured from a live todo turn; the tool frames and the turn envelope follow maki-tool.jsonl"
   },
   "maki-tool.jsonl": {
     "kind": "captured",

@@ -1,5 +1,5 @@
 // Id minting for the OpenCode-shaped ids Maki's wire does not have
-// (mapping-table.md §5). Patterns are prefix-only in the 2.0.32 schemas:
+// (mapping-table.md §5). Patterns are prefix-only in the 2.1.4 schemas:
 // Session.ID ^ses, Session.Message.ID ^msg_, Permission.ID ^per, Event.ID ^evt_.
 import { randomBytes } from "node:crypto";
 

@@ -1,7 +1,7 @@
-// The project's worktrees (tui component/dialog-workspaces.tsx v2.0.32): the
+// The project's worktrees (tui component/dialog-workspaces.tsx v2.1.4): the
 // TUI lists, refreshes, creates and removes them, then opens or moves a
 // session into one. OpenCode keeps them under its data directory and runs
-// `git worktree` on the checkout (core worktree.ts v2.0.32 L204–L330, its git
+// `git worktree` on the checkout (core worktree.ts v2.1.4 L204–L330, its git
 // strategy worktree/git.ts L8–L37, git.ts L1251–L1291). The checkout here is
 // the sandbox workdir, so every git call runs there over the exec transport,
 // and a worktree lives under the sandbox user's data directory, in the same

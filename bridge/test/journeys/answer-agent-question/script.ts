@@ -16,7 +16,7 @@ export default journey("answer-agent-question", {
       call: {
         opencode: { name: "question", input: { questions: [QUESTION] } },
         // the pinned SDK runs Maki's question tool with no UI, which
-        // dismisses it (plugins/question/question_form.lua v0.6.4 L598–L628)
+        // dismisses it (plugins/question/question_form.lua v0.6.5 L598–L628)
         maki: { name: "question", input: { questions: [QUESTION] }, result: "(question dismissed by user)" },
       },
     },

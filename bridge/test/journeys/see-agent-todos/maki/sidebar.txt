@@ -1,0 +1,39 @@
+   Use your todo tool to write e +
+
+  ┃                                                                             Use your todo tool to write exactly
+  ┃  Use your todo tool to write exactly these three tasks: "Map the tool name  these three tasks: "Map…
+  ┃  list" (in_progress), "Check the sidebar" (pending). Then reply with the s
+  ┃                                                                             Context
+                                                                                <N> tokens
+  ┃
+  ┃  # Todos                                                                    ▼ Todo
+  ┃                                                                             [✓] Map the tool names
+  ┃  [✓] Map the tool names                                                     [•] Render the transcript list
+  ┃  [•] Render the transcript list                                             [ ] Check the sidebar
+  ┃  [ ] Check the sidebar
+  ┃
+
+     DONE
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+                                                                                  ⬖ Getting started                ✕
+
+                                                                                    OpenCode includes free models so
+                                                                                    you can start immediately.
+
+                                                                                    Connect from 75+ providers to
+                                                                                    use other models, including
+  ┃                                                                                 Claude, GPT, Gemini etc
+  ┃
+  ┃                                                                                 Connect provider        /connect
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> <WORKDIR>

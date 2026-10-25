@@ -3,6 +3,65 @@
 Recorded dry runs for this repository. Actual outputs are trimmed to the
 relevant lines.
 
+## Maki v0.6.5 and OpenCode v2.1.4 rebaseline — 2026-10-25
+
+Pin move for `update-maki-and-opencode-pins` on macOS 26.5 (Apple Silicon,
+Docker via OrbStack), OpenShell 0.1.5 (CLI and gateway both already 0.1.5;
+v0.1.5 is still the latest stable release).
+
+### Maki v0.6.5
+
+- Host CLI replaced from the v0.6.5 `aarch64-apple-darwin` release:
+  `maki --version` → `maki 0.6.5`.
+- `maki-agent:local` rebuilt with `ARG MAKI_VERSION=0.6.5`;
+  `docker run --rm maki-agent:local maki --version` → `maki 0.6.5`
+  (image `sha256:eba5b85b316c5efddaf51e27ebd511aedb7a8cbcf2aaaed4ab066ba0b9c85d24`).
+- `maki-agent:reference` rebuilt from the new base with Bun 1.4.3 for the
+  live journey provider: `maki 0.6.5`, `bun 1.4.3`
+  (image `sha256:54087e7b38d866d7ffc6b3f927629d6b00a66833c154cdb7111b89af6df96b6e`).
+- Release notes recorded: adaptive thinking on OpenCode Zen/Go, Gemini 3
+  thinking, cached-token accounting on Gemini, base URLs ending in `/`,
+  transient OpenAI/xAI token endpoints, gateways that reject the `thinking`
+  field, and the per-session thread leak.
+- **Breaking upgrade note**: unknown keys in `providers.toml` now fail at
+  startup (including Aperture `overrides`); a hand-written host config with
+  a typo must be corrected before Maki starts.
+- The generated `providers.toml` files still parse with Python `tomllib`:
+  the oskhs round config (`[kiss]`, `api_key_env`, one `[[kiss.models]]`)
+  and the live-journey config (`[mock]`, two `[[mock.models]]`) both parse.
+  Rollback is `ARG MAKI_VERSION=0.6.4` plus host Maki 0.6.4; the SDK wire is
+  unchanged between the two tags, so no bridge or fixture rollback is needed
+  beyond the version labels.
+
+The headless turns against an OpenCode Go profile and a Gemini profile were
+skipped with the user's agreement: this host has no Gemini credential or
+`maki-google` provider instance. The host CLI and image rebuild above are
+verified; the provider-fix behavior is recorded from the release notes, not
+re-run here.
+
+### OpenCode v2.1.4
+
+- `opencode v2.1.4` installed; `bun scripts/compat-drift.ts` captured
+  **124 routes / 293 schemas**, reported no drift against the vendored
+  `bridge/src/openapi-2.1.4.json`, and `/api/info` reports `2.1.4`.
+- The pin grows from 143 to **148 `/api/*` operations** (six new
+  out-of-scope operations) with no removals. `GET /auth/connect/{code}` was
+  removed from the status rows because the route enumeration scopes the
+  served surface to `/api/*`.
+- The journey catalog pin moved to `2.1.4`; all 68 rows were re-recorded
+  (53 parity, 7 pin-blocked diverges, 2 pin-blocked broken, 6 out-of-scope
+  unrecorded). The new `see-agent-todos` journey reaches parity and shows
+  the todo list in the transcript and sidebar.
+- `make test-ui` recaptured `tui-last.*` and
+  `bridge/test/fixtures/bridge-requests.jsonl` against the v2.1.4 TUI
+  (41 requests, no 404, permission round-tripped).
+- `MAKI_OSS_IMAGE=maki-agent:reference make test-journeys-live` recorded
+  **62 live journeys** against the rebuilt Maki 0.6.5 image (53 parity,
+  7 pin-blocked diverges, 2 pin-blocked broken); every
+  `evidence.live.maki` is `0.6.5` and every image is
+  `sha256:54087e7b38d866d7ffc6b3f927629d6b00a66833c154cdb7111b89af6df96b6e`.
+  The new `see-agent-todos` live journey is parity, including the sidebar.
+
 ## Safe session sync — 2026-10-25
 
 Real-gateway dry run of the patch-based exit sync (`add-safe-session-sync`) on

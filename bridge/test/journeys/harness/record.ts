@@ -115,7 +115,7 @@ export function referenceEnv(paths: Paths, base: NodeJS.ProcessEnv = process.env
     TERM: "xterm-256color",
     LANG: base.LANG ?? "C.UTF-8",
     // The TUI's update check asks the OpenCode release feed; a journey's only
-    // network peer is the loopback provider (cli services/updater.ts v2.0.32
+    // network peer is the loopback provider (cli services/updater.ts v2.1.4
     // L534), and a new release must not change every home-screen snapshot.
     OPENCODE_DISABLE_AUTOUPDATE: "1",
     // A terminal opens the login shell; the host user's shell and its prompt
@@ -132,20 +132,24 @@ export function referenceEnv(paths: Paths, base: NodeJS.ProcessEnv = process.env
 export function referenceConfig(baseURL: string, opts: { mcp?: boolean } = {}) {
   return {
     // the journeys' MCP server, its tools called directly as Maki calls an
-    // MCP tool (Code Mode off: core tool.ts v2.0.32 L234–L235)
+    // MCP tool (Code Mode off: core tool.ts v2.1.4 L234–L235)
     ...(opts.mcp ? { mcp: { servers: { journey: { type: "local", command: ["bun", MCP_SERVER], codemode: false } } } } : {}),
     $schema: "https://opencode.ai/config.json",
     model: "mock/mock-model",
+    // the todo tool is opt-in; the see-agent-todos journey renders its part
+    experimental: { todo: true },
     // Maki prompts before a shell command and before an MCP tool (its
     // permission defaults, Maki docs permissions/_index.md), so the
     // reference asks for both too
     permissions: [
       { action: "shell", resource: "*", effect: "ask" },
+      // the todo tool has no Maki permission ask, so neither side prompts
+      { action: "todowrite", resource: "*", effect: "allow" },
       ...(opts.mcp ? [{ action: "journey_*", resource: "*", effect: "ask" }] : []),
     ],
     // only the journey's provider: OpenCode's own catalog (its free models)
     // is host configuration, not journey content (config normalize.ts
-    // v2.0.32 L408–L418)
+    // v2.1.4 L408–L418)
     policies: [
       { action: "provider.use", resource: "*", effect: "deny" },
       { action: "provider.use", resource: "mock", effect: "allow" },

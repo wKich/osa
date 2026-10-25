@@ -1,10 +1,10 @@
 // A Maki edit's file diff, for the TUI's `← Edit` block (tui routes/session/
-// index.tsx v2.0.32 L3279–L3330, which renders `metadata.files[].patch`).
+// index.tsx v2.1.4 L3443–L3494, which renders `metadata.files[].patch`).
 // Maki computes its own before/after but the pinned SDK drops it with the
-// ToolDone event (sdk_mode.rs v0.6.4 L1052–L1054; plugins/edit/init.lua
+// ToolDone event (sdk_mode.rs v0.6.5 L1052–L1054; plugins/edit/init.lua
 // L224–L230), so the bridge reads the edited file back from the sandbox and
 // undoes the one replacement it can locate exactly. The patch has the shape
-// OpenCode's edit tool reports (core tool/plugin/file-diff.ts v2.0.32 L4–L22,
+// OpenCode's edit tool reports (core tool/plugin/file-diff.ts v2.1.4 L4–L22,
 // jsdiff createTwoFilesPatch with 4 context lines).
 import type { AnyObj } from "./spec-answers.ts";
 

@@ -94,7 +94,7 @@ export function normalize(text: string, opts: NormalizeOptions = {}): string {
   }
 
   // A worktree lives under its side's data directory and a project id taken
-  // from the first commit (core worktree/strategies.ts v2.0.32 L49–L51): the
+  // from the first commit (core worktree/strategies.ts v2.1.4 L49–L51): the
   // prefix, however a pane elides it, and the id are the run's.
   out = out.replace(/\S*opencode\/worktree\/[0-9a-f]{6}\//g, "<WORKTREES>/");
 

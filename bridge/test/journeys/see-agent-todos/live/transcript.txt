@@ -1,0 +1,39 @@
+   Use your todo tool to write e +
+
+  ┃
+  ┃  Use your todo tool to write exactly these three tasks: "Map the tool names" (completed), "Render the transcript
+  ┃  list" (in_progress), "Check the sidebar" (pending). Then reply with the single word DONE.
+  ┃
+
+  ┃
+  ┃  # Todos
+  ┃
+  ┃  [✓] Map the tool names
+  ┃  [•] Render the transcript list
+  ┃  [ ] Check the sidebar
+  ┃
+
+     DONE
+
+     Build · <MODEL> · <DUR>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  ┃
+  ┃
+  ┃
+  ┃  Build · <MODEL> <MODEL>
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  <WORKDIR> 2  ctrl+p commands

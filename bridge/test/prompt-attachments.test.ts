@@ -1,6 +1,6 @@
 // Prompt-attachment forwarding over the black-box bridge (spec "Forward image
 // attachments to the Maki child"): a `files[]` image data URI becomes a base64
-// image block on the child's inbound `user` frame (sdk_mode.rs v0.6.4 L688,
+// image block on the child's inbound `user` frame (sdk_mode.rs v0.6.5 L688,
 // L807–L816; media types per maki-providers types.rs L30–L35) and is reported
 // as an inline file on the admitted prompt and its inbox item. What the pinned
 // wire cannot carry (PDF and other data URIs) and what the bridge must not read

@@ -16,7 +16,7 @@ export interface TranslatorHooks {
   onInit?: (info: { sessionID: string; cwd: string; model: string; tools: string[]; permissionMode?: string }) => void;
   /** turn result, for session cost/token bookkeeping */
   onResult?: (result: AnyObj) => void;
-  /** a `Task` call is a subagent (plugins/task/init.lua v0.6.4): the bridge
+  /** a `Task` call is a subagent (plugins/task/init.lua v0.6.5): the bridge
    * runs it as a child session; frames flagged with its id go there */
   subagent?: {
     start(toolUseID: string, input: AnyObj): string | undefined;
@@ -61,16 +61,24 @@ export const userPayload = (u: { text: string; files?: AnyObj[]; skills?: AnyObj
   ...(u.skills?.length ? { skills: u.skills } : {}),
 });
 
-// maki's tool names are PascalCase (Bash, Read, TodoWrite); the OpenCode side
-// spells them lowerCamel (mapping-table.md §3)
+// maki's tool names are PascalCase (Bash, Read, TodoWrite); the OpenCode TUI
+// renders a fixed vocabulary specially and treats the rest as lowerCamel
+// (mapping-table.md §3, tui/src/routes/session/message-parts.tsx v2.1.4 L21–L38)
+const TOOL_NAMES: Record<string, string> = {
+  TodoWrite: "todowrite",
+  todo_write: "todowrite",
+  WebFetch: "webfetch",
+  WebSearch: "websearch",
+  CodeExecution: "execute",
+};
 const toolName = (name: unknown): string => {
   const s = typeof name === "string" && name ? name : "tool";
-  return s[0]!.toLowerCase() + s.slice(1);
+  return TOOL_NAMES[s] ?? s[0]!.toLowerCase() + s.slice(1);
 };
 
 type PartKind = "reasoning" | "text" | "tool";
 // `replayed`: the pinned child streams a tool_use block after the buffered
-// message already carried it (sdk_mode.rs v0.6.4 L1037–L1052 after L1115), so
+// message already carried it (sdk_mode.rs v0.6.5 L1037–L1052 after L1115), so
 // the block repeats a part the TUI has and emits nothing
 interface StreamPart { ordinal: number; ended: boolean; text: string; id?: string; name?: string; replayed?: boolean }
 
@@ -80,13 +88,13 @@ export class Translator {
   private turnOpen = false;
   private interruptRequested = false;
   // prompts admitted while a turn runs: the pinned child answers each stdin
-  // prompt in its own run after the current one (sdk_mode.rs v0.6.4 L701,
+  // prompt in its own run after the current one (sdk_mode.rs v0.6.5 L701,
   // L763) and cannot take one back, so the bridge holds them and writes each
   // when its turn starts; until then the TUI can list or cancel them
   private queued: { am: string; user?: UserPrompt }[] = [];
   // synthetic inputs (a user shell's notice) wait for the next turn, as
-  // OpenCode admits them with resume:false (core session/session.ts v2.0.32
-  // L213–L219, L273–L303)
+  // OpenCode admits them with resume:false (core session/session.ts v2.1.4
+  // L223–L229, L283–L313)
   private synthetics: { id: string; text: string }[] = [];
   // the model the child last announced (system.init / assistant.model);
   // synthesized defaults serve only until then (design decision 3)
@@ -99,7 +107,7 @@ export class Translator {
   // tool ids the turn already rendered, from either path
   private toolIDs = new Set<string>();
   // the usage of the turn's last model call: each assistant frame carries its
-  // own call's, while `result` carries the run total (sdk_mode.rs v0.6.4
+  // own call's, while `result` carries the run total (sdk_mode.rs v0.6.5
   // L1090–L1112, L1162–L1178)
   private lastUsage?: AnyObj;
   // a provider retry was announced: the next attempt restarts the step
@@ -108,7 +116,7 @@ export class Translator {
   private subagents = new Map<string, string>();
   private runningSubagents: string[] = [];
   // tools a subagent called -> its child session: the pinned can_use_tool
-  // names only the tool id (sdk_mode.rs v0.6.4 L1122–L1160)
+  // names only the tool id (sdk_mode.rs v0.6.5 L1122–L1160)
   private subagentTools = new Map<string, string>();
   // metadata the bridge derived for a tool's result (edit-diff.ts), keyed by id
   private resultMetadata = new Map<string, AnyObj>();
@@ -215,7 +223,7 @@ export class Translator {
 
   /** the attempt after a retry starts its step again on the same message,
    * as OpenCode's retried attempt does, which clears the retry row (client
-   * data.ts v2.0.32 L881–L895) */
+   * data.ts v2.1.4 L888–L902) */
   private resumeAfterRetry(): void {
     if (!this.retryPending) return;
     this.retryPending = false;
@@ -246,7 +254,7 @@ export class Translator {
 
   /** drops a waiting prompt before the child sees it; false when it is not
    * waiting (already delivered or unknown), which the pinned cancel treats as
-   * a no-op (server handlers/session.ts v2.0.32 L552–L560) */
+   * a no-op (server handlers/session.ts v2.1.4 L523–L531) */
   cancelPending(inboxID: string): boolean {
     const at = this.queued.findIndex((q) => q.user?.id === inboxID);
     if (at < 0) return false;
@@ -285,7 +293,7 @@ export class Translator {
 
   onFrame(frame: AnyObj): void {
     // the pinned child flags a subagent's buffered frames but not its stream
-    // events (sdk_mode.rs v0.6.4 L1022–L1050); the parent run waits on the
+    // events (sdk_mode.rs v0.6.5 L1022–L1050); the parent run waits on the
     // task call meanwhile, so a stream event then is the running subagent's
     const flagged = typeof frame.parent_tool_use_id === "string" ? frame.parent_tool_use_id : undefined;
     if (!flagged && frame.type === "stream_event") {
@@ -316,9 +324,9 @@ export class Translator {
           // the pinned event names the turn's assistant message, so a retry
           // outside a turn has nothing to attach to and stays tolerated
           // Maki counts the failures so far and names the backoff
-          // (maki-agent streaming.rs v0.6.4 L214–L325); the pinned event names
+          // (maki-agent streaming.rs v0.6.5 L214–L325); the pinned event names
           // the upcoming attempt and when it runs (core runner/retry.ts
-          // v2.0.32 L67–L110)
+          // v2.1.4 L32–L73)
           // a second retry means the retried attempt ran (and failed) first
           this.resumeAfterRetry();
           const failures = Number.isInteger(frame.attempt) && frame.attempt > 0 ? frame.attempt : 1;
@@ -391,11 +399,11 @@ export class Translator {
       this.emit("session.tool.input.ended", { id, text: JSON.stringify(input) });
       streamed.ended = true;
     }
-    // executed reports a provider-executed call (publish-llm-event.ts v2.0.32
-    // L391); every Maki tool runs in the child
+    // executed reports a provider-executed call (publish-llm-event.ts v2.1.4
+    // L384); every Maki tool runs in the child
     this.emit("session.tool.called", { id, input, executed: false });
     // a subagent's tool part names its child session, as OpenCode's subagent
-    // tool reports progress (core tool/plugin/subagent.ts v2.0.32 L200)
+    // tool reports progress (core tool/plugin/subagent.ts v2.1.4 L200)
     if (part.name === "Task" && !this.subagents.has(id)) {
       const child = this.hooks.subagent?.start(id, input);
       if (child) {
@@ -543,7 +551,7 @@ export class Translator {
     const ok = frame.subtype === "success" && !frame.is_error;
     const data: AnyObj = { finish: ok ? "stop" : "error" };
     // a step is one model call in OpenCode, and the TUI's context counter reads
-    // the last step's tokens (tui util/session.ts v2.0.32 L45–L59)
+    // the last step's tokens (tui util/session.ts v2.1.4 L45–L59)
     const usage = this.lastUsage ?? frame.usage;
     if (usage) {
       data.tokens = {
@@ -556,19 +564,19 @@ export class Translator {
     if (typeof frame.total_cost_usd === "number" && frame.total_cost_usd > 0) data.cost = frame.total_cost_usd;
     // an interrupted step fails with the pinned interruption error and no
     // usage, which the TUI shows as `· interrupted` (core runner/step.ts
-    // v2.0.32 L63, L225; publish-llm-event.ts L420–L437)
+    // v2.1.4 L63, L225; publish-llm-event.ts L413–L430)
     const message = String(frame.result ?? frame.subtype ?? "maki turn failed");
     if (!ok && this.interruptRequested) {
       this.emit("session.step.failed", { error: { type: "aborted", message: "Step interrupted" } });
     } else if (!ok) {
       // a failed step carries its error, which the TUI renders under the turn
-      // (client data.ts v2.0.32 L933–L945; tui session/index.tsx L1905–L1909)
+      // (client data.ts v2.1.4 L940–L952; tui session/index.tsx L2032–L2036)
       this.emit("session.step.failed", { error: { type: "Error", message } });
     } else this.emit("session.step.ended", data);
     if (ok) this.emitExec("session.execution.succeeded", {});
-    // maki reports a cancelled run as an error result (sdk_mode.rs v0.6.4
+    // maki reports a cancelled run as an error result (sdk_mode.rs v0.6.5
     // L1168–L1172); after an interrupt that is the pinned interrupted end
-    // (session-event.ts v2.0.32 Execution.Interrupted), not a failure
+    // (session-event.ts v2.1.4 Execution.Interrupted), not a failure
     else if (this.interruptRequested) this.emitExec("session.execution.interrupted", { reason: "user" });
     else {
       this.emitExec("session.execution.failed", { error: { type: "Error", message } });

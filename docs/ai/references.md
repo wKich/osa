@@ -4,8 +4,8 @@ Curated upstream documentation for running Maki inside NVIDIA OpenShell
 sandboxes. This is the only index of external documentation links in this
 repository, so `scripts/check-links.sh` can keep link rot in one place.
 
-**Verified against OpenShell v0.1.5 and Maki v0.6.4 on 2026-10-22.** Maki
-`v0.6.4` is pinned in `examples/maki-image/Dockerfile`; re-verify the links and
+**Verified against OpenShell v0.1.5 and Maki v0.6.5 on 2026-10-25.** Maki
+`v0.6.5` is pinned in `examples/maki-image/Dockerfile`; re-verify the links and
 version notes after either project publishes a release.
 
 How to use this pack:
@@ -61,24 +61,24 @@ rises, swap the text parse for JSON without changing behavior.
 
 | Topic | Link | Verified against |
 |---|---|---|
-| Docs index | [Maki docs](https://maki.sh/docs/) | v0.6.4 |
-| Quick start: install, connect a provider, first session | [Quick start](https://maki.sh/docs/quick-start/) | v0.6.4 |
-| Configuration: `init.lua`, `always_yolo`, trust policy, directory layout | [Configuration](https://maki.sh/docs/configuration/) | v0.6.4 |
-| Providers: env vars, base URLs, `providers.toml` | [Providers](https://maki.sh/docs/providers/) | v0.6.4 |
-| Headless mode: `--print`, output formats, sessions | [Headless mode](https://maki.sh/docs/headless/) | v0.6.4 |
-| Folder trust: gated project files and trust policy | [Folder trust](https://maki.sh/docs/folder-trust/) | v0.6.4 |
-| Permissions: rule layers, YOLO mode, deny rules | [Permissions](https://maki.sh/docs/permissions/) | v0.6.4 |
-| CLI: flags, subcommands, run paths | [CLI](https://maki.sh/docs/cli/) | v0.6.4 |
-| Install script | [Maki install.sh](https://maki.sh/install.sh) | v0.6.4 |
-| Source repository | [tontinton/maki](https://github.com/tontinton/maki) | v0.6.4 |
+| Docs index | [Maki docs](https://maki.sh/docs/) | v0.6.5 |
+| Quick start: install, connect a provider, first session | [Quick start](https://maki.sh/docs/quick-start/) | v0.6.5 |
+| Configuration: `init.lua`, `always_yolo`, trust policy, directory layout | [Configuration](https://maki.sh/docs/configuration/) | v0.6.5 |
+| Providers: env vars, base URLs, `providers.toml` | [Providers](https://maki.sh/docs/providers/) | v0.6.5 |
+| Headless mode: `--print`, output formats, sessions | [Headless mode](https://maki.sh/docs/headless/) | v0.6.5 |
+| Folder trust: gated project files and trust policy | [Folder trust](https://maki.sh/docs/folder-trust/) | v0.6.5 |
+| Permissions: rule layers, YOLO mode, deny rules | [Permissions](https://maki.sh/docs/permissions/) | v0.6.5 |
+| CLI: flags, subcommands, run paths | [CLI](https://maki.sh/docs/cli/) | v0.6.5 |
+| Install script | [Maki install.sh](https://maki.sh/install.sh) | v0.6.5 |
+| Source repository | [tontinton/maki](https://github.com/tontinton/maki) | v0.6.5 |
 
 ## OpenCode
 
 | Topic | Link | Verified against |
 |---|---|---|
-| Source repository (SSE event envelopes live in `packages/schema/src/`) | [anomalyco/opencode](https://github.com/anomalyco/opencode) | tag v2.0.32 (bridge contract pin) |
-| TUI source at the pin: keybindings, commands, slash commands, dialogs, session views — the journey catalog's enumeration source | [packages/tui/src at v2.0.32](https://github.com/anomalyco/opencode/tree/v2.0.32/packages/tui/src) | tag v2.0.32 (bridge contract pin) |
-| Server docs — versionless, newer than the pin; a pointer to where to look, never a citation | [OpenCode server docs](https://opencode.ai/docs/server/) | newer than v2.0.32 |
+| Source repository (SSE event envelopes live in `packages/schema/src/`) | [anomalyco/opencode](https://github.com/anomalyco/opencode) | tag v2.1.4 (bridge contract pin) |
+| TUI source at the pin: keybindings, commands, slash commands, dialogs, session views — the journey catalog's enumeration source | [packages/tui/src at v2.1.4](https://github.com/anomalyco/opencode/tree/v2.1.4/packages/tui/src) | tag v2.1.4 (bridge contract pin) |
+| Server docs — versionless, newer than the pin; a pointer to where to look, never a citation | [OpenCode server docs](https://opencode.ai/docs/server/) | newer than v2.1.4 |
 
 ## Ponytail (project-local YAGNI ruleset)
 

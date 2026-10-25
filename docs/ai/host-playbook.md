@@ -6,7 +6,7 @@ repository exists (Phase 3). After each phase, run its `### Verify` block and
 **stop on a mismatch** — report the failing command and its output instead of
 working around it or continuing.
 
-> **Verified against OpenShell v0.1.5 and Maki v0.6.4 on 2026-10-22.** The Maki
+> **Verified against OpenShell v0.1.5 and Maki v0.6.5 on 2026-10-25.** The Maki
 > version below is the one pinned by `examples/maki-image/Dockerfile`, and the
 > OpenShell install command below pins the version `docs/ai/references.md`
 > verifies; moving either pin is the same act as re-verifying, not a separate
@@ -35,7 +35,7 @@ uname -m
 
 Expected when a tool is present: the engine prints `28.0` or later;
 `openshell status` shows `Status: Connected`; `maki --version` prints
-`maki 0.6.4`; `uname -m` is `arm64` or `x86_64`. An absent command means the
+`maki 0.6.5`; `uname -m` is `arm64` or `x86_64`. An absent command means the
 matching step in Phase 2 installs it; a present tool whose version or status
 does not match is a mismatch — fix it in Phase 2 rather than skipping ahead.
 
@@ -123,7 +123,7 @@ openshell status
 maki --version
 ```
 
-Expected: `28.0` or later; `Status: Connected`; `maki 0.6.4`. Stop on any
+Expected: `28.0` or later; `Status: Connected`; `maki 0.6.5`. Stop on any
 mismatch.
 
 ## Phase 3 — Repository and helper setup

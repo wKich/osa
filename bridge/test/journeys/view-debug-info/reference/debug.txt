@@ -11,7 +11,7 @@
 
                    Debug                                                                          esc
 
-                   Version    2.0.32 (latest)
+                   Version    2.1.4 (latest)
                    Date  <TIME>
                    OS         macOS 25.5.0 (arm64)
                    Terminal   xterm-256color

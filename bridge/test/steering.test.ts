@@ -1,8 +1,8 @@
 // Mid-turn prompts over the black-box bridge (spec "Queue a prompt sent while
 // a turn runs"): the pinned Maki SDK runs each stdin `user` frame as its own
-// run after the current one (sdk_mode.rs v0.6.4 L682–L702, L763; maki-agent
+// run after the current one (sdk_mode.rs v0.6.5 L682–L702, L763; maki-agent
 // headless.rs L365), so a prompt admitted mid-turn is reported with delivery
-// `queue` (`session.inbox.delivery.changed`, session-event.ts v2.0.32 L232),
+// `queue` (`session.inbox.delivery.changed`, session-event.ts v2.1.4 L237),
 // its turn starts only after the running turn's result (`session.inbox.
 // delivered`, L208), and a child that dies first cancels it
 // (`session.inbox.cancelled`, L225). Spawned bridges with the scripted child on

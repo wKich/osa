@@ -1,6 +1,6 @@
 // Sandbox terminals (add-sandbox-terminals): the persistent-PTY routes and
 // attach socket the TUI's terminal pane uses (server handlers/persistent-pty.ts
-// v2.0.32 L17–L209), with each terminal a shell run by `openshell sandbox exec
+// v2.1.4 L17–L209), with each terminal a shell run by `openshell sandbox exec
 // --tty` — here the scripted sandbox, which runs it in the test workdir.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { startBridge, waitFor, type BridgeHandle } from "./lib/bridge.ts";

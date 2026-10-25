@@ -1,7 +1,7 @@
 // Session message history (add-session-message-history): a reopened TUI reads
 // the transcript from `GET /api/session/{sessionID}/message`, which the bridge
 // projects from the frames it emitted, paged as the real handler pages
-// (server/src/handlers/message.ts v2.0.32 L9–L65).
+// (server/src/handlers/message.ts v2.1.4 L9–L65).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { startBridge, waitFor, type BridgeHandle } from "./lib/bridge.ts";
 import { validateBody } from "./lib/contract.ts";

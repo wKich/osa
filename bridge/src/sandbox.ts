@@ -91,7 +91,7 @@ export interface McpServerConfig {
 }
 
 // global then project: the order Maki merges them, a project server
-// replacing a same-named global one (maki-agent/src/mcp/config.rs v0.6.4
+// replacing a same-named global one (maki-agent/src/mcp/config.rs v0.6.5
 // merge_config, load_config_inner)
 const MCP_SCRIPT = [
   'cat "${XDG_CONFIG_HOME:-$HOME/.config}/maki/mcp.toml" 2>/dev/null',
@@ -128,7 +128,7 @@ export interface SkillFile {
   content: string;
 }
 
-// the plugin's scan order (plugins/skill/init.lua v0.6.4 L11–L30, L98–L130):
+// the plugin's scan order (plugins/skill/init.lua v0.6.5 L13–L32, L98–L130):
 // config dir, home dirs, then the workdir and each ancestor up to the first
 // one holding `.git`; a later skill with the same name replaces an earlier one
 const SKILL_SCRIPT = `
@@ -143,7 +143,7 @@ while :; do
 done`;
 
 // `---` frontmatter of `key: value` lines, as the plugin's parse_frontmatter
-// reads it (plugins/skill/skill_helpers.lua v0.6.4 L3–L19)
+// reads it (plugins/skill/skill_helpers.lua v0.6.5 L6–L22)
 function frontmatter(text: string): { meta: Record<string, string>; body: string } {
   const m = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text);
   if (!m) return { meta: {}, body: text };
@@ -156,10 +156,10 @@ function frontmatter(text: string): { meta: Record<string, string>; body: string
 }
 
 // the builtin skill the plugin offers first unless `plugin_dev` is off
-// (plugins/skill/init.lua v0.6.4 L65–L67, L98–L108; name and description per
+// (plugins/skill/init.lua v0.6.5 L67–L69, L98–L108; name and description per
 // maki-lua docs_render.rs L17–L18). Its content is rendered inside the Maki
 // binary, so the listing names it under /builtin/, as OpenCode names its own
-// builtin skills (core plugin/skill.ts v2.0.32 L33, L42), with no content.
+// builtin skills (core plugin/skill.ts v2.1.4 L33, L42), with no content.
 export const BUILTIN_SKILL: SkillFile = {
   id: "maki-plugin-dev",
   name: "maki-plugin-dev",
@@ -200,7 +200,7 @@ export interface ModelCatalog {
 }
 
 // `maki models` prints one `provider/model-id` per stdout line
-// (src/cmd/subcmd.rs v0.6.4 L601–L630); `maki auth status` prints one line per
+// (src/cmd/subcmd.rs v0.6.5 L601–L630); `maki auth status` prints one line per
 // provider, naming the variable an env-backed key comes from as `(via VAR)`
 const CATALOG_SCRIPT = "maki models 2>/dev/null; printf '\\036'; maki auth status 2>/dev/null";
 

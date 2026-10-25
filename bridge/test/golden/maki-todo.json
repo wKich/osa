@@ -1,0 +1,80 @@
+[
+  {
+    "type": "session.inbox.enqueued",
+    "item": {
+      "type": "user",
+      "payload": {
+        "text": "golden prompt 1"
+      },
+      "delivery": "steer"
+    }
+  },
+  {
+    "type": "session.inbox.delivered"
+  },
+  {
+    "type": "session.execution.started"
+  },
+  {
+    "type": "session.step.started",
+    "agent": "build",
+    "model": {
+      "providerID": "synthetic",
+      "id": "todo-model"
+    }
+  },
+  {
+    "type": "session.tool.input.started",
+    "name": "todowrite"
+  },
+  {
+    "type": "session.tool.input.ended",
+    "text": "{\"todos\":[{\"content\":\"Map the tool names\",\"status\":\"completed\"},{\"content\":\"Render the transcript list\",\"status\":\"in_progress\"},{\"content\":\"Check the sidebar\",\"status\":\"pending\"}]}"
+  },
+  {
+    "type": "session.tool.called",
+    "input": {
+      "todos": [
+        {
+          "content": "Map the tool names",
+          "status": "completed"
+        },
+        {
+          "content": "Render the transcript list",
+          "status": "in_progress"
+        },
+        {
+          "content": "Check the sidebar",
+          "status": "pending"
+        }
+      ]
+    },
+    "executed": false
+  },
+  {
+    "type": "session.tool.success",
+    "content": [
+      {
+        "type": "text",
+        "text": ""
+      }
+    ],
+    "executed": false
+  },
+  {
+    "type": "session.step.ended",
+    "finish": "stop",
+    "tokens": {
+      "input": 12,
+      "output": 24,
+      "reasoning": 0,
+      "cache": {
+        "read": 0,
+        "write": 0
+      }
+    }
+  },
+  {
+    "type": "session.execution.succeeded"
+  }
+]

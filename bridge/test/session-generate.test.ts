@@ -1,7 +1,7 @@
 // Side questions (add-session-generate): session.generate answers from a
 // throwaway fork of the stored Maki session, leaves the session's own history
 // untouched, and deletes the fork from Maki's store
-// (server handlers/session.ts v2.0.32 L596–L609; src/cli.rs v0.6.4 L303–L321).
+// (server handlers/session.ts v2.1.4 L567–L580; src/cli.rs v0.6.5 L303–L321).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";

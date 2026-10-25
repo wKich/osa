@@ -72,7 +72,7 @@ describe("harness failures", () => {
     const fake = fakeOpencode("9.9.9");
     try {
       expect(opencodeVersion(fake.bin)).toBe("9.9.9");
-      expect(() => assertPinnedOpencode("2.0.32", fake.bin)).toThrow(/9\.9\.9.*2\.0\.32/);
+      expect(() => assertPinnedOpencode("2.1.4", fake.bin)).toThrow(/9\.9\.9.*2\.1\.4/);
     } finally {
       fake.cleanup();
     }

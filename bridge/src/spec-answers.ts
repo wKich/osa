@@ -1,4 +1,4 @@
-// Spec-derived answer set for the OpenCode 2.0.32 HTTP surface (design
+// Spec-derived answer set for the OpenCode 2.1.4 HTTP surface (design
 // decision 1). Every boot and deferred route is answered from the pinned
 // OpenAPI document, then normalized with the rules the spike measured as
 // load-bearing for the TUI: location consistency (project canonical == session
@@ -18,12 +18,12 @@ type OpenAPI = { paths: Record<string, PathItem>; components: { schemas: Record<
 
 // read instead of `import ... from "*.json"` so no tsconfig change is needed
 const specDoc = JSON.parse(
-  readFileSync(new URL("./openapi-2.0.32.json", import.meta.url), "utf8"),
+  readFileSync(new URL("./openapi-2.1.4.json", import.meta.url), "utf8"),
 ) as OpenAPI;
 
 // the bridge reports itself as the pinned server: a mismatched version makes
 // the TUI warn (spike evidence/pinned-versions.txt)
-export const PINNED_VERSION = "2.0.32";
+export const PINNED_VERSION = "2.1.4";
 
 // ---------- spec routing ----------
 const routeMatchers = Object.keys(specDoc.paths).map((template) => {
@@ -108,7 +108,7 @@ function successResponse(item: PathItem, method: string): { status: number; cont
 // ---------- answer set ----------
 // `canonical` is the one directory every answer must agree on (design: the
 // project canonical equals the session directory).
-/** Maki's default builtin plugins at the pin (maki-config lib.rs v0.6.4 L94–L122) */
+/** Maki's default builtin plugins at the pin (maki-config lib.rs v0.6.5 L94–L122) */
 export const MAKI_BUILTIN_PLUGINS = [
   "bash", "batch", "code_execution", "deepseek", "edit", "glob", "grep", "index", "list", "memory",
   "mistral", "openrouter", "question", "read", "regolo", "requesty", "sessions", "skill", "synthetic",
@@ -142,7 +142,7 @@ export function synthesize(
   // enum order puts "subagent" first: with no primary agent the composer has
   // nothing to submit as and Enter does nothing
   // Maki's agents are its two modes, build and plan, which the pinned SDK
-  // switches with set_permission_mode (sdk_mode.rs v0.6.4 L77–L111,
+  // switches with set_permission_mode (sdk_mode.rs v0.6.5 L77–L111,
   // L846–L860); named agents have no surface (`initialize` ignores `agents`,
   // L828–L839). The descriptions are Maki's (docs commands/_index.md L52,
   // permissions/_index.md L52)
@@ -160,15 +160,15 @@ export function synthesize(
   // surfaces with nothing behind them answer empty rather than a synthesized
   // row the TUI renders as real (defect boot-lists-phantom-rows): no OpenCode
   // plugin, reference alias, or shell runs in the bridge, and the
-  // pinned SDK mode runs no custom command (sdk_mode.rs v0.6.4 L624), so a
+  // pinned SDK mode runs no custom command (sdk_mode.rs v0.6.5 L624), so a
   // listed one would make submit POST session.command for nothing
   if (method === "GET" && /^\/api\/(reference|shell|command)$/.test(path)) {
     payload = { ...payload, data: [] };
   }
   // the server's plugins are Maki's: the builtins it loads by default
-  // (maki-config lib.rs v0.6.4 L94–L122; the journey image's config disables
+  // (maki-config lib.rs v0.6.5 L94–L122; the journey image's config disables
   // none), each a builtin source the TUI lists as internal
-  // (feature-plugins/system/plugins.tsx v2.0.32 L67–L72)
+  // (feature-plugins/system/plugins.tsx v2.1.4 L67–L72)
   if (method === "GET" && path === "/api/plugin") {
     payload = {
       ...payload,

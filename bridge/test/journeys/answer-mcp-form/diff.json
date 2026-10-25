@@ -4,12 +4,12 @@
     {
       "id": "form",
       "verdict": "differs",
-      "hunk": "@@ -1,39 +1,39 @@\n- <SPINNER> Journey                       +\n+   Use the journey ask_color too +\n \n   ┃\n   ┃  Use the journey ask_color tool, then reply ANSWERED.\n   ┃\n \n-     <SPINNER> journey_ask_color\n-\n-\n+     ✓ journey__ask_color\n \n+     ANSWERED\n \n+     Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n-   <BAR> esc interrupt                                                            shift+tab agents  ctrl+p commands\n+  <WORKDIR> 2  ctrl+p commands"
+      "hunk": "@@ -1,39 +1,39 @@\n- <SPINNER> Journey                       +\n+   Use the journey ask_color too +\n \n   ┃\n   ┃  Use the journey ask_color tool, then reply ANSWERED.\n   ┃\n \n-     <SPINNER> journey_ask_color\n+     ✓ journey__ask_color\n \n+     ANSWERED\n \n+     Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n-  ┃\n-  ┃  journey is requesting input\n-  ┃\n-  ┃  Which color should the journey use?\n-  ┃\n-  ┃  color\n+\n+\n+\n+\n   ┃\n-  ┃  1. red\n-  ┃  2. blue\n   ┃\n-  ┃  ↑↓ select  enter submit  esc dismiss\n   ┃\n+  ┃  Build · <MODEL> <MODEL>\n+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n+  <WORKDIR> 2  ctrl+p commands"
     },
     {
       "id": "answered",
       "verdict": "differs",
-      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use the journey ask_color too +\n \n   ┃\n   ┃  Use the journey ask_color tool, then reply ANSWERED.\n   ┃\n \n-     ✗ journey_ask_color\n-\n-     Build · <MODEL> · <DUR> · interrupted\n+     ✓ journey__ask_color\n \n+     ANSWERED\n \n+     Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
+      "hunk": "@@ -1,39 +1,39 @@\n-   Journey                       +\n+   Use the journey ask_color too +\n \n   ┃\n   ┃  Use the journey ask_color tool, then reply ANSWERED.\n   ┃\n \n-     ✓ journey_ask_color\n+     ✓ journey__ask_color\n \n      ANSWERED\n \n      Build · <MODEL> · <DUR>\n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n \n   ┃\n   ┃\n   ┃\n   ┃  Build · <MODEL> <MODEL>\n   ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀\n   <WORKDIR> 2  ctrl+p commands"
     }
   ]
 }

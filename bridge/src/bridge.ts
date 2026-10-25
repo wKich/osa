@@ -1,4 +1,4 @@
-// The OpenCode TUI bridge: serves the OpenCode 2.0.32 HTTP+SSE surface the TUI
+// The OpenCode TUI bridge: serves the OpenCode 2.1.4 HTTP+SSE surface the TUI
 // actually exercises (evidence/tui-route-inventory.md) over one live Maki SDK
 // process per session, translating the Maki wire into OpenCode event frames.
 //
@@ -91,7 +91,7 @@ const terminals = new SandboxTerminals(
 
 // ---------- SSE fan-out (design decision 4: bare `data:` frames) ----------
 // Idle keepalive: the client aborts an event stream it has heard nothing
-// from for 45s ("Event stream stalled", opencode 2.0.32) and re-boots on the
+// from for 45s ("Event stream stalled", opencode 2.1.4) and re-boots on the
 // reconnect, so each stream sends the real server's `: heartbeat` comment well
 // inside that window (evidence: mapping-table.md §0, defect
 // tui-sse-idle-reconnect-drops-next-turn)
@@ -126,7 +126,7 @@ function emit(type: string, data: AnyObj, durableVersion?: number, eventID?: str
 }
 
 // A terminal execution transition is the session's idle marker, as the real
-// projector records it (core session/projector.ts v2.0.32 L412–L440): strictly
+// projector records it (core session/projector.ts v2.1.4 L418–L446): strictly
 // advancing, so the TUI's unread check (idle > viewed) sees every new one; a
 // shutdown interrupt is not an idle transition. It is set before the frame goes
 // out, since the TUI re-reads the session when it sees the frame.
@@ -248,10 +248,10 @@ function sessionObject(s: BridgeSession): AnyObj {
 }
 
 // A subagent (Maki's Task tool) runs inside the parent's Maki child; OpenCode
-// runs one as a child session (core tool/plugin/subagent.ts v2.0.32
+// runs one as a child session (core tool/plugin/subagent.ts v2.1.4
 // L184–L215), so the bridge opens a child session for it — titled with the
 // task's description, under Maki's subagent type (plugins/task/init.lua
-// v0.6.4, default `research`) — whose transcript is the subagent's prompt and
+// v0.6.5, default `research`) — whose transcript is the subagent's prompt and
 // the frames flagged with the task call's id, ended by the task's result.
 const subagentChild = (): MakiSession =>
   ({ running: false, prompt() {}, answer() {}, interrupt: () => "", setModel: () => "", kill() {} }) as unknown as MakiSession;
@@ -269,9 +269,9 @@ function subagentHooks(parent: () => BridgeSession) {
       children.set(toolUseID, c);
       emit("session.created", {
         sessionID: c.id, projectID, location: { directory: c.directory }, parentID: p.id,
-        slug: c.id.replace(/^ses_/, ""), ...(c.title ? { title: c.title } : {}), agent: c.agent, model: c.model, version: "2.0.32",
+        slug: c.id.replace(/^ses_/, ""), ...(c.title ? { title: c.title } : {}), agent: c.agent, model: c.model, version: "2.1.4",
       }, 1);
-      // the subagent's prompt is the task's, as Maki sends it (task/init.lua L211–L214)
+      // the subagent's prompt is the task's, as Maki sends it (task/init.lua L207–L210)
       const prompt = typeof input.prompt === "string" ? input.prompt : "";
       c.firstPrompt = prompt || undefined;
       c.translator.beginTurn(mintMessage(), { text: prompt, id: mintMessage(), delivery: "steer" });
@@ -298,12 +298,12 @@ function pendingList(s: BridgeSession): AnyObj[] {
 }
 
 // The TUI picks the dialog body from the action in its own tool vocabulary
-// (tui util/tool-display.ts v2.0.32 L1–L6, util/permission.ts L24–L144); maki
-// names tools Claude-style on the wire (sdk_mode.rs v0.6.4 L43–L60)
+// (tui util/tool-display.ts v2.1.4 L1–L6, util/permission.ts L24–L144); maki
+// names tools Claude-style on the wire (sdk_mode.rs v0.6.5 L43–L60)
 interface PermissionAsk { action: string; resources: string[]; save: string[] }
 const PERMISSION_ACTION: Record<string, string> = { Bash: "shell", Task: "subagent" };
 
-// Maki's AllowSession scope for one shell segment (permissions.rs v0.6.4
+// Maki's AllowSession scope for one shell segment (permissions.rs v0.6.5
 // L44–L47, L1047–L1059): `<word> *` when the first word names one program
 const SHELL_KEYWORDS = new Set(["if", "then", "elif", "else", "fi", "for", "while", "until", "do", "done", "case", "esac", "select", "function", "time"]);
 function shellScope(command: string): string {
@@ -373,7 +373,7 @@ function openSession(
       s.tools = info.tools;
       // the child's tool list settles each configured MCP server's status
       // (an MCP tool is `<server>__<tool>`); the TUI read /api/mcp at boot and
-      // refetches on mcp.status.changed (client solid/data.ts v2.0.32 L1332–L1335)
+      // refetches on mcp.status.changed (client solid/data.ts v2.1.4 L1331–L1334)
       void readMcpConfig(CANONICAL).then((servers) => {
         for (const server of servers) emit("mcp.status.changed", { server: server.name }, undefined, undefined, CANONICAL);
       });
@@ -398,7 +398,7 @@ function openSession(
     onResult: (r) => {
       s.updated = Date.now();
       // Maki titles the session when it records the first run
-      // (maki-agent session.rs v0.6.4 L143–L166, L203–L217)
+      // (maki-agent session.rs v0.6.5 L143–L166, L203–L217)
       if (!s.title && s.firstPrompt) {
         s.title = makiTitle(s.firstPrompt);
         if (s.title) emit("session.renamed", { sessionID: id, title: s.title }, 1);
@@ -443,7 +443,7 @@ function openSession(
   return { session: s };
 }
 
-// session.shell (core session/session.ts v2.0.32 L179–L222): the command runs
+// session.shell (core session/session.ts v2.1.4 L189–L232): the command runs
 // in the sandbox; started and ended frames carry the pinned Shell.Info and
 // Output (schema shell.ts L25–L84), and the result reaches the model with the
 // next turn as OpenCode's user-shell notice
@@ -471,7 +471,7 @@ function userShell(s: BridgeSession, body: AnyObj): { status: number; payload: a
     emit("session.shell.ended", { sessionID: s.id, shell: ended, output: { output: result.output, cursor: size, size, truncated: result.truncated } }, 1);
     s.translator.admitSynthetic(mintMessage(), {
       // no description, as OpenCode's notice has none: the TUI keeps it out of
-      // the transcript (tui routes/session/rows.ts v2.0.32 L383)
+      // the transcript (tui routes/session/rows.ts v2.1.4 L383)
       text: shellNotice(info.id, command, result),
       metadata: { source: "shell", shellID: info.id, state: "completed", truncated: result.truncated, exit: result.exit },
     });
@@ -479,9 +479,9 @@ function userShell(s: BridgeSession, body: AnyObj): { status: number; payload: a
   return { status: 204, payload: null };
 }
 
-// session.fork (server handlers/session.ts v2.0.32 L226–L239, core session.ts
-// L319–L358): the pinned child forks a whole stored session (`-r <id>
-// --fork-session`, src/cli.rs v0.6.4 L53–L63, L114–L117) and cannot cut its
+// session.fork (server handlers/session.ts v2.1.4 L193–L206, core session.ts
+// L326–L365): the pinned child forks a whole stored session (`-r <id>
+// --fork-session`, src/cli.rs v0.6.5 L53–L63, L114–L117) and cannot cut its
 // history at a message, so only the full-session fork is served
 function forkSession(parent: BridgeSession, body: AnyObj): { status: number; payload: any } {
   const before = typeof body?.before === "string" ? body.before : undefined;
@@ -501,7 +501,7 @@ function forkSession(parent: BridgeSession, body: AnyObj): { status: number; pay
   const eventID = mintEvent();
   const boundary = s.history.forkFrom(parent.history, eventID);
   // the copy keeps the parent's title with a fork suffix (core
-  // session/projector.ts L51–L56) and its first prompt, so Maki's first-run
+  // session/projector.ts L45–L50) and its first prompt, so Maki's first-run
   // title never replaces it
   s.title = forkTitle(parent.title);
   s.firstPrompt = parent.firstPrompt;
@@ -641,7 +641,7 @@ function selectModel(s: BridgeSession, body: AnyObj): { status: number; payload:
       s.childModel = spec;
       s.translator.announceModel(model);
       // the session's model is durable state the TUI reads back (client
-      // solid/data.ts v2.0.32 L705–L716; tui context/local.tsx L256–L264, L344)
+      // solid/data.ts v2.1.4 L704–L715; tui context/local.tsx L256–L264, L344)
       emit("session.model.selected", { sessionID: s.id, model: { id, providerID }, previous: { id: current.id, providerID: current.providerID } }, 1);
       emit("model.updated", { sessionID: s.id });
     } else {
@@ -654,9 +654,9 @@ function selectModel(s: BridgeSession, body: AnyObj): { status: number; payload:
 // session.agent: Maki's agents are its modes (spec-answers /api/agent), so a
 // switch is set_permission_mode — `plan`, or for `build` the mode the child
 // started in — written before the next user message, which runs in it
-// (sdk_mode.rs v0.6.4 L688–L696, L846–L860). The selection is the session's
+// (sdk_mode.rs v0.6.5 L688–L696, L846–L860). The selection is the session's
 // durable state, as the real server records it (core session/
-// message-updater.ts v2.0.32 L91–L103); a mode Maki refuses restores the
+// message-updater.ts v2.1.4 L93–L105); a mode Maki refuses restores the
 // previous agent.
 const AGENT_MODES = new Set(["build", "plan"]);
 function agentMode(s: BridgeSession, agent: string): string {
@@ -701,11 +701,11 @@ function interrupt(s: BridgeSession): { status: number; payload: any } {
   return { status: 200, payload: { interrupted: true } };
 }
 
-// session.update (server handlers/session.ts v2.0.32 L259–L281): a title
+// session.update (server handlers/session.ts v2.1.4 L226–L252): a title
 // renames the session; an empty or null title asks for a generated one, which
 // for Maki is its first-prompt rule; metadata is the host's annotation set.
 // Permissions are Maki's rule set, which the pinned SDK cannot change
-// (sdk_mode.rs v0.6.4 has no rules control request), so they are not applied.
+// (sdk_mode.rs v0.6.5 has no rules control request), so they are not applied.
 function updateSession(s: BridgeSession, body: AnyObj): { status: number; payload: any } {
   if ("title" in (body ?? {})) {
     const title = typeof body.title === "string" && body.title ? body.title : s.firstPrompt ? makiTitle(s.firstPrompt) : undefined;
@@ -726,8 +726,8 @@ function updateSession(s: BridgeSession, body: AnyObj): { status: number; payloa
 
 // session.view: a viewer acknowledges the idle transition it saw. The real
 // server ignores a watermark for no transition, one past the current
-// transition, or one already covered (core session/session.ts v2.0.32
-// L61–L70), and keeps the watermark monotone (projector.ts L601–L611)
+// transition, or one already covered (core session/session.ts v2.1.4
+// L61–L70), and keeps the watermark monotone (projector.ts L607–L617)
 function viewSession(s: BridgeSession, body: AnyObj): { status: number; payload: any } {
   const idle = body?.idle;
   if (typeof idle !== "number" || !Number.isFinite(idle)) {
@@ -740,11 +740,11 @@ function viewSession(s: BridgeSession, body: AnyObj): { status: number; payload:
 }
 
 // session.generate: a transient answer from the session's context that leaves
-// its history untouched (server handlers/session.ts v2.0.32 L596–L609). The
+// its history untouched (server handlers/session.ts v2.1.4 L567–L580). The
 // pinned child has no such request, so a throwaway child forks the stored
 // session (`-r <id> --fork-session`), answers once with every tool ask denied
 // (generate runs no tool loop), and its fork is deleted from Maki's store
-// (`maki session delete <id> --force`, src/cli.rs v0.6.4 L303–L321)
+// (`maki session delete <id> --force`, src/cli.rs v0.6.5 L303–L321)
 function generateAside(sid: string, body: AnyObj): Promise<{ status: number; payload: any }> {
   const parent = sessions.get(sid);
   if (!parent) return Promise.resolve(sessionNotFound(sid));
@@ -797,7 +797,7 @@ function generateAside(sid: string, body: AnyObj): Promise<{ status: number; pay
 }
 
 // session.wait: answers once the session's agent loop is idle — no turn
-// running and no prompt waiting (server handlers/session.ts v2.0.32 L456–L460)
+// running and no prompt waiting (server handlers/session.ts v2.1.4 L427–L431)
 async function waitIdle(sid: string): Promise<{ status: number; payload: any }> {
   let s = sessions.get(sid);
   if (!s) return sessionNotFound(sid);
@@ -809,7 +809,7 @@ async function waitIdle(sid: string): Promise<{ status: number; payload: any }> 
 }
 
 // experimental.session.export: the transcript the copy and export commands
-// format (tui routes/session/index.tsx v2.0.32 L1191–L1240)
+// format (tui routes/session/index.tsx v2.1.4 L1317–L1366)
 function sessionExport(sid: string, url: URL): { status: number; payload: any } {
   const s = sessions.get(sid);
   if (!s) return sessionNotFound(sid);
@@ -827,7 +827,7 @@ function inboxList(s: BridgeSession): AnyObj[] {
 // session.inbox.update: every held prompt already waits for the next turn, so
 // `queue` is a no-op; `steer` would merge it into the running turn, which the
 // pinned child cannot take mid-run (feature mid-turn-steering), so it is the
-// pinned conflict (server handlers/session.ts v2.0.32 L562–L571)
+// pinned conflict (server handlers/session.ts v2.1.4 L533–L542)
 function updateInbox(s: BridgeSession, inboxID: string, body: AnyObj): { status: number; payload: any } {
   const delivery = body?.delivery;
   if (delivery !== "queue" && delivery !== "steer") {
@@ -895,7 +895,7 @@ function handleMakiFrame(sessionID: string, frame: AnyObj): void {
     const ask = permissionAsk(toolName, req.input);
     // a subagent's call is asked in its child session, as OpenCode asks it
     // (the TUI then offers a reject reason: tui routes/session/permission.tsx
-    // v2.0.32 L248–L251); the answer still goes to the one Maki child
+    // v2.1.4 L248–L251); the answer still goes to the one Maki child
     const childID = s.translator.toolOwner(toolUseID);
     const owner = (childID && sessions.get(childID)) || s;
     owner.pending.set(perID, {
@@ -908,7 +908,7 @@ function handleMakiFrame(sessionID: string, frame: AnyObj): void {
       maki: s.maki,
     });
     // object-form Permission.Source (design decision 4); `save` lists what the
-    // TUI's "Always allow" names (opencode v2.0.32 tui/util/permission.ts),
+    // TUI's "Always allow" names (opencode v2.1.4 tui/util/permission.ts),
     // here the scope Maki's session rule will cover
     emit("permission.asked", {
       id: perID,
@@ -948,7 +948,7 @@ function startChild(id: string, opts: { cwd: string; model?: string; fork?: stri
   return child;
 }
 
-// session.move (core session/move.ts v2.0.32 L64–L157): the destination
+// session.move (core session/move.ts v2.1.4 L64–L157): the destination
 // resolves against the session's directory and must be a directory; here it
 // must also lie in the sandbox workdir, the one project the bridge serves.
 // Maki has no control that changes a child's workdir, so the move waits for
@@ -1000,7 +1000,7 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
       if (!s) return sessionNotFound(sid);
       s.maki.kill();
       // the TUI drops the session and leaves its route on this frame
-      // (session-event.ts v2.0.32 L177–L184; client data.ts L682–L684)
+      // (session-event.ts v2.1.4 L182–L189; client data.ts L681–L683)
       emit("session.deleted", { sessionID: sid }, 2);
       sessions.delete(sid);
       return { status: 204, payload: null };
@@ -1046,12 +1046,12 @@ let catalogReady = readModelCatalog(CANONICAL);
 let catalogRead: Awaited<typeof catalogReady> | undefined;
 void catalogReady.then((c) => (catalogRead = c));
 
-// location.reload (server handlers/location.ts v2.0.32 L22–L31): OpenCode
+// location.reload (server handlers/location.ts v2.1.4 L22–L31): OpenCode
 // rebuilds the location's services and the TUI then refetches every location
-// resource (client solid/data.ts L1955–L1967). The bridge re-reads what it
+// resource (client solid/data.ts L1954–L1966). The bridge re-reads what it
 // serves from the sandbox: the model catalog (otherwise read once at boot),
 // the checkout, its worktrees and its skills. Maki itself has no inbound
-// control to reload its own configuration (sdk_mode.rs v0.6.4 L818–L880), so
+// control to reload its own configuration (sdk_mode.rs v0.6.5 L818–L880), so
 // a running child keeps the configuration it started with.
 async function reloadLocation(): Promise<{ status: number; payload: any }> {
   const next = readModelCatalog(CANONICAL);
@@ -1065,7 +1065,7 @@ async function reloadLocation(): Promise<{ status: number; payload: any }> {
 
 // A session starts on the model it was created with (the TUI creates it on
 // its selection, then re-posts that model: tui component/prompt/index.tsx
-// v2.0.32 L1233–L1241, L1283–L1286), so the child is started on it when
+// v2.1.4 L1237–L1245, L1287–L1290), so the child is started on it when
 // Maki's catalog lists it; otherwise on the configured model, which a later
 // selection switches with set_model
 function startModel(model: { providerID: string; id: string }): string | undefined {
@@ -1133,8 +1133,8 @@ async function integrationList(url: URL): Promise<{ status: number; payload: any
 // /api/info describes this process, the server the TUI is attached to: its
 // pid and listen URL (the TUI's pair dialog parses urls[0]), the pinned
 // version (a mismatch warns), and no persistent PTY — the TUI offers
-// terminals unless persistentPty is false (session-terminals.tsx v2.0.32
-// L62–L77), and the bridge serves none
+// terminals unless persistentPty is false (session-terminals.tsx v2.1.4
+// L66–L84), and the bridge serves none
 function serverInfo(url: URL): { status: number; payload: any } {
   const result = synthesize("GET", "/api/info", url, null, CANONICAL);
   result.payload = {
@@ -1148,7 +1148,7 @@ function serverInfo(url: URL): { status: number; payload: any } {
 }
 
 // /api/session/active: the real server maps every session with an execution
-// in flight to {type: "running"} (handlers/session.ts v2.0.32 L182–L188); the
+// in flight to {type: "running"} (handlers/session.ts v2.1.4 L149–L155); the
 // TUI reads it on server.connected, so a reconnect mid-turn keeps the busy
 // state and the interrupt control instead of showing the session idle
 function activeSessions(url: URL): { status: number; payload: any } {
@@ -1159,11 +1159,11 @@ function activeSessions(url: URL): { status: number; payload: any } {
 }
 
 // /api/mcp: the pinned child announces `mcp_servers: []` whatever it loaded
-// (sdk_mode.rs v0.6.4 L623), so the servers come from the sandbox's Maki
+// (sdk_mode.rs v0.6.5 L623), so the servers come from the sandbox's Maki
 // config and their state from what a child advertised: an MCP tool is named
 // `<server>__<tool>` in system.init.tools, so a server with one is connected.
 // Without one, the server failed — unless the child defers MCP tools behind
-// `tool_search` (config.rs v0.6.4 defer_tools), or no child has started yet,
+// `tool_search` (config.rs v0.6.5 defer_tools), or no child has started yet,
 // where the state is not observable and the answer is `pending`.
 async function mcpServers(url: URL): Promise<{ status: number; payload: any }> {
   const { status, payload } = synthesize("GET", "/api/mcp", url, null, CANONICAL);
@@ -1190,9 +1190,9 @@ async function skillList(url: URL): Promise<{ status: number; payload: any }> {
 }
 
 // The TUI caches the skill list until `skill.updated` (client solid/data.ts
-// v2.0.32 L1269–L1272), which OpenCode emits when its skill directories
+// v2.1.4 L1268–L1271), which OpenCode emits when its skill directories
 // change; Maki's skill tool rediscovers skills on every call (plugins/skill/
-// init.lua v0.6.4 L163), so a skill a turn wrote is usable at once. After each
+// init.lua v0.6.5 L184–L190), so a skill a turn wrote is usable at once. After each
 // turn the bridge re-reads the sandbox's skills and announces a change.
 async function checkSkills(): Promise<void> {
   if (servedSkills === undefined) return;
@@ -1222,7 +1222,7 @@ async function location(url: URL): Promise<{ status: number; payload: any }> {
 }
 
 // /api/vcs: the footer's `dir:branch` and the sidebar read the checkout's
-// branch (tui prompt/index.tsx v2.0.32 L1620), read fresh from the sandbox on
+// branch (tui prompt/index.tsx v2.1.4 L1626), read fresh from the sandbox on
 // every location sync
 async function vcsInfo(url: URL): Promise<{ status: number; payload: any }> {
   const { status, payload } = synthesize("GET", "/api/vcs", url, null, CANONICAL);
@@ -1239,7 +1239,7 @@ async function vcsInfo(url: URL): Promise<{ status: number; payload: any }> {
 
 // /api/vcs/diff, /base, /status: the diff viewer's review of the sandbox
 // checkout, from OpenCode's git provider ported in vcs.ts (server
-// handlers/vcs.ts v2.0.32 L61–L100); a provider error is the pinned 503
+// handlers/vcs.ts v2.1.4 L61–L100); a provider error is the pinned 503
 async function vcsReview(path: string, url: URL): Promise<{ status: number; payload: any }> {
   const { status, payload } = synthesize("GET", path, url, null, CANONICAL);
   try {
@@ -1385,7 +1385,7 @@ async function worktreeRoute(method: string, path: string, url: URL, body: AnyOb
 
 // /api/experimental/session/stats aggregates the bridge's own session
 // histories (session-stats.ts); a range that ends before it starts is refused
-// as the real handler refuses it (core session/stats.ts v2.0.32 L84–L87)
+// as the real handler refuses it (core session/stats.ts v2.1.4 L79–L82)
 function statsRoute(url: URL): { status: number; payload: any } {
   const time = (v: string | null) => {
     if (v === null || v === "") return undefined;
@@ -1450,7 +1450,7 @@ async function handle(req: Request, srv: Bun.Server<SocketData>): Promise<Respon
   const url = new URL(req.url);
   const method = req.method.toUpperCase();
   const path = url.pathname;
-  // persistentPty.connect is a WebSocket upgrade (server handlers/persistent-pty.ts v2.0.32 L127–L209)
+  // persistentPty.connect is a WebSocket upgrade (server handlers/persistent-pty.ts v2.1.4 L127–L209)
   const connect = /^\/api\/experimental\/persistent-pty\/([^/]+)\/connect$/.exec(path);
   if (method === "GET" && connect) {
     const ptyID = connect[1]!;

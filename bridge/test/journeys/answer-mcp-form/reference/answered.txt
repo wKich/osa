@@ -4,11 +4,11 @@
   ┃  Use the journey ask_color tool, then reply ANSWERED.
   ┃
 
-     ✗ journey_ask_color
+     ✓ journey_ask_color
 
-     Build · <MODEL> · <DUR> · interrupted
+     ANSWERED
 
-
+     Build · <MODEL> · <DUR>
 
 
 

@@ -1,7 +1,7 @@
 // The TUI's shell mode (`!command`): the user's own command, run in the
 // project sandbox through the transport the Maki child uses — the sandbox is
 // the boundary, exactly as for the child's tools. Output is stdout and stderr
-// combined, as OpenCode captures it (core session/shell.ts v2.0.32 L10–L26),
+// combined, as OpenCode captures it (core session/shell.ts v2.1.4 L10–L26),
 // capped at the 1 MiB page OpenCode reads back.
 import { spawn } from "node:child_process";
 import { sandboxArgv } from "./sandbox.ts";
@@ -38,7 +38,7 @@ export function runUserShell(command: string, workdir: string): Promise<ShellRun
   });
 }
 
-/** the notice the model reads with its next turn (core shell/result.ts v2.0.32 L36–L81) */
+/** the notice the model reads with its next turn (core shell/result.ts v2.1.4 L36–L81) */
 export function shellNotice(shellID: string, command: string, run: ShellRun): string {
   const status = run.exit === 0 ? undefined : `Exited with code ${run.exit}`;
   const text = [run.output, status].filter((x) => x !== undefined && x !== "").join("\n\n");

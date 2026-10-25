@@ -1,8 +1,8 @@
 // A subagent's permission ask (fix-subagent-permission-session): the pinned
-// can_use_tool names only the tool id (sdk_mode.rs v0.6.4 L1122–L1160), so
+// can_use_tool names only the tool id (sdk_mode.rs v0.6.5 L1122–L1160), so
 // the bridge files a subagent's call under its child session, as OpenCode
 // does, which makes the TUI offer a reject reason (tui routes/session/
-// permission.tsx v2.0.32 L248–L251). The scripted child mirrors the pinned
+// permission.tsx v2.1.4 L248–L251). The scripted child mirrors the pinned
 // SDK, which cannot answer a subagent's ask: the run waits until interrupted.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync } from "node:fs";

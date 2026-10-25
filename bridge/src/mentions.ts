@@ -1,13 +1,13 @@
-// A prompt's file attachments (tui component/prompt/autocomplete.tsx v2.0.32
+// A prompt's file attachments (tui component/prompt/autocomplete.tsx v2.1.4
 // L243–L272 mentions a project file as a `file://` URI; a paste of an image
 // is a data URI). OpenCode reads a mentioned path itself (core
-// session/prompt.ts v2.0.32 L151–L203) and hands the model a text file as
+// session/prompt.ts v2.1.4 L149–L201) and hands the model a text file as
 // "Attached file: <name>" text, a directory as its listing, and an image as a
-// media block (session/runner/to-llm-message.ts L37–L83). The project lives in
+// media block (session/runner/to-llm-message.ts L38–L84). The project lives in
 // the sandbox workdir, so a mentioned path under the client's directory is
 // read there, over the exec transport — never on the host — and reaches the
 // pinned child as the text and image blocks its inbound `user` decodes
-// (sdk_mode.rs v0.6.4 L786–L816; text blocks join with a newline).
+// (sdk_mode.rs v0.6.5 L786–L816; text blocks join with a newline).
 import { posix } from "node:path";
 import type { ContentBlock } from "./maki.ts";
 import { BUILTIN_SKILL, sandboxRun, type SkillFile } from "./sandbox.ts";
@@ -45,7 +45,7 @@ export function mentionTarget(uri: string, clientDir: string, workdir: string): 
   return { path: posix.join(workdir, abs.slice(base.length)), start, end };
 }
 
-/** the pinned Mime.detect (core mime.ts v2.0.32 L3–L33) for the kinds a
+/** the pinned Mime.detect (core mime.ts v2.1.4 L3–L33) for the kinds a
  * mention can deliver */
 export function detectMime(bytes: Uint8Array): string {
   const starts = (prefix: number[], at = 0) => prefix.every((v, i) => bytes[at + i] === v);
@@ -130,8 +130,8 @@ export async function readAttachment(file: AnyObj, clientDir: string, workdir: s
   return null;
 }
 
-/** a prompt's skill attachment as OpenCode prepares it (core skill.ts v2.0.32
- * L36–L68): the skill's body in `<skill_content>` with a sample of the files
+/** a prompt's skill attachment as OpenCode prepares it (core skill.ts v2.1.4
+ * L36–L74): the skill's body in `<skill_content>` with a sample of the files
  * beside it. The builtin skill's body lives in the Maki binary, so it is
  * delivered without text; the `@name` mention in the prompt names it to
  * Maki's own skill tool. */

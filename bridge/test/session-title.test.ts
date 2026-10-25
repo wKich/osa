@@ -1,5 +1,5 @@
 // Session titles follow Maki's rule (add-session-title): the pinned
-// title_extraction cases (maki-storage sessions.rs v0.6.4 L3429–L3445), and
+// title_extraction cases (maki-storage sessions.rs v0.6.5 L3429–L3445), and
 // the bridge titles a session once, when its first run ends.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { makiTitle } from "../src/title.ts";

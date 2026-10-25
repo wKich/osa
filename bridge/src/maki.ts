@@ -22,9 +22,9 @@ export interface MakiOptions {
   cwd: string; // sandbox workdir: the child's workdir on the default path
   model?: string; // provider/model spec; omit for maki's default
   // continue a stored Maki session under a new id (`-r <id> --fork-session`,
-  // src/cli.rs v0.6.4 L53–L63, L114–L117)
+  // src/cli.rs v0.6.5 L53–L63, L114–L117)
   fork?: string;
-  // continue a stored Maki session as itself (`-r <id>`, src/cli.rs v0.6.4
+  // continue a stored Maki session as itself (`-r <id>`, src/cli.rs v0.6.5
   // L53–L63): a moved session's child, restarted in its new workdir
   resume?: string;
   onFrame: (frame: any) => void;
@@ -85,12 +85,12 @@ export class MakiSession {
   }
 
   // image blocks ride after the text block in the same content array, the
-  // stream-json shape the pinned child decodes (sdk_mode.rs v0.6.4 L807–L816)
+  // stream-json shape the pinned child decodes (sdk_mode.rs v0.6.5 L807–L816)
   prompt(text: string, blocks: ContentBlock[] = []): void {
     this.write({ type: "user", message: { role: "user", content: [{ type: "text", text }, ...blocks] } });
   }
 
-  // the pinned decoder (sdk_mode.rs v0.6.4 L918–L927) reads `allow` plus an
+  // the pinned decoder (sdk_mode.rs v0.6.5 L918–L927) reads `allow` plus an
   // `updatedPermissions` key as AllowSession and `deny` plus a non-empty
   // `message` as DenyWithGuidance; a bare behavior is AllowOnce / Deny
   answer(requestID: string, behavior: "allow" | "deny", extra: { updatedPermissions?: unknown[]; message?: string } = {}): void {
@@ -98,20 +98,20 @@ export class MakiSession {
   }
 
   // the pinned wire cancels a run with inbound control_request/interrupt
-  // (sdk_mode.rs v0.6.4 L840–L843), not control_cancel_request, which only
+  // (sdk_mode.rs v0.6.5 L840–L843), not control_cancel_request, which only
   // denies one pending ask; maki acks with a control_response, then ends the
   // run with an error result
   interrupt(): string {
     return this.control("interrupt", {});
   }
 
-  // inbound control_request/set_model (sdk_mode.rs v0.6.4 L861–L874): maki
+  // inbound control_request/set_model (sdk_mode.rs v0.6.5 L861–L874): maki
   // resolves the spec through its model policy and acks success or error
   setModel(spec: string): string {
     return this.control("set_model", { model: spec });
   }
 
-  // the pinned mode control (sdk_mode.rs v0.6.4 L846–L860); the next user
+  // the pinned mode control (sdk_mode.rs v0.6.5 L846–L860); the next user
   // message runs in the mode it names (L688–L696)
   setPermissionMode(mode: string): string {
     return this.control("set_permission_mode", { mode });

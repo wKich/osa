@@ -1,8 +1,8 @@
 // Interrupt forwarding over the black-box bridge (spec "Forward an interrupt
 // to the Maki child"): the TUI's interrupt route cancels an in-flight turn by
 // writing the pinned wire's inbound `control_request`/`interrupt` (sdk_mode.rs
-// v0.6.4 L840–L843) and answers `interrupted:true`; the cancelled turn's error
-// result ends as `session.execution.interrupted` (session-event.ts v2.0.32
+// v0.6.5 L840–L843) and answers `interrupted:true`; the cancelled turn's error
+// result ends as `session.execution.interrupted` (session-event.ts v2.1.4
 // `Execution.Interrupted`), not as a failure. An idle session is the pinned
 // no-op (`interrupted:false`, nothing written). One spawned bridge with the
 // scripted child on MAKI_CHILD_CMD; no Docker, gateway, network, or real Maki.

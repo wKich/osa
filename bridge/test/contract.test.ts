@@ -1,5 +1,5 @@
 // Contract and wire tests (spec scenario "Contract and wire rules are
-// enforced"): bridge response bodies against the vendored OpenAPI 2.0.32 with
+// enforced"): bridge response bodies against the vendored OpenAPI 2.1.4 with
 // ajv/dist/2020, plus the measured SSE rules — first frame server.connected,
 // bare `data:` frames, OpenCode id patterns. Runs against a live bridge
 // process and against the committed captures, and proves a corrupted body is

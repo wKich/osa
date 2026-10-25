@@ -1,6 +1,6 @@
 // Review diffs and the review base of the sandbox checkout (vcs.diff,
 // vcs.base, vcs.status), ported from OpenCode's git provider
-// (core/src/plugin/vcs/git.ts v2.0.32) and run in the sandbox over the exec
+// (core/src/plugin/vcs/git.ts v2.1.4) and run in the sandbox over the exec
 // transport. Each request batches its git commands into a few execs: the
 // transport costs a round trip per exec, not per command.
 import { sandboxRun } from "./sandbox.ts";

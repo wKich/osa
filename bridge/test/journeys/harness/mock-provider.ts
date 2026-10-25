@@ -26,8 +26,12 @@ export interface TurnReplay {
 
 export const beginReplay = (): TurnReplay => ({ next: 0, toolCalls: 0 });
 
-const titleRequest = (body: any) =>
-  JSON.stringify(body?.messages?.[0]?.content ?? "").includes("title generator");
+// v2.1.4 asks for the title with a system prompt (the old pin used a user
+// prompt containing "title generator"), so match either shape.
+const titleRequest = (body: any) => {
+  const content = JSON.stringify(body?.messages?.[0]?.content ?? "");
+  return content.includes("title generator") || content.includes("You name conversations");
+};
 
 const chunk = (content: unknown) =>
   `data: ${JSON.stringify({ id: "chatcmpl-journey", object: "chat.completion.chunk", created: 0, model: "mock-model", ...(content as object) })}\n\n`;

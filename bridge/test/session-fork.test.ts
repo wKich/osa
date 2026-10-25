@@ -1,7 +1,7 @@
 // Session fork (add-session-fork): the full-session fork continues the stored
 // Maki session under a new id and copies the settled transcript under the
 // real projector's ids; a mid-session boundary is refused (the pinned child
-// forks whole sessions only). server handlers/session.ts v2.0.32 L226–L239.
+// forks whole sessions only). server handlers/session.ts v2.1.4 L193–L206.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { startBridge, waitFor, type BridgeHandle } from "./lib/bridge.ts";
 import { validateBody } from "./lib/contract.ts";

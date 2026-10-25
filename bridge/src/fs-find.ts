@@ -1,7 +1,7 @@
 // /api/fs/find: the prompt's @-autocomplete (tui component/prompt/
-// autocomplete.tsx v2.0.32) searches the project's files. OpenCode indexes its
-// own directory and ranks fuzzy matches (core filesystem/search.ts v2.0.32
-// L32–L51, L140–L176); the project here lives in the sandbox workdir, so the
+// autocomplete.tsx v2.1.4) searches the project's files. OpenCode indexes its
+// own directory and ranks fuzzy matches (core filesystem/search.ts v2.1.4
+// L31–L50, L139–L175); the project here lives in the sandbox workdir, so the
 // index is the sandbox's file list, read over the exec transport, and ranked
 // the same way: best match first, then the shorter path.
 

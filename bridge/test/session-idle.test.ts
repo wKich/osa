@@ -1,7 +1,7 @@
 // Session idle state (add-session-idle-state): a terminal execution
 // transition is the session's `time.idle` and `outcome`, set before the frame
 // the TUI re-reads on, strictly advancing; `session.view` acknowledges it
-// (core session/session.ts v2.0.32 L61–L70, projector.ts L412–L440, L601–L611).
+// (core session/session.ts v2.1.4 L61–L70, projector.ts L418–L446, L601–L611).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { startBridge, waitFor, type BridgeHandle } from "./lib/bridge.ts";
 import { validateBody } from "./lib/contract.ts";

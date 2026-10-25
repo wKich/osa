@@ -1,7 +1,7 @@
 #!/bin/sh
 # Scripted `maki` for the scripted sandbox (FAKE_SANDBOX_BIN): prints the
 # pinned output shapes of `maki models` and `maki auth status`
-# (src/cmd/subcmd.rs v0.6.4 L601–L630, L485).
+# (src/cmd/subcmd.rs v0.6.5 L601–L630, L485).
 case "$1 $2" in
   # FAKE_SANDBOX_MODELS (space-separated) stands in for a configured catalog
   "models ") if [ -n "$FAKE_SANDBOX_MODELS_FILE" ] && [ -f "$FAKE_SANDBOX_MODELS_FILE" ]; then cat "$FAKE_SANDBOX_MODELS_FILE"; elif [ -n "$FAKE_SANDBOX_MODELS" ]; then printf '%s\n' $FAKE_SANDBOX_MODELS; else printf '%s\n' synthetic/hf:zai-org/GLM-4.7 synthetic/fake anthropic/claude-sonnet-5-5; fi ;;
@@ -15,7 +15,7 @@ case "$1 $2" in
     printf '\033[33m~\033[0m %-14s %s (via %s)\n' synthetic Synthetic SYNTHETIC_API_KEY
     printf '\033[31m✗\033[0m %-14s %s (run: maki auth login %s)\n' openai OpenAI openai
     printf '\033[33m~\033[0m %-14s %s (via %s)\n' anthropic Anthropic ANTHROPIC_API_KEY ;;
-  # a throwaway fork's cleanup (src/cli.rs v0.6.4 L313–L321); the scripted
+  # a throwaway fork's cleanup (src/cli.rs v0.6.5 L313–L321); the scripted
   # sandbox keeps no store, so it only records the call
   "session delete")
     [ -n "$FAKE_SANDBOX_MAKI_TRACE" ] && printf '%s\n' "$*" >> "$FAKE_SANDBOX_MAKI_TRACE"

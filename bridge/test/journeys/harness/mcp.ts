@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 /** the journeys' stdio MCP server (mcp-server.ts) */
 export const MCP_SERVER = join(dirname(fileURLToPath(import.meta.url)), "mcp-server.ts");
 
-/** Maki's MCP config naming the journey server (maki-agent mcp/config.rs v0.6.4) */
+/** Maki's MCP config naming the journey server (maki-agent mcp/config.rs v0.6.5) */
 export function journeyMcpToml(server: string): string {
   return `[mcp.journey]\ncommand = ["bun", ${JSON.stringify(server)}]\nenabled = true\n`;
 }

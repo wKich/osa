@@ -1,6 +1,6 @@
 // The `/stats` page's aggregate (session-stats.ts): the bridge's session
 // histories counted as OpenCode counts its stored messages (core
-// session/stats.ts v2.0.32 L84–L360).
+// session/stats.ts v2.1.4 L79–L355).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { sessionStats } from "../src/session-stats.ts";
 import { startBridge, waitFor, type BridgeHandle } from "./lib/bridge.ts";

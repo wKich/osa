@@ -1,7 +1,7 @@
 // Mid-session model-switch tests over the black-box bridge (spec "Forward
 // mid-session model selection to the Maki child"): the TUI's model POST is
 // forwarded as the pinned wire's inbound `control_request`/`set_model`
-// (sdk_mode.rs v0.6.4 L861–L874), and only the child's success ack changes the
+// (sdk_mode.rs v0.6.5 L861–L874), and only the child's success ack changes the
 // model the session and its following step frames report; a rejected model
 // leaves the announced one in place. One spawned bridge with the scripted
 // child on MAKI_CHILD_CMD; no Docker, gateway, network, or real Maki process.
@@ -87,7 +87,7 @@ describe("mid-session model switch over the spawned bridge", () => {
     expect(list.data.find((s: any) => s.id === sid)?.model).toEqual(switched);
     expect(await turnStepModel()).toEqual(switched);
     // the switch is the session's durable state and a transcript row, as the
-    // real server records it (core session/message-updater.ts v2.0.32 L105–L117)
+    // real server records it (core session/message-updater.ts v2.1.4 L107–L119)
     const selected = bridge.frames.filter((f) => f.type === "session.model.selected" && f.data?.sessionID === sid);
     expect(selected.map((f) => f.data)).toEqual([{ sessionID: sid, model: switched, previous: { providerID: "synthetic", id: "fake" } }]);
     expect(selected[0]!.durable).toMatchObject({ aggregateID: sid, version: 1 });

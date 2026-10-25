@@ -1,7 +1,7 @@
 # Maki coding-agent image for OpenShell sandboxes.
 #
 # Build from the repository root:
-#   docker build --build-arg MAKI_VERSION=0.6.4 -t maki-agent:local examples/maki-image
+#   docker build --build-arg MAKI_VERSION=0.6.5 -t maki-agent:local examples/maki-image
 #
 # The image contains no credentials. OpenShell injects provider placeholders at
 # sandbox runtime; never bake secrets into this image.
@@ -14,7 +14,7 @@ FROM ubuntu:24.04
 
 # Pinned Maki release. Keep in sync with the "verified against" header in
 # docs/setup-guide.md and docs/ai/references.md.
-ARG MAKI_VERSION=0.6.4
+ARG MAKI_VERSION=0.6.5
 
 ARG DEBIAN_FRONTEND=noninteractive
 

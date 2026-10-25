@@ -1,7 +1,7 @@
 // The project's worktrees (worktrees.ts): listed, created under the sandbox
 // user's data directory with `git worktree add --detach`, opened as a
 // session's directory, and removed, as OpenCode's git strategy does (core
-// worktree.ts v2.0.32 L204–L330; git.ts L1251–L1291).
+// worktree.ts v2.1.4 L204–L330; git.ts L1251–L1291).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";

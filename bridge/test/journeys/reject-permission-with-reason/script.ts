@@ -3,7 +3,7 @@ import { checkpoint, journey, type, waitFor } from "../harness/journey.ts";
 const TASK = { description: "Remove a probe", prompt: "Use your shell tool to run exactly: rm -f probe.txt . Then reply with the word GONE." };
 
 // a subagent's ask: rejecting a child session's permission asks for a reason
-// (tui routes/session/permission.tsx v2.0.32 L248–L251)
+// (tui routes/session/permission.tsx v2.1.4 L248–L251)
 export default journey("reject-permission-with-reason", {
   turns: [
     {

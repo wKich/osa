@@ -2,12 +2,12 @@
 // Contract drift gate (spec scenario "Drift is reported with the delta"):
 // re-capture the installed OpenCode's /api/info and /openapi.json the way the
 // spike's capture flow did (opencode serve on a loopback port), A/B against
-// the vendored 2.0.32 copy, and print route/schema deltas plus the installed
+// the vendored 2.1.4 copy, and print route/schema deltas plus the installed
 // OpenCode and Maki versions. Exits non-zero on drift; skips with a named
 // message when a required binary is absent. Never part of `make test`.
 import { readFileSync } from "node:fs";
 
-const VENDORED = "bridge/src/openapi-2.0.32.json";
+const VENDORED = "bridge/src/openapi-2.1.4.json";
 
 const missing = ["opencode", "maki"].filter((bin) => !Bun.which(bin));
 if (missing.length) {

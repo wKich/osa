@@ -1,7 +1,7 @@
 // Persistent terminals in the project sandbox: the TUI's terminal pane
-// (tui component/terminal-pane.tsx v2.0.32, context/session-terminals.tsx)
+// (tui component/terminal-pane.tsx v2.1.4, context/session-terminals.tsx)
 // over OpenCode's persistent-PTY routes and attach socket (server
-// handlers/persistent-pty.ts v2.0.32 L17–L209). Each terminal is the sandbox
+// handlers/persistent-pty.ts v2.1.4 L17–L209). Each terminal is the sandbox
 // user's shell, run by `openshell sandbox exec --tty` inside a Bun PTY on the
 // host — the transport every other sandbox read uses, with no --env value —
 // so its size follows the TUI and the shell's output streams back as is.

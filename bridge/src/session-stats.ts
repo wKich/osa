@@ -1,6 +1,6 @@
 // /api/experimental/session/stats: the TUI's `/stats` page (feature-plugins/
-// system/stats.tsx v2.0.32). OpenCode aggregates its stored messages (core
-// session/stats.ts v2.0.32 L84–L360); the bridge is the server of record for
+// system/stats.tsx v2.1.4). OpenCode aggregates its stored messages (core
+// session/stats.ts v2.1.4 L79–L355); the bridge is the server of record for
 // its sessions, so it aggregates its own session histories the same way:
 // root sessions and subagents, root prompts, one step per assistant message
 // with its tokens, cost and model, activity per day, tool calls by state.

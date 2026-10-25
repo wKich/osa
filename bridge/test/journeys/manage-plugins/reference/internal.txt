@@ -24,9 +24,9 @@
                     opencode.sidebar.context
                     opencode.sidebar.footer
                     opencode.sidebar.mcp
+                    opencode.sidebar.todo
                     opencode.stats
 
-                    Server
 
                     hide internal ctrl+a                                               disable enter
 
@@ -36,4 +36,4 @@
 
 
 
-                                                                                                                2.0.32
+                                                                                                                 2.1.4

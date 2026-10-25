@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // Route enumeration from the vendored OpenAPI pin (rebaseline design D1/D5).
-// The pin is the contract: this reads `bridge/src/openapi-2.0.32.json`, never a
+// The pin is the contract: this reads `bridge/src/openapi-2.1.4.json`, never a
 // live re-capture, so a re-run is a no-op between pin bumps.
 //
 //   bun scripts/enumerate-routes.ts --out <file.md>   write the enumeration
@@ -11,7 +11,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 const ROOT = new URL("..", import.meta.url);
 const read = (rel: string) => readFileSync(new URL(rel, ROOT), "utf8");
-const PIN = "bridge/src/openapi-2.0.32.json";
+const PIN = "bridge/src/openapi-2.1.4.json";
 const STATUSES = "bridge/compat/statuses.json";
 
 const spec = JSON.parse(read(PIN));

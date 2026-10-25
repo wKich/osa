@@ -1,6 +1,6 @@
 // Agent selection over the black-box bridge (add-plan-agent): Maki's agents
 // are its build and plan modes, so a selection becomes the pinned
-// set_permission_mode control (sdk_mode.rs v0.6.4 L846–L860) written before
+// set_permission_mode control (sdk_mode.rs v0.6.5 L846–L860) written before
 // the next user message, which runs in that mode (L688–L696); `build`
 // restores the mode the child started in. The selection is durable session
 // state (session.agent.selected) and a transcript row. One spawned bridge

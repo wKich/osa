@@ -1,6 +1,6 @@
 // Review diffs of the sandbox checkout (add-vcs-review): vcs.diff, vcs.base
 // and vcs.status follow OpenCode's git provider (core plugin/vcs/git.ts
-// v2.0.32) over the exec transport; a repository created mid-run is picked up
+// v2.1.4) over the exec transport; a repository created mid-run is picked up
 // by the next project read.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { writeFileSync } from "node:fs";

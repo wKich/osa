@@ -3,7 +3,7 @@
 // TUI can list it (session.inbox.list), cancel it before the child sees it
 // (session.inbox.cancel), and keep it queued (session.inbox.update); steering
 // it into the running turn is the pinned conflict, since the child cannot take
-// a prompt mid-run (server handlers/session.ts v2.0.32 L542–L571).
+// a prompt mid-run (server handlers/session.ts v2.1.4 L513–L542).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";

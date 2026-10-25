@@ -1,0 +1,44 @@
+# OpenCode + MiniMax coding plan provider profile for OpenShell.
+#
+# Lint and import from the repository root:
+#   openshell profile lint -f opencode-oss/providers/opencode-minimax-coding-plan.yaml
+#   openshell profile import -f opencode-oss/providers/opencode-minimax-coding-plan.yaml --global
+#
+# Then create the provider instance from your host environment:
+#   MINIMAX_API_KEY=<key> openshell provider create \
+#     --name opencode-minimax-coding-plan --type opencode-minimax-coding-plan --from-existing
+#
+# The profile authorizes only /usr/local/bin/opencode (the path used by
+# opencode-oss/image) to reach api.minimax.io, and binds MINIMAX_API_KEY to
+# that endpoint. The endpoint speaks the Anthropic protocol, so the credential
+# travels in x-api-key rather than an authorization bearer header. The CN
+# region (api.minimax.cn) is a separate host and needs its own profile. Do not
+# set MINIMAX_BASE_URL in the sandbox: a different base URL would leave the
+# credential unbound.
+
+id: opencode-minimax-coding-plan
+display_name: OpenCode (MiniMax Coding Plan)
+description: MiniMax coding plan inference API for the OpenCode coding agent
+category: inference
+inference_capable: true
+
+credentials:
+  - name: api_key
+    description: MiniMax API key
+    env_vars: [MINIMAX_API_KEY]
+    required: true
+    auth_style: header
+    header_name: x-api-key
+
+discovery:
+  credentials: [api_key]
+
+endpoints:
+  - host: api.minimax.io
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+
+binaries:
+  - /usr/local/bin/opencode

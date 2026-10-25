@@ -109,6 +109,8 @@ sandboxes by hand is a chore. maki-oss gives you:
 - [`docs/verification.md`](docs/verification.md) — isolation checklist with
   exact commands and expected output.
 - [`docs/glossary.md`](docs/glossary.md) — shared vocabulary for these docs.
+- [`opencode-oss/README.md`](opencode-oss/README.md) — run OpenCode itself
+  natively in a sandbox (image, profiles, policy, verification record).
 
 ## Security invariants
 

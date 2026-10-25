@@ -1,0 +1,41 @@
+# OpenCode + DeepSeek provider profile for OpenShell.
+#
+# Lint and import from the repository root:
+#   openshell profile lint -f opencode-oss/providers/opencode-deepseek.yaml
+#   openshell profile import -f opencode-oss/providers/opencode-deepseek.yaml --global
+#
+# Then create the provider instance from your host environment:
+#   DEEPSEEK_API_KEY=<key> openshell provider create \
+#     --name opencode-deepseek --type opencode-deepseek --from-existing
+#
+# The profile authorizes only /usr/local/bin/opencode (the path used by
+# opencode-oss/image) to reach api.deepseek.com, and binds DEEPSEEK_API_KEY
+# to that endpoint. Do not set DEEPSEEK_BASE_URL in the sandbox: a different
+# base URL would leave the credential unbound.
+
+id: opencode-deepseek
+display_name: OpenCode (DeepSeek)
+description: DeepSeek inference API for the OpenCode coding agent
+category: inference
+inference_capable: true
+
+credentials:
+  - name: api_key
+    description: DeepSeek API key
+    env_vars: [DEEPSEEK_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+
+discovery:
+  credentials: [api_key]
+
+endpoints:
+  - host: api.deepseek.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+
+binaries:
+  - /usr/local/bin/opencode

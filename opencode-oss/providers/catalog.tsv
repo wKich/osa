@@ -1,0 +1,26 @@
+# OpenShell profile to OpenCode provider mapping for opencode-oss.
+#
+# Columns, tab-separated:
+#   profile-id         file in this directory (<profile-id>.yaml)
+#   opencode-provider  OpenCode provider ID (the part before "/" in --model)
+#   env-var            credential env var the profile binds
+#   example-model      a model ID from the image's bundled catalog
+#   note               short note
+#
+# Provider IDs and models come from `opencode models --standalone` in
+# opencode-agent:local (OpenCode 2.1.4). One env var can enable sibling
+# OpenCode providers (KIMI_API_KEY also enables kimi-code-plan-cn; ZHIPU_API_KEY
+# also enables zai and zhipuai*); only the provider named here has an endpoint
+# in its profile, so use that one.
+opencode-openai	openai	OPENAI_API_KEY	openai/gpt-5.5	OpenAI platform key (ChatGPT OAuth is not supported)
+opencode-anthropic	anthropic	ANTHROPIC_API_KEY	anthropic/claude-sonnet-5	Anthropic API key (Claude Pro/Max OAuth is not supported)
+opencode-openrouter	openrouter	OPENROUTER_API_KEY	openrouter/z-ai/glm-5.3	OpenRouter API key
+opencode-deepseek	deepseek	DEEPSEEK_API_KEY	deepseek/deepseek-v4-pro	DeepSeek API key
+opencode-synthetic	synthetic	SYNTHETIC_API_KEY	synthetic/hf:zai-org/GLM-5.3	Synthetic API key
+opencode-nano-gpt	nano-gpt	NANO_GPT_API_KEY	nano-gpt/deepseek/deepseek-v4-pro	NanoGPT API key
+opencode-opencode	opencode	OPENCODE_API_KEY	opencode/kimi-k3	OpenCode Zen API key
+opencode-opencode-go	opencode-go	OPENCODE_API_KEY	opencode-go/glm-5.3	OpenCode Go API key (same key as Zen)
+opencode-zai-coding	zai-coding-plan	ZHIPU_API_KEY	zai-coding-plan/glm-5.3	Z.AI coding-plan key
+opencode-kimi-for-coding	kimi-code-plan-global	KIMI_API_KEY	kimi-code-plan-global/kimi-for-coding	Kimi coding-plan key (api.kimi.ai)
+opencode-minimax-coding-plan	minimax-coding-plan	MINIMAX_API_KEY	minimax-coding-plan/MiniMax-M3	MiniMax coding-plan key (Anthropic-protocol endpoint)
+opencode-xiaomi-token-plan-sgp	xiaomi-token-plan-sgp	XIAOMI_API_KEY	xiaomi-token-plan-sgp/mimo-v2.6-pro	Xiaomi token plan key (Singapore region)

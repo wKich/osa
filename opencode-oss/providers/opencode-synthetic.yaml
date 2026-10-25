@@ -1,0 +1,41 @@
+# OpenCode + Synthetic provider profile for OpenShell.
+#
+# Lint and import from the repository root:
+#   openshell profile lint -f opencode-oss/providers/opencode-synthetic.yaml
+#   openshell profile import -f opencode-oss/providers/opencode-synthetic.yaml --global
+#
+# Then create the provider instance from your host environment:
+#   SYNTHETIC_API_KEY=<key> openshell provider create \
+#     --name opencode-synthetic --type opencode-synthetic --from-existing
+#
+# The profile authorizes only /usr/local/bin/opencode (the path used by
+# opencode-oss/image) to reach api.synthetic.new, and binds
+# SYNTHETIC_API_KEY to that endpoint. Do not set SYNTHETIC_BASE_URL in the
+# sandbox: a different base URL would leave the credential unbound.
+
+id: opencode-synthetic
+display_name: OpenCode (Synthetic)
+description: Synthetic inference API for the OpenCode coding agent
+category: inference
+inference_capable: true
+
+credentials:
+  - name: api_key
+    description: Synthetic API key
+    env_vars: [SYNTHETIC_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+
+discovery:
+  credentials: [api_key]
+
+endpoints:
+  - host: api.synthetic.new
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+
+binaries:
+  - /usr/local/bin/opencode

@@ -45,6 +45,13 @@ model = ""
 # limitations"). Any other value is a usage error.
 tui = ""
 
+# Stop the sandbox this long after the last session closes, unless a `maki`
+# process still runs inside it (MAKI_OSS_IDLE_STOP and --idle-stop override
+# this file). Seconds, or with an s, m, or h suffix; the default is 1h, and
+# "0" disables the idle stop. The workspace and Maki's sessions survive the
+# stop. Example:
+# idle_stop = "30m"
+
 # Optional CPU and memory limits passed to `openshell sandbox create`.
 cpu = "2"
 memory = "4Gi"

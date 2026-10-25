@@ -71,7 +71,9 @@ When the session ends, the sandbox's changes are collected as a patch and
 applied to the project only when it is safe: a clean repository is
 fast-forwarded, a dirty or moved host keeps a review branch, and a plain
 directory uses `git apply --check`. Conflicts keep the patch and leave the host
-unchanged. Your local files stay the source of truth. Full command reference:
+unchanged. Your local files stay the source of truth. An hour after the last
+session closes, the sandbox is stopped; the next session starts it again with
+your work intact (`idle_stop = "0"` turns this off). Full command reference:
 [`docs/helper.md`](docs/helper.md).
 
 ## Why?

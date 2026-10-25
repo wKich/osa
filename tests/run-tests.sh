@@ -12,9 +12,13 @@ set -eu
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 MAKI=$ROOT/bin/maki-oss
 STUB_DIR=$ROOT/tests/stub
+# Session commands arm an idle-stop watcher by default; only the idle cases
+# turn it on (run_maki passes ENV_IDLE_STOP, unset means 0).
+export MAKI_OSS_IDLE_STOP=0
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/maki-oss-tests.XXXXXX")
 cleanup() {
+    pkill -f "$MAKI __idle-watch" 2>/dev/null || true
     if [ "${KEEP_WORK:-0}" != 1 ]; then
         rm -rf "$WORK"
     fi
@@ -77,6 +81,7 @@ new_case() {
     RUN_DIR=
     ENV_NAME=
     ENV_TIMEOUT=
+    unset ENV_IDLE_STOP
     ENV_RUN_TAG=
     ENV_IMAGE=
     ENV_POLICY=
@@ -144,6 +149,7 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         MAKI_OSS_SANDBOX_NAME="${ENV_NAME:-}" \
         MAKI_OSS_TUI="${ENV_TUI:-}" \
         MAKI_OSS_TIMEOUT="${ENV_TIMEOUT:-}" \
+        MAKI_OSS_IDLE_STOP="${ENV_IDLE_STOP-0}" \
         MAKI_OSS_RUN_TAG="${ENV_RUN_TAG:-}" \
         MAKI_OSS_WORKDIR="$CASE/sandbox/project" \
         STUB_SANDBOX_ROOT="$CASE/sandbox" \
@@ -2753,6 +2759,211 @@ test_fish_completions() {
     assert_fish_out_has "--profile"
 }
 
+# ---------------------------------------------------------------------------
+# Session idle stop
+# ---------------------------------------------------------------------------
+
+idle_dir() {
+    printf '%s' "$HOME/.local/state/maki-oss/sessions/maki-myproject"
+}
+
+# Succeeds once FILE has a line matching PATTERN (grep), within SECS seconds.
+wait_for_match() { # FILE PATTERN SECS
+    wfm_i=0
+    while [ "$wfm_i" -lt "$3" ]; do
+        if grep -q -- "$2" "$1" 2>/dev/null; then
+            return 0
+        fi
+        sleep 1
+        wfm_i=$((wfm_i + 1))
+    done
+    return 1
+}
+
+stop_count() {
+    grep -cx 'stop' "$LOG" 2>/dev/null || true
+}
+
+# Makes the in-sandbox scan answer WORD (idle or busy).
+idle_scan_answers() { # WORD
+    printf '%s\n' "$1" >"$CASE/scan-answer"
+    printf 'maki-oss-idle|0|%s\n' "$CASE/scan-answer" >"$CASE/exec-cases"
+    EXEC_CASES=$CASE/exec-cases
+}
+
+# Kills the watchers a case armed (and their sleeps) so none outlive it.
+kill_idle_watchers() {
+    sed -n 's/.*watcher=\([0-9][0-9]*\).*/\1/p' "$(idle_dir)/idle.log" 2>/dev/null |
+        while read -r kiw_pid; do
+            pkill -P "$kiw_pid" 2>/dev/null || true
+            kill "$kiw_pid" 2>/dev/null || true
+        done
+}
+
+idle_session_case() { # CASE-NAME
+    new_case "$1"
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+}
+
+test_idle_stop_setting() {
+    begin "idle_stop resolves to seconds, 0 disables it, and bad values are usage errors"
+    idle_session_case idle-setting
+
+    ENV_IDLE_STOP=
+    run_maki maki
+    assert_rc 0
+    kill_idle_watchers
+    grep -q 'armed secs=3600 ' "$(idle_dir)/idle.log" || bad "default is not 3600 seconds"
+
+    rm -rf "$(idle_dir)"
+    ist_config=$XDG_CONFIG_HOME/maki-oss/config.toml
+    cp "$ist_config" "$CASE/config.orig"
+    printf 'idle_stop = "90m"\n' >>"$ist_config"
+    run_maki maki
+    assert_rc 0
+    kill_idle_watchers
+    grep -q 'armed secs=5400 ' "$(idle_dir)/idle.log" || bad "90m is not 5400 seconds"
+    cp "$CASE/config.orig" "$ist_config"
+
+    reset_log
+    run_maki maki --idle-stop soon
+    assert_rc 1
+    assert_err_has "idle_stop"
+    if [ -s "$LOG" ]; then
+        bad "an invalid idle_stop reached openshell"
+    fi
+
+    rm -rf "$(idle_dir)"
+    run_maki maki --idle-stop 0
+    assert_rc 0
+    if [ -e "$(idle_dir)/idle" ]; then
+        bad "--idle-stop 0 wrote an idle stamp"
+    fi
+
+    ENV_IDLE_STOP=2
+    run_maki up
+    assert_rc 0
+    if [ -e "$(idle_dir)/idle" ]; then
+        bad "up wrote an idle stamp"
+    fi
+}
+
+test_idle_stop_after_idle() {
+    begin "the sandbox stops once the idle period passes after the last session"
+    idle_session_case idle-stop
+    idle_scan_answers idle
+    ENV_IDLE_STOP=2s
+    run_maki maki
+    assert_rc 0
+    if ! wait_for_match "$LOG" '^stop$' 15; then
+        bad "no sandbox stop after the idle period"
+        kill_idle_watchers
+        return 0
+    fi
+    sleep 1
+    [ "$(stop_count)" = 1 ] || bad "expected one stop, saw $(stop_count)"
+    assert_log_line "maki-oss-idle"
+    assert_log_line_before "maki-oss-idle" "stop"
+    grep -q ' stopped ' "$(idle_dir)/idle.log" || bad "idle.log has no stopped line"
+    [ "$(cat "$STUB_STATE_DIR/sandboxes/maki-myproject")" = Stopped ] || bad "sandbox is not Stopped"
+}
+
+test_idle_stop_after_sighup() {
+    begin "a session killed by SIGHUP still arms the idle stop"
+    idle_session_case idle-sighup
+    idle_scan_answers idle
+    ENV_IDLE_STOP=2
+    STUB_MAKI_SCRIPT='sleep 20'
+    # The job's shell reports the hangup on its stderr; keep the suite quiet.
+    run_maki maki 2>/dev/null &
+    ish_job=$!
+    STUB_MAKI_SCRIPT=
+    if ! wait_for_match "$(idle_dir)/idle.log" 'armed ' 10; then
+        bad "the session never armed a watcher"
+        wait "$ish_job" || true
+        return 0
+    fi
+    sleep 1
+    ish_pid=$(sed -n 's/.*session=\([0-9][0-9]*\).*/\1/p' "$(idle_dir)/idle.log" | head -n 1)
+    kill -HUP "$ish_pid" 2>/dev/null || bad "could not signal the helper"
+    wait "$ish_job" 2>/dev/null || true
+    if ! wait_for_match "$LOG" '^stop$' 15; then
+        bad "no sandbox stop after SIGHUP"
+        kill_idle_watchers
+    fi
+}
+
+test_idle_stop_newer_session_cancels() {
+    begin "a newer session cancels the pending stop until it closes"
+    idle_session_case idle-newer
+    idle_scan_answers idle
+    ENV_IDLE_STOP=3
+    run_maki maki
+    assert_rc 0
+    if ! wait_for_match "$(idle_dir)/idle.log" 'closed ' 10; then
+        bad "the first session never closed"
+        kill_idle_watchers
+        return 0
+    fi
+    STUB_MAKI_SCRIPT='sleep 7'
+    run_maki maki &
+    inc_job=$!
+    STUB_MAKI_SCRIPT=
+    # The first deadline passes while the second session still runs.
+    if ! wait_for_match "$(idle_dir)/idle.log" 'superseded ' 10; then
+        bad "the first watcher was not superseded"
+    fi
+    [ "$(stop_count)" = 0 ] || bad "stopped while the newer session ran"
+    wait "$inc_job" || true
+    if ! wait_for_match "$LOG" '^stop$' 15; then
+        bad "no stop after the newer session closed"
+        kill_idle_watchers
+        return 0
+    fi
+    sleep 1
+    [ "$(stop_count)" = 1 ] || bad "expected one stop, saw $(stop_count)"
+}
+
+test_idle_stop_busy_sandbox() {
+    begin "a running Maki inside the sandbox keeps it up"
+    idle_session_case idle-busy
+    idle_scan_answers busy
+    ENV_IDLE_STOP=2
+    run_maki maki
+    assert_rc 0
+    if ! wait_for_match "$(idle_dir)/idle.log" ' busy ' 15; then
+        bad "idle.log has no busy line"
+        kill_idle_watchers
+        return 0
+    fi
+    assert_log_line "maki-oss-idle"
+    [ "$(stop_count)" = 0 ] || bad "stopped a busy sandbox"
+}
+
+test_idle_stop_failure_is_silent() {
+    begin "a failed idle stop is logged, silent, and not retried"
+    idle_session_case idle-stop-fail
+    idle_scan_answers idle
+    ENV_IDLE_STOP=2
+    run_maki maki
+    assert_rc 0
+    cp "$ERR" "$CASE/err.before"
+    # The stub's stop fails once the sandbox is gone from its state.
+    rm -f "$STUB_STATE_DIR/sandboxes/maki-myproject"
+    if ! wait_for_match "$(idle_dir)/idle.log" 'stop-failed ' 15; then
+        bad "idle.log has no stop-failed line"
+        kill_idle_watchers
+        return 0
+    fi
+    sleep 3
+    [ "$(stop_count)" = 1 ] || bad "expected one stop attempt, saw $(stop_count)"
+    cmp -s "$ERR" "$CASE/err.before" || bad "the watcher wrote to the session's stderr"
+}
+
 test_example_config() {
     begin "examples/config.toml selects the base image and no provider"
     new_case example-config
@@ -3544,6 +3755,12 @@ run_test test_fish_plugin
 run_test test_fish_fisher_layout
 run_test test_fish_completions
 run_test test_example_config
+run_test test_idle_stop_setting
+run_test test_idle_stop_after_idle
+run_test test_idle_stop_after_sighup
+run_test test_idle_stop_newer_session_cancels
+run_test test_idle_stop_busy_sandbox
+run_test test_idle_stop_failure_is_silent
 run_test test_no_placeholder_spelling
 
 printf '\n%d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"

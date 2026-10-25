@@ -1138,3 +1138,37 @@ sandbox: `maki models` listed `kontur`, `inception`, `opencode-go`, `kimi`,
 `minimax`, `nano-gpt`, `xiaomi`, `zai`, `deepseek`, and `synthetic`, and a
 headless `kontur/code-ultra` call returned `OK`. Existing sandboxes keep the
 old image until recreated.
+
+## Session idle stop — 2026-10-25
+
+Live check for `add-idle-stop` on the `maki-maki-openshell` sandbox
+(`maki-agent:personal`, OpenShell 0.1.5) with `idle_stop` set to 60 seconds.
+One interactive session ran and was closed. `maki-oss status` showed
+`Phase: Ready` right after the session and `Phase: Stopped` about a minute
+later. The watcher's log
+(`~/.local/state/maki-oss/sessions/maki-maki-openshell/idle.log`):
+
+```text
+2026-10-25T23:22:33 armed secs=60 session=60018 watcher=60078
+2026-10-25T23:22:59 closed session=60018
+2026-10-25T23:24:04 stopped session=60018
+```
+
+The stop landed 65 s after the close: the 60 s idle period, up to 2 s of
+close-detection polling, and the in-sandbox `maki` scan plus the gateway stop.
+A following `maki-oss maki --continue` restarted the stopped sandbox and
+resumed the session:
+
+```text
+$ maki-oss maki --continue
+Starting sandbox 'maki-maki-openshell' (phase: Stopped)...
+✓ Started sandbox maki-maki-openshell
+...
+Resume session:
+
+  maki -r CgMNjvxUSpcRoasBxPq4b
+No sandbox changes to sync.
+```
+
+That session armed a fresh watcher with the default period
+(`23:25:25 armed secs=3600 session=76777`, `23:25:49 closed session=76777`).

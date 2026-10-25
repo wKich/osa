@@ -114,6 +114,9 @@ Common options:
   --no-sync        Session commands: skip collecting changes on exit
                    (default: collect a patch and apply it only when the
                    sandbox baseline matches the host)
+  --idle-stop DUR  Session commands: stop the sandbox DUR after the last
+                   session closes and no Maki runs in it (seconds, or with
+                   an s, m, or h suffix; default 1h; 0 disables)
   --yes            Skip confirmation prompts (rm, policy approve, policy set,
                     provider setup)
   --from STORE     provider setup credential store: maki or opencode
@@ -177,6 +180,7 @@ config_gateway=
 config_workdir=
 config_model=
 config_tui=
+config_idle_stop=
 
 # Parse the config file as data and print `key<TAB>value` lines. The parser
 # accepts `key = "value"`, comments, and blank lines, and reports unknown
@@ -195,6 +199,7 @@ parse_config_file() { # FILE
             known["workdir"] = 1
             known["model"] = 1
             known["tui"] = 1
+            known["idle_stop"] = 1
             errors = 0
         }
         function problem(message) {
@@ -243,6 +248,7 @@ load_config() {
     config_workdir=
     config_model=
     config_tui=
+    config_idle_stop=
     if [ ! -f "$config_file" ]; then
         return 0
     fi
@@ -267,6 +273,7 @@ load_config() {
             workdir)      config_workdir=$value ;;
             model)        config_model=$value ;;
             tui)          config_tui=$value ;;
+            idle_stop)    config_idle_stop=$value ;;
             '') ;;
             *)
                 config_unknown=$key
@@ -350,6 +357,32 @@ resolved_model() {
 # any sandbox call so an invalid value never reaches the gateway.
 resolved_timeout() {
     resolve_setting "$opt_timeout" "${MAKI_OSS_TIMEOUT:-}" "" ""
+}
+
+# Seconds after the last session closes before the sandbox is stopped. Accepts
+# N, Ns, Nm, or Nh; 0 disables the idle stop. Anything else is a usage error
+# naming the key, raised before any sandbox call.
+resolved_idle_stop() {
+    ris_value=$(resolve_setting "$opt_idle_stop" "${MAKI_OSS_IDLE_STOP:-}" "$config_idle_stop" 1h)
+    ris_number=${ris_value%[smh]}
+    ris_unit=${ris_value#"$ris_number"}
+    case $ris_number in
+        ''|*[!0-9]*)
+            die_usage "invalid 'idle_stop' value <$ris_value>: use seconds, optionally with an s, m, or h suffix (0 disables)"
+            ;;
+    esac
+    while :; do
+        case $ris_number in
+            0?*) ris_number=${ris_number#0} ;;
+            *) break ;;
+        esac
+    done
+    case $ris_unit in
+        ''|s) ris_scale=1 ;;
+        m) ris_scale=60 ;;
+        h) ris_scale=3600 ;;
+    esac
+    printf '%s' "$((ris_number * ris_scale))"
 }
 
 resolved_tui() {
@@ -1717,8 +1750,103 @@ ensure_project_sandbox() {
     ensure_attach_missing "$name"
 }
 
+# ---------------------------------------------------------------------------
+# Session idle stop
+#
+# A session spawns a detached watcher before the sandbox ensure. The watcher
+# waits for the helper process to exit however it ends (a closed terminal
+# skips the EXIT trap), stamps the close, sleeps the idle period, and stops
+# the sandbox only when its stamp is still the latest and no `maki` process
+# runs inside. Every session start and close rewrites the stamp, so the last
+# one owns the clock. The watcher has no terminal: decisions go to idle.log.
+# ---------------------------------------------------------------------------
+
+IDLE_POLL_SECS=2
+
+# Prints `busy` when a process named maki runs in the sandbox, else `idle`.
+# comm, not cmdline, so the scan never matches its own `sh -c`.
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+IDLE_SCAN_SCRIPT='for f in /proc/[0-9]*/comm; do
+    c=
+    { read -r c <"$f"; } 2>/dev/null || continue
+    if [ "$c" = maki ]; then printf "busy\n"; exit 0; fi
+done
+printf "idle\n"'
+
+idle_token() {
+    printf '%s.%s' "$(date +%s)" "$1"
+}
+
+write_idle_stamp() { # DIR TOKEN
+    printf '%s\n' "$2" >"$1/idle.$$"
+    mv -f "$1/idle.$$" "$1/idle"
+}
+
+read_idle_stamp() { # DIR
+    cat "$1/idle" 2>/dev/null || true
+}
+
+idle_log() { # DIR EVENT
+    printf '%s %s\n' "$(date '+%Y-%m-%dT%H:%M:%S')" "$2" >>"$1/idle.log" 2>/dev/null || true
+}
+
+# Writes the start stamp and spawns the watcher for this helper process.
+# SECS 0 disables it: no stamp, no watcher.
+arm_idle_stop() { # SECS
+    ais_secs=$1
+    [ "$ais_secs" -gt 0 ] || return 0
+    ais_name=$(resolved_name)
+    ais_dir=$(session_state_dir "$ais_name")
+    mkdir -p "$ais_dir"
+    write_idle_stamp "$ais_dir" "$(idle_token "$$")"
+    set -- "$script_dir/${script##*/}" __idle-watch "$ais_name" "$$" "$ais_secs"
+    if [ -n "$gateway" ]; then
+        set -- "$@" --gateway "$gateway"
+    fi
+    nohup "$@" </dev/null >/dev/null 2>&1 &
+    idle_log "$ais_dir" "armed secs=$ais_secs session=$$ watcher=$!"
+}
+
+cmd_idle_watch() { # NAME PID SECS
+    [ "$#" -eq 3 ] || die_usage "usage: maki-oss __idle-watch NAME PID SECS"
+    iw_name=$1
+    iw_pid=$2
+    iw_secs=$3
+    iw_dir=$(session_state_dir "$iw_name")
+    while kill -0 "$iw_pid" 2>/dev/null; do
+        sleep "$IDLE_POLL_SECS"
+    done
+    iw_token=$(idle_token "$$")
+    write_idle_stamp "$iw_dir" "$iw_token"
+    idle_log "$iw_dir" "closed session=$iw_pid"
+    sleep "$iw_secs"
+    if [ "$(read_idle_stamp "$iw_dir")" != "$iw_token" ]; then
+        idle_log "$iw_dir" "superseded session=$iw_pid"
+        return 0
+    fi
+    iw_scan=$(os sandbox exec -n "$iw_name" --no-login-shell -- \
+        sh -c "$IDLE_SCAN_SCRIPT" maki-oss-idle 2>/dev/null) || iw_scan=
+    case $iw_scan in
+        idle) ;;
+        busy)
+            idle_log "$iw_dir" "busy session=$iw_pid"
+            return 0
+            ;;
+        *)
+            idle_log "$iw_dir" "scan-failed session=$iw_pid"
+            return 0
+            ;;
+    esac
+    if os sandbox stop "$iw_name" >/dev/null 2>&1; then
+        idle_log "$iw_dir" "stopped session=$iw_pid"
+    else
+        idle_log "$iw_dir" "stop-failed session=$iw_pid"
+    fi
+}
+
 cmd_maki() {
     [ "$#" -eq 0 ] || die_usage "maki takes no arguments"
+    session_idle_stop=$(resolved_idle_stop)
     # OpenCode mode is decided before any sandbox or bridge work so an invalid
     # value or a refused resume flag never starts a session.
     maki_tui=$(resolved_tui)
@@ -1729,6 +1857,7 @@ cmd_maki() {
         cmd_opencode_tui
     fi
     require_openshell
+    arm_idle_stop "$session_idle_stop"
     ensure_project_sandbox
     name=$(resolved_name)
     workdir=$(resolved_workdir)
@@ -1798,6 +1927,7 @@ wait_for_bridge_port() { # LOGFILE PID
 
 cmd_opencode_tui() {
     require_openshell
+    arm_idle_stop "$session_idle_stop"
     ensure_project_sandbox
     ot_name=$(resolved_name)
     ot_workdir=$(resolved_workdir)
@@ -1871,7 +2001,9 @@ cmd_run() {
     case ${MAKI_OSS_RUN_TAG:-} in
         *[!A-Za-z0-9._-]*) die_usage "MAKI_OSS_RUN_TAG may only contain letters, digits, '.', '_', and '-'" ;;
     esac
+    session_idle_stop=$(resolved_idle_stop)
     require_openshell
+    arm_idle_stop "$session_idle_stop"
     # Ensure messages go to stderr so stdout carries only Maki's output.
     ensure_project_sandbox >&2
     name=$(resolved_name)
@@ -3464,6 +3596,7 @@ opt_continue=0
 opt_resume=
 opt_session_id=
 opt_timeout=
+opt_idle_stop=
 opt_attach=
 opt_help=0
 
@@ -3485,6 +3618,7 @@ case ${opt_trailing:-} in
     --resume|-r) die_usage "option $opt_trailing requires a value" ;;
     --session-id) die_usage "option --session-id requires a value" ;;
     --timeout) die_usage "option --timeout requires a value" ;;
+    --idle-stop) die_usage "option --idle-stop requires a value" ;;
 esac
 OPT_I=0
 while [ "$OPT_I" -lt "$OPT_ARGC" ]; do
@@ -3628,6 +3762,12 @@ while [ "$OPT_I" -lt "$OPT_ARGC" ]; do
             shift
             OPT_I=$((OPT_I + 1))
             ;;
+        --idle-stop)
+            [ "$#" -gt 0 ] || die_usage "option --idle-stop requires a value"
+            opt_idle_stop=$1
+            shift
+            OPT_I=$((OPT_I + 1))
+            ;;
         --session-id)
             [ "$#" -gt 0 ] || die_usage "option --session-id requires a value"
             [ -n "$1" ] || die_usage "option --session-id requires a non-empty value"
@@ -3750,6 +3890,9 @@ case $cmd in
         ;;
     run)
         cmd_run "$@"
+        ;;
+    __idle-watch)
+        cmd_idle_watch "$@"
         ;;
     upload)
         cmd_upload "$@"

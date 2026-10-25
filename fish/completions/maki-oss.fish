@@ -90,6 +90,7 @@ complete -c maki-oss -s r -l resume -r -d 'Resume a specific session by id'
 complete -c maki-oss -l session-id -r -d 'Write the run under a chosen session id'
 complete -c maki-oss -l timeout -r -d 'run: end Maki inside the sandbox after SECS seconds'
 complete -c maki-oss -l no-sync -d 'Skip patch collection on exit'
+complete -c maki-oss -l idle-stop -r -d 'Stop the sandbox this long after the last session closes (0 disables)'
 
 # image build options.
 complete -c maki-oss -l maki-version -r -d 'Maki release version to build'

@@ -83,6 +83,7 @@ strings; `providers` is a comma-separated list.
 | `workdir` | `MAKI_OSS_WORKDIR` | `/sandbox/project` | In-sandbox project directory used by `upload`, `download`, `maki`, and `run` |
 | `model` | `MAKI_OSS_MODEL` | empty | Default model passed to Maki (`provider/model`); `--model` overrides it |
 | `tui` | `MAKI_OSS_TUI` | empty | Interactive TUI for bare `maki-oss` and `maki-oss maki`: empty keeps Maki's own TUI, `opencode` runs the OpenCode TUI against the local bridge; any other value is a usage error. `run` ignores it |
+| `idle_stop` | `MAKI_OSS_IDLE_STOP` | `1h` | Stop the sandbox this long after the last session closes (seconds, or with an `s`, `m`, or `h` suffix); `0` disables it. `--idle-stop` overrides it. See [Idle stop](#idle-stop) |
 
 `MAKI_VERSION` (or `--maki-version`) sets the Maki release version passed to
 `image build`; when unset, the Dockerfile default applies.
@@ -251,6 +252,40 @@ sandbox baseline and clears the marker, because it is an explicit refresh.
 
 Gitignored files, empty directories, and sandbox-only artifacts do not travel
 in a patch. Use `maki-oss download` when you need a full copy.
+
+#### Idle stop
+
+A sandbox otherwise runs until you stop it: OpenShell has no idle timeout.
+So each session (bare `maki-oss`, `maki-oss maki`, `maki-oss run`, and the
+OpenCode TUI mode) starts a small background watcher. When the session's
+helper process exits, for any reason including a closed terminal or a crash,
+the watcher waits the idle period (`idle_stop`, default `1h`). It then runs
+`openshell sandbox stop`. It skips the stop when:
+
+- a later session started in the meantime (that session's own watcher takes
+  over), or
+- a `maki` process is still running inside the sandbox (another terminal,
+  another host, or Maki started through `openshell sandbox connect`).
+
+`stop` keeps the workspace and Maki's sessions. The next session starts the
+sandbox again, and `--continue` resumes where you were.
+
+```sh
+maki-oss maki --idle-stop 15m      # this session: stop 15 minutes after it closes
+MAKI_OSS_IDLE_STOP=0 maki-oss      # never stop automatically
+# config.toml: idle_stop = "0"
+```
+
+- Only a running `maki` keeps the sandbox up. A shell opened with
+  `openshell sandbox connect` and running nothing else is stopped under you
+  once the period passes. Set `idle_stop = "0"` for that workflow.
+- The watcher is a user process on the host. It does not survive logout or
+  a reboot, and nothing stops the sandbox then.
+- `maki-oss up` and `maki-oss start` never arm the watcher.
+- The watcher writes nothing to your terminal. A failed stop is not retried.
+  Each decision (`armed`, `closed`, `superseded`, `busy`, `stopped`,
+  `stop-failed`, `scan-failed`) is appended to
+  `${XDG_STATE_HOME:-~/.local/state}/maki-oss/sessions/<sandbox>/idle.log`.
 
 #### OpenCode TUI mode (`tui = "opencode"`)
 

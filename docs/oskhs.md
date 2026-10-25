@@ -251,7 +251,7 @@ Thread follow-ups (`thread_instruction`) are code rounds too, as in kiss:
 
 - A repository with an MR works on the MR's branch; the follow-up's commits
   are force-pushed there, and the reply ends with kiss's
-  `Commit [<8 hex>](<url>)` links. Leftover edits are committed with the
+  `Commit <8 hex> (<url>)` links. Leftover edits are committed with the
   `Commit` field, else `Title`, else kiss's default title.
 - A changed repository without an MR gets one on the task's branch — so a
   follow-up after a question round opens the task's first MR; the task goes

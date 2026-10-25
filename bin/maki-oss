@@ -111,8 +111,9 @@ Common options:
   --session-id ID  Session commands: write the run under a chosen session id
   --timeout SECS   run: end Maki inside the sandbox after SECS seconds
                    (exit 124)
-  --no-sync        Session commands: skip the download back to the host on
-                   exit (default: download the project and merge it in)
+  --no-sync        Session commands: skip collecting changes on exit
+                   (default: collect a patch and apply it only when the
+                   sandbox baseline matches the host)
   --yes            Skip confirmation prompts (rm, policy approve, policy set,
                     provider setup)
   --from STORE     provider setup credential store: maki or opencode
@@ -952,15 +953,268 @@ run_sandbox_create() { # NAME
 }
 
 # ---------------------------------------------------------------------------
-# Session ensure and sync-back
+# Session ensure and safe sync
 #
 # Bare `maki-oss`, `maki-oss maki`, and `maki-oss run` share
 # ensure_project_sandbox: remembered providers drive creation and attachment,
-# the project is uploaded only when the sandbox is created, and every session
-# downloads changes back to the host on exit.
+# and the project is uploaded only when the sandbox is created. On exit the
+# sandbox emits a patch against the baseline it started from; the host applies
+# it only when its own safety check passes. The workdir is never downloaded
+# over the project automatically.
 # ---------------------------------------------------------------------------
 
 note() { printf '%s\n' "$*" >&2; }
+
+state_base=${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}
+
+sandbox_git_dir() { # WORKDIR
+    case $1 in
+        /sandbox|/sandbox/*) printf '/sandbox/.maki-oss/git' ;;
+        *) printf '%s/.maki-oss/git' "$(dirname -- "$1")" ;;
+    esac
+}
+
+session_state_dir() { # NAME
+    printf '%s/maki-oss/sessions/%s' "$state_base" "$1"
+}
+
+# Sandbox-side scripts. Values arrive as positional arguments, so paths with
+# spaces survive. Each prints only what the host consumes; the git directory
+# is outside the worktree, so no `.git` ever enters the project or the patch.
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+SANDBOX_INIT_SCRIPT='set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=maki-oss GIT_AUTHOR_EMAIL=maki-oss@localhost
+export GIT_COMMITTER_NAME=maki-oss GIT_COMMITTER_EMAIL=maki-oss@localhost
+mkdir -p "$gitdir"
+git init -q
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -m "maki-oss baseline")
+git update-ref refs/maki-oss/base "$commit"
+printf "%s\n" "$tree"'
+
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+SANDBOX_PROBE_SCRIPT='set -e
+export GIT_DIR=$1 GIT_WORK_TREE=$2
+if git rev-parse -q --verify refs/maki-oss/base >/dev/null 2>&1; then
+    git rev-parse "refs/maki-oss/base^{tree}"
+else
+    printf "missing\n"
+fi'
+
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+SANDBOX_COLLECT_SCRIPT='set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=maki-oss GIT_AUTHOR_EMAIL=maki-oss@localhost
+export GIT_COMMITTER_NAME=maki-oss GIT_COMMITTER_EMAIL=maki-oss@localhost
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -p refs/maki-oss/base -m "maki-oss result")
+git update-ref refs/maki-oss/result "$commit"
+git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result'
+
+# shortcut: paths containing tabs or newlines are not exported on the no-git
+# fallback; upgrade to -z parsing and a NUL loop if such names matter.
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+SANDBOX_MANIFEST_SCRIPT='set -e
+export GIT_DIR=$1 GIT_WORK_TREE=$2
+git diff --no-renames --name-status refs/maki-oss/base refs/maki-oss/result |
+while IFS="	" read -r status path; do
+    if hash=$(git rev-parse "refs/maki-oss/result:$path" 2>/dev/null); then
+        :
+    else
+        hash=-
+    fi
+    printf "%s\t%s\t%s\n" "$status" "$hash" "$path"
+done'
+
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+SANDBOX_ADVANCE_SCRIPT='set -e
+export GIT_DIR=$1
+git update-ref refs/maki-oss/base refs/maki-oss/result'
+
+sandbox_script() { # NAME WORKDIR SCRIPT
+    ss_name=$1
+    ss_workdir=$2
+    ss_script=$3
+    os sandbox exec -n "$ss_name" --no-login-shell --workdir "$ss_workdir" -- \
+        sh -c "$ss_script" maki-oss-git "$(sandbox_git_dir "$ss_workdir")" "$ss_workdir"
+}
+
+# After a successful apply the sandbox holds the same tree as the host, so the
+# baseline moves forward and a later session does not replay the same patch.
+# shellcheck disable=SC2329  # reached through the sync exit path
+advance_sandbox_baseline() {
+    if ! sandbox_script "$sync_name" "$sync_workdir" "$SANDBOX_ADVANCE_SCRIPT" >/dev/null 2>&1; then
+        warn "could not advance the sandbox baseline; a later session may report the sandbox stale"
+    fi
+}
+
+read_baseline() { # FILE KEY
+    sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n 1
+}
+
+# Records the host tree in the state directory. A clean repository uses HEAD;
+# a dirty or untracked one gets a synthetic commit built from a temporary
+# index, so the user's index, branch, and working tree are untouched.
+capture_host_baseline() { # STATE_DIR
+    bl_mode=plain
+    bl_git=0
+    bl_branch=
+    bl_commit=
+    bl_tree=
+    bl_dirty=0
+    bl_base=
+    bl_ok=0
+    command -v git >/dev/null 2>&1 || return 0
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
+    bl_root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+    bl_pwd=$(pwd -P)
+    # The upload sends $PWD, not the repository root, so a subdirectory is
+    # treated as a plain project and uses the patch check instead.
+    [ "$bl_root" = "$bl_pwd" ] || return 0
+    git rev-parse -q --verify HEAD >/dev/null 2>&1 || return 0
+    bl_branch=$(git symbolic-ref --short -q HEAD 2>/dev/null) || bl_branch=
+    bl_commit=$(git rev-parse -q --verify HEAD) || return 0
+    bl_tree=$(git rev-parse -q --verify "HEAD^{tree}") || return 0
+    if [ -z "$(git status --porcelain)" ]; then
+        bl_mode=clean
+        bl_base=$bl_commit
+    else
+        bl_mode=dirty
+        bl_dirty=1
+        bl_index=$1/baseline.index
+        rm -f "$bl_index"
+        if ! GIT_INDEX_FILE=$bl_index git read-tree "$bl_commit" 2>/dev/null \
+            || ! GIT_INDEX_FILE=$bl_index git add -A 2>/dev/null \
+            || ! bl_tree=$(GIT_INDEX_FILE=$bl_index git write-tree 2>/dev/null) \
+            || ! bl_base=$(GIT_INDEX_FILE=$bl_index \
+                GIT_AUTHOR_NAME=maki-oss GIT_AUTHOR_EMAIL=maki-oss@localhost \
+                GIT_COMMITTER_NAME=maki-oss GIT_COMMITTER_EMAIL=maki-oss@localhost \
+                git commit-tree "$bl_tree" -p "$bl_commit" -m "maki-oss baseline $$" 2>/dev/null); then
+            rm -f "$bl_index"
+            bl_mode=plain
+            bl_git=0
+            bl_dirty=0
+            bl_tree=
+            bl_base=
+            warn "cannot snapshot the working tree; this session will use the patch check"
+            return 0
+        fi
+        rm -f "$bl_index"
+    fi
+    bl_git=1
+    bl_ok=1
+}
+
+write_session_baseline() { # DIR NAME WORKDIR SANDBOX_TREE STALE UPLOAD
+    write_tmp=$1/baseline.$$
+    if ! (
+        umask 077
+        {
+            printf 'sandbox=%s\n' "$2"
+            printf 'workdir=%s\n' "$3"
+            printf 'mode=%s\n' "$bl_mode"
+            printf 'git=%s\n' "$bl_git"
+            printf 'branch=%s\n' "$bl_branch"
+            printf 'commit=%s\n' "$bl_commit"
+            printf 'tree=%s\n' "$bl_tree"
+            printf 'base=%s\n' "$bl_base"
+            printf 'dirty=%s\n' "$bl_dirty"
+            printf 'sandbox_tree=%s\n' "$4"
+            printf 'stale=%s\n' "$5"
+            printf 'upload=%s\n' "$6"
+        } >"$write_tmp"
+    ); then
+        warn "cannot write the session baseline in $1"
+        rm -f "$write_tmp"
+        return 1
+    fi
+    mv -- "$write_tmp" "$1/baseline" || {
+        rm -f "$write_tmp"
+        warn "cannot write the session baseline in $1"
+        return 1
+    }
+    return 0
+}
+
+# Captures the host baseline, records or reads the sandbox baseline, and marks
+# the sandbox stale when the two trees differ. Runs before Maki attaches.
+prepare_session_sync() { # NAME CREATED
+    prepare_name=$1
+    prepare_created=$2
+    sync_name=$prepare_name
+    sync_workdir=$(resolved_workdir)
+    sync_state_dir=$(session_state_dir "$prepare_name")
+    sync_pending_blocked=0
+    sync_stale=0
+    sync_upload=
+    bl_mode=plain
+    bl_git=0
+    bl_branch=
+    bl_commit=
+    bl_tree=
+    bl_dirty=0
+    bl_base=
+    bl_ok=0
+    if [ "$opt_no_sync" -eq 1 ]; then
+        return 0
+    fi
+    if ! (umask 077 && mkdir -p "$sync_state_dir" && chmod 700 "$sync_state_dir" 2>/dev/null); then
+        warn "cannot create session state directory $sync_state_dir; changes will stay in the sandbox"
+        return 0
+    fi
+    if [ -f "$sync_state_dir/pending" ]; then
+        sync_pending_blocked=1
+        note "Pending sandbox changes from an earlier session: $(read_baseline "$sync_state_dir/pending" patch)"
+        note "Automatic apply is off until they are applied or discarded; remove $sync_state_dir/pending afterwards."
+    fi
+    capture_host_baseline "$sync_state_dir"
+    sync_sandbox_tree=
+    sync_probe_ok=0
+    if [ "$prepare_created" -eq 1 ]; then
+        if sync_sandbox_tree=$(sandbox_script "$prepare_name" "$sync_workdir" "$SANDBOX_INIT_SCRIPT" 2>/dev/null); then
+            sync_probe_ok=1
+        fi
+    else
+        if sync_probe=$(sandbox_script "$prepare_name" "$sync_workdir" "$SANDBOX_PROBE_SCRIPT" 2>/dev/null); then
+            sync_probe_ok=1
+            if [ "$sync_probe" = missing ]; then
+                note "Recording a sandbox baseline for '$prepare_name'; changes already in the sandbox are not exported."
+                if sync_sandbox_tree=$(sandbox_script "$prepare_name" "$sync_workdir" "$SANDBOX_INIT_SCRIPT" 2>/dev/null); then
+                    sync_probe_ok=1
+                else
+                    sync_probe_ok=0
+                fi
+            else
+                sync_sandbox_tree=$sync_probe
+            fi
+        fi
+    fi
+    if [ "$sync_probe_ok" -eq 0 ]; then
+        warn "cannot read or record the sandbox baseline; automatic apply is disabled for '$prepare_name'"
+    fi
+    if [ "$opt_no_git_ignore" -eq 0 ] && [ "$bl_ok" -eq 1 ]; then
+        if [ -z "$sync_sandbox_tree" ] || [ "$bl_tree" != "$sync_sandbox_tree" ]; then
+            sync_stale=1
+        fi
+    fi
+    if [ "$sync_stale" -eq 1 ]; then
+        note "Sandbox '$prepare_name' is stale: its baseline tree differs from the host."
+        note "The patch will be kept for review instead of being applied. Refresh with '$PROGRAM upload'."
+    fi
+    if [ "$opt_no_git_ignore" -eq 1 ]; then
+        note "Automatic worktree apply is off for --no-git-ignore uploads; the patch is applied with the plain check."
+        sync_upload=unfiltered
+    else
+        sync_upload=filtered
+    fi
+    write_session_baseline "$sync_state_dir" "$prepare_name" "$sync_workdir" \
+        "$sync_sandbox_tree" "$sync_stale" "$sync_upload" || true
+}
 
 session_armed=0
 sync_finished=0
@@ -981,6 +1235,55 @@ sync_exit_hook() {
     exit "$sync_hook_rc"
 }
 
+# shellcheck disable=SC2329  # reached through the sync exit path
+write_pending() { # PATCH REASON
+    [ -n "${sync_state_dir:-}" ] || return 0
+    (
+        umask 077
+        printf 'patch=%s\nsandbox=%s\ncreated=%s\nreason=%s\n' \
+            "$1" "${sync_name:-}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" \
+            >"$sync_state_dir/pending"
+    ) || warn "cannot write the pending marker in $sync_state_dir"
+}
+
+# shellcheck disable=SC2329  # reached through the sync exit path
+recovery_block() { # PATCH
+    recovery_name=${sync_name:-$(resolved_name)}
+    recovery_workdir=${sync_workdir:-$(resolved_workdir)}
+    err "sandbox changes are not in the host project; the sandbox still holds them"
+    err "  sandbox:   $recovery_name"
+    err "  workspace: $recovery_workdir"
+    err "  inspect:   openshell sandbox connect $recovery_name"
+    err "  copy one:  $PROGRAM download $recovery_workdir/PATH ./DEST"
+    if [ -n "${1:-}" ] && [ -f "$1" ]; then
+        err "  patch:     $1"
+    fi
+    err "  pending:   ${sync_state_dir:-state}/pending (remove it after resolving)"
+}
+
+# shellcheck disable=SC2329  # reached through the sync exit path
+collect_sandbox_patch() { # PATCH
+    collect_patch=$1
+    collect_err=$sync_state_dir/collect.err
+    if ! (umask 077 && : >"$collect_patch"); then
+        warn "cannot write the patch file $collect_patch"
+        return 1
+    fi
+    if ! sandbox_script "$sync_name" "$sync_workdir" "$SANDBOX_COLLECT_SCRIPT" \
+        >"$collect_patch" 2>"$collect_err"; then
+        collect_detail=$(head -n 3 "$collect_err" 2>/dev/null) || collect_detail=
+        rm -f "$collect_patch" "$collect_err"
+        warn "could not collect sandbox changes${collect_detail:+: $collect_detail}"
+        return 1
+    fi
+    rm -f "$collect_err"
+    chmod 600 "$collect_patch" 2>/dev/null || true
+    return 0
+}
+
+# Collects changes, applies them when the safety check passes, and leaves the
+# patch and a pending marker otherwise. Always returns 0 so it cannot change
+# Maki's exit code; output stays on stderr.
 # shellcheck disable=SC2329  # invoked via trap and by sync_exit_hook
 sync_project_back() {
     if [ "$sync_finished" -eq 1 ]; then
@@ -991,21 +1294,257 @@ sync_project_back() {
         note "Skipped download (--no-sync); copy changes with '$PROGRAM download'."
         return 0
     fi
-    sync_name=$(resolved_name)
-    sync_workdir=$(resolved_workdir)
-    sync_rc=0
-    # OpenShell merges into an existing destination (matching paths are
-    # overwritten, host-only files are preserved) and downloads the source
-    # directory's contents without nesting. Output goes to stderr so `run`
-    # stdout carries only Maki's output.
-    os sandbox download "$sync_name" "$sync_workdir" "$PWD" >&2 || sync_rc=$?
-    if [ "$sync_rc" -ne 0 ]; then
-        warn "download failed (exit status $sync_rc); local files were left unchanged"
+    sync_name=${sync_name:-$(resolved_name)}
+    sync_workdir=${sync_workdir:-$(resolved_workdir)}
+    sync_state_dir=${sync_state_dir:-$(session_state_dir "$sync_name")}
+    sync_stamp=$(date +%Y%m%d%H%M%S)-$$
+    patch_file=$sync_state_dir/patch-$sync_stamp.patch
+    if ! collect_sandbox_patch "$patch_file"; then
+        write_pending "" "collection failed"
+        recovery_block "$patch_file"
+        announce_pending_proposals "$sync_name"
+        return 0
+    fi
+    if [ ! -s "$patch_file" ]; then
+        rm -f "$patch_file"
+        note "No sandbox changes to sync."
     else
-        note "Synced sandbox changes back to $PWD."
+        note "Collected sandbox changes: $patch_file"
+        apply_rc=0
+        apply_sandbox_patch "$patch_file" || apply_rc=$?
+        if [ "$apply_rc" -eq 1 ]; then
+            write_pending "$patch_file" "apply failed"
+            recovery_block "$patch_file"
+        elif [ "$apply_rc" -eq 2 ]; then
+            recovery_block "$patch_file"
+        fi
     fi
     announce_pending_proposals "$sync_name"
     return 0
+}
+
+# shellcheck disable=SC2329  # reached through the sync exit path
+apply_sandbox_patch() { # PATCH
+    apply_patch=$1
+    apply_mode=$bl_mode
+    apply_stale=$sync_stale
+    apply_upload=${sync_upload:-}
+    if [ "$sync_pending_blocked" -eq 1 ]; then
+        note "A pending patch is unresolved; keeping this patch for review."
+        write_pending "$apply_patch" "pending marker"
+        return 2
+    fi
+    if [ "$apply_stale" = 1 ]; then
+        note "The sandbox baseline is stale; keeping the patch for review."
+        write_pending "$apply_patch" "stale sandbox"
+        return 2
+    fi
+    if [ "$apply_upload" != unfiltered ] \
+        && { [ "$apply_mode" = clean ] || [ "$apply_mode" = dirty ]; } \
+        && command -v git >/dev/null 2>&1 \
+        && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        worktree_apply "$apply_patch"
+        return $?
+    fi
+    plain_apply "$apply_patch"
+}
+
+# shellcheck disable=SC2329  # reached through the sync exit path
+apply_conflict_guidance() { # PATCH WORKTREE BRANCH
+    note "The sandbox patch conflicts with the host; the host project was left unchanged."
+    note "  patch:    $1"
+    if [ -n "${2:-}" ]; then
+        note "  worktree: $2 (branch '${3:-}', may need manual conflict resolution)"
+    fi
+    note "Resolve there and commit, then merge or cherry-pick the branch; or apply the patch directly."
+}
+
+# Applies the patch in a temporary worktree at the recorded baseline, commits
+# the result on a temporary branch, and fast-forwards only a clean, unmoved
+# host. A dirty or untracked baseline never fast-forwards.
+# shellcheck disable=SC2329  # reached through the sync exit path
+worktree_apply() { # PATCH
+    wa_patch=$1
+    wa_mode=$bl_mode
+    wa_branch=$bl_branch
+    wa_commit=$bl_commit
+    wa_base=$bl_base
+    wa_id=$(date +%Y%m%d%H%M%S)-$$
+    wa_name="maki-oss/$sync_name-$wa_id"
+    wa_wt=$sync_state_dir/worktrees/$wa_id
+    if [ -z "$wa_base" ]; then
+        warn "the session baseline has no commit; keeping the patch"
+        return 1
+    fi
+    mkdir -p "$sync_state_dir/worktrees" || {
+        warn "cannot create the worktree directory under $sync_state_dir"
+        return 1
+    }
+    git worktree prune >/dev/null 2>&1 || true
+    if ! git worktree add -b "$wa_name" "$wa_wt" "$wa_base" >&2; then
+        warn "cannot create the review worktree at $wa_wt; keeping the patch"
+        return 1
+    fi
+    wa_applied=0
+    if git -C "$wa_wt" apply --check "$wa_patch" >&2; then
+        if git -C "$wa_wt" apply "$wa_patch" >&2; then
+            wa_applied=1
+        fi
+    elif git -C "$wa_wt" apply --3way "$wa_patch" >&2; then
+        wa_applied=1
+    fi
+    if [ "$wa_applied" -eq 0 ]; then
+        apply_conflict_guidance "$wa_patch" "$wa_wt" "$wa_name"
+        write_pending "$wa_patch" "conflict"
+        return 2
+    fi
+    git -C "$wa_wt" add -A >&2 || {
+        warn "cannot stage the result in $wa_wt; the patch is kept"
+        return 1
+    }
+    wa_tree=$(git -C "$wa_wt" write-tree) || {
+        warn "cannot write the result tree in $wa_wt; the patch is kept"
+        return 1
+    }
+    wa_result=$(GIT_AUTHOR_NAME=maki-oss GIT_AUTHOR_EMAIL=maki-oss@localhost \
+        GIT_COMMITTER_NAME=maki-oss GIT_COMMITTER_EMAIL=maki-oss@localhost \
+        git -C "$wa_wt" commit-tree "$wa_tree" -p "$wa_base" -m "maki-oss: apply sandbox changes") || {
+        warn "cannot commit the result in $wa_wt; the patch is kept"
+        return 1
+    }
+    if ! git -C "$wa_wt" update-ref HEAD "$wa_result" >&2; then
+        warn "cannot commit the result in $wa_wt; the patch is kept"
+        return 1
+    fi
+    if [ "$wa_mode" != clean ] || [ -z "$wa_branch" ]; then
+        note "Sandbox changes committed on branch '$wa_name' (worktree: $wa_wt)."
+        note "Uncommitted host work was not committed. Apply the agent changes with:"
+        note "  git cherry-pick $wa_result"
+        note "If cherry-pick refuses because a changed path is untracked, run: git add -N <path>"
+        note "Or apply the patch directly: git apply '$wa_patch'"
+        advance_sandbox_baseline
+        write_pending "$wa_patch" "dirty baseline"
+        return 2
+    fi
+    wa_now_branch=$(git symbolic-ref --short -q HEAD 2>/dev/null) || wa_now_branch=
+    wa_now_head=$(git rev-parse -q --verify HEAD 2>/dev/null) || wa_now_head=
+    wa_now_dirty=$(git status --porcelain)
+    if [ "$wa_now_branch" != "$wa_branch" ] || [ "$wa_now_head" != "$wa_commit" ] || [ -n "$wa_now_dirty" ]; then
+        note "The host moved or has uncommitted changes; it was not fast-forwarded."
+        note "  branch:   $wa_name (worktree: $wa_wt)"
+        note "  review:   git -C '$wa_wt' show $wa_result"
+        note "  merge:    git merge $wa_name"
+        note "  patch:    $wa_patch"
+        advance_sandbox_baseline
+        write_pending "$wa_patch" "host moved"
+        return 2
+    fi
+    if ! git merge --ff-only "$wa_result" >&2; then
+        warn "fast-forward failed; branch '$wa_name' and worktree '$wa_wt' are kept"
+        write_pending "$wa_patch" "fast-forward failed"
+        return 2
+    fi
+    git worktree remove "$wa_wt" >/dev/null 2>&1 || true
+    git branch -d "$wa_name" >/dev/null 2>&1 || true
+    advance_sandbox_baseline
+    rm -f "$sync_state_dir/pending"
+    note "Applied sandbox changes to branch '$wa_branch'."
+    return 0
+}
+
+# Applies the patch in place after `git apply --check`, or with `patch` when
+# the host has no git. A failed check leaves every file untouched.
+# shellcheck disable=SC2329  # reached through the sync exit path
+plain_apply() { # PATCH
+    plain_patch=$1
+    if command -v git >/dev/null 2>&1; then
+        if ! git apply --check "$plain_patch" >&2; then
+            note "The sandbox patch does not apply cleanly; $PWD was left unchanged."
+            note "  patch:  $plain_patch"
+            note "  review: git apply --3way '$plain_patch'"
+            write_pending "$plain_patch" "conflict"
+            return 2
+        fi
+        if ! git apply "$plain_patch" >&2; then
+            warn "applying the sandbox patch failed; $PWD was left unchanged"
+            return 1
+        fi
+        advance_sandbox_baseline
+        rm -f "$sync_state_dir/pending"
+        note "Applied sandbox changes to $PWD."
+        return 0
+    fi
+    if grep -Eq '^(GIT binary patch|Binary files .* differ)$' "$plain_patch"; then
+        export_review_files "$plain_patch"
+        return $?
+    fi
+    if ! command -v patch >/dev/null 2>&1; then
+        warn "neither git nor patch is available on the host; keeping the patch"
+        return 1
+    fi
+    if ! patch -p1 --dry-run --forward <"$plain_patch" >&2; then
+        note "The sandbox patch does not apply cleanly; $PWD was left unchanged."
+        note "  patch:  $plain_patch"
+        note "  review: patch -p1 < '$plain_patch'"
+        write_pending "$plain_patch" "conflict"
+        return 2
+    fi
+    if ! patch -p1 --forward <"$plain_patch" >&2; then
+        warn "applying the sandbox patch failed; $PWD was left unchanged"
+        return 1
+    fi
+    advance_sandbox_baseline
+    rm -f "$sync_state_dir/pending"
+    note "Applied sandbox changes to $PWD."
+    return 0
+}
+
+# No-git binary fallback: the sandbox reports changed paths and hashes, and
+# only those files are copied into a review directory outside the project.
+# shellcheck disable=SC2329  # reached through the sync exit path
+export_review_files() { # PATCH
+    export_patch=$1
+    export_dir=$sync_state_dir/review-$sync_stamp
+    export_manifest=$export_dir/manifest
+    if ! mkdir -p "$export_dir"; then
+        warn "cannot create the review directory $export_dir"
+        return 1
+    fi
+    if ! sandbox_script "$sync_name" "$sync_workdir" "$SANDBOX_MANIFEST_SCRIPT" \
+        >"$export_manifest" 2>/dev/null; then
+        warn "cannot read the changed-file manifest from the sandbox"
+        rm -rf "$export_dir"
+        return 1
+    fi
+    chmod 600 "$export_manifest" 2>/dev/null || true
+    export_failed=0
+    while IFS=$TAB read -r export_status _ export_path; do
+        [ -n "$export_path" ] || continue
+        case $export_path in
+            /*|..|../*|*/..|*/../*)
+                warn "refusing unexpected path in the sandbox manifest: $export_path"
+                export_failed=1
+                break
+                ;;
+        esac
+        case $export_status in
+            D*) continue ;;
+        esac
+        export_dest=$export_dir/files/$export_path
+        if ! mkdir -p "$(dirname -- "$export_dest")" \
+            || ! os sandbox download "$sync_name" "$sync_workdir/$export_path" "$export_dest" >&2; then
+            export_failed=1
+            break
+        fi
+    done <"$export_manifest"
+    if [ "$export_failed" -eq 1 ]; then
+        warn "could not export every changed file; the project was left unchanged"
+        return 1
+    fi
+    note "The host has no git; changed files were exported for review: $export_dir"
+    note "  manifest: $export_manifest"
+    write_pending "$export_patch" "binary export"
+    return 2
 }
 
 # After a session, surface any network-rule proposals the agent filed so a
@@ -1108,10 +1647,11 @@ ensure_sandbox_created=0
 # returns control instead of exiting; the caller re-checks and reuses.
 create_allow_fail=0
 
-# A reused sandbox still holds yesterday's copy of the project: the exit sync
-# merges it back over matching host files, so say so before that happens.
+# A reused sandbox still holds an earlier copy of the project. The exit sync
+# no longer overlays it: changes come back as a patch that is applied only
+# when the sandbox baseline matches the host.
 announce_sandbox_reuse() { # NAME
-    note "Reusing '$1' without uploading: on exit, sync-back overwrites host files that also exist in the sandbox. Run '$PROGRAM upload' to refresh it first."
+    note "Reusing '$1' without uploading; on exit, changes are collected as a patch and applied only if its baseline matches the host."
 }
 
 ensure_project_sandbox() {
@@ -1173,6 +1713,7 @@ ensure_project_sandbox() {
     # network-rule proposal and wait for a human decision. Covers both the
     # created and reused paths; `up` never reaches this function.
     enable_policy_advisor "$name" || true
+    prepare_session_sync "$name" "$ensure_sandbox_created"
     ensure_attach_missing "$name"
 }
 
@@ -1389,6 +1930,21 @@ cmd_upload() {
     set -- "$@" "$name" "$src" "$dest"
     run_gateway "$@"
     say "Uploaded '$src' to '$name:$dest'."
+    if [ "$dest" = "$(resolved_workdir)" ]; then
+        upload_state=$(session_state_dir "$name")
+        if (umask 077 && mkdir -p "$upload_state" && chmod 700 "$upload_state" 2>/dev/null); then
+            if sandbox_script "$name" "$dest" "$SANDBOX_INIT_SCRIPT" >/dev/null 2>&1; then
+                # The user explicitly refreshed the sandbox, so any earlier
+                # pending patch no longer blocks automatic apply.
+                rm -f "$upload_state/pending"
+                note "Recorded a new sandbox baseline for '$name'."
+            else
+                warn "uploaded, but could not record the sandbox baseline for '$name'"
+            fi
+        else
+            warn "uploaded, but cannot create the session state directory $upload_state"
+        fi
+    fi
 }
 
 cmd_download() {

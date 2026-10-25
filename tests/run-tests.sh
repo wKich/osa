@@ -14,7 +14,11 @@ MAKI=$ROOT/bin/maki-oss
 STUB_DIR=$ROOT/tests/stub
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/maki-oss-tests.XXXXXX")
-cleanup() { rm -rf "$WORK"; }
+cleanup() {
+    if [ "${KEEP_WORK:-0}" != 1 ]; then
+        rm -rf "$WORK"
+    fi
+}
 trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
@@ -56,9 +60,15 @@ skipped() { SKIP=$((SKIP + 1)); printf 'skip %s (%s)\n' "$CURRENT" "$1"; }
 
 new_case() {
     CASE=$WORK/$1
-    mkdir -p "$CASE/home" "$CASE/project" "$CASE/state"
+    mkdir -p "$CASE/home" "$CASE/project" "$CASE/state" "$CASE/sandbox"
     XDG_CONFIG_HOME=$CASE/home/.config
     HOME=$CASE/home
+    SANDBOX_WORKDIR=$CASE/sandbox/project
+    # The simulated sandbox always has git, even when the host PATH omits it.
+    mkdir -p "$CASE/sandbox-tools"
+    if sandbox_real_git=$(command -v git 2>/dev/null); then
+        ln -sfn "$sandbox_real_git" "$CASE/sandbox-tools/git"
+    fi
     STUB_LOG=$CASE/stub.log
     STUB_STATE_DIR=$CASE/state
     LOG=$STUB_LOG
@@ -97,6 +107,9 @@ new_case() {
     ENV_TUI=
     TUI_LOG=
     OPENCODE_EXIT=
+    STUB_MAKI_SCRIPT=
+    STUB_EXEC_SCRIPT_FAIL=
+    GIT_TRACE_LOG=
     RC=0
 }
 
@@ -132,6 +145,12 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         MAKI_OSS_TUI="${ENV_TUI:-}" \
         MAKI_OSS_TIMEOUT="${ENV_TIMEOUT:-}" \
         MAKI_OSS_RUN_TAG="${ENV_RUN_TAG:-}" \
+        MAKI_OSS_WORKDIR="$CASE/sandbox/project" \
+        STUB_SANDBOX_ROOT="$CASE/sandbox" \
+        STUB_MAKI_SCRIPT="${STUB_MAKI_SCRIPT:-}" \
+        STUB_EXEC_SCRIPT_FAIL="${STUB_EXEC_SCRIPT_FAIL:-}" \
+        STUB_SANDBOX_TOOLS="$CASE/sandbox-tools" \
+        GIT_TRACE="${GIT_TRACE_LOG:-}" \
         STUB_TUI_LOG="${TUI_LOG:-}" \
         STUB_OPENCODE_EXIT="${OPENCODE_EXIT:-}" \
         MAKI_OSS_IMAGE="${ENV_IMAGE:-}" \
@@ -183,6 +202,18 @@ seed_sandbox() {
     mkdir -p "$STUB_STATE_DIR/sandboxes" "$STUB_STATE_DIR/providers"
     printf '%s\n' "${2:-Ready}" >"$STUB_STATE_DIR/sandboxes/$1"
     : >"$STUB_STATE_DIR/providers/$1"
+    # An existing sandbox has a workdir; mirror the project into it (never
+    # .git, which OpenShell's upload excludes).
+    mkdir -p "$SANDBOX_WORKDIR"
+    if [ -n "${RUN_DIR:-}" ] && [ -d "$RUN_DIR" ]; then
+        for seed_entry in "$RUN_DIR"/* "$RUN_DIR"/.[!.]* "$RUN_DIR"/..?*; do
+            [ -e "$seed_entry" ] || continue
+            case $(basename -- "$seed_entry") in
+                .git) continue ;;
+            esac
+            cp -R "$seed_entry" "$SANDBOX_WORKDIR/"
+        done
+    fi
 }
 
 # Records a provider as configured (config file) and known to the gateway
@@ -281,6 +312,44 @@ no_tui_path() {
     printf '%s' "$no_tui_dir"
 }
 
+# Builds a PATH with the shell tools and CLI stubs the helper needs but no
+# git, so the patch/patch-less fallbacks are exercised. `with_patch` adds the
+# text apply tool.
+no_git_path() { # [with_patch]
+    no_git_dir=$CASE/no-git-bin
+    mkdir -p "$no_git_dir"
+    for no_git_tool in awk basename cat chmod cp cut date dirname grep head mkdir mktemp mv paste printenv rm sed sh sleep tr; do
+        no_git_tool_path=$(command -v "$no_git_tool" 2>/dev/null) || continue
+        if [ ! -e "$no_git_dir/$no_git_tool" ]; then
+            ln -s "$no_git_tool_path" "$no_git_dir/$no_git_tool"
+        fi
+    done
+    if [ "${1:-}" = with_patch ]; then
+        no_git_patch=$(command -v patch 2>/dev/null) || no_git_patch=
+        if [ -n "$no_git_patch" ]; then
+            ln -sfn "$no_git_patch" "$no_git_dir/patch"
+        fi
+    fi
+    printf '%s' "$STUB_DIR:$no_git_dir"
+}
+
+# The git-check-then-git-apply order in the plain-directory path.
+assert_trace_check_before_apply() {
+    if [ -z "${GIT_TRACE_LOG:-}" ] || [ ! -f "$GIT_TRACE_LOG" ]; then
+        bad "git trace missing; cannot order apply --check and apply"
+        return
+    fi
+    check_line=$(grep -n -F -- 'apply --check' "$GIT_TRACE_LOG" | head -n 1 | cut -d: -f1)
+    apply_line=$(grep -n -E 'git apply [^-]' "$GIT_TRACE_LOG" | head -n 1 | cut -d: -f1)
+    if [ -z "$check_line" ] || [ -z "$apply_line" ]; then
+        bad "cannot order apply --check and apply in the git trace (one is missing)"
+        return
+    fi
+    if [ "$check_line" -ge "$apply_line" ]; then
+        bad "apply --check did not run before apply"
+    fi
+}
+
 assert_rc() {
     if [ "$RC" -ne "$1" ]; then
         bad "expected exit $1, got $RC (stderr: $(head -n 1 "$ERR" 2>/dev/null))"
@@ -349,6 +418,84 @@ assert_log_before() { # FIRST SECOND
     if [ "$first_seen" -ge "$second_seen" ]; then
         bad "'$1' was not logged before '$2'"
     fi
+}
+
+# Like assert_log_before but matches whole argument lines, for ordering the
+# Maki command against the internal sandbox scripts.
+assert_log_line_before() { # FIRST SECOND
+    if [ ! -f "$LOG" ]; then
+        bad "argv log missing; cannot order '$1' and '$2'"
+        return
+    fi
+    first_seen=$(grep -n -Fx -m1 -- "$1" "$LOG" | cut -d: -f1)
+    second_seen=$(grep -n -Fx -m1 -- "$2" "$LOG" | cut -d: -f1)
+    if [ -z "$first_seen" ] || [ -z "$second_seen" ]; then
+        bad "cannot order '$1' and '$2' (one is missing)"
+        return
+    fi
+    if [ "$first_seen" -ge "$second_seen" ]; then
+        bad "'$1' was not logged before '$2'"
+    fi
+}
+
+session_dir() { # SANDBOX
+    printf '%s/.local/state/maki-oss/sessions/%s' "$HOME" "$1"
+}
+
+baseline_value() { # SANDBOX KEY
+    sed -n "s/^$2=//p" "$(session_dir "$1")/baseline" 2>/dev/null | head -n 1
+}
+
+assert_file_mode() { # FILE MODE
+    if [ ! -e "$1" ]; then
+        bad "missing file: $1"
+        return
+    fi
+    current_mode=$(stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null)
+    if [ "$current_mode" != "$2" ]; then
+        bad "expected mode $2 on $1, got ${current_mode:-unknown}"
+    fi
+}
+
+assert_trace_before() { # FIRST SECOND
+    if [ -z "${GIT_TRACE_LOG:-}" ] || [ ! -f "$GIT_TRACE_LOG" ]; then
+        bad "git trace missing; cannot order '$1' and '$2'"
+        return
+    fi
+    first_seen=$(grep -n -F -m1 -- "$1" "$GIT_TRACE_LOG" | cut -d: -f1)
+    second_seen=$(grep -n -F -m1 -- "$2" "$GIT_TRACE_LOG" | cut -d: -f1)
+    if [ -z "$first_seen" ] || [ -z "$second_seen" ]; then
+        bad "cannot order '$1' and '$2' in the git trace (one is missing)"
+        return
+    fi
+    if [ "$first_seen" -ge "$second_seen" ]; then
+        bad "'$1' did not run before '$2'"
+    fi
+}
+
+git_trace_has() { # TEXT
+    if [ -z "${GIT_TRACE_LOG:-}" ] || ! grep -Fq -- "$1" "$GIT_TRACE_LOG" 2>/dev/null; then
+        bad "git trace missing: $1"
+    fi
+}
+
+git_trace_missing() { # TEXT
+    if [ -n "${GIT_TRACE_LOG:-}" ] && grep -Fq -- "$1" "$GIT_TRACE_LOG" 2>/dev/null; then
+        bad "git trace unexpectedly contains: $1"
+    fi
+}
+
+seed_git_project() { # DIR
+    mkdir -p "$1"
+    (
+        cd "$1" || exit 1
+        git init -q
+        git config user.name "Test User"
+        git config user.email test@example.com
+        printf 'base\n' >tracked.txt
+        git add tracked.txt
+        git commit -q -m initial
+    )
 }
 
 assert_secret_absent() { # VALUE
@@ -566,7 +713,7 @@ test_upload_no_mount() {
     assert_rc 0
     assert_log_has "upload"
     assert_log_line "."
-    assert_log_line "/sandbox/project"
+    assert_log_line "$SANDBOX_WORKDIR"
     assert_log_missing "driver-config-json"
     assert_log_missing "mounts"
     assert_log_missing "bind"
@@ -665,7 +812,7 @@ test_env_from_allow_override() {
 }
 
 test_session_reuse_announces_overwrite() {
-    begin "reusing a sandbox announces the sync-back overwrite"
+    begin "reusing a sandbox announces patch-based sync instead of an overlay"
     new_case reuse-note
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
@@ -675,18 +822,18 @@ test_session_reuse_announces_overwrite() {
 
     run_maki run "hi"
     assert_rc 0
-    assert_err_has "sync-back"
-    assert_err_has "upload"
+    assert_err_has "collected as a patch"
+    assert_err_has "baseline matches the host"
     assert_log_missing "upload"
 
-    # A session that creates the sandbox uploads instead, so no warning.
+    # A session that creates the sandbox uploads instead, so no reuse warning.
     reset_state
     reset_log
     seed_remembered_provider maki-stub
     run_maki run "hi"
     assert_rc 0
     assert_log_has "upload"
-    assert_err_missing "sync-back"
+    assert_err_missing "Reusing"
 }
 
 test_rm_confirmation() {
@@ -1565,7 +1712,7 @@ test_run_timeout_flag() {
 }
 
 test_maki_resume() {
-    begin "maki --continue forwards the resume flag and syncs the workspace"
+    begin "maki --continue forwards the resume flag and collects a patch"
     new_case maki-resume
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
@@ -1577,11 +1724,9 @@ test_maki_resume() {
     assert_rc 0
     assert_log_line "--tty"
     assert_log_line "--continue"
-    assert_log_before "exec" "download"
-    # The exit sync still downloads the workspace only: session state stays
-    # inside the sandbox.
-    assert_log_line "/sandbox/project"
-    assert_log_missing "/.local/state"
+    assert_log_line_before "maki" 'git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result'
+    assert_log_line "$SANDBOX_WORKDIR"
+    assert_log_missing "download"
 
     # -c and -r are aliases for --continue and --resume.
     reset_log
@@ -1628,10 +1773,11 @@ test_run_resume_flags() {
     assert_log_line "start the migration"
     assert_log_before "--session-id" "start the migration"
 
-    # Sync-back is unchanged by resume flags: workspace only, no state dir.
-    assert_log_before "exec" "download"
-    assert_log_line "/sandbox/project"
-    assert_log_missing "/.local/state"
+    # Sync-back is unchanged by resume flags: a patch is collected, never a
+    # workdir download.
+    assert_log_line_before "maki" 'git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result'
+    assert_log_line "$SANDBOX_WORKDIR"
+    assert_log_missing "download"
 }
 
 test_session_flag_conflicts() {
@@ -1772,14 +1918,14 @@ test_opencode_tui_session() {
     assert_log_has "stub-bun start"
     assert_log_has "stub-opencode"
     assert_log_has "stub-bun SIGTERM"
-    assert_log_has "download"
+    assert_log_line_before "stub-bun SIGTERM" 'git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result'
     assert_log_before "create" "stub-bun start"
     assert_log_before "stub-bun start" "stub-opencode"
     assert_log_before "stub-opencode" "stub-bun SIGTERM"
-    assert_log_before "stub-bun SIGTERM" "download"
+    assert_log_missing "download"
     # the bridge runs maki in the same project sandbox, with no --env value
     assert_log_has "stub-bun env: OPENMAKI_SANDBOX=maki-myproject"
-    assert_log_has "OPENMAKI_CWD=/sandbox/project"
+    assert_log_has "OPENMAKI_CWD=$SANDBOX_WORKDIR"
     assert_log_missing "--env"
     # the TUI is attached on the TTY against the bridge's loopback URL
     assert_log_has "stub-opencode argv: --server"
@@ -1788,12 +1934,13 @@ test_opencode_tui_session() {
     assert_err_has "Starting the OpenCode TUI bridge"
     assert_err_has "Attaching the OpenCode TUI"
 
-    # --no-sync keeps the flow but skips the download
+    # --no-sync keeps the flow but skips patch collection
     reset_log
     run_maki --no-sync
     assert_rc 0
     assert_log_has "stub-bun SIGTERM"
     assert_log_missing "download"
+    assert_log_missing "maki-oss/result"
     assert_err_has "Skipped download (--no-sync)"
 }
 
@@ -1835,7 +1982,7 @@ test_doctor_tui_checks() {
 }
 
 test_session_creates_uploads_and_syncs() {
-    begin "bare maki-oss creates, uploads, runs, and syncs back in order"
+    begin "bare maki-oss creates, uploads, runs, and collects a patch in order"
     new_case session-create
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
@@ -1847,10 +1994,10 @@ test_session_creates_uploads_and_syncs() {
     assert_log_has "upload"
     assert_log_has "exec"
     assert_log_line "--tty"
-    assert_log_has "download"
+    assert_log_line_before "maki" 'git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result'
+    assert_log_missing "download"
     assert_log_before "create" "upload"
-    assert_log_before "upload" "exec"
-    assert_log_before "exec" "download"
+    assert_log_line_before "upload" "maki"
     if [ ! -e "$STUB_STATE_DIR/sandboxes/maki-myproject" ]; then
         bad "sandbox was not created"
     fi
@@ -1871,8 +2018,8 @@ test_session_reuses_without_upload() {
     assert_err_has "Reusing sandbox"
     assert_log_missing "create"
     assert_log_missing "upload"
-    assert_log_has "exec"
-    assert_log_has "download"
+    assert_log_line_before "maki" 'git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result'
+    assert_log_missing "download"
 }
 
 test_session_starts_stopped_sandbox() {
@@ -1889,7 +2036,7 @@ test_session_starts_stopped_sandbox() {
     assert_log_has "start"
     assert_log_missing "create"
     assert_log_missing "upload"
-    assert_log_has "exec"
+    assert_log_line_before "maki" 'git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result'
 }
 
 test_session_attaches_missing_provider() {
@@ -1904,7 +2051,7 @@ test_session_attaches_missing_provider() {
     assert_rc 0
     assert_log_has "attach"
     assert_log_line "--wait"
-    assert_log_before "attach" "exec"
+    assert_log_line_before "attach" "--tty"
     assert_log_missing "create"
     assert_log_missing "upload"
 }
@@ -1924,7 +2071,8 @@ test_session_inline_bootstrap() {
     assert_out_has "Provider 'maki-opencode-go' created."
     assert_log_has "exec"
     assert_log_line "--tty"
-    assert_log_has "download"
+    assert_log_line_before "maki" 'git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result'
+    assert_log_missing "download"
     grep -Fq 'providers = "maki-opencode-go"' "$XDG_CONFIG_HOME/maki-oss/config.toml" \
         || bad "bootstrap did not remember the provider"
     if [ ! -e "$STUB_STATE_DIR/sandboxes/maki-myproject" ]; then
@@ -1975,14 +2123,15 @@ test_run_bootstraps_from_scratch() {
     assert_out_has '{"result":"stub-ok"}'
     assert_out_missing "Creating sandbox"
     assert_out_missing "Uploading the project"
-    assert_out_missing "Synced sandbox changes"
+    assert_out_missing "No sandbox changes"
     assert_err_has "Creating sandbox"
+    assert_err_has "No sandbox changes to sync."
     assert_log_has "create"
     assert_log_has "upload"
     assert_log_has "exec"
-    assert_log_has "download"
+    assert_log_missing "download"
     assert_log_before "create" "upload"
-    assert_log_before "upload" "exec"
+    assert_log_line_before "upload" "maki"
 }
 
 test_session_model_precedence() {
@@ -2020,11 +2169,12 @@ test_session_no_sync() {
     run_maki --no-sync maki
     assert_rc 0
     assert_log_missing "download"
+    assert_log_missing "maki-oss/result"
     assert_err_has "--no-sync"
 }
 
 test_session_sync_failure_preserves_code() {
-    begin "sync failure warns and keeps Maki's exit code"
+    begin "collection failure warns on stderr and keeps Maki's exit code"
     new_case session-sync-fail
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
@@ -2033,38 +2183,73 @@ test_session_sync_failure_preserves_code() {
     attach_stub_provider maki-myproject maki-stub
     EXEC_STDOUT='partial-output'
     EXEC_EXIT=7
-    DOWNLOAD_EXIT=9
+    STUB_EXEC_SCRIPT_FAIL='maki-oss result'
 
     run_maki run "boom"
     assert_rc 7
     assert_out_has "partial-output"
-    assert_err_has "download failed"
+    assert_err_has "could not collect sandbox changes"
+    assert_err_has "sandbox:   maki-myproject"
+    assert_log_missing "download"
+    if [ ! -f "$HOME/.local/state/maki-oss/sessions/maki-myproject/pending" ]; then
+        bad "collection failure did not write the pending marker"
+    fi
 }
 
-test_session_sync_merge() {
-    begin "sync overwrites matching files and preserves host-only files"
-    new_case session-sync-merge
+test_session_plain_apply() {
+    begin "a clean patch applies to a plain project and preserves host-only files"
+    new_case session-plain-apply
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
+    printf 'host-version\n' >"$RUN_DIR/readme.txt"
+    printf 'host-only\n' >"$RUN_DIR/hostonly.txt"
     seed_sandbox maki-myproject Ready
     seed_remembered_provider maki-stub
     attach_stub_provider maki-myproject maki-stub
-    download_fixture=$CASE/download-fixture
-    mkdir -p "$download_fixture"
-    printf 'sandbox-version\n' >"$download_fixture/readme.txt"
-    printf 'new-file\n' >"$download_fixture/new.txt"
-    printf 'host-version\n' >"$RUN_DIR/readme.txt"
-    printf 'host-only\n' >"$RUN_DIR/hostonly.txt"
-    DOWNLOAD_FIXTURE=$download_fixture
+    GIT_TRACE_LOG=$CASE/git.trace
+    STUB_MAKI_SCRIPT='printf "sandbox-version\n" > readme.txt; printf "new-file\n" > new.txt'
 
     run_maki maki
     assert_rc 0
+    patch_file=$(find "$(session_dir maki-myproject)" -maxdepth 1 -name 'patch-*.patch' -type f 2>/dev/null | head -n 1)
+    [ -n "$patch_file" ] || bad "the applied patch was not retained"
+    assert_trace_before "maki-oss result" "apply --check"
+    assert_trace_check_before_apply
     grep -Fq 'sandbox-version' "$RUN_DIR/readme.txt" \
-        || bad "matching file was not overwritten by the sync"
+        || bad "the patch did not update the matching file"
     grep -Fq 'new-file' "$RUN_DIR/new.txt" 2>/dev/null \
-        || bad "new sandbox file was not downloaded"
+        || bad "the patch did not create the new file"
     grep -Fq 'host-only' "$RUN_DIR/hostonly.txt" 2>/dev/null \
-        || bad "host-only file was removed by the sync"
+        || bad "host-only file was removed"
+    assert_log_missing "download"
+}
+
+test_session_plain_conflict_keeps_project() {
+    begin "a conflicting plain patch leaves every host file unchanged"
+    new_case session-plain-conflict
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'host-version\n' >"$RUN_DIR/readme.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    # Fix the host file exactly as it is when the conflict check runs.
+    STUB_MAKI_SCRIPT='printf "sandbox-version\n" > readme.txt
+printf "changed-during-session\n" > "'"$RUN_DIR"'/readme.txt"'
+
+    run_maki maki
+    assert_rc 0
+    if [ "$(cat "$RUN_DIR/readme.txt")" != changed-during-session ]; then
+        bad "the conflict changed the host file"
+    fi
+    assert_err_has "does not apply cleanly"
+    patch_file=$(find "$HOME/.local/state/maki-oss/sessions/maki-myproject" -maxdepth 1 -name 'patch-*.patch' -type f 2>/dev/null | head -n 1)
+    if [ -z "$patch_file" ] || [ ! -s "$patch_file" ]; then
+        bad "the conflicting patch was not retained"
+    fi
+    if [ ! -f "$HOME/.local/state/maki-oss/sessions/maki-myproject/pending" ]; then
+        bad "the conflict did not write the pending marker"
+    fi
 }
 
 test_policy_advisor_enabled_on_session() {
@@ -2371,8 +2556,8 @@ test_session_create_race_reuses() {
     CREATE_RACE=1
     run_maki run "hi"
     assert_rc 0
-    assert_log_has "exec"
-    assert_log_has "download"
+    assert_log_line_before "maki" 'git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result'
+    assert_log_missing "download"
     assert_log_missing "upload"
 }
 
@@ -2552,6 +2737,634 @@ test_no_placeholder_spelling() {
     fi
 }
 
+test_baseline_capture_clean_git() {
+    begin "clean git baseline records branch, commit, and tree without touching the repo"
+    new_case baseline-clean
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    branch_before=$(git -C "$RUN_DIR" symbolic-ref --short HEAD)
+    commit_before=$(git -C "$RUN_DIR" rev-parse HEAD)
+    tree_before=$(git -C "$RUN_DIR" rev-parse 'HEAD^{tree}')
+
+    run_maki run "hi"
+    assert_rc 0
+    [ "$(baseline_value maki-repo mode)" = clean ] || bad "baseline mode is not clean"
+    [ "$(baseline_value maki-repo dirty)" = 0 ] || bad "baseline was marked dirty"
+    [ "$(baseline_value maki-repo branch)" = "$branch_before" ] || bad "baseline branch differs"
+    [ "$(baseline_value maki-repo commit)" = "$commit_before" ] || bad "baseline commit differs"
+    [ "$(baseline_value maki-repo tree)" = "$tree_before" ] || bad "baseline tree differs"
+    [ "$(baseline_value maki-repo stale)" = 0 ] || bad "fresh sandbox was marked stale"
+    [ "$(git -C "$RUN_DIR" symbolic-ref --short HEAD)" = "$branch_before" ] \
+        || bad "capture changed the branch"
+    [ -z "$(git -C "$RUN_DIR" status --porcelain)" ] || bad "capture changed the worktree"
+}
+
+test_baseline_capture_dirty_git() {
+    begin "dirty git baseline uses a synthetic commit and leaves the index alone"
+    new_case baseline-dirty
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    printf 'local edit\n' >>"$RUN_DIR/tracked.txt"
+    printf 'untracked\n' >"$RUN_DIR/untracked.txt"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    commit_before=$(git -C "$RUN_DIR" rev-parse HEAD)
+    branch_before=$(git -C "$RUN_DIR" symbolic-ref --short HEAD)
+    tmp_index=$CASE/expected.index
+    rm -f "$tmp_index"
+    GIT_INDEX_FILE=$tmp_index git -C "$RUN_DIR" read-tree HEAD
+    GIT_INDEX_FILE=$tmp_index git -C "$RUN_DIR" add -A
+    expected_tree=$(GIT_INDEX_FILE=$tmp_index git -C "$RUN_DIR" write-tree)
+    rm -f "$tmp_index"
+
+    run_maki run "hi"
+    assert_rc 0
+    [ "$(baseline_value maki-repo mode)" = dirty ] || bad "baseline mode is not dirty"
+    [ "$(baseline_value maki-repo dirty)" = 1 ] || bad "baseline dirty flag is not set"
+    [ "$(baseline_value maki-repo commit)" = "$commit_before" ] || bad "baseline commit differs"
+    [ "$(baseline_value maki-repo tree)" = "$expected_tree" ] || bad "synthetic tree does not match the working tree"
+    base=$(baseline_value maki-repo base)
+    [ "$base" != "$commit_before" ] || bad "dirty baseline reused HEAD instead of a synthetic commit"
+    [ "$(git -C "$RUN_DIR" rev-parse "$base^")" = "$commit_before" ] \
+        || bad "synthetic baseline is not a child of HEAD"
+    [ "$(git -C "$RUN_DIR" symbolic-ref --short HEAD)" = "$branch_before" ] \
+        || bad "capture changed the branch"
+    [ "$(git -C "$RUN_DIR" status --porcelain)" = " M tracked.txt
+?? untracked.txt" ] || bad "capture changed the user's working tree state"
+}
+
+test_sandbox_baseline_after_upload() {
+    begin "sandbox baseline is recorded after upload and keeps git out of the workdir"
+    new_case sandbox-baseline
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_remembered_provider maki-stub
+
+    run_maki run "hi"
+    assert_rc 0
+    assert_log_line_before "upload" "maki-oss-git"
+    assert_log_line_before "maki-oss-git" "maki"
+    if [ ! -d "$CASE/sandbox/.maki-oss/git" ]; then
+        bad "sandbox git directory was not created outside the workdir"
+    fi
+    if [ -e "$SANDBOX_WORKDIR/.git" ] || [ -e "$SANDBOX_WORKDIR/.maki-oss" ]; then
+        bad "baseline initialization wrote into the project workdir"
+    fi
+    [ "$(baseline_value maki-repo mode)" = clean ] || bad "baseline was not recorded"
+}
+
+test_existing_sandbox_baseline_migration() {
+    begin "a reused sandbox without a baseline gets one and warns once"
+    new_case sandbox-migration
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+
+    run_maki run "hi"
+    assert_rc 0
+    assert_err_has "Recording a sandbox baseline"
+    assert_err_has "changes already in the sandbox are not exported"
+    init_count=$(grep -c 'git init -q' "$LOG" 2>/dev/null || true)
+    [ "$init_count" = 1 ] || bad "expected exactly one baseline initialization, got ${init_count:-0}"
+}
+
+test_stale_sandbox_keeps_patch() {
+    begin "a stale sandbox is reported and its patch is kept without applying"
+    new_case stale-sandbox
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    run_maki upload .
+    reset_log
+    GIT_TRACE_LOG=$CASE/git.trace
+    printf 'host-change\n' >>"$RUN_DIR/tracked.txt"
+    STUB_MAKI_SCRIPT='printf "sandbox-change\n" >> tracked.txt'
+
+    run_maki maki
+    assert_rc 0
+    assert_err_has "is stale"
+    assert_err_has "patch will be kept for review"
+    git_trace_missing "worktree add"
+    git_trace_missing "git apply"
+    if grep -Fq 'sandbox-change' "$RUN_DIR/tracked.txt"; then
+        bad "a stale sandbox patch was applied to the host"
+    fi
+    patch_file=$(find "$(session_dir maki-repo)" -maxdepth 1 -name 'patch-*.patch' -type f 2>/dev/null | head -n 1)
+    [ -n "$patch_file" ] || bad "the stale patch was not retained"
+    [ -f "$(session_dir maki-repo)/pending" ] || bad "the stale patch did not write a pending marker"
+}
+
+test_session_state_permissions_and_second_session() {
+    begin "session state is owner-only and a second session reuses the baseline"
+    new_case state-perms
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'v1\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    STUB_MAKI_SCRIPT='printf "v2\n" > file.txt'
+
+    run_maki maki
+    assert_rc 0
+    state_dir=$(session_dir maki-myproject)
+    assert_file_mode "$state_dir" 700
+    assert_file_mode "$state_dir/baseline" 600
+    patch_file=$(find "$state_dir" -maxdepth 1 -name 'patch-*.patch' -type f 2>/dev/null | head -n 1)
+    [ -n "$patch_file" ] || bad "patch file was not written"
+    if [ -n "$patch_file" ]; then
+        assert_file_mode "$patch_file" 600
+    fi
+    [ ! -f "$state_dir/pending" ] || bad "a successful apply left a pending marker"
+
+    reset_log
+    GIT_TRACE_LOG=$CASE/git.trace
+    STUB_MAKI_SCRIPT=
+    run_maki maki
+    assert_rc 0
+    assert_err_missing "Recording a sandbox baseline"
+    [ -f "$state_dir/baseline" ] || bad "the previous baseline disappeared"
+    [ ! -f "$state_dir/pending" ] || bad "a no-op session wrote a pending marker"
+}
+
+test_interrupt_still_collects_patch() {
+    begin "SIGINT still collects the sandbox patch"
+    new_case interrupt-collect
+    if ! command -v pkill >/dev/null 2>&1; then
+        skipped "pkill is not installed"
+        return 0
+    fi
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    STUB_MAKI_SCRIPT='sleep 3; printf "after-int\n" > after.txt'
+
+    run_maki maki &
+    helper_pid=$!
+    sleep 1
+    pkill -INT -f "$MAKI maki" 2>/dev/null || true
+    wait "$helper_pid" 2>/dev/null || true
+    patch_file=$(find "$(session_dir maki-myproject)" -maxdepth 1 -name 'patch-*.patch' -type f 2>/dev/null | head -n 1)
+    [ -n "$patch_file" ] || bad "no patch was collected after SIGINT"
+    grep -Fq 'after-int' "$RUN_DIR/after.txt" 2>/dev/null \
+        || bad "the interrupted session's changes were not applied"
+}
+
+test_patch_content_and_git_isolation() {
+    begin "patch carries edits, deletes, renames, mode, symlink, and binary without .git"
+    new_case patch-content
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/tracked.txt"
+    printf 'delete me\n' >"$RUN_DIR/deleted.txt"
+    printf 'rename me\n' >"$RUN_DIR/renamed.txt"
+    printf 'base-script\n' >"$RUN_DIR/mode.sh"
+    printf 'base-binary\n' >"$RUN_DIR/binary.bin"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    STUB_MAKI_SCRIPT='printf "modified\n" > tracked.txt
+rm deleted.txt
+mv renamed.txt renamed-new.txt
+printf "new\n" > added.txt
+printf "\000\001\002binary-v2" > binary.bin
+chmod +x mode.sh
+ln -s tracked.txt link
+mkdir -p .git && printf "fake\n" > .git/config'
+
+    run_maki maki
+    assert_rc 0
+    [ "$(cat "$RUN_DIR/tracked.txt")" = modified ] || bad "modification did not travel"
+    [ ! -e "$RUN_DIR/deleted.txt" ] || bad "deletion did not travel"
+    [ ! -e "$RUN_DIR/renamed.txt" ] || bad "renamed source still exists"
+    [ "$(cat "$RUN_DIR/renamed-new.txt" 2>/dev/null)" = 'rename me' ] || bad "rename did not travel"
+    [ "$(cat "$RUN_DIR/added.txt" 2>/dev/null)" = new ] || bad "addition did not travel"
+    [ "$(cat "$RUN_DIR/binary.bin")" = "$(printf '\000\001\002binary-v2')" ] || bad "binary change did not travel"
+    [ -x "$RUN_DIR/mode.sh" ] || bad "mode change did not travel"
+    [ -L "$RUN_DIR/link" ] || bad "symlink did not travel"
+    [ ! -e "$RUN_DIR/.git" ] || bad "sandbox .git crossed into the host project"
+    [ -f "$SANDBOX_WORKDIR/.git/config" ] || bad "sandbox .git was removed instead of staying in the sandbox"
+    patch_file=$(find "$(session_dir maki-myproject)" -maxdepth 1 -name 'patch-*.patch' -type f 2>/dev/null | head -n 1)
+    [ -n "$patch_file" ] || bad "no patch was written"
+    if [ -n "$patch_file" ]; then
+        grep -Fq 'GIT binary patch' "$patch_file" || bad "patch has no binary hunk"
+        grep -Fq 'new mode 100755' "$patch_file" || bad "patch has no mode change"
+        grep -Fq 'rename to renamed-new.txt' "$patch_file" || bad "patch has no rename"
+        if grep -Eq '^diff --git a/\.git/|^diff --git b/\.git/|^diff --git a/\.git$' "$patch_file"; then
+            bad "patch contains a .git path"
+        fi
+    fi
+}
+
+test_large_patch_uses_a_file() {
+    begin "a large patch is written to a file, never carried through a shell value"
+    new_case large-patch
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    awk 'BEGIN { for (i = 0; i < 200000; i++) printf "a" }' >"$RUN_DIR/large.txt"
+    printf '\n' >>"$RUN_DIR/large.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    STUB_MAKI_SCRIPT='awk "BEGIN { for (i = 0; i < 200000; i++) printf \"b\" }" > large.txt'
+
+    run_maki maki
+    assert_rc 0
+    patch_file=$(find "$(session_dir maki-myproject)" -maxdepth 1 -name 'patch-*.patch' -type f 2>/dev/null | head -n 1)
+    [ -n "$patch_file" ] || bad "large patch file was not written"
+    if [ -n "$patch_file" ]; then
+        patch_size=$(wc -c <"$patch_file" | tr -d ' ')
+        [ "$patch_size" -gt 100000 ] || bad "patch file is unexpectedly small"
+    fi
+    if grep -Fq 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' "$LOG" "$ERR" "$OUT" 2>/dev/null; then
+        bad "patch content leaked into a helper stream"
+    fi
+}
+
+test_git_clean_fast_forward() {
+    begin "clean git baseline applies in a worktree and fast-forwards, then cleans up"
+    new_case git-ff
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    run_maki upload .
+    reset_log
+    commit_before=$(git -C "$RUN_DIR" rev-parse HEAD)
+    # A stale worktree entry must be pruned before the new worktree is added.
+    git -C "$RUN_DIR" worktree add "$CASE/stale-worktree" HEAD >/dev/null 2>&1
+    rm -rf "$CASE/stale-worktree"
+    GIT_TRACE_LOG=$CASE/git.trace
+    STUB_MAKI_SCRIPT='printf "agent\n" > agent.txt; printf "modified\n" > tracked.txt'
+
+    run_maki maki
+    assert_rc 0
+    git_trace_has "worktree prune"
+    assert_trace_before "worktree prune" "worktree add"
+    assert_trace_before "worktree add" "apply --check"
+    assert_trace_before "apply --check" "maki-oss: apply sandbox changes"
+    assert_trace_before "maki-oss: apply sandbox changes" "merge --ff-only"
+    assert_trace_before "merge --ff-only" "worktree remove"
+    assert_trace_before "worktree remove" "branch -d"
+    git_trace_has "maki-oss/maki-repo-"
+    git_trace_has "worktrees/"
+    [ "$(cat "$RUN_DIR/tracked.txt")" = modified ] || bad "agent change is not on the host"
+    [ "$(cat "$RUN_DIR/agent.txt" 2>/dev/null)" = agent ] || bad "agent file is not on the host"
+    [ -z "$(git -C "$RUN_DIR" status --porcelain)" ] || bad "fast-forward left the host dirty"
+    [ "$(git -C "$RUN_DIR" rev-parse HEAD^)" = "$commit_before" ] || bad "result commit parent is not the baseline"
+    [ "$(git -C "$RUN_DIR" log -1 --format=%s)" = "maki-oss: apply sandbox changes" ] \
+        || bad "result commit has the wrong subject"
+    [ -z "$(git -C "$RUN_DIR" branch --list 'maki-oss/*')" ] || bad "temporary branch was not deleted"
+    worktrees=$(git -C "$RUN_DIR" worktree list | wc -l | tr -d ' ')
+    [ "$worktrees" = 1 ] || bad "a worktree entry remains after fast-forward"
+    [ ! -f "$(session_dir maki-repo)/pending" ] || bad "a successful fast-forward left a pending marker"
+    patch_file=$(find "$(session_dir maki-repo)" -maxdepth 1 -name 'patch-*.patch' -type f 2>/dev/null | head -n 1)
+    [ -n "$patch_file" ] || bad "the applied patch was not retained"
+
+    # A later session starts from the advanced baseline and replays nothing.
+    reset_log
+    GIT_TRACE_LOG=$CASE/git2.trace
+    STUB_MAKI_SCRIPT=
+    run_maki maki
+    assert_rc 0
+    assert_err_missing "is stale"
+    assert_err_has "No sandbox changes to sync."
+    git_trace_missing "worktree add"
+    git_trace_missing "git apply"
+}
+
+test_git_crlf_attributes() {
+    begin "line-ending attributes either apply cleanly or fail safely"
+    new_case git-crlf
+    RUN_DIR=$CASE/project/repo
+    mkdir -p "$RUN_DIR"
+    (
+        cd "$RUN_DIR" || exit 1
+        git init -q
+        git config user.name "Test User"
+        git config user.email test@example.com
+        printf '*.txt text eol=crlf\n' >.gitattributes
+        printf 'one\r\ntwo\r\n' >crlf.txt
+        git add .gitattributes crlf.txt
+        git commit -q -m initial
+    )
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    run_maki upload .
+    reset_log
+    GIT_TRACE_LOG=$CASE/git.trace
+    STUB_MAKI_SCRIPT='printf "three\r\n" >> crlf.txt'
+
+    run_maki maki
+    assert_rc 0
+    if grep -Fq 'three' "$RUN_DIR/crlf.txt"; then
+        [ "$(git -C "$RUN_DIR" log -1 --format=%s)" = "maki-oss: apply sandbox changes" ] \
+            || bad "CRLF patch applied without a result commit"
+    else
+        patch_file=$(find "$(session_dir maki-repo)" -maxdepth 1 -name 'patch-*.patch' -type f 2>/dev/null | head -n 1)
+        [ -n "$patch_file" ] || bad "safe CRLF conflict did not retain the patch"
+        git_trace_missing "merge --ff-only"
+    fi
+}
+
+test_git_host_moved_or_dirty() {
+    begin "a moved or dirty host keeps the result branch and never merges"
+    for moved_case in commit branch dirty; do
+        new_case "moved-$moved_case"
+        RUN_DIR=$CASE/project/repo
+        seed_git_project "$RUN_DIR"
+        seed_sandbox maki-repo Ready
+        seed_remembered_provider maki-stub
+        attach_stub_provider maki-repo maki-stub
+        run_maki upload .
+        reset_log
+        GIT_TRACE_LOG=$CASE/git.trace
+        case $moved_case in
+            commit)
+                STUB_MAKI_SCRIPT='printf "agent\n" > agent.txt
+printf "host\n" > "'"$RUN_DIR"'/host.txt"
+git -C "'"$RUN_DIR"'" add host.txt
+git -C "'"$RUN_DIR"'" commit -q -m host-move'
+                ;;
+            branch)
+                STUB_MAKI_SCRIPT='printf "agent\n" > agent.txt
+git -C "'"$RUN_DIR"'" checkout -q -b other-branch'
+                ;;
+            dirty)
+                STUB_MAKI_SCRIPT='printf "agent\n" > agent.txt
+printf "dirty\n" >> "'"$RUN_DIR"'/tracked.txt"'
+                ;;
+        esac
+        run_maki maki
+        assert_rc 0
+        assert_err_has "not fast-forwarded"
+        assert_err_has "branch:"
+        assert_err_has "worktree:"
+        assert_err_has "patch:"
+        git_trace_missing "merge --ff-only"
+        [ -n "$(git -C "$RUN_DIR" branch --list 'maki-oss/*')" ] || bad "$moved_case: result branch was not kept"
+        worktree_count=$(git -C "$RUN_DIR" worktree list | wc -l | tr -d ' ')
+        [ "$worktree_count" -ge 2 ] || bad "$moved_case: review worktree was not kept"
+        [ ! -e "$RUN_DIR/agent.txt" ] || bad "$moved_case: the result was applied without consent"
+    done
+}
+
+test_git_dirty_baseline_cherry_pick() {
+    begin "dirty baseline commits the result on a synthetic parent and never fast-forwards"
+    new_case git-dirty
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    printf 'local edit\n' >>"$RUN_DIR/tracked.txt"
+    printf 'untracked\n' >"$RUN_DIR/untracked.txt"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    commit_before=$(git -C "$RUN_DIR" rev-parse HEAD)
+    GIT_TRACE_LOG=$CASE/git.trace
+    STUB_MAKI_SCRIPT='printf "agent edited\n" > tracked.txt
+printf "agent untracked\n" > untracked.txt
+printf "agent new\n" > new.txt'
+
+    run_maki maki
+    assert_rc 0
+    assert_err_has "Uncommitted host work was not committed"
+    assert_err_has "git cherry-pick"
+    git_trace_has "worktree add"
+    git_trace_missing "merge --ff-only"
+    branch_name=$(git -C "$RUN_DIR" for-each-ref --format='%(refname:short)' 'refs/heads/maki-oss/*' | head -n 1)
+    [ -n "$branch_name" ] || bad "result branch was not kept"
+    if [ -n "$branch_name" ]; then
+        result=$(git -C "$RUN_DIR" rev-parse "$branch_name")
+        synthetic=$(git -C "$RUN_DIR" rev-parse "$result^")
+        [ "$(git -C "$RUN_DIR" rev-parse "$synthetic^")" = "$commit_before" ] \
+            || bad "synthetic base is not a child of HEAD"
+        synthetic_subject=$(git -C "$RUN_DIR" log -1 --format=%s "$synthetic")
+        case $synthetic_subject in
+            "maki-oss baseline"*) ;;
+            *) bad "synthetic base has the wrong subject: $synthetic_subject" ;;
+        esac
+        assert_err_has "git cherry-pick $result"
+    fi
+    grep -Fq 'local edit' "$RUN_DIR/tracked.txt" || bad "local edit was lost"
+    grep -Fq 'agent edited' "$RUN_DIR/tracked.txt" && bad "agent change was applied to the dirty host"
+    grep -Fq 'untracked' "$RUN_DIR/untracked.txt" || bad "untracked host file was lost"
+    [ -f "$(session_dir maki-repo)/pending" ] || bad "cherry-pick case did not write a pending marker"
+}
+
+test_git_worktree_conflict_keeps_host() {
+    begin "a worktree conflict keeps the review surface and leaves the host unchanged"
+    new_case git-conflict
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    run_maki upload .
+    reset_log
+    real_git=$(command -v git)
+    mkdir -p "$CASE/fake-git"
+    cat >"$CASE/fake-git/git" <<EOF
+#!/bin/sh
+case " \$* " in
+    *" apply --check "*) exit 1 ;;
+    *" apply --3way "*) exit 1 ;;
+esac
+exec "$real_git" "\$@"
+EOF
+    chmod +x "$CASE/fake-git/git"
+    PATH_OVERRIDE="$CASE/fake-git:$STUB_DIR:$PATH"
+    STUB_MAKI_SCRIPT='printf "agent\n" > tracked.txt'
+
+    run_maki maki
+    assert_rc 0
+    assert_err_has "conflicts with the host"
+    assert_err_has "worktree:"
+    assert_err_has "patch:"
+    [ "$(cat "$RUN_DIR/tracked.txt")" = base ] || bad "conflict changed the host file"
+    [ -n "$(git -C "$RUN_DIR" branch --list 'maki-oss/*')" ] || bad "review branch was not kept"
+    worktree_count=$(git -C "$RUN_DIR" worktree list | wc -l | tr -d ' ')
+    [ "$worktree_count" -ge 2 ] || bad "review worktree was not kept"
+    [ -f "$(session_dir maki-repo)/pending" ] || bad "conflict did not write a pending marker"
+}
+
+test_no_git_ignore_uses_patch_check() {
+    begin "--no-git-ignore disables the worktree and uses the project patch check"
+    new_case no-git-ignore
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_remembered_provider maki-stub
+    GIT_TRACE_LOG=$CASE/git.trace
+    STUB_MAKI_SCRIPT='printf "agent\n" > tracked.txt'
+
+    run_maki --no-git-ignore maki
+    assert_rc 0
+    assert_err_has "Automatic worktree apply is off for --no-git-ignore"
+    git_trace_missing "worktree add"
+    git_trace_has "apply --check"
+    assert_trace_check_before_apply
+    [ "$(cat "$RUN_DIR/tracked.txt")" = agent ] || bad "the patch was not applied in the project"
+    [ "$(git -C "$RUN_DIR" status --porcelain tracked.txt)" = " M tracked.txt" ] \
+        || bad "the host file was not left modified for review"
+}
+
+test_no_git_text_apply() {
+    begin "without git, a text patch applies with patch and preserves unrelated files"
+    new_case no-git-text
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'v1\n' >"$RUN_DIR/file.txt"
+    printf 'keep\n' >"$RUN_DIR/unrelated.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    PATH_OVERRIDE=$(no_git_path with_patch)
+    STUB_MAKI_SCRIPT='printf "v2\n" > file.txt'
+
+    run_maki maki
+    assert_rc 0
+    [ "$(cat "$RUN_DIR/file.txt")" = v2 ] || bad "text patch did not apply without git"
+    [ "$(cat "$RUN_DIR/unrelated.txt")" = keep ] || bad "unrelated file was touched"
+    assert_err_has "Applied sandbox changes"
+}
+
+test_no_git_text_conflict_keeps_project() {
+    begin "without git, a conflicting text patch leaves every file unchanged"
+    new_case no-git-conflict
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    PATH_OVERRIDE=$(no_git_path with_patch)
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt
+printf "host\n" > "'"$RUN_DIR"'/file.txt"'
+
+    run_maki maki
+    assert_rc 0
+    [ "$(cat "$RUN_DIR/file.txt")" = host ] || bad "conflict changed the host file"
+    assert_err_has "does not apply cleanly"
+    [ -f "$(session_dir maki-myproject)/pending" ] || bad "conflict did not write a pending marker"
+}
+
+test_no_git_binary_export() {
+    begin "without git, binary changes export only affected files for review"
+    new_case no-git-binary
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'keep\n' >"$RUN_DIR/unrelated.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    PATH_OVERRIDE=$(no_git_path with_patch)
+    STUB_MAKI_SCRIPT='printf "\000\001binary" > binary.bin
+printf "text\n" > note.txt'
+
+    run_maki maki
+    assert_rc 0
+    assert_err_has "exported for review"
+    review_dir=$(find "$(session_dir maki-myproject)" -maxdepth 1 -name 'review-*' -type d 2>/dev/null | head -n 1)
+    [ -n "$review_dir" ] || bad "review directory was not created"
+    [ ! -e "$RUN_DIR/binary.bin" ] || bad "binary file was written into the project"
+    [ "$(cat "$RUN_DIR/unrelated.txt")" = keep ] || bad "unrelated host file changed"
+    if [ -n "$review_dir" ]; then
+        [ -f "$review_dir/files/binary.bin" ] || bad "binary file was not exported"
+        grep -Fq 'binary.bin' "$review_dir/manifest" || bad "manifest does not name the binary file"
+    fi
+    [ -f "$(session_dir maki-myproject)/pending" ] || bad "binary export did not write a pending marker"
+}
+
+test_no_git_no_patch_fails_closed() {
+    begin "without git or patch, a text change fails closed and writes nothing"
+    new_case no-git-no-patch
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'v1\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    PATH_OVERRIDE=$(no_git_path)
+    STUB_MAKI_SCRIPT='printf "v2\n" > file.txt'
+
+    run_maki maki
+    assert_rc 0
+    assert_err_has "neither git nor patch"
+    assert_err_has "sandbox:   maki-myproject"
+    assert_err_has "workspace: $SANDBOX_WORKDIR"
+    assert_err_has "openshell sandbox connect maki-myproject"
+    assert_err_has "maki-oss download"
+    [ "$(cat "$RUN_DIR/file.txt")" = v1 ] || bad "the project was written despite failing closed"
+    assert_log_missing "download"
+    [ -f "$(session_dir maki-myproject)/pending" ] || bad "failure did not write a pending marker"
+}
+
+test_pending_marker_blocks_second_session() {
+    begin "a pending patch blocks automatic apply in a later session"
+    new_case pending-block
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    # Force the first apply to fail closed by removing the apply tool and git.
+    PATH_OVERRIDE=$(no_git_path)
+    run_maki maki
+    assert_rc 0
+    [ -f "$(session_dir maki-myproject)/pending" ] || bad "first session did not leave a pending patch"
+    first_patch=$(baseline_value_pending patch)
+    [ -n "$first_patch" ] || bad "pending marker has no patch path"
+
+    reset_log
+    PATH_OVERRIDE=
+    GIT_TRACE_LOG=$CASE/git.trace
+    STUB_MAKI_SCRIPT='printf "agent2\n" > second.txt'
+    run_maki maki
+    assert_rc 0
+    assert_err_has "Pending sandbox changes from an earlier session"
+    assert_err_has "$first_patch"
+    assert_err_has "Automatic apply is off"
+    assert_log_missing "upload"
+    git_trace_missing "worktree add"
+    git_trace_missing "git apply"
+    [ ! -e "$RUN_DIR/second.txt" ] || bad "a new patch was applied despite the pending marker"
+    [ "$(cat "$RUN_DIR/file.txt")" = base ] || bad "the host project was modified"
+}
+
+baseline_value_pending() { # KEY
+    sed -n "s/^$1=//p" "$(session_dir maki-myproject)/pending" 2>/dev/null | head -n 1
+}
+
+test_run_stdout_is_maki_only() {
+    begin "run stdout is exactly Maki's output and sync failures keep its code"
+    new_case run-stdout
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    EXEC_STDOUT='{"result":"exact"}'
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+
+    run_maki run "hi"
+    assert_rc 0
+    [ "$(cat "$OUT")" = '{"result":"exact"}' ] || bad "stdout contains helper output"
+}
+
+
 # ---------------------------------------------------------------------------
 
 run_test test_help
@@ -2633,7 +3446,29 @@ run_test test_run_bootstraps_from_scratch
 run_test test_session_model_precedence
 run_test test_session_no_sync
 run_test test_session_sync_failure_preserves_code
-run_test test_session_sync_merge
+run_test test_session_plain_apply
+run_test test_session_plain_conflict_keeps_project
+run_test test_baseline_capture_clean_git
+run_test test_baseline_capture_dirty_git
+run_test test_sandbox_baseline_after_upload
+run_test test_existing_sandbox_baseline_migration
+run_test test_stale_sandbox_keeps_patch
+run_test test_session_state_permissions_and_second_session
+run_test test_interrupt_still_collects_patch
+run_test test_patch_content_and_git_isolation
+run_test test_large_patch_uses_a_file
+run_test test_git_clean_fast_forward
+run_test test_git_crlf_attributes
+run_test test_git_host_moved_or_dirty
+run_test test_git_dirty_baseline_cherry_pick
+run_test test_git_worktree_conflict_keeps_host
+run_test test_no_git_ignore_uses_patch_check
+run_test test_no_git_text_apply
+run_test test_no_git_text_conflict_keeps_project
+run_test test_no_git_binary_export
+run_test test_no_git_no_patch_fails_closed
+run_test test_pending_marker_blocks_second_session
+run_test test_run_stdout_is_maki_only
 run_test test_policy_advisor_enabled_on_session
 run_test test_policy_advisor_enabled_on_fresh_create
 run_test test_policy_advisor_failure_is_soft

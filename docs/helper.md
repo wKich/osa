@@ -7,7 +7,9 @@ runs Maki headless or interactively, and encodes the safety rules from the
 
 Bare `maki-oss` (no subcommand) is the one-command session: it ensures the
 project sandbox, uploads the project when the sandbox is first created,
-launches Maki, and downloads changes back into the project directory on exit.
+launches Maki, and on exit collects the sandbox changes as a patch. The patch
+is applied to the host only when the sandbox baseline still matches the host
+tree; otherwise it is kept for review and the project is left untouched.
 After a one-time `maki-oss provider setup`, a project needs no further setup
 commands.
 
@@ -147,10 +149,11 @@ with no subcommand is the same command. The ensure step:
 3. attaches any remembered provider that is not attached yet.
 
 When the session ends — including Ctrl-C or a non-zero exit — the helper
-downloads the sandbox workdir back into the project directory. The download
-merges: matching files are overwritten and host-only files are never deleted.
-`--no-sync` skips it. `--model provider/model` (or the config `model` key)
-selects the model.
+collects the sandbox workdir changes as a patch and applies them only through
+the safety check described in [Safe session sync](#safe-session-sync). A host
+edit is never overwritten by an automatic overlay. `--no-sync` skips collection
+and leaves the changes in the sandbox. `--model provider/model` (or the config
+`model` key) selects the model.
 
 Three session flags are forwarded to Maki unchanged: `--continue` (`-c`)
 resumes the most recent session in the sandbox workdir, `--resume <ID>`
@@ -165,21 +168,80 @@ documented in the upstream reference pack
 
 Sessions live in the sandbox's container filesystem, not on the host: they
 survive `stop` and `start`, but are lost when the sandbox is deleted and
-recreated (`maki-oss rm`). The helper stores no session state on the host,
-and the exit sync still downloads only the sandbox workdir.
+recreated (`maki-oss rm`). The helper's sync state (baseline, patches,
+worktrees, pending marker) lives on the host under
+`${XDG_STATE_HOME:-$HOME/.local/state}/maki-oss/sessions/<sandbox>/`.
 
 A session that **reuses** an existing sandbox does not re-upload the project,
-so the sandbox may still hold an earlier copy of your files. Because the exit
-sync overwrites matching host files, the helper prints a `Reusing ...` note to
-stderr on that path. Run `maki-oss upload` first to refresh the sandbox from
-the current host tree when you do not want that merge.
+so the sandbox may still hold an earlier copy of your files. The helper prints
+a `Reusing ...` note to stderr and compares the sandbox baseline tree with the
+host tree. If they differ, the sandbox is stale: no patch is applied
+automatically, and the collected patch is kept for review. Run
+`maki-oss upload` first to refresh the sandbox from the current host tree.
 
 ```sh
 cd ~/code/myproject
-maki-oss             # ensure + interactive Maki + sync back
+maki-oss             # ensure + interactive Maki + safe sync
 maki-oss --continue  # resume the most recent session in the sandbox
 maki-oss --no-sync   # leave changes in the sandbox only
 ```
+
+#### Safe session sync
+
+The sandbox is the source of the agent's work; the host decides whether that
+work applies. The helper keeps an external git directory at
+`<workdir parent>/.maki-oss/git` inside the sandbox, outside the project
+workdir. At upload time it commits the uploaded tree as `refs/maki-oss/base`.
+On exit it commits the workdir and emits
+`git diff --binary --full-index base result` as a patch. `.git` never crosses
+the boundary: OpenShell's git-aware upload skips the host `.git`, and the
+sandbox git directory is outside the worktree, so it cannot enter the patch.
+
+The host stores the baseline identity and the patch under the session state
+directory (mode `700`; files `600`):
+
+| Path | Meaning |
+|---|---|
+| `baseline` | Mode, branch, commit, tree, dirty flag, upload mode, staleness |
+| `patch-<timestamp>.patch` | Collected patch, retained until you remove it |
+| `worktrees/<id>/` | Review worktree kept when no fast-forward happened |
+| `review-<timestamp>/` | Selective export used when the host has no git |
+| `pending` | Marker for unresolved changes; blocks automatic apply |
+
+The apply path depends on the project and the baseline:
+
+- **Clean git repository, matching baseline:** the patch is applied in a
+  temporary worktree at the recorded commit, committed on a temporary branch,
+  and the host branch is fast-forwarded only when it is still on the recorded
+  branch and commit with no tracked changes. The worktree and branch are
+  removed after the fast-forward.
+- **Dirty or untracked git repository:** the baseline is a synthetic commit
+  whose tree is the current working tree and whose parent is `HEAD`. The
+  result is committed on the temporary branch but never fast-forwarded,
+  because that would commit your uncommitted work. The helper prints the
+  `git cherry-pick <result>` command and keeps the branch/worktree.
+- **Host moved or dirty at exit:** no fast-forward. The result stays on the
+  temporary branch, and the helper prints review/merge commands plus the patch
+  path.
+- **Plain directory (no repository):** `git apply --check` then `git apply`,
+  which works outside a repository. A failed check leaves every file
+  unchanged and keeps the patch.
+- **No host git:** text patches use `patch` (dry run first); binary patches
+  export only the changed files, with a path/hash manifest, into
+  `review-<timestamp>/`. If neither tool is available, the helper fails closed.
+- **Stale sandbox or unresolved pending patch:** no automatic apply. The
+  patch is retained and the recovery block points at the sandbox and patch.
+
+A failed collection or apply writes nothing to the project, keeps the patch,
+leaves the changes in the sandbox, and prints recovery commands:
+`openshell sandbox connect <name>`, a `maki-oss download <path> <dest>`
+example, and the pending marker path. Remove the marker after applying or
+discarding the patch; until then a later session will not upload over the
+sandbox or apply a new patch automatically. `maki-oss upload` re-records the
+sandbox baseline and clears the marker, because it is an explicit refresh.
+
+Gitignored files, empty directories, and sandbox-only artifacts do not travel
+in a patch. Use `maki-oss download` when you need a full copy.
 
 #### OpenCode TUI mode (`tui = "opencode"`)
 
@@ -191,7 +253,7 @@ contract over one live Maki SDK session in the same project sandbox: Maki
 still runs only inside the sandbox, reached over `openshell sandbox exec`
 stdio, with no bind mounts and no `--env` values. The session keeps the
 shared lifecycle — the same ensure step, the same `model` setting, and the
-same exit sync back into the project directory.
+same safe exit sync back into the project directory.
 
 ```sh
 # one-time host prerequisites for this mode
@@ -200,8 +262,8 @@ opencode --version
 
 # config.toml: tui = "opencode"
 cd ~/code/myproject
-maki-oss              # ensure + bridge + OpenCode TUI + sync back
-maki-oss --no-sync    # same, without the exit download
+maki-oss              # ensure + bridge + OpenCode TUI + safe sync
+maki-oss --no-sync    # same, without collecting a patch
 ```
 
 The mode requires `bun` (to run the bridge) and the `opencode` binary on the
@@ -220,10 +282,11 @@ the pinned versions) is generated at [`compatibility.md`](compatibility.md).
 
 Runs Maki headless with `--print --yolo --trust --output-format json`,
 streams stdout unchanged, and exits with Maki's exit code. Like `maki`, it
-ensures the sandbox first and syncs back on exit; helper messages go to stderr
-so stdout carries only Maki's output. `--model <provider/model>` is passed
-through as Maki's `--model` and overrides the config `model` key, so any
-credentialed provider can be selected without touching the interactive picker.
+ensures the sandbox first and runs the same safe sync on exit; helper messages
+go to stderr so stdout carries only Maki's output. `--model <provider/model>`
+is passed through as Maki's `--model` and overrides the config `model` key, so
+any credentialed provider can be selected without touching the interactive
+picker.
 
 The session flags apply here too — `--continue`, `--resume <ID>`, and
 `--session-id <ID>` — which is how a headless run is chained onto a previous
@@ -257,10 +320,12 @@ the run's processes but cannot read their environment to find them
 ### upload / download
 
 `upload [LOCAL_PATH] [SANDBOX_DEST]` copies local files into the sandbox. The
-default local path is `.` and the default destination is the workdir.
+default local path is `.` and the default destination is the workdir. An upload
+to the workdir re-records the sandbox baseline and clears a pending marker.
 `download [SANDBOX_PATH] DEST` copies files out to an explicit host
 destination; with one argument that argument is the destination and the
-workdir is downloaded.
+workdir is downloaded. It is the explicit full-copy escape hatch and is never
+run automatically by a session.
 
 Both delegate to `openshell sandbox upload` / `download`; neither creates a
 bind mount or exposes any other host path.
@@ -553,19 +618,20 @@ OpenShell binary, so it runs without Docker, a gateway, or network access.
 
 ## Known limitations
 
-Two boundaries are deliberate deferrals, recorded in the
-`add-policy-review-loop` change record rather than left as surprises:
+Three boundaries are deliberate deferrals, recorded here rather than left as
+surprises:
 
-- **Sandbox `$HOME` writes are not synced back.** Only the workdir
-  (`/sandbox/project`) is downloaded on exit. An agent that writes to its own
-  home inside the sandbox — a tool whose convention is `~/.config/...`, for
-  example — leaves that file behind when the session ends. Tell the agent to
-  put deliverables under the project directory, or copy the file out by hand.
-- **Sandbox-created large artifacts are not filtered on download.** The exit
-  sync merges the whole workdir back, so a build directory, model weights, or
-  cache an agent creates in the sandbox is copied to the host at full size.
-  Gitignore filtering on upload only prevents host-side dependency
-  directories from entering; it does not catch files born inside the sandbox.
+- **Sandbox `$HOME` writes are not synced back.** Only changes under the
+  workdir (`/sandbox/project`) are collected into the patch. An agent that
+  writes to its own home inside the sandbox — a tool whose convention is
+  `~/.config/...`, for example — leaves that file behind when the session
+  ends. Tell the agent to put deliverables under the project directory, or
+  copy the file out by hand.
+- **Ignored files and empty directories do not round-trip automatically.**
+  The patch is content-based and follows `.gitignore`, so a build directory,
+  model weights, or cache an agent creates in the sandbox stays there unless
+  it is part of a tracked change. Use `maki-oss download` for a full copy;
+  skipped and binary content is never merged silently.
 - **OpenCode TUI mode (`tui = "opencode"`) has known rendering defects.**
   User prompts render after the assistant responses they caused
   (A-A-A-Q-Q-Q) and the status line shows a synthesized model name instead of

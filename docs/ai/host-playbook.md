@@ -245,10 +245,12 @@ maki-oss rm                           # delete it (prompts; --yes non-interactiv
 ```
 
 Bare `maki-oss` creates or reuses the project sandbox, uploads the project on
-first creation, attaches remembered providers, launches Maki, and syncs
-changes back into the project directory on exit (`--no-sync` opts out). A
-reused sandbox is not re-uploaded — run `maki-oss upload` first to refresh it
-from the current host tree. Full reference: [`docs/helper.md`](../helper.md).
+first creation, attaches remembered providers, launches Maki, and on exit
+collects the sandbox changes as a patch. A clean repository is fast-forwarded;
+a dirty, moved, or stale host keeps the patch or a review branch instead of
+overwriting host files (`--no-sync` opts out). A reused sandbox is not
+re-uploaded — run `maki-oss upload` first to refresh it from the current host
+tree. Full reference: [`docs/helper.md`](../helper.md).
 
 Every session enables the in-sandbox policy advisor and, on the way out,
 checks for pending network-rule proposals. If the agent asked for an endpoint
@@ -266,8 +268,9 @@ approval, so deny-by-default is unchanged. An agent that submitted a proposal
 waits for your decision, so approving mid-session lets it retry the same
 request in the same session; rejecting sends your reason back so it can narrow
 or stop. Keep every project a git repo with its dependency directories
-gitignored (see the agent playbook) so uploads stay small and the exit sync
-never drags a `.venv` or `node_modules` back into the host tree.
+gitignored (see the agent playbook) so uploads stay small; the patch sync only
+carries tracked changes and never drags a `.venv` or `node_modules` back into
+the host tree.
 
 ### Verify
 

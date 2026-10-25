@@ -30,13 +30,16 @@ instead — it bundles the function and completions.
 ```sh
 maki-oss provider setup     # once per machine: wizard for any provider
 cd ~/code/myproject
-maki-oss                    # ensure the sandbox, run Maki, sync back
+maki-oss                    # ensure the sandbox, run Maki, sync safely
 ```
 
 That's it. Bare `maki-oss` creates or reuses the project's sandbox, uploads the
-project on first create, attaches remembered providers, launches Maki, and
-downloads every change back into your project directory on exit. After the
-one-time `provider setup`, a project needs no further setup.
+project on first create, attaches remembered providers, launches Maki, and on
+exit collects the sandbox changes as a patch. The patch is applied only when
+the project's safety check passes — a host edit is never overwritten by a
+whole-workdir overlay, and conflicts leave your files untouched with the patch
+kept for review. After the one-time `provider setup`, a project needs no
+further setup.
 
 ## What do I send the agent?
 
@@ -58,9 +61,12 @@ maki-oss --resume <ID>           # resume a specific session
 maki-oss run --resume <ID> "continue where the previous run stopped"
 ```
 
-When the session ends, the sandbox's copy of your project is downloaded back
-into the project directory — your local files are always the source of truth.
-Full command reference: [`docs/helper.md`](docs/helper.md).
+When the session ends, the sandbox's changes are collected as a patch and
+applied to the project only when it is safe: a clean repository is
+fast-forwarded, a dirty or moved host keeps a review branch, and a plain
+directory uses `git apply --check`. Conflicts keep the patch and leave the host
+unchanged. Your local files stay the source of truth. Full command reference:
+[`docs/helper.md`](docs/helper.md).
 
 ## Why?
 
@@ -74,8 +80,9 @@ sandboxes by hand is a chore. maki-oss gives you:
 - 🧩 **Any provider** — a `provider setup` wizard plus a curated profile
   catalog, with a migration guide for keys currently stored in Maki or
   OpenCode.
-- 🔄 **Seamless file sync** — upload on create, download on exit. Your project
-  directory stays the source of truth.
+- 🔄 **Safe file sync** — upload on create, then collect a patch on exit and
+  apply it only when the baseline still matches. Your project directory stays
+  the source of truth; conflicts keep a patch for review.
 - 🐟 **Fish-native** — a fisher-compatible plugin with completions, plus a
   plain POSIX `sh` helper for everyone else.
 - 📊 **Dashboard** — a minimal [Bun](https://bun.sh) web UI

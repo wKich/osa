@@ -717,7 +717,10 @@ large repos need warm sandboxes with git-bundle sync.
   belong in B1.3.
 - Tasks of one project share a warm sandbox: weaker isolation between tasks,
   shared resources (accepted; per-task fallback documented above).
-- Merge-only transfer never propagates deletions — documented, accepted for
-  A2; Track B avoids it with git bundles.
+- The interactive session sync applies a git patch, so deletions and renames
+  travel back and a conflict never overwrites the host. The remaining
+  merge-only paths are the explicit `maki-oss download` escape hatch and the
+  A2 session-transfer copies, which do not propagate deletions; Track B avoids
+  them with git bundles.
 - Session archives older than kiss's 30-day purge are not durable history;
   Maki's own state in the sandbox plus P5 export are the long-lived copies.

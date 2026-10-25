@@ -108,8 +108,9 @@ Before uploading, make the project a git repo with its dependency directories
 gitignored. `openshell sandbox upload` applies `.gitignore` filtering only
 inside a git work tree and warns when it uploads everything, so an un-ignored
 `.venv`, `node_modules`, or `target` directory is copied into the sandbox at
-full size and dragged back by the exit sync — a macOS `.venv` round-tripped
-491 MB of useless, non-executable files into a Linux sandbox once. Ignore the
+full size — a macOS `.venv` round-tripped 491 MB of useless, non-executable
+files into a Linux sandbox once. The session patch does not bring ignored files
+back, but the upload still pays for them in time and disk. Ignore the
 dependency directories so the upload carries only the source.
 
 ```sh
@@ -175,7 +176,7 @@ except cleanup — in one command per project:
 ```sh
 maki-oss provider setup        # one-time; remembers the provider
 cd "$PROJECT_PATH"
-maki-oss                       # ensure sandbox + interactive Maki + sync back
+maki-oss                       # ensure sandbox + interactive Maki + safe sync
 maki-oss run "the task text"   # headless variant
 ```
 
@@ -191,7 +192,9 @@ openshell sandbox delete maki
 ```
 
 Downloads are limited to paths inside the sandbox working directory — keep
-results under `/sandbox`.
+results under `/sandbox`. When the project was run through `maki-oss`, the
+session already collected a patch at exit; this download is the explicit
+full-copy escape hatch, not the default sync path.
 
 ## Invariants (never relax these to make a command work)
 

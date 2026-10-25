@@ -37,6 +37,14 @@
 #                         default prints a header with zero chunks
 #   STUB_POLICY_FULL      text printed by `policy get --full` (default: a
 #                         one-line stub policy)
+#   STUB_SANDBOX_ROOT     host directory simulating the sandbox filesystem;
+#                         `sandbox upload` copies into it and `download`
+#                         copies back out of it
+#   STUB_MAKI_SCRIPT      shell snippet run in the workdir when the exec
+#                         command is `maki` (simulates agent changes)
+#   STUB_EXEC_SCRIPT_FAIL substring; an internal `sh -c` script containing it
+#                         fails as a sandbox error (simulates collection or
+#                         baseline failures)
 
 set -eu
 
@@ -209,10 +217,89 @@ case $command_name in
                         esac
                     done <"$STUB_EXEC_CASES"
                 fi
+                stub_workdir=
+                while [ "$#" -gt 0 ]; do
+                    case $1 in
+                        -n)
+                            shift
+                            ;;
+                        --workdir)
+                            stub_workdir=${2:-}
+                            shift
+                            ;;
+                        --)
+                            shift
+                            break
+                            ;;
+                    esac
+                    shift
+                done
+                # Internal sandbox scripts run locally so the stub suite
+                # exercises the real git baseline and patch logic. The
+                # timeout wrapper (argv0 maki-oss-run) is not one of them.
+                if [ "${1:-}" = sh ] && [ "${2:-}" = -c ] && [ "${4:-}" = maki-oss-git ]; then
+                    stub_script=$3
+                    shift 3
+                    if [ -n "${STUB_EXEC_SCRIPT_FAIL:-}" ]; then
+                        case $stub_script in
+                            *"$STUB_EXEC_SCRIPT_FAIL"*)
+                                printf 'stub: sandbox script failed\n' >&2
+                                exit 1
+                                ;;
+                        esac
+                    fi
+                    # The simulated sandbox has its own tools even when the
+                    # host PATH deliberately omits git or patch.
+                    PATH="${STUB_SANDBOX_TOOLS:+$STUB_SANDBOX_TOOLS:}$PATH" \
+                        sh -c "$stub_script" "$@"
+                    exit $?
+                fi
+                if [ "${1:-}" = maki ] && [ -n "${STUB_MAKI_SCRIPT:-}" ] && [ -n "$stub_workdir" ]; then
+                    ( cd "$stub_workdir" && sh -c "$STUB_MAKI_SCRIPT" )
+                fi
                 printf '%s\n' "${STUB_EXEC_STDOUT:-stub-exec-output}"
                 exit "${STUB_EXEC_EXIT:-0}"
                 ;;
             upload)
+                stub_no_ignore=0
+                while [ "$#" -gt 0 ]; do
+                    case $1 in
+                        --no-git-ignore)
+                            stub_no_ignore=1
+                            shift
+                            ;;
+                        *)
+                            break
+                            ;;
+                    esac
+                done
+                stub_upload_src=${2:-}
+                stub_upload_dest=${3:-}
+                if [ -n "${STUB_SANDBOX_ROOT:-}" ] && [ -n "$stub_upload_dest" ] && [ -e "$stub_upload_src" ]; then
+                    mkdir -p "$stub_upload_dest"
+                    if [ -d "$stub_upload_src" ]; then
+                        if [ "$stub_no_ignore" -eq 0 ] \
+                            && command -v git >/dev/null 2>&1 \
+                            && git -C "$stub_upload_src" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+                            git -C "$stub_upload_src" ls-files -co --exclude-standard \
+                                | while IFS= read -r stub_upload_file; do
+                                    [ -e "$stub_upload_src/$stub_upload_file" ] || continue
+                                    mkdir -p "$(dirname -- "$stub_upload_dest/$stub_upload_file")"
+                                    cp -p "$stub_upload_src/$stub_upload_file" "$stub_upload_dest/$stub_upload_file"
+                                done
+                        else
+                            for stub_upload_entry in "$stub_upload_src"/* "$stub_upload_src"/.[!.]* "$stub_upload_src"/..?*; do
+                                [ -e "$stub_upload_entry" ] || continue
+                                case $(basename -- "$stub_upload_entry") in
+                                    .git) continue ;;
+                                esac
+                                cp -R "$stub_upload_entry" "$stub_upload_dest/"
+                            done
+                        fi
+                    else
+                        cp -p "$stub_upload_src" "$stub_upload_dest"
+                    fi
+                fi
                 printf 'stub: upload ok\n'
                 ;;
             download)
@@ -220,9 +307,26 @@ case $command_name in
                     printf 'stub: download failed\n' >&2
                     exit "${STUB_DOWNLOAD_EXIT}"
                 fi
+                stub_download_src=${2:-}
+                stub_download_dest=${3:-}
+                if [ -n "${STUB_SANDBOX_ROOT:-}" ] && [ -n "$stub_download_src" ]; then
+                    case $stub_download_src in
+                        "$STUB_SANDBOX_ROOT"/*)
+                            if [ -d "$stub_download_src" ]; then
+                                mkdir -p "$stub_download_dest"
+                                cp -R "$stub_download_src"/. "$stub_download_dest"/
+                            elif [ -f "$stub_download_src" ]; then
+                                mkdir -p "$(dirname -- "$stub_download_dest")"
+                                cp -p "$stub_download_src" "$stub_download_dest"
+                            else
+                                printf 'stub: sandbox path not found: %s\n' "$stub_download_src" >&2
+                                exit 1
+                            fi
+                            ;;
+                    esac
+                fi
                 if [ -n "${STUB_DOWNLOAD_FIXTURE:-}" ]; then
                     # Args after the action: NAME SOURCE DEST.
-                    stub_download_dest=${3:-}
                     if [ -n "$stub_download_dest" ]; then
                         mkdir -p "$stub_download_dest"
                         cp -R "$STUB_DOWNLOAD_FIXTURE"/. "$stub_download_dest"/

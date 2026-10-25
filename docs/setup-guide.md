@@ -219,10 +219,12 @@ Policy notes:
 one-time `maki-oss provider setup` (which remembers the provider) and
 `maki-oss image build`, running `maki-oss` inside a project creates or starts
 its sandbox, uploads the project when the sandbox is first created, attaches
-remembered providers, launches Maki, and downloads changes back into the
-project directory on exit (`--no-sync` opts out). `maki-oss run "<prompt>"`
-is the headless variant. The raw OpenShell commands below remain the reference
-for what the helper does.
+remembered providers, launches Maki, and on exit collects the sandbox changes
+as a patch. The patch is applied only when the project's safety check passes;
+a clean repository is fast-forwarded, a dirty or moved host keeps a review
+branch, and conflicts retain the patch without touching project files
+(`--no-sync` opts out). `maki-oss run "<prompt>"` is the headless variant. The
+raw OpenShell commands below remain the reference for what the helper does.
 
 **Interactive** (the command in section 5): after creation you are attached to
 Maki. To return later, `openshell sandbox connect maki`.

@@ -3,6 +3,158 @@
 Recorded dry runs for this repository. Actual outputs are trimmed to the
 relevant lines.
 
+## Safe session sync — 2026-10-25
+
+Real-gateway dry run of the patch-based exit sync (`add-safe-session-sync`) on
+macOS 26.5 (Apple Silicon, Docker via OrbStack), OpenShell 0.1.5, sandbox image
+`maki-agent:reference` (Maki 0.6.4, git 2.43.0 inside the sandbox), provider
+`maki-synthetic`. Each sandbox was created with
+`maki-oss up --provider maki-synthetic`, seeded with `maki-oss upload .`, then
+changed through `openshell sandbox exec` so the session baseline was already
+recorded. The session used a fast-failing Maki model (`--model nope/nope`) to
+keep the run short; the sync path is independent of Maki's success.
+
+### 7.1 Clean git sync — sandbox `maki-verify-ff`
+
+Baseline `mode=clean`, `branch=main`, host tree equal to the sandbox base
+tree. The sandbox gained `agent-note.txt`, changed `base.txt`, and created a
+fake `.git` directory. On exit:
+
+```text
+$ maki-oss run --name maki-verify-ff --provider maki-synthetic \
+    --model nope/nope "noop"
+Collected sandbox changes: .../sessions/maki-verify-ff/patch-20261025175010-90521.patch
+Preparing worktree (new branch 'maki-oss/maki-verify-ff-20261025175010-90521')
+Fast-forward
+ agent-note.txt | 1 +
+ base.txt       | 2 +-
+Applied sandbox changes to branch 'main'.
+
+$ cat base.txt           # changed
+$ cat agent-note.txt     # agent
+$ git log --format='%s' -1
+maki-oss: apply sandbox changes
+$ git status --porcelain # empty
+$ git branch --list 'maki-oss/*'  # empty
+$ git worktree list      # one entry (the main worktree)
+```
+
+The retained patch contained only `agent-note.txt` and `base.txt`; it had no
+`.git` path. The host-only file was preserved. Temporary worktree and branch
+were removed after the fast-forward.
+
+### 7.2 Host edit — sandbox `maki-v-conflict`
+
+Baseline was clean; the host and the sandbox then edited `shared.txt`
+differently before the session. On exit:
+
+```text
+Sandbox 'maki-v-conflict' is stale: its baseline tree differs from the host.
+The patch will be kept for review instead of being applied. Refresh with 'maki-oss upload'.
+Collected sandbox changes: .../sessions/maki-v-conflict/patch-20261025175105-24866.patch
+The sandbox baseline is stale; keeping the patch for review.
+maki-oss: sandbox changes are not in the host project; the sandbox still holds them
+maki-oss:   sandbox:   maki-v-conflict
+maki-oss:   workspace: /sandbox/project
+maki-oss:   inspect:   openshell sandbox connect maki-v-conflict
+maki-oss:   copy one:  maki-oss download /sandbox/project/PATH ./DEST
+maki-oss:   patch:     .../patch-20261025175105-24866.patch
+maki-oss:   pending:   .../pending (remove it after resolving)
+```
+
+The host file still contained `host edit`, `git status` still showed only that
+edit, no temporary branch or worktree existed, and the patch contained the
+sandbox edit. The session did not run a workspace download.
+
+### 7.3 Dirty/untracked baseline — sandbox `maki-verify-dirty`
+
+The host started with a tracked edit and `untracked.txt`, and `maki-oss
+upload` recorded that working tree as the synthetic baseline. The sandbox
+changed both files and added `agent-new.txt`. On exit:
+
+```text
+Sandbox changes committed on branch 'maki-oss/maki-verify-dirty-20261025175023-98730'
+  (worktree: .../sessions/maki-verify-dirty/worktrees/20261025175023-98730).
+Uncommitted host work was not committed. Apply the agent changes with:
+  git cherry-pick f25f2ecdc1e544fbdb08c4c84f25b6721cafc10f
+If cherry-pick refuses because a changed path is untracked, run: git add -N <path>
+Or apply the patch directly: git apply '.../patch-20261025175023-98730.patch'
+```
+
+The host still had `user local edit` and `user untracked` as uncommitted work;
+`agent-new.txt` was absent. Following the guidance, the local work was
+committed explicitly as `user local work`, the result commit was
+cherry-picked, and the final files were `agent tracked`, `agent untracked`,
+and `agent new` with a clean status. The helper did not commit the user's work
+on its own.
+
+### 7.4 Plain directory — sandbox `maki-v-plain`
+
+No `.git` in the project. The sandbox changed `plain.txt` to `v2` and created
+`created.txt`. On exit the helper used the plain check:
+
+```text
+Collected sandbox changes: .../patch-20261025175121-35255.patch
+Applied sandbox changes to /var/.../maki-verify-plain.5alGy2.
+```
+
+The host showed `plain.txt` = `v2` and `created.txt` present; no worktree was
+created.
+
+### 7.5 No-git host and fail-closed — sandbox `maki-v-plain`
+
+A restricted `PATH` with the shell tools and `openshell` but no `git` (and
+later no `patch`) was used for two further sessions. With `patch` available,
+the text change applied:
+
+```text
+patching file plain.txt
+patching file plain.txt
+Applied sandbox changes to /var/.../maki-verify-plain.5alGy2.
+```
+
+Without `git` or `patch`, the project stayed at `v3` and the helper printed:
+
+```text
+maki-oss: warning: neither git nor patch is available on the host; keeping the patch
+maki-oss: sandbox changes are not in the host project; the sandbox still holds them
+maki-oss:   sandbox:   maki-v-plain
+maki-oss:   workspace: /sandbox/project
+maki-oss:   inspect:   openshell sandbox connect maki-v-plain
+maki-oss:   copy one:  maki-oss download /sandbox/project/PATH ./DEST
+maki-oss:   patch:     .../patch-20261025175123-36272.patch
+maki-oss:   pending:   .../pending (remove it after resolving)
+```
+
+No full workspace download was invoked.
+
+### 7.6 Isolation checks
+
+```text
+$ openshell sandbox exec -n maki-verify-ff --no-login-shell -- ls /Users
+ls: cannot access '/Users': No such file or directory        (exit 2)
+
+$ openshell sandbox exec -n maki-verify-ff --no-login-shell -- \
+    sh -c 'grep -E "/Users|/private/var|/opt/homebrew" /proc/mounts || echo none'
+none
+
+$ openshell sandbox exec -n maki-verify-ff --no-login-shell -- touch /usr/probe
+touch: cannot touch '/usr/probe': Permission denied          (exit 1)
+
+$ openshell sandbox exec -n maki-v-plain --no-login-shell -- \
+    sh -c 'test -e /sandbox/project/.git && echo PRESENT || echo ABSENT'
+ABSENT
+```
+
+The `.git` directory created inside `maki-verify-ff` was the sandbox's own
+(fake content), not the host repository; the host project gained no
+`.maki-oss` directory and no nested git metadata. The retained patches had no
+`.git` path and no credential-like values.
+
+The verification sandboxes (`maki-verify-clean`, `maki-verify-ff`,
+`maki-verify-dirty`, `maki-v-conflict`, `maki-v-plain`, `maki-real-probe`)
+were deleted after the run; state directories were kept for inspection.
+
 ## OpenShell v0.1.5 upgrade — 2026-10-22
 
 Upgrade of the pinned OpenShell from v0.1.4 to v0.1.5 (released 2026-10-20),

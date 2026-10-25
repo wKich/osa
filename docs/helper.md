@@ -55,6 +55,24 @@ make test     # stub-backed suite: no Docker, no gateway, no network
 make lint     # shellcheck + fish -n
 ```
 
+### Code layout
+
+The helper is two files:
+
+- `bin/maki-oss` is the Maki front-end. It sets the identity and defaults
+  (the `MAKI_OSS_` prefix, config and state paths, image, policy, sandbox
+  name), defines the agent hooks (session argv, doctor's MCP section, the
+  provider-setup hint), and keeps the Maki-only commands: `maki`, the
+  OpenCode TUI mode, `mcp status`, `image build`, and `fish`.
+- `lib/oss-core.sh` is the agent-neutral core: config, OpenShell wrappers,
+  safety checks, the session ensure and patch sync, idle stop, policy and
+  provider commands, and argument parsing. The front-end sources it and
+  calls `oss_main`.
+
+Keep `lib/` next to `bin/`. The helper loads it from the repository root,
+just as it loads `examples/` and `bridge/`, so a copy of `bin/maki-oss`
+alone does not run.
+
 ## Configuration
 
 Settings resolve in this order (first non-empty wins):

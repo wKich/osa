@@ -83,6 +83,15 @@ today's values.
 | `OSS_PROFILES_DIR` | `$repo_root/examples/providers` |
 | `OSS_CATALOG_FILE` | `$OSS_PROFILES_DIR/catalog.tsv` |
 | `OSS_CUSTOM_PROFILE_PREFIX` | `maki-` |
+| `OSS_CONFIG_EXAMPLE` | `examples/config.toml` (named in a generated config header) |
+| `OSS_AGENT_NAME` | `Maki` (generated custom-profile description) |
+| `OSS_AGENT_PROCESS` | `maki` (the in-sandbox process the idle stop waits on) |
+
+`OSS_CONFIG_NAME` also names the host state directory
+(`$XDG_STATE_HOME/maki-oss/sessions`). `PROGRAM` names the sync identity:
+the `refs/maki-oss/*` refs, the git author, and the review branch prefix.
+The front-end sets all of these before sourcing the core, because the core
+splices them into its sandbox-side scripts at source time.
 
 Env lookups such as `${MAKI_OSS_IMAGE:-}` become one helper,
 `env_setting IMAGE`. It reads `${OSS_ENV_PREFIX}_IMAGE` through `eval`, and
@@ -101,11 +110,27 @@ code verbatim.
 | `agent_interactive_argv` | set `"$@"` to the in-sandbox argv for an interactive session, from the resolved model and session options | `maki [--model M] [--continue] [--resume ID] [--session-id ID]` |
 | `agent_headless_argv PROMPT` | set `"$@"` for a headless run | `maki --print --yolo --trust --output-format json …` |
 | `agent_exec_stdin` | `tty` or `null`: how the core wires exec stdin for a headless run | `tty` (today's behavior: inherited) |
-| `agent_check_session_flags` | reject unsupported session-flag combinations before any sandbox work | bridge-mode refusal |
-| `agent_dispatch CMD ARGS` | handle agent-only commands; return 1 when it does not handle CMD | `maki`, `image`, `mcp`, `fish` |
+| `agent_check_session_flags MODE` | reject unsupported session-flag combinations before any sandbox work | bridge-mode refusal, then the bridge session |
+| `agent_dispatch CMD ARGS` | handle agent-only commands; report any other CMD as unknown | `maki`, `image`, `mcp`, `fish` |
 | `agent_parse_option OPT [VAL]` | consume agent-only options; return 1 when it does not handle OPT | `--maki-version` |
 | `agent_doctor_extra` | extra doctor sections after the common checks | MCP readiness table |
 | `agent_setup_hint PROFILE` | text printed after a successful provider setup | `providers.toml` hint |
+
+Implementation notes on the contracts:
+
+- The argv hooks cannot set the caller's `"$@"`. They add words with the
+  core's `argv_add WORD...` instead, which single-quotes each word into
+  `agent_argv` by parameter expansion alone. The core then runs
+  `eval "set -- $agent_argv"`.
+- `agent_check_session_flags` takes the mode (`interactive` or
+  `headless`). In OpenCode TUI mode, Maki's hook also hands the session
+  to the bridge, which exits. This keeps today's check order: `idle_stop`
+  first, then `tui`, then the flags.
+- `agent_dispatch` reports an unknown command itself, with
+  `die_usage "unknown command: CMD"`, instead of returning 1. A call inside
+  `if` or `||` would turn `set -e` off for every agent command.
+- `agent_parse_option` returns 1 for an option it does not handle. It sets
+  `agent_opt_values` to the number of values it consumed.
 
 Session commands (`cmd_session` for interactive, `cmd_run` for headless)
 move into the core. The core owns the ensure routine, sync arming, traps,
@@ -138,7 +163,9 @@ string. Add these checks:
 - `maki-oss --help`, `maki-oss help`, and the usage error text: byte-diff
   before and after.
 - `grep` the core for leftover literals (`maki`, `MAKI_OSS`, `.maki-oss`,
-  `examples/`). The only hits allowed are comments.
+  `examples/`). The only hits allowed are comments and the `maki`
+  credential store of provider setup. That store is a host credential
+  source, like the `opencode` store, so it stays in the core.
 - `make lint`, with shellcheck run on both files and
   `# shellcheck source=` so it follows the sourced file.
 - One live smoke test on the real gateway: `maki-oss run "reply OK"` and

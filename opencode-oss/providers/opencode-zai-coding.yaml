@@ -1,0 +1,44 @@
+# OpenCode + Z.AI coding-plan provider profile for OpenShell.
+#
+# Lint and import from the repository root:
+#   openshell profile lint -f opencode-oss/providers/opencode-zai-coding.yaml
+#   openshell profile import -f opencode-oss/providers/opencode-zai-coding.yaml --global
+#
+# Then create the provider instance from your host environment:
+#   ZHIPU_API_KEY=<key> openshell provider create \
+#     --name opencode-zai-coding --type opencode-zai-coding --from-existing
+#
+# This profile targets the Z.AI coding-plan endpoint, which OpenCode exposes
+# as its own provider: select models as zai-coding-plan/<model>.
+#
+# The profile authorizes only /usr/local/bin/opencode (the path used by
+# opencode-oss/image) to reach api.z.ai, and binds ZHIPU_API_KEY to that
+# endpoint. Do not set ZAI_BASE_URL in the sandbox: a different base URL would
+# leave the credential unbound.
+
+id: opencode-zai-coding
+display_name: OpenCode (Z.AI coding plan)
+description: Z.AI coding-plan inference API for the OpenCode coding agent
+category: inference
+inference_capable: true
+
+credentials:
+  - name: api_key
+    description: Z.AI (Zhipu) coding-plan API key
+    env_vars: [ZHIPU_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+
+discovery:
+  credentials: [api_key]
+
+endpoints:
+  - host: api.z.ai
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+
+binaries:
+  - /usr/local/bin/opencode

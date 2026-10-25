@@ -1,0 +1,43 @@
+# Minimal OpenShell sandbox policy for the OpenCode image.
+#
+# Create a sandbox with it:
+#   openshell sandbox create --name opencode \
+#     --from opencode-agent:local \
+#     --policy opencode-oss/policies/minimal.yaml \
+#     --provider opencode-synthetic
+#
+# This policy grants no network egress by itself: the provider profile
+# attached with --provider contributes the model endpoint rules, and the
+# effective policy is the base policy plus those rules
+# (openshell policy get <name> --full).
+#
+# Filesystem, Landlock, and process settings are fixed at sandbox creation.
+# Same floor as examples/policies/maki-minimal.yaml.
+version: 1
+
+filesystem_policy:
+  include_workdir: true
+  read_only:
+    - /usr
+    - /lib
+    - /bin
+    - /etc
+    - /proc
+    - /dev/urandom
+    - /var/log
+  read_write:
+    - /sandbox
+    - /tmp
+    # The null device, as in OpenShell's default policy and baseline paths:
+    # every process OpenCode spawns with a null stdin opens it.
+    - /dev/null
+
+landlock:
+  # Fail sandbox startup if the filesystem rules cannot be applied; do not
+  # silently run without them.
+  compatibility: hard_requirement
+
+process:
+  # Must match the USER in opencode-oss/image/Dockerfile.
+  run_as_user: "1500"
+  run_as_group: "1500"

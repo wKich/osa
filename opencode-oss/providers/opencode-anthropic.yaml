@@ -1,0 +1,41 @@
+# OpenCode + Anthropic provider profile for OpenShell.
+#
+# Lint and import from the repository root:
+#   openshell profile lint -f opencode-oss/providers/opencode-anthropic.yaml
+#   openshell profile import -f opencode-oss/providers/opencode-anthropic.yaml --global
+#
+# Then create the provider instance from your host environment:
+#   ANTHROPIC_API_KEY=<key> openshell provider create \
+#     --name opencode-anthropic --type opencode-anthropic --from-existing
+#
+# The profile authorizes only /usr/local/bin/opencode (the path used by
+# opencode-oss/image) to reach api.anthropic.com, and binds
+# ANTHROPIC_API_KEY to that endpoint. Do not set ANTHROPIC_BASE_URL in the
+# sandbox: a different base URL would leave the credential unbound.
+
+id: opencode-anthropic
+display_name: OpenCode (Anthropic)
+description: Anthropic inference API for the OpenCode coding agent
+category: inference
+inference_capable: true
+
+credentials:
+  - name: api_key
+    description: Anthropic API key
+    env_vars: [ANTHROPIC_API_KEY]
+    required: true
+    auth_style: header
+    header_name: x-api-key
+
+discovery:
+  credentials: [api_key]
+
+endpoints:
+  - host: api.anthropic.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+
+binaries:
+  - /usr/local/bin/opencode

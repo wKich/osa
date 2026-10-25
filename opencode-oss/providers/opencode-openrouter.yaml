@@ -1,0 +1,41 @@
+# OpenCode + OpenRouter provider profile for OpenShell.
+#
+# Lint and import from the repository root:
+#   openshell profile lint -f opencode-oss/providers/opencode-openrouter.yaml
+#   openshell profile import -f opencode-oss/providers/opencode-openrouter.yaml --global
+#
+# Then create the provider instance from your host environment:
+#   OPENROUTER_API_KEY=<key> openshell provider create \
+#     --name opencode-openrouter --type opencode-openrouter --from-existing
+#
+# The profile authorizes only /usr/local/bin/opencode (the path used by
+# opencode-oss/image) to reach openrouter.ai, and binds
+# OPENROUTER_API_KEY to that endpoint. Do not set OPENROUTER_BASE_URL in the
+# sandbox: a different base URL would leave the credential unbound.
+
+id: opencode-openrouter
+display_name: OpenCode (OpenRouter)
+description: OpenRouter inference API for the OpenCode coding agent
+category: inference
+inference_capable: true
+
+credentials:
+  - name: api_key
+    description: OpenRouter API key
+    env_vars: [OPENROUTER_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+
+discovery:
+  credentials: [api_key]
+
+endpoints:
+  - host: openrouter.ai
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+
+binaries:
+  - /usr/local/bin/opencode

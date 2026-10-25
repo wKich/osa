@@ -1,0 +1,45 @@
+# OpenCode + OpenAI provider profile for OpenShell.
+#
+# Lint and import from the repository root:
+#   openshell profile lint -f opencode-oss/providers/opencode-openai.yaml
+#   openshell profile import -f opencode-oss/providers/opencode-openai.yaml --global
+#
+# Then create the provider instance from your host environment:
+#   OPENAI_API_KEY=<key> openshell provider create \
+#     --name opencode-openai --type opencode-openai --from-existing
+#
+# This profile covers the OpenAI platform API key. OpenCode's ChatGPT OAuth
+# login uses different headers and a Codex backend, needs in-sandbox auth, and
+# is not supported.
+#
+# The profile authorizes only /usr/local/bin/opencode (the path used by
+# opencode-oss/image) to reach api.openai.com, and binds OPENAI_API_KEY to
+# that endpoint. Do not set OPENAI_BASE_URL in the sandbox: a different base
+# URL would leave the credential unbound.
+
+id: opencode-openai
+display_name: OpenCode (OpenAI)
+description: OpenAI platform inference API for the OpenCode coding agent
+category: inference
+inference_capable: true
+
+credentials:
+  - name: api_key
+    description: OpenAI API key
+    env_vars: [OPENAI_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+
+discovery:
+  credentials: [api_key]
+
+endpoints:
+  - host: api.openai.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+
+binaries:
+  - /usr/local/bin/opencode

@@ -6,9 +6,10 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sleep, startBridge, waitFor, type BridgeHandle } from "./lib/bridge.ts";
 
-/** direct children of the bridge process: one scripted maki child per session */
+/** direct scripted maki children of the bridge process, one per session; the
+ * bridge's short-lived sandbox reads (skills, git) are its children too */
 async function children(pid: number): Promise<number[]> {
-  const proc = Bun.spawn(["pgrep", "-P", String(pid)], { stdout: "pipe", stderr: "ignore" });
+  const proc = Bun.spawn(["pgrep", "-P", String(pid), "-f", "fake-maki"], { stdout: "pipe", stderr: "ignore" });
   await proc.exited;
   const out = await new Response(proc.stdout).text();
   return out.split("\n").map((l) => Number(l.trim())).filter(Boolean);

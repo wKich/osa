@@ -8,7 +8,7 @@
 
 SHELL := /bin/sh
 
-.PHONY: test test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift lint lint-profiles install-fish
+.PHONY: test test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-profiles install-fish
 
 test:
 	tests/run-tests.sh
@@ -86,6 +86,17 @@ compat-drift:
 		bun scripts/compat-drift.ts; \
 	else \
 		echo 'bun not found; skipping contract drift gate'; \
+	fi
+
+# Maki-side drift check: the image's pinned Maki against the latest release,
+# with release notes and whether the SDK surface (sdk_mode.rs, cli.rs, the MCP
+# handshake) changed between the tags. Exits non-zero when it did, so every
+# pin-blocked row is re-triaged; reads only. Never part of `make test`.
+maki-drift:
+	@if command -v bun >/dev/null 2>&1; then \
+		bun scripts/maki-drift.ts; \
+	else \
+		echo 'bun not found; skipping Maki drift check'; \
 	fi
 
 lint:

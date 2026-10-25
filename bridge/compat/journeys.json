@@ -1198,19 +1198,20 @@
       "area": "permission",
       "source": "packages/tui/src/routes/session/form.tsx at v2.0.32",
       "scenario": {
-        "steps": ["a tool raises an MCP form", "answer the fields", "submit"],
+        "steps": ["prompt the agent to use the journey MCP server's ask_color tool", "allow the tool", "wait for the server's form", "interrupt whatever still runs"],
         "checkpoints": [
-          { "id": "form-shown", "after": 1, "expect": "the form dialog shows the fields, tabs, and validation" },
-          { "id": "answered", "after": 3, "expect": "the answers are sent and the tool continues" }
+          { "id": "form", "after": 3, "expect": "the call waits on the server's form: OpenCode 2.0.32 creates it on the server (GET /api/form lists it) but its TUI does not present it in a session" },
+          { "id": "answered", "after": 4, "expect": "the reference call ends interrupted; a client without elicitation has already replied" }
         ]
       },
-      "routes": ["GET /api/session/{sessionID}/form", "POST /api/session/{sessionID}/form/{formID}/reply"],
-      "features": [],
+      "routes": ["GET /api/mcp", "GET /api/form", "POST /api/session/{sessionID}/prompt", "POST /api/session/{sessionID}/permission/{requestID}/reply"],
+      "features": ["mcp-forms"],
       "scope": "reachable",
-      "blockedBy": "none",
-      "status": "unrecorded",
-      "evidence": {},
-      "acceptedDiffs": []
+      "blockedBy": "pin",
+      "status": "diverges",
+      "evidence": { "reference":"bridge/test/journeys/answer-mcp-form/reference/","maki":"bridge/test/journeys/answer-mcp-form/maki/","diff":"bridge/test/journeys/answer-mcp-form/diff.json","live":{"snapshots":"bridge/test/journeys/answer-mcp-form/live/","diff":"bridge/test/journeys/answer-mcp-form/live-diff.json","maki":"0.6.4","image":"sha256:7822b202e99387bbf2f07ea23e2b109b64d10188fbde336a0b166e28cc4b4a16","verdict":"diverges"} },
+      "acceptedDiffs": [],
+      "pinCitation": "Maki v0.6.4 cannot answer an MCP form: its MCP client declares `\"capabilities\": {}` on initialize (maki-agent/src/mcp/protocol.rs L60), so a server that follows MCP never sends it elicitation/create, and the stream-json wire has no message to put a form before the TUI (src/sdk_mode.rs L1122–L1160). The reference side is recorded as OpenCode 2.0.32 behaves: it creates the form on its server but its TUI does not present it in a session"
     },
     {
       "slug": "answer-agent-question",

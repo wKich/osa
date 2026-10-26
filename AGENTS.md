@@ -11,9 +11,8 @@ Start here:
 
 - `docs/ai/onboarding.md` — choose the agent you already run, then follow the
   same-agent path for Maki, OpenCode, or Claude Code.
-- `docs/ai/host-playbook.md` — provision a bare macOS or Linux host (engine,
-  OpenShell, Maki, shell) before running Maki; hands off to the agent
-  playbook for the sandbox phases.
+- `docs/ai/host-playbook.md` — provision the shared host tooling (engine,
+  OpenShell, repository, shell) for any agent; hands off to the agent playbook.
 - `docs/ai/environment-playbook.md` — compose a personal environment (MCP
   servers, runtimes, preferences) on the base image; hands off to the
   reference store under `examples/environments/reference/`.

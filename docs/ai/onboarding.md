@@ -81,9 +81,9 @@ agent columns name the command or page for that front-end.
 
 | Phase | Gate | Maki (`maki-oss`) | OpenCode (`opencode-oss`) | Claude (`claude-oss`) |
 |---|---|---|---|---|
-| P0 Preflight / audit | Every required host tool is present and reports a usable version. | Read the host and config; `maki --version`; [host playbook](host-playbook.md) Phase 1. | Read the host and config; `openshell status`; [OpenCode page](../opencode-oss.md#install). | Read the host and config; `openshell status`; [Claude page](../claude-oss.md#credentials). |
-| P1 Host tools | The engine, OpenShell CLI and gateway, and agent CLI are installed. | Install engine, OpenShell, and the pinned Maki CLI; [host playbook](host-playbook.md) Phase 2. | Install engine, OpenShell, and the helper; the OpenCode CLI comes from the image at P3; [OpenCode page](../opencode-oss.md#install). | Install engine, OpenShell, and the helper; create a subscription token on the host only when needed; [Claude page](../claude-oss.md#credentials). |
-| P2 Repository + helper | The repository, helper preflight, image, and provider profile exist. | Clone the repo, put `bin/` on `PATH`, run `maki-oss doctor`; [host playbook](host-playbook.md) Phases 3-4. | Clone the repo, put `bin/` on `PATH`, run `opencode-oss doctor`; [OpenCode page](../opencode-oss.md#install). | Clone the repo, put `bin/` on `PATH`, run `claude-oss doctor`; [Claude page](../claude-oss.md#install). |
+| P0 Preflight / audit | Every required host tool is present and reports a usable version. | Read the host and config; shared preflight from [host playbook](host-playbook.md) Phase 1; `maki --version` from [agent playbook](playbooks/maki.md) Phase 0. | Read the host and config; `openshell status`; [OpenCode page](../opencode-oss.md#install). | Read the host and config; `openshell status`; [Claude page](../claude-oss.md#credentials). |
+| P1 Host tools | The engine, OpenShell CLI and gateway, and agent CLI are installed. | Install engine and OpenShell from [host playbook](host-playbook.md) Phase 2; install the pinned Maki CLI from [agent playbook](playbooks/maki.md) Phase 0. | Install engine, OpenShell, and the helper; the OpenCode CLI comes from the image at P3; [OpenCode page](../opencode-oss.md#install). | Install engine, OpenShell, and the helper; create a subscription token on the host only when needed; [Claude page](../claude-oss.md#credentials). |
+| P2 Repository + helper | The repository, helper preflight, image, and provider profile exist. | Clone the repo and put `bin/` on `PATH` from [host playbook](host-playbook.md) Phase 3; run `maki-oss doctor`, `maki-oss image build`, and `maki-oss provider setup` from [agent playbook](playbooks/maki.md) Phases 1-2 and Shell preparation. | Clone the repo, put `bin/` on `PATH`, run `opencode-oss doctor`; [OpenCode page](../opencode-oss.md#install). | Clone the repo, put `bin/` on `PATH`, run `claude-oss doctor`; [Claude page](../claude-oss.md#install). |
 | P3 Image | The agent image builds and reports the pinned agent version. | `maki-oss image build` (`maki-agent:local`); verify with `maki --version`; [agent playbook](playbooks/maki.md) Phase 1. | `opencode-oss image build` (`opencode-agent:local`); verify with `opencode --version`; [OpenCode page](../opencode-oss.md#install). | `claude-oss image build` (`claude-agent:local`); verify with `claude --version`; [Claude page](../claude-oss.md#install). |
 | P4 Provider | The provider profile is imported and the provider is created. | `maki-oss provider setup`; [agent playbook](playbooks/maki.md) Phase 2. | `opencode-oss provider setup`; [OpenCode page](../opencode-oss.md#provider-setup). | `claude-oss provider setup`; [Claude page](../claude-oss.md#credentials). |
 | P5 Sandbox | The sandbox reaches `Ready` with the chosen policy and provider. | `maki-oss up`; [agent playbook](playbooks/maki.md) Phases 3-4. | `opencode-oss up`; [OpenCode page](../opencode-oss.md#sessions). | `claude-oss up`; [Claude page](../claude-oss.md#sessions). |
@@ -100,8 +100,8 @@ the canonical IDs; the OpenCode and Claude pages are unnumbered references.
 | Canonical | Maki host playbook | Maki agent playbook |
 |---|---|---|
 | P0 | Phase 1 | Phase 0 |
-| P1 | Phase 2 | - |
-| P2 | Phases 3-4 | - |
+| P1 | Phase 2 | Phase 0 |
+| P2 | Phase 3 | Shell preparation |
 | P3 | - | Phase 1 |
 | P4 | - | Phase 2 |
 | P5 | - | Phases 3-4 |
@@ -272,7 +272,8 @@ These are the same rules as `AGENTS.md`; restate them, never relax them.
 
 ## See also
 
-- [`docs/ai/host-playbook.md`](host-playbook.md) — the Maki host path, P0-P2.
+- [`docs/ai/host-playbook.md`](host-playbook.md) — the shared host path,
+  P0-P2.
 - [`docs/ai/playbooks/maki.md`](playbooks/maki.md) — the Maki sandbox path,
   P0, P3-P8.
 - [`docs/ai/environment-playbook.md`](environment-playbook.md) — compose a

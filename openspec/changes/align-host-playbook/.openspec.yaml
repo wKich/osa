@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-10-26
+goal: A bare-host reader follows one agent-neutral host path, then hands off to
+  the agent playbook that owns the agent CLI, image, provider, and sandbox
+  steps.

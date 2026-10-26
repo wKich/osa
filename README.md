@@ -125,8 +125,9 @@ sandboxes by hand is a chore. osa gives you:
 
 - [`docs/ai/onboarding.md`](docs/ai/onboarding.md) — keep your coding agent
   (Maki, OpenCode, or Claude Code) and move it into an OpenShell sandbox.
-- [`docs/ai/host-playbook.md`](docs/ai/host-playbook.md) — provision a bare
-  macOS or Linux host (engine, OpenShell, Maki, shell) before running Maki.
+- [`docs/ai/host-playbook.md`](docs/ai/host-playbook.md) — provision the shared
+  host tooling (engine, OpenShell, repository, shell) for any agent, then
+  follow the agent playbook.
 - [`docs/ai/environment-playbook.md`](docs/ai/environment-playbook.md) — compose
   a personal environment (MCP servers, runtimes, preferences) on the base image.
 - [`docs/setup-guide.md`](docs/setup-guide.md) — clean machine to a running

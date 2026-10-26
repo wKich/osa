@@ -102,12 +102,12 @@ unnumbered references.
 |---|---|---|
 | P0 | Phase 1 | Phase 0 |
 | P1 | Phase 2 | Phase 0 |
-| P2 | Phase 3 | Phases 1-2, Shell preparation |
+| P2 | Phase 3 | Shell preparation, Phases 1-2 |
 | P3 | - | Phase 1 |
 | P4 | - | Phase 2 |
 | P5 | - | Phases 3-4 |
 | P6 | - | Phase 5 |
-| P7 | Phase 5 | Phase 6 |
+| P7 | - | Phase 6 |
 | P8 | - | Phase 7 |
 
 ## Same-agent migration matrix

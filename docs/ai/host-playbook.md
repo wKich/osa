@@ -169,9 +169,9 @@ export PATH="/absolute/path/to/osa/bin:$PATH"
 
 Fish users: this page installs nothing into fish. Fish integration and the
 helper fallback variables are covered by the shared
-[Fish setup](../helper.md#fish-setup) section for both `maki-oss` and
-`opencode-oss`; the Maki playbook's [`Shell preparation`](playbooks/maki.md)
-section is the Maki-specific sequence. Claude Code has no fish plugin.
+[Fish setup](../helper.md#fish-setup) section for both helpers; the Maki
+playbook's [`Shell preparation`](playbooks/maki.md) section is the
+Maki-specific sequence. Claude Code has no fish plugin.
 
 ### Verify
 
@@ -214,7 +214,7 @@ steps from this file.
 - [`docs/ai/document-contract.md`](document-contract.md) — page shape used by
   this playbook.
 - [`docs/ai/playbooks/maki.md`](playbooks/maki.md) — the Maki path,
-  continuing P1-P8.
+  continuing P0-P8.
 - [`docs/ai/reference/maki.md`](reference/maki.md) — Maki configuration,
   profiles, MCP, and store shape.
 - [`docs/opencode-oss.md`](../opencode-oss.md) — the OpenCode path.

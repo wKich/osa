@@ -5,10 +5,11 @@
 #   make lint          shellcheck + fish syntax checks
 #   make lint-profiles lint every example provider profile with the real CLI
 #   make install-fish  symlink the fish plugin into the user's config
+#   make openspec-update refresh OpenSpec tool files and Maki command copies
 
 SHELL := /bin/sh
 
-.PHONY: test test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-profiles install-fish
+.PHONY: test test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-profiles install-fish openspec-update sync-openspec
 
 test:
 	tests/run-tests.sh
@@ -120,3 +121,16 @@ lint-profiles:
 
 install-fish:
 	bin/maki-oss fish install
+
+# Mirror the generated OpenSpec commands into the flat layout Maki discovers.
+# Source of truth: .opencode/commands/opsx-*.md — Maki does not read
+# .opencode/commands, and the .claude copies are nested and carry a name that
+# would override the filename. `make openspec-update` chains both steps.
+sync-openspec:
+	mkdir -p .maki/commands
+	rm -f .maki/commands/opsx-*.md
+	cp .opencode/commands/opsx-*.md .maki/commands/
+
+openspec-update:
+	openspec update
+	$(MAKE) sync-openspec

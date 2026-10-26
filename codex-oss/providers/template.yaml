@@ -1,0 +1,44 @@
+# Template provider profile for OpenShell.
+#
+# This is a valid, inert profile: it lints cleanly and grants nothing useful
+# until you replace the placeholders. `codex-oss provider setup` uses only the
+# curated codex-chatgpt profile; this template is for providers you add by
+# hand, such as an MCP server's codex-mcp-<name> profile.
+#
+# To copy it by hand (kebab-case id, your endpoint host, your credential
+# environment variable):
+#   cp codex-oss/providers/template.yaml /tmp/my-provider.yaml
+#   # edit /tmp/my-provider.yaml, then:
+#   openshell profile lint -f /tmp/my-provider.yaml
+#   openshell profile import -f /tmp/my-provider.yaml --global
+#
+# The profile authorizes only /usr/local/bin/codex (the path used by
+# codex-oss/image) to reach api.example.com, and binds EXAMPLE_API_KEY to
+# that endpoint.
+
+id: example-provider
+display_name: Example Provider
+description: Example inference API for the Codex agent
+category: inference
+inference_capable: true
+
+credentials:
+  - name: api_key
+    description: Example API key
+    env_vars: [EXAMPLE_API_KEY]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+
+discovery:
+  credentials: [api_key]
+
+endpoints:
+  - host: api.example.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+
+binaries:
+  - /usr/local/bin/codex

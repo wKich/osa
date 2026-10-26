@@ -2,12 +2,14 @@
 # shellcheck shell=sh source-path=SCRIPTDIR
 #
 # osa: report on every project the agent front-ends (maki-oss, opencode-oss,
-# claude-oss) have registered in the shared state root.
+# claude-oss, codex-oss) have registered in the shared state root.
 #
-# osa is read-only: it never creates, starts, stops, deletes, uploads to,
-# downloads from, or runs anything in a sandbox, and it never writes the state
-# root. It reads the published contract files (registry entries and pending
-# markers) and, for a full status, asks the owning front-end.
+# `projects` and `status` are read-only: they never create, start, stop,
+# delete, upload to, download from, or run anything in a sandbox, and they
+# never write the state root. They read the published contract files
+# (registry entries and pending markers) and, for a full status, ask the
+# owning front-end. `resolve` is the one command that writes: it validates the
+# sandbox here and hands the action to the owning front-end's `__resolve`.
 #
 # POSIX sh. See docs/helper.md for the full reference.
 
@@ -38,16 +40,24 @@ Commands:
   projects [--json]                 List every registered project
   status [PATH] [--json] [--quick]  Report the project at PATH (default: .)
                                     for each agent registered there
+  resolve SANDBOX ACTION [--yes] [--json]
+                                    Resolve the sandbox's pending work:
+                                    apply, branch, or drop --yes for a
+                                    retained patch; rescue or discard --yes
+                                    for a parked workspace
   help                              Show this help
 
 Options:
-  --json    Print one JSON array on stdout and nothing else
+  --json    Print one JSON array (resolve: one JSON object) on stdout and
+            nothing else
   --quick   Skip the gateway and the tree hash: report the pending kind and
             whether the host changed since the last sync (changed,
-            unchanged, or unknown)
+            unchanged, or unknown), and whether a session or resolve is
+            running (busy)
+  --yes     Confirm drop or discard
 
-osa never changes a sandbox or the state root. Run maki-oss, opencode-oss,
-or claude-oss in the project to act on it.
+Only resolve changes anything. Exit codes for resolve: 0 done, 1 usage
+error, 2 refused before any change, 3 failed during the action.
 EOF
 }
 
@@ -63,6 +73,7 @@ front_end() { # TAG
         mk) printf '%s/bin/maki-oss' "$repo_root" ;;
         oc) printf '%s/bin/opencode-oss' "$repo_root" ;;
         cc) printf '%s/bin/claude-oss' "$repo_root" ;;
+        cx) printf '%s/bin/codex-oss' "$repo_root" ;;
     esac
 }
 
@@ -114,6 +125,16 @@ entry_json_fields() {
         "$(json_str "$e_pending")" "$e_orphan"
 }
 
+# Prints `true` while a live session or resolve holds the loaded entry's
+# sandbox lock, else `false`. Read-only: stale lock files are left alone.
+entry_busy() {
+    if lock_busy "$state_root/sessions/$e_sandbox_name/locks"; then
+        printf 'true'
+    else
+        printf 'false'
+    fi
+}
+
 cmd_projects() {
     if [ "$opt_json" -eq 1 ]; then
         cp_sep=
@@ -149,7 +170,7 @@ ENTRIES
 $(registry_entries)
 ENTRIES
     if [ "$cp_count" -eq 0 ]; then
-        printf 'No registered projects. Run maki-oss, opencode-oss, or claude-oss in a project.\n'
+        printf 'No registered projects. Run maki-oss, opencode-oss, claude-oss, or codex-oss in a project.\n'
     fi
 }
 
@@ -183,14 +204,18 @@ cmd_status() {
         cs_count=$((cs_count + 1))
         if [ "$opt_quick" -eq 1 ]; then
             cs_fp=$(fingerprint_result)
+            cs_busy=$(entry_busy)
             if [ "$opt_json" -eq 1 ]; then
                 printf '%s{' "$cs_sep"
                 entry_json_fields
-                printf ',"fingerprint_result":%s}' "$(json_str "$cs_fp")"
+                printf ',"fingerprint_result":%s,"busy":%s}' "$(json_str "$cs_fp")" "$cs_busy"
             else
                 printf 'Sandbox:   %s (%s)\n' "$e_sandbox_name" "$e_agent"
                 printf 'Pending:   %s\n' "${e_pending:-none}"
                 printf 'Host:      %s since the last sync\n' "$cs_fp"
+                if [ "$cs_busy" = true ]; then
+                    printf 'Busy:      a session or resolve is running\n'
+                fi
             fi
         else
             cs_front=$(front_end "$e_agent")
@@ -224,9 +249,65 @@ ENTRIES
     fi
 }
 
+EX_REFUSED=2
+
+# Refuses a resolve before anything changed: exit 2, with the result object on
+# stdout under --json.
+resolve_refuse() { # MESSAGE
+    if [ "$opt_json" -eq 1 ]; then
+        printf '{"sandbox":%s,"action":%s,"ok":false,"changed":[],"message":%s}\n' \
+            "$(json_str "$opt_sandbox")" "$(json_str "$opt_action")" "$(json_str "$1")"
+    fi
+    printf '%s: %s\n' "$PROGRAM" "$1" >&2
+    exit "$EX_REFUSED"
+}
+
+# Finds the registry entry by file name, never by joining the argument into a
+# path, refuses an unregistered or orphan entry, and runs the owning
+# front-end's `__resolve` in the project folder.
+cmd_resolve() {
+    cr_file=
+    while IFS= read -r cr_entry; do
+        [ -n "$cr_entry" ] || continue
+        if [ "${cr_entry##*/}" = "$opt_sandbox.toml" ]; then
+            cr_file=$cr_entry
+            break
+        fi
+    done <<ENTRIES
+$(registry_entries)
+ENTRIES
+    if [ -z "$cr_file" ]; then
+        resolve_refuse "sandbox '$opt_sandbox' is not registered; run 'osa projects' to list sandboxes"
+    fi
+    load_entry "$cr_file"
+    if [ "$e_sandbox_name" != "$opt_sandbox" ]; then
+        resolve_refuse "the registry entry $cr_file names sandbox '$e_sandbox_name', not '$opt_sandbox'"
+    fi
+    if [ "$e_orphan" = true ]; then
+        resolve_refuse "the project folder for '$opt_sandbox' is missing: $e_host_path"
+    fi
+    cr_front=$(front_end "$e_agent")
+    if [ -z "$cr_front" ]; then
+        resolve_refuse "sandbox '$opt_sandbox' belongs to agent '$e_agent', which osa does not know"
+    fi
+    set -- --name "$opt_sandbox" __resolve "$opt_action"
+    if [ "$opt_yes" -eq 1 ]; then
+        set -- "$@" --yes
+    fi
+    if [ "$opt_json" -eq 1 ]; then
+        set -- "$@" --json
+    fi
+    cr_rc=0
+    (cd "$e_host_path" && exec "$cr_front" "$@") || cr_rc=$?
+    exit "$cr_rc"
+}
+
 osa_state_paths
 
 opt_json=0
+opt_yes=0
+opt_sandbox=
+opt_action=
 opt_quick=0
 opt_path=
 
@@ -238,9 +319,9 @@ case $cmd in
         usage
         exit 0
         ;;
-    projects|status) ;;
+    projects|status|resolve) ;;
     *)
-        die_usage "unknown command: $cmd (commands: projects, status, help)"
+        die_usage "unknown command: $cmd (commands: projects, status, resolve, help)"
         ;;
 esac
 while [ "$#" -gt 0 ]; do
@@ -250,8 +331,23 @@ while [ "$#" -gt 0 ]; do
             [ "$cmd" = status ] || die_usage "--quick applies to status only"
             opt_quick=1
             ;;
+        --yes)
+            [ "$cmd" = resolve ] || die_usage "--yes applies to resolve only"
+            opt_yes=1
+            ;;
         -*) die_usage "unknown option: $1" ;;
         *)
+            if [ "$cmd" = resolve ]; then
+                if [ -z "$opt_sandbox" ]; then
+                    opt_sandbox=$1
+                elif [ -z "$opt_action" ]; then
+                    opt_action=$1
+                else
+                    die_usage "resolve takes SANDBOX and ACTION"
+                fi
+                shift
+                continue
+            fi
             [ "$cmd" = status ] || die_usage "projects takes no arguments"
             [ -z "$opt_path" ] || die_usage "status takes at most one PATH"
             opt_path=$1
@@ -260,7 +356,16 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 
+if [ "$cmd" = resolve ]; then
+    [ -n "$opt_action" ] || die_usage "usage: osa resolve SANDBOX ACTION [--yes] [--json]"
+    case $opt_action in
+        apply|branch|drop|rescue|discard) ;;
+        *) die_usage "unknown resolve action: $opt_action (actions: apply, branch, drop, rescue, discard)" ;;
+    esac
+fi
+
 case $cmd in
     projects) cmd_projects ;;
     status) cmd_status ;;
+    resolve) cmd_resolve ;;
 esac

@@ -1,0 +1,63 @@
+#!/bin/sh
+# Stub host Codex CLI for tests/run-tests.sh: only `codex login`, which
+# codex-oss provider setup runs on the host in a throwaway CODEX_HOME.
+#
+# Records argv and the CODEX_HOME it was given to $STUB_CODEX_LOG, then writes
+# an auth.json with unsigned JWTs into $CODEX_HOME, the way a ChatGPT login
+# does. The fixture values below are what the tests look for.
+#
+# Environment knobs:
+#   STUB_CODEX_LOG     file to append argv and CODEX_HOME to
+#   STUB_CODEX_LOGIN   ok (default) | fail (exit 1, no auth.json) |
+#                      interrupt (write auth.json, then send SIGINT to the
+#                      calling helper) | apikey (an API-key login, no tokens)
+
+set -eu
+
+if [ -n "${STUB_CODEX_LOG:-}" ]; then
+    {
+        printf '%s\n' '---'
+        printf 'CODEX_HOME=%s\n' "${CODEX_HOME:-}"
+        for stub_arg in "$@"; do
+            printf '%s\n' "$stub_arg"
+        done
+    } >> "$STUB_CODEX_LOG"
+fi
+
+if [ "${1:-}" != login ]; then
+    printf 'stub codex: only login is supported\n' >&2
+    exit 2
+fi
+if [ -z "${CODEX_HOME:-}" ] || [ ! -d "$CODEX_HOME" ]; then
+    printf 'stub codex: CODEX_HOME points to "%s", but that path does not exist\n' "${CODEX_HOME:-}" >&2
+    exit 1
+fi
+
+b64url() {
+    printf '%s' "$1" | base64 | tr -d '\n=' | tr '/+' '_-'
+}
+
+case ${STUB_CODEX_LOGIN:-ok} in
+    fail)
+        printf 'stub codex: login failed\n' >&2
+        exit 1
+        ;;
+    apikey)
+        printf '{"auth_mode":"apikey","OPENAI_API_KEY":"fixture-codex-apikey"}\n' >"$CODEX_HOME/auth.json"
+        exit 0
+        ;;
+esac
+
+header=$(b64url '{"alg":"none","typ":"JWT"}')
+access_payload=$(b64url '{"client_id":"app_fixtureclient","exp":1793885131,"iat":1793021131,"marker":"fixture-codex-access-9b2e","https://api.openai.com/auth":{"chatgpt_account_id":"acct-fixture-4417"}}')
+id_payload=$(b64url '{"aud":["app_fixtureclient"],"exp":1793024731}')
+cat >"$CODEX_HOME/auth.json" <<EOF
+{"auth_mode":"chatgpt","OPENAI_API_KEY":null,"tokens":{"id_token":"$header.$id_payload.","access_token":"$header.$access_payload.","refresh_token":"fixture-codex-refresh-7c1d","account_id":"acct-fixture-4417"},"last_refresh":"2026-10-26T00:00:00Z"}
+EOF
+
+if [ "${STUB_CODEX_LOGIN:-ok}" = interrupt ]; then
+    kill -INT "$PPID"
+    sleep 5
+    exit 130
+fi
+printf 'Successfully logged in\n'

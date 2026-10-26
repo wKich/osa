@@ -10,7 +10,10 @@
 //   - `--read-only` rejects every mutating route with 403;
 //   - project routes are GET only and never write: the list reads the osa
 //     state contract, status runs `osa status … --json`, and the patch route
-//     (host source code) requires the session token in both modes.
+//     (host source code) requires the session token in both modes;
+//   - the one project write is POST /api/projects/:sandbox/resolve, behind the
+//     same mutation guard, which runs exactly one `osa resolve` for a
+//     registered sandbox with a fixed argv.
 
 import { loadConfig, type DashboardConfig } from "./config.ts";
 import { LogHub } from "./logs.ts";
@@ -218,17 +221,44 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
     return json({ error: result.error }, status);
   };
 
+  const methodNotAllowed = (allow: string, message: string): Response =>
+    new Response(JSON.stringify({ error: { kind: "method_not_allowed", message } }), {
+      status: 405,
+      headers: { "content-type": "application/json; charset=utf-8", allow },
+    });
+
+  // POST /api/projects/:sandbox/resolve: the only project write (design D1).
+  const handleResolve = async (request: Request, sandbox: string): Promise<Response> => {
+    if (request.method.toUpperCase() !== "POST") {
+      return methodNotAllowed("POST", "the resolve route accepts POST only");
+    }
+    const denied = guardMutation(request);
+    if (denied) return denied;
+    let body: { action?: unknown };
+    try {
+      body = (await request.json()) as { action?: unknown };
+    } catch {
+      return errorResponse({ kind: "invalid_request", message: "request body must be JSON" }, 400);
+    }
+    const action = typeof body === "object" && body !== null ? body.action : undefined;
+    const reply = await projects.resolve(sandbox, action);
+    const status = reply.status ?? errorStatus(reply.body.error as OpenShellError);
+    return json(reply.body, status);
+  };
+
   // GET /api/projects, /api/projects/:sandbox/status, /api/projects/:sandbox/patch
   const handleProjects = async (request: Request, segments: string[]): Promise<Response> => {
+    if (segments.length === 4 && segments[3] === "resolve") {
+      return handleResolve(request, segments[2] ?? "");
+    }
     if (request.method.toUpperCase() !== "GET") {
-      return new Response(
-        JSON.stringify({ error: { kind: "method_not_allowed", message: "project routes are read-only" } }),
-        { status: 405, headers: { "content-type": "application/json; charset=utf-8", allow: "GET" } },
-      );
+      return methodNotAllowed("GET", "project routes are read-only");
     }
     if (segments.length === 2) {
-      const refresh = new URL(request.url).searchParams.get("refresh") === "1";
-      return json({ projects: projects.list({ refresh }) });
+      const params = new URL(request.url).searchParams;
+      const refresh = params.get("refresh") === "1";
+      const path = params.get("path") ?? undefined;
+      return json({ projects: projects.list({ refresh, path }) });
     }
     const sandbox = segments[2] ?? "";
     if (segments.length === 4 && segments[3] === "status") {

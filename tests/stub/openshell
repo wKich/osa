@@ -20,8 +20,9 @@
 #   STUB_PROVIDER_NAMES   newline-separated names for `provider list`
 #   STUB_PROFILE_NAMES    newline-separated ids for `profile list`
 #   STUB_PROFILE_LINT_EXIT  exit code for `profile lint` (default: 0)
-#   STUB_CREDENTIAL_ENV   env var whose value is appended to STUB_ENV_LOG on
-#                         `provider create|update` (default: none)
+#   STUB_CREDENTIAL_ENV   env vars (space-separated) whose values are appended
+#                         to STUB_ENV_LOG on `provider create|update` and
+#                         `provider refresh configure` (default: none)
 #   STUB_ENV_LOG          file receiving recorded credential env values
 #   STUB_DOWNLOAD_EXIT    exit code for `sandbox download` (default: 0)
 #   STUB_DOWNLOAD_FIXTURE host directory whose contents are copied into the
@@ -41,8 +42,11 @@
 #                         `sandbox upload` copies into it and `download`
 #                         copies back out of it
 #   STUB_MAKI_SCRIPT      shell snippet run in the workdir when the exec
-#                         command is `maki` or `opencode` (simulates agent
-#                         changes)
+#                         command is an agent (`maki`, `opencode`, `claude`,
+#                         `codex`; simulates agent changes)
+#   STUB_REFRESH_STATUS   text printed by `provider refresh status` (default:
+#                         a configured row when `refresh configure` ran for
+#                         the provider, else no configuration)
 #   STUB_EXEC_STDIN_LOG   file receiving the stdin of agent `sandbox exec`
 #                         calls (internal sync scripts excluded), so tests
 #                         can assert a closed stdin
@@ -84,7 +88,12 @@ stub_record_provider() {
 # the value travelled in the child environment (it never appears in argv).
 stub_record_credential() {
     if [ -n "${STUB_CREDENTIAL_ENV:-}" ] && [ -n "${STUB_ENV_LOG:-}" ]; then
-        printf '%s\n' "$(printenv "$STUB_CREDENTIAL_ENV" 2>/dev/null || true)" >> "$STUB_ENV_LOG"
+        for stub_credential_var in $STUB_CREDENTIAL_ENV; do
+            stub_credential_value=$(printenv "$stub_credential_var" 2>/dev/null || true)
+            if [ -n "$stub_credential_value" ]; then
+                printf '%s\n' "$stub_credential_value" >> "$STUB_ENV_LOG"
+            fi
+        done
     fi
 }
 
@@ -314,7 +323,7 @@ case $command_name in
                     cat >"$STUB_EXEC_STDIN_LOG"
                 fi
                 case ${1:-} in
-                    maki|opencode|claude)
+                    maki|opencode|claude|codex)
                         if [ -n "${STUB_MAKI_SCRIPT:-}" ] && [ -n "$stub_workdir" ]; then
                             ( cd "$stub_workdir" && sh -c "$STUB_MAKI_SCRIPT" )
                         fi
@@ -498,6 +507,42 @@ case $command_name in
                 stub_record_provider "${1:-}"
                 stub_record_credential
                 printf 'stub: updated provider %s\n' "${1:-}"
+                ;;
+            refresh)
+                refresh_action=${1:-}
+                refresh_provider=${2:-}
+                refresh_state=$state/refresh/$refresh_provider
+                case $refresh_action in
+                    configure)
+                        if [ -n "$state" ]; then
+                            mkdir -p "$state/refresh"
+                            : > "$refresh_state"
+                        fi
+                        stub_record_credential
+                        printf 'stub: configured refresh for %s\n' "$refresh_provider"
+                        ;;
+                    delete)
+                        if [ ! -e "$refresh_state" ]; then
+                            printf 'stub: no refresh configuration\n' >&2
+                            exit 1
+                        fi
+                        rm -f "$refresh_state"
+                        ;;
+                    status)
+                        if [ -n "${STUB_REFRESH_STATUS:-}" ]; then
+                            printf '%s\n' "$STUB_REFRESH_STATUS"
+                        elif [ -e "$refresh_state" ]; then
+                            printf '%s\n' 'PROVIDER  CREDENTIAL_KEY  STRATEGY  STATUS  RECOVERY  EXPIRES_AT  NEXT_REFRESH  LAST_REFRESH  FAILURE_CODE  LAST_ERROR'
+                            printf '%s  CODEX_CHATGPT_TOKEN  oauth2_refresh_token  configured  -  2099-01-01 00:00:00  2098-12-31 23:55:00  -  -  -\n' "$refresh_provider"
+                        else
+                            printf "No refresh configurations found for provider '%s'.\n" "$refresh_provider"
+                        fi
+                        ;;
+                    *)
+                        printf 'stub: unsupported refresh action: %s\n' "$refresh_action" >&2
+                        exit 1
+                        ;;
+                esac
                 ;;
             *)
                 printf 'stub: unsupported provider action: %s\n' "$action" >&2

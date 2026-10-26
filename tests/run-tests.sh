@@ -1,8 +1,8 @@
 #!/bin/sh
 # Stub-backed test suite for bin/maki-oss, bin/opencode-oss, bin/claude-oss,
-# the fish plugin, and the safety rules in specs/helper-cli,
-# specs/opencode-oss-helper, specs/claude-oss-helper, and
-# specs/fish-integration.
+# bin/codex-oss, the fish plugin, and the safety rules in specs/helper-cli,
+# specs/opencode-oss-helper, specs/claude-oss-helper, specs/codex-oss-helper,
+# and specs/fish-integration.
 #
 # Runs with only a POSIX shell and the stubs under tests/stub: no Docker, no
 # gateway, no network. Run it with `make test` or directly:
@@ -5231,6 +5231,829 @@ test_cc_sync_no_git() {
     [ "$(cat "$RUN_DIR/file.txt")" = v2 ] || bad "text patch did not apply without git"
 }
 
+# ---------------------------------------------------------------------------
+# codex-oss: the Codex front-end over the same core and stubs
+# (specs/codex-oss-helper). Same runner pattern as claude-oss: the
+# CODEX_OSS_* settings are exported, and the MAKI_OSS_* values the shared
+# runner always passes must have no effect.
+# ---------------------------------------------------------------------------
+
+CX=$ROOT/bin/codex-oss
+CX_ACCOUNT=acct-fixture-4417
+CX_THREAD=0199aa00-0000-7000-8000-000000000001
+
+cx_case() { # NAME
+    new_case "$1"
+    ENV_CX_MODEL=
+    ENV_CX_IMAGE=
+    ENV_CX_ACCOUNT=
+    EXEC_STDIN_LOG=
+    ENGINE_EXIT=
+    CX_SEED_FILES=
+    CX_LOGIN=
+    CX_CODEX_LOG=$CASE/codex.log
+    REFRESH_STATUS=
+    CX_HOME_ENV=
+    CX_NAME_PIN='cx-{project}'
+}
+
+run_cx_with_input() { # STDIN_FILE ARGS...
+    cx_rc=0
+    (
+        MAKI=$CX
+        CODEX_OSS_SANDBOX_NAME=${ENV_NAME:-$CX_NAME_PIN}
+        CODEX_OSS_TIMEOUT=${ENV_TIMEOUT:-}
+        CODEX_OSS_IDLE_STOP=${ENV_IDLE_STOP-0}
+        CODEX_OSS_RUN_TAG=${ENV_RUN_TAG:-}
+        CODEX_OSS_WORKDIR=$CASE/sandbox/project
+        CODEX_OSS_IMAGE=${ENV_CX_IMAGE:-}
+        CODEX_OSS_MODEL=${ENV_CX_MODEL:-}
+        CODEX_OSS_ACCOUNT_ID=${ENV_CX_ACCOUNT:-}
+        CODEX_OSS_INTERACTIVE=${INTERACTIVE:-}
+        STUB_EXEC_STDIN_LOG=${EXEC_STDIN_LOG:-}
+        STUB_ENGINE_EXIT=${ENGINE_EXIT:-0}
+        STUB_CODEX_LOG=$CX_CODEX_LOG
+        STUB_CODEX_LOGIN=${CX_LOGIN:-ok}
+        STUB_REFRESH_STATUS=${REFRESH_STATUS:-}
+        export CODEX_OSS_SANDBOX_NAME CODEX_OSS_TIMEOUT CODEX_OSS_IDLE_STOP \
+            CODEX_OSS_RUN_TAG CODEX_OSS_WORKDIR CODEX_OSS_IMAGE \
+            CODEX_OSS_MODEL CODEX_OSS_ACCOUNT_ID CODEX_OSS_INTERACTIVE \
+            STUB_EXEC_STDIN_LOG STUB_ENGINE_EXIT STUB_CODEX_LOG \
+            STUB_CODEX_LOGIN STUB_REFRESH_STATUS
+        unset CODEX_HOME CODEX_CHATGPT_TOKEN CODEX_CHATGPT_ACCOUNT_ID
+        if [ -n "${CX_HOME_ENV:-}" ]; then
+            CODEX_HOME=$CX_HOME_ENV
+            export CODEX_HOME
+        fi
+        run_maki_with_input "$@"
+        exit "$RC"
+    ) || cx_rc=$?
+    RC=$cx_rc
+}
+
+run_cx() {
+    run_cx_with_input /dev/null "$@"
+}
+
+cx_config() { # LINE
+    mkdir -p "$XDG_CONFIG_HOME/codex-oss"
+    printf '%s\n' "$1" >>"$XDG_CONFIG_HOME/codex-oss/config.toml"
+}
+
+seed_cx_provider() { # NAME
+    cx_config "providers = \"$1\""
+    mkdir -p "$STUB_STATE_DIR"
+    printf '%s\n' "$1" >>"$STUB_STATE_DIR/providers.list"
+}
+
+cx_session_dir() { # SANDBOX
+    printf '%s/.local/state/osa/sessions/%s' "$HOME" "$1"
+}
+
+# A project directory with its Ready sandbox, a remembered and attached
+# codex-chatgpt provider, and the account ID provider setup would store.
+cx_ready_project() { # [DIR-NAME]
+    RUN_DIR=$CASE/project/${1:-myproject}
+    mkdir -p "$RUN_DIR"
+    while IFS= read -r cx_seed; do
+        [ -n "$cx_seed" ] || continue
+        printf '%s\n' "${cx_seed#*=}" >"$RUN_DIR/${cx_seed%%=*}"
+    done <<CX_SEED
+${CX_SEED_FILES:-}
+CX_SEED
+    seed_sandbox "cx-${1:-myproject}" Ready
+    seed_cx_provider codex-chatgpt
+    cx_config "account_id = \"$CX_ACCOUNT\""
+    attach_stub_provider "cx-${1:-myproject}" codex-chatgpt
+}
+
+test_cx_help() {
+    begin "codex-oss help lists the shared commands and no Maki, OpenCode, Claude, or fish ones"
+    cx_case cx-help
+    run_cx help
+    assert_rc 0
+    for cx_cmd in doctor 'image build' 'init, up' codex 'run "<prompt>"' upload download \
+        status list logs 'start, stop' rm 'policy show|edit|apply' 'policy review' \
+        'policy approve' 'policy reject' 'provider add|attach|list' 'provider setup' \
+        'mcp status' help; do
+        if ! grep -Eq "^  $(printf '%s' "$cx_cmd" | sed 's/[|.]/\\&/g')( |$)" "$OUT"; then
+            bad "help does not list: $cx_cmd"
+        fi
+    done
+    for cx_cmd in maki opencode claude fish; do
+        if grep -Eq "^  $cx_cmd( |$)" "$OUT"; then
+            bad "help lists $cx_cmd"
+        fi
+    done
+    assert_out_has "CODEX_OSS_<KEY>"
+    assert_out_has "codex-oss/config.toml"
+
+    for cx_cmd in maki opencode claude fish; do
+        run_cx "$cx_cmd"
+        assert_rc 1
+        assert_err_has "unknown command: $cx_cmd"
+    done
+}
+
+test_cx_run_argv() {
+    begin "codex-oss run launches codex exec --json with bypass, the account ID, and stdin closed"
+    cx_case cx-run
+    cx_ready_project
+    EXEC_STDOUT='{"type":"turn.completed"}'
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    printf 'LEAKED-STDIN\n' >"$CASE/stdin.txt"
+
+    run_cx_with_input "$CASE/stdin.txt" run "reply OK"
+    assert_rc 0
+    assert_out_has '{"type":"turn.completed"}'
+    assert_stdin_closed
+    for cx_word in codex exec --json --skip-git-repo-check \
+        --dangerously-bypass-approvals-and-sandbox "reply OK" \
+        "CODEX_CHATGPT_ACCOUNT_ID=$CX_ACCOUNT"; do
+        assert_log_line "$cx_word"
+    done
+    assert_log_before "exec" "--json"
+    assert_log_before "--dangerously-bypass-approvals-and-sandbox" "reply OK"
+    # (-c and exec also name the core's own sh -c and sandbox exec calls.)
+    for cx_word in -m resume --config --profile --ignore-rules --dangerously-bypass-hook-trust --oss; do
+        assert_log_line_missing "$cx_word"
+    done
+
+    reset_log
+    ENV_CX_MODEL=gpt-5.6-terra
+    run_cx run "reply OK"
+    assert_rc 0
+    assert_log_line "-m"
+    assert_log_line "gpt-5.6-terra"
+    assert_log_before "-m" "reply OK"
+
+    reset_log
+    EXEC_EXIT=3
+    EXEC_STDOUT='partial'
+    run_cx run "fail please"
+    assert_rc 3
+    assert_out_has "partial"
+}
+
+test_cx_tui_argv() {
+    begin "bare codex-oss attaches codex with bypass and the configured model"
+    cx_case cx-tui
+    cx_ready_project
+    cx_config 'model = "gpt-6-astra"'
+
+    run_cx
+    assert_rc 0
+    assert_log_line "--tty"
+    assert_log_line "codex"
+    assert_log_line "--dangerously-bypass-approvals-and-sandbox"
+    assert_log_line "-m"
+    assert_log_line "gpt-6-astra"
+    assert_log_line "CODEX_CHATGPT_ACCOUNT_ID=$CX_ACCOUNT"
+    assert_log_line_missing "--json"
+    assert_log_line_missing "--skip-git-repo-check"
+    # The helper writes the model nowhere.
+    if grep -rqs 'gpt-6-astra' "$RUN_DIR" "$SANDBOX_WORKDIR"; then
+        bad "the helper wrote the model into the project"
+    fi
+
+    reset_log
+    run_cx codex
+    assert_rc 0
+    assert_log_line "--tty"
+    run_cx codex extra
+    assert_rc 1
+    assert_err_has "codex takes no arguments"
+}
+
+test_cx_session_flags() {
+    begin "codex-oss maps --continue and --resume to codex resume and refuses --session-id"
+    cx_case cx-session
+    cx_ready_project
+
+    run_cx run --continue "next"
+    assert_rc 0
+    assert_log_line "resume"
+    assert_log_line "--last"
+    assert_log_before "exec" "resume"
+    assert_log_before "--last" "--json"
+    assert_log_before "--json" "next"
+    assert_log_line_missing "--include-non-interactive"
+
+    reset_log
+    run_cx --continue
+    assert_rc 0
+    assert_log_line "--tty"
+    assert_log_line "resume"
+    assert_log_line "--last"
+    assert_log_line "--include-non-interactive"
+
+    reset_log
+    run_cx run --resume "$CX_THREAD" "next"
+    assert_rc 0
+    assert_log_line "resume"
+    assert_log_line "$CX_THREAD"
+    assert_log_before "--dangerously-bypass-approvals-and-sandbox" "$CX_THREAD"
+    assert_log_before "$CX_THREAD" "next"
+    assert_log_line_missing "--last"
+
+    reset_log
+    run_cx -r "$CX_THREAD"
+    assert_rc 0
+    assert_log_line "--tty"
+    assert_log_line "$CX_THREAD"
+
+    for cx_flags in "--session-id abc" "--continue --resume x"; do
+        reset_log
+        # shellcheck disable=SC2086  # the flag list splits on purpose
+        run_cx run $cx_flags "x"
+        assert_rc 1
+        if [ -s "$LOG" ]; then
+            bad "gateway was contacted for '$cx_flags'"
+        fi
+        reset_log
+        # shellcheck disable=SC2086
+        run_cx $cx_flags
+        assert_rc 1
+        if [ -s "$LOG" ]; then
+            bad "gateway was contacted for the session with '$cx_flags'"
+        fi
+    done
+    run_cx run --session-id abc "x"
+    assert_err_has "--session-id is not supported"
+    assert_err_has "--resume"
+
+    # No account ID configured: refused before any sandbox work.
+    cx_case cx-session-noaccount
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox cx-myproject Ready
+    seed_cx_provider codex-chatgpt
+    attach_stub_provider cx-myproject codex-chatgpt
+    run_cx run "hi"
+    assert_rc 1
+    assert_err_has "codex-oss provider setup"
+    if [ -s "$LOG" ]; then
+        bad "gateway was contacted without an account ID"
+    fi
+    reset_log
+    ENV_CX_ACCOUNT=acct-from-env
+    run_cx run "hi"
+    assert_rc 0
+    assert_log_line "CODEX_CHATGPT_ACCOUNT_ID=acct-from-env"
+}
+
+test_cx_image_build() {
+    begin "codex-oss image build builds codex-oss/image as codex-agent:local"
+    cx_case cx-image
+    cx_config 'image = "my-env:latest"'
+    run_cx image build
+    assert_rc 0
+    assert_log_line "build"
+    assert_log_line "codex-agent:local"
+    assert_log_line "$ROOT/codex-oss/image"
+    assert_log_line_missing "--build-arg"
+    assert_log_line_missing "my-env:latest"
+
+    reset_log
+    run_cx image build --codex-version 9.9.9
+    assert_rc 0
+    assert_log_line "--build-arg"
+    assert_log_line "CODEX_VERSION=9.9.9"
+
+    reset_log
+    ENGINE_EXIT=1
+    run_cx image build --codex-version 9.9.9
+    assert_rc 2
+    assert_err_has "CODEX_SHA256_ARM64/AMD64"
+    assert_err_has "CODEX_HOST_SHA256_ARM64/AMD64"
+    assert_err_has "image build failed"
+
+    run_cx image build --claude-version 1
+    assert_rc 1
+    assert_err_has "unknown option: --claude-version"
+}
+
+test_cx_profiles_and_catalogs() {
+    begin "codex-oss profiles bind codex, refresh on the gateway, and the catalogs match"
+    cx_case cx-catalogs
+    cx_dir=$ROOT/codex-oss/providers
+    for cx_profile in "$cx_dir"/codex-*.yaml "$cx_dir/template.yaml"; do
+        cx_bins=$(awk '/^binaries:/{b=1;next} b&&/^  - /{print $2;next} {b=0}' "$cx_profile")
+        [ "$cx_bins" = /usr/local/bin/codex ] || bad "$(basename -- "$cx_profile") binds: $cx_bins"
+    done
+    cx_p=$cx_dir/codex-chatgpt.yaml
+    grep -q 'env_vars: \[CODEX_CHATGPT_TOKEN\]' "$cx_p" || bad "the profile does not bind CODEX_CHATGPT_TOKEN"
+    grep -q 'auth_style: bearer' "$cx_p" || bad "the profile is not bearer"
+    grep -q 'strategy: oauth2_refresh_token' "$cx_p" || bad "the profile has no gateway refresh"
+    grep -q 'token_url: https://auth.openai.com/oauth/token' "$cx_p" || bad "the refresh token_url is wrong"
+    grep -q 'max_lifetime: "864000s"' "$cx_p" || bad "the refresh has no 240 h max_lifetime"
+    grep -q 'path: /backend-api/codex/\*\*' "$cx_p" || bad "the endpoint is not scoped to the Codex backend"
+    grep -q 'host: chatgpt.com' "$cx_p" || bad "the endpoint host is not chatgpt.com"
+    while IFS=$(printf '\t') read -r cx_store _ cx_id _; do
+        case $cx_store in ''|'#'*) continue ;; esac
+        bad "stores.tsv has a row ($cx_id): no store holds a ChatGPT login"
+    done <"$cx_dir/stores.tsv"
+    for cx_profile in "$cx_dir"/codex-*.yaml; do
+        cx_id=$(basename -- "$cx_profile" .yaml)
+        grep -q "^$cx_id	" "$cx_dir/catalog.tsv" || bad "catalog.tsv has no row for $cx_id"
+    done
+    while IFS=$(printf '\t') read -r cx_id _; do
+        case $cx_id in ''|'#'*) continue ;; esac
+        [ -f "$cx_dir/$cx_id.yaml" ] || bad "catalog.tsv names a missing profile: $cx_id"
+    done <"$cx_dir/catalog.tsv"
+    # The image carries no credential, account ID, or login state.
+    if grep -vE '^[[:space:]]*#' "$ROOT/codex-oss/image/managed_config.toml" \
+        | grep -qE '^[[:space:]]*(account_id|access_token|refresh_token|api_key)[[:space:]]*=|acct-|eyJ'; then
+        bad "managed_config.toml names a credential or login state"
+    fi
+    # No file under codex-oss/ or its docs spells the placeholder prefix.
+    cx_needle=$(printf 'openshell:resolve'':env:')
+    if cx_hits=$(grep -rlF -- "$cx_needle" "$ROOT/codex-oss" "$ROOT/docs/codex-oss.md" 2>/dev/null); then
+        bad "placeholder prefix spelled in: $cx_hits"
+    fi
+}
+
+test_cx_codex_stub() {
+    begin "the codex login stub writes a ChatGPT login, fails, or interrupts its caller"
+    cx_case cx-codex-stub
+    cx_stub_home=$CASE/stub-home
+    mkdir -p "$cx_stub_home"
+    CODEX_HOME=$cx_stub_home STUB_CODEX_LOG=$CX_CODEX_LOG "$STUB_DIR/codex" login >/dev/null 2>&1 \
+        || bad "the ok mode failed"
+    [ "$(jq -r .tokens.refresh_token "$cx_stub_home/auth.json")" = fixture-codex-refresh-7c1d ] \
+        || bad "the ok mode wrote no refresh token"
+    grep -Fqx "CODEX_HOME=$cx_stub_home" "$CX_CODEX_LOG" || bad "the stub did not log CODEX_HOME"
+    rm -f "$cx_stub_home/auth.json"
+    if CODEX_HOME=$cx_stub_home STUB_CODEX_LOGIN=fail "$STUB_DIR/codex" login >/dev/null 2>&1; then
+        bad "the fail mode succeeded"
+    fi
+    [ ! -e "$cx_stub_home/auth.json" ] || bad "the fail mode wrote auth.json"
+    if CODEX_HOME=$CASE/missing "$STUB_DIR/codex" login >/dev/null 2>&1; then
+        bad "the stub accepted a missing CODEX_HOME"
+    fi
+    cx_int_rc=0
+    sh -c 'trap "exit 130" INT; CODEX_HOME=$1 STUB_CODEX_LOGIN=interrupt "$2/codex" login >/dev/null 2>&1; exit 0' \
+        sh "$cx_stub_home" "$STUB_DIR" || cx_int_rc=$?
+    [ "$cx_int_rc" = 130 ] || bad "the interrupt mode did not interrupt its caller (rc $cx_int_rc)"
+}
+
+test_cx_provider_setup() {
+    begin "codex-oss provider setup logs in on the host and configures gateway refresh"
+    cx_case cx-setup
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    # A host Codex login that must never be read or changed.
+    mkdir -p "$HOME/.codex"
+    printf '{"tokens":{"access_token":"fixture-host-codex-access","refresh_token":"fixture-host-codex-refresh"}}\n' \
+        >"$HOME/.codex/auth.json"
+    cx_host_sum=$(cksum <"$HOME/.codex/auth.json")
+    CREDENTIAL_ENV='CODEX_CHATGPT_TOKEN CODEX_OSS_REFRESH_TOKEN'
+    CREDENTIAL_LOG=$CASE/credential-env.log
+
+    run_cx provider setup --yes
+    assert_rc 0
+    assert_log_line "$ROOT/codex-oss/providers/codex-chatgpt.yaml"
+    assert_log_line "create"
+    assert_log_line "codex-chatgpt"
+    assert_log_line "--credential"
+    assert_log_line "CODEX_CHATGPT_TOKEN"
+    assert_log_line "refresh"
+    assert_log_line "configure"
+    assert_log_line "client_id=app_fixtureclient"
+    assert_log_line "1793885131000"
+    assert_log_line "refresh_token=CODEX_OSS_REFRESH_TOKEN"
+    assert_log_before "create" "configure"
+    grep -Fxq "account_id = \"$CX_ACCOUNT\"" "$XDG_CONFIG_HOME/codex-oss/config.toml" 2>/dev/null \
+        || bad "account_id was not written to the codex-oss config"
+    grep -Fxq 'providers = "codex-chatgpt"' "$XDG_CONFIG_HOME/codex-oss/config.toml" 2>/dev/null \
+        || bad "the provider was not recorded in the codex-oss config"
+    assert_out_has "example model: gpt-6-astra"
+    # The login ran in a throwaway home that is gone now.
+    cx_login_home=$(sed -n 's/^CODEX_HOME=//p' "$CX_CODEX_LOG" | head -n 1)
+    case $cx_login_home in
+        ''|"$HOME/.codex") bad "the login did not use a throwaway CODEX_HOME ($cx_login_home)" ;;
+    esac
+    [ ! -e "$cx_login_home" ] || bad "the throwaway CODEX_HOME was not removed"
+    grep -Fqx 'cli_auth_credentials_store="file"' "$CX_CODEX_LOG" || bad "the login did not use file storage"
+    # Token values travel only in the child environment.
+    grep -Fq 'fixture-codex-refresh-7c1d' "$CREDENTIAL_LOG" 2>/dev/null \
+        || bad "the refresh token did not reach refresh configure"
+    cx_access=$(grep -vx 'fixture-codex-refresh-7c1d' "$CREDENTIAL_LOG" 2>/dev/null | head -n 1)
+    case $cx_access in
+        *.*.*) ;;
+        *) bad "the access token did not reach provider create"; cx_access=fixture-codex-refresh-7c1d ;;
+    esac
+    assert_secret_absent fixture-codex-refresh-7c1d
+    assert_secret_absent "$cx_access"
+    if grep -rqsF -e fixture-codex-refresh-7c1d -e "$cx_access" "$XDG_CONFIG_HOME" "$RUN_DIR"; then
+        bad "a token was written to a file"
+    fi
+    # The host login was neither read nor changed.
+    for cx_host in fixture-host-codex-access fixture-host-codex-refresh; do
+        assert_secret_absent "$cx_host"
+        if grep -Fq -- "$cx_host" "$CREDENTIAL_LOG" 2>/dev/null; then
+            bad "the host Codex login reached the provider flow"
+        fi
+    done
+    [ "$(cksum <"$HOME/.codex/auth.json")" = "$cx_host_sum" ] || bad "the host ~/.codex/auth.json changed"
+}
+
+test_cx_provider_setup_rerun_and_errors() {
+    begin "codex-oss provider setup re-runs, device auth, interrupts, and refuses other sources"
+    cx_case cx-setup-rerun
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_cx provider setup --yes
+    assert_rc 0
+
+    # A second run replaces the login: update, then a fresh refresh configure.
+    reset_log
+    : >"$CX_CODEX_LOG"
+    run_cx provider setup --yes --device-auth
+    assert_rc 0
+    assert_log_line "update"
+    assert_log_line_missing "create"
+    assert_log_before "delete" "configure"
+    assert_out_has "ChatGPT > Settings > Security"
+    grep -Fqx -- '--device-auth' "$CX_CODEX_LOG" || bad "--device-auth did not reach codex login"
+    if [ "$(grep -c '^account_id' "$XDG_CONFIG_HOME/codex-oss/config.toml")" -ne 1 ]; then
+        bad "account_id was written more than once"
+    fi
+
+    # Without --yes and without a terminal, an existing provider is kept.
+    reset_log
+    run_cx provider setup
+    assert_rc 1
+    assert_err_has "pass --yes"
+
+    # An interrupted login leaves no throwaway home and no provider change.
+    cx_case cx-setup-interrupt
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    CX_LOGIN=interrupt
+    run_cx provider setup --yes
+    [ "$RC" = 130 ] || bad "an interrupted login exited $RC, not 130"
+    cx_login_home=$(sed -n 's/^CODEX_HOME=//p' "$CX_CODEX_LOG" | head -n 1)
+    [ -n "$cx_login_home" ] && [ ! -e "$cx_login_home" ] || bad "the throwaway CODEX_HOME was left behind"
+    assert_log_missing "create"
+    assert_log_missing "configure"
+
+    # A failed login changes nothing.
+    reset_log
+    CX_LOGIN=fail
+    run_cx provider setup --yes
+    assert_rc 2
+    assert_err_has "codex login failed"
+    assert_log_missing "create"
+
+    # An API-key login has no ChatGPT tokens.
+    reset_log
+    CX_LOGIN=apikey
+    run_cx provider setup --yes
+    assert_rc 2
+    assert_err_has "no ChatGPT tokens"
+    assert_log_missing "create"
+    assert_secret_absent fixture-codex-apikey
+
+    # Credential sources of the other front-ends are refused.
+    CX_LOGIN=
+    for cx_source in "--from maki --credential openai" "--file $CASE/x.json" "--env OPENAI_API_KEY"; do
+        reset_log
+        # shellcheck disable=SC2086  # the source splits on purpose
+        run_cx provider setup $cx_source --yes
+        assert_rc 1
+        assert_err_has "logs in to ChatGPT on the host"
+        assert_log_missing "create"
+    done
+
+    # No host codex binary.
+    reset_log
+    cx_bin=$CASE/no-codex-bin
+    mkdir -p "$cx_bin"
+    for cx_tool in openshell jq; do
+        ln -sf "$(PATH=$STUB_DIR:$PATH command -v "$cx_tool")" "$cx_bin/$cx_tool"
+    done
+    PATH_OVERRIDE=$cx_bin:/usr/bin:/bin
+    run_cx provider setup --yes
+    assert_rc 2
+    assert_err_has "codex not found on PATH"
+}
+
+test_cx_doctor() {
+    begin "codex-oss doctor reports the model, the account, and the gateway refresh health"
+    cx_case cx-doctor
+    cx_ready_project
+    printf 'codex-chatgpt\n' >>"$STUB_STATE_DIR/providers.list"
+    cx_head='PROVIDER                  CREDENTIAL_KEY                STRATEGY                      STATUS                    RECOVERY            EXPIRES_AT            NEXT_REFRESH          LAST_REFRESH          FAILURE_CODE                                  LAST_ERROR'
+    cx_row() { # STATUS EXPIRES LAST FAILURE
+        printf '%s\ncodex-chatgpt             CODEX_CHATGPT_TOKEN           oauth2_refresh_token          %s                 -                   %s   2099-01-01 00:00:00   %s   %s                                   -' \
+            "$cx_head" "$1" "$2" "$3" "$4"
+    }
+
+    REFRESH_STATUS=$(cx_row refreshed '2099-01-10 00:00:00' '2099-01-01 00:00:00' -)
+    run_cx doctor
+    assert_out_has "ok    model: Codex's default"
+    assert_out_has "ok    account: ChatGPT account ID configured"
+    assert_out_has "ok    refresh: codex-chatgpt refreshed, expires 2099-01-10 00:00:00 UTC"
+    cx_doctor_rc=$RC
+
+    # The gateway's 1 h assumption with a 300 s lead time: hourly, healthy.
+    REFRESH_STATUS=$(cx_row refreshed '2099-01-01 01:00:00' '2099-01-01 00:00:00' -)
+    run_cx doctor
+    assert_out_has "ok    refresh: codex-chatgpt refreshed"
+    assert_out_missing "refreshes continuously"
+    REFRESH_STATUS=$(cx_row refreshed '2099-01-01 00:04:00' '2099-01-01 00:00:00' -)
+    run_cx doctor
+    assert_out_has "refreshes continuously"
+    [ "$RC" = "$cx_doctor_rc" ] || bad "the warning changed the doctor exit code ($cx_doctor_rc -> $RC)"
+
+    REFRESH_STATUS=$(cx_row failed '2099-01-10 00:00:00' '2099-01-01 00:00:00' invalid_grant)
+    run_cx doctor
+    assert_out_has "warn  refresh: codex-chatgpt last refresh failed"
+
+    cx_soon=$(date -u -d '@'"$(( $(date -u +%s) + 3600 ))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null \
+        || date -u -r "$(( $(date -u +%s) + 3600 ))" '+%Y-%m-%d %H:%M:%S')
+    REFRESH_STATUS=$(cx_row configured "$cx_soon" - -)
+    run_cx doctor
+    assert_out_has "in under 24 hours"
+
+    REFRESH_STATUS="No refresh configurations found for provider 'codex-chatgpt'."
+    run_cx doctor
+    assert_out_has "warn  refresh: codex-chatgpt has no gateway refresh"
+    [ "$RC" = "$cx_doctor_rc" ] || bad "the warning changed the doctor exit code ($cx_doctor_rc -> $RC)"
+
+    cx_config 'model = "gpt-6-astra"'
+    run_cx doctor
+    assert_out_has "ok    model: gpt-6-astra"
+
+    # Without the provider, the refresh check is skipped.
+    cx_case cx-doctor-noprovider
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_cx doctor
+    assert_out_missing "refresh:"
+    assert_out_has "warn  account: no ChatGPT account ID"
+}
+
+seed_cx_host_mcp() { # TOML [DIR]
+    cx_mcp_dir=${2:-$HOME/.codex}
+    mkdir -p "$cx_mcp_dir"
+    printf '%s\n' "$1" >"$cx_mcp_dir/config.toml"
+}
+
+CX_HOST_MCP='model = "gpt-6-astra"
+
+[mcp_servers.context7]
+url = "https://mcp.context7.com/mcp"
+
+[mcp_servers.local]
+command = "/usr/local/bin/local-mcp"
+args = []
+
+[mcp_servers."off"]
+command = "off-mcp"
+enabled = false'
+
+test_cx_mcp_status() {
+    begin "codex-oss mcp status compares [mcp_servers.<name>] in the host and sandbox config.toml"
+    cx_case cx-mcp
+    cx_ready_project
+    seed_cx_host_mcp "$CX_HOST_MCP"
+    EXEC_STDOUT='model = "x"'
+
+    run_cx mcp status
+    assert_rc 3
+    assert_out_has "context7: sandbox=missing"
+    assert_out_has "fix: codex-oss provider attach codex-mcp-context7"
+    assert_out_has "an environment image built FROM codex-agent:local"
+    assert_out_has "local: sandbox=missing"
+    assert_out_missing "off: sandbox=missing"
+    assert_log_line "/sandbox/.codex/config.toml"
+
+    reset_log
+    attach_stub_provider cx-myproject codex-mcp-context7
+    EXEC_STDOUT='[mcp_servers.context7]
+url = "https://mcp.context7.com/mcp"'
+    seed_cx_host_mcp "$EXEC_STDOUT"
+    POLICY_FULL='host: mcp.context7.com'
+    run_cx mcp status
+    assert_rc 0
+    assert_out_has "context7: sandbox=ok provider=ok endpoint=ok transport=http"
+
+    # CODEX_HOME selects the host file.
+    seed_cx_host_mcp '[mcp_servers.other]
+url = "https://other.test/mcp"' "$CASE/codexhome"
+    CX_HOME_ENV=$CASE/codexhome
+    run_cx mcp status
+    assert_out_has "other: sandbox=missing"
+    CX_HOME_ENV=
+
+    # Inline tables are not read: the file is reported as unreadable.
+    seed_cx_host_mcp 'mcp_servers = { docs = { url = "https://docs.test/mcp" } }'
+    run_cx mcp status
+    assert_rc 3
+    assert_out_has "unreadable: host config $HOME/.codex/config.toml"
+}
+
+test_cx_isolation_and_registry() {
+    begin "codex-oss keeps its own sandbox, config, and state, and registers as cx"
+    cx_case cx-isolation
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    ENV_IMAGE=maki-only:tag
+
+    run_cx up
+    assert_rc 0
+    assert_log_line "cx-myproject"
+    assert_log_line "codex-agent:local"
+    assert_log_line "$ROOT/codex-oss/policies/minimal.yaml"
+    assert_log_line_missing "maki-only:tag"
+    [ "$(registry_value cx-myproject agent)" = cx ] || bad "the registry entry is not agent cx"
+
+    reset_log
+    reset_state
+    ENV_CX_IMAGE=custom:tag
+    run_cx up
+    assert_rc 0
+    assert_log_line "custom:tag"
+
+    reset_state
+    cx_ready_project
+    run_cx run "touch nothing"
+    assert_rc 0
+    [ -d "$(cx_session_dir cx-myproject)" ] || bad "no codex-oss session state"
+    [ ! -e "$HOME/.local/state/codex-oss" ] || bad "codex-oss wrote a per-tool state root"
+    [ ! -e "$HOME/.local/state/maki-oss" ] || bad "codex-oss wrote a maki-oss state root"
+    [ -d "$CASE/sandbox/.codex-oss/git" ] || bad "the sandbox baseline is not under .codex-oss"
+    for cx_other in maki-oss opencode-oss claude-oss; do
+        [ ! -e "$XDG_CONFIG_HOME/$cx_other" ] || bad "codex-oss wrote the $cx_other config"
+    done
+
+    run_osa projects --json
+    assert_rc 0
+    assert_out_has '"agent":"cx"'
+    run_cx status
+    cx_sync=$(sed -n 's/^Sync: *//p' "$OUT" | awk '{print $1}')
+    (
+        CODEX_OSS_WORKDIR=$CASE/sandbox/project
+        export CODEX_OSS_WORKDIR
+        run_osa status --json
+        exit "$RC"
+    ) || RC=$?
+    assert_rc 0
+    assert_out_has "\"sync\":\"$cx_sync\""
+}
+
+test_cx_lifecycle_and_guard() {
+    begin "codex-oss up/status/rm, the --env guard, and the no-provider refusal"
+    cx_case cx-lifecycle
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+
+    run_cx up --env CODEX_CHATGPT_TOKEN=x
+    assert_rc 1
+    assert_err_has "CODEX_CHATGPT_TOKEN"
+    assert_log_missing "create"
+    run_cx up --env CODEX_CHATGPT_TOKEN=x --allow-env CODEX_CHATGPT_TOKEN
+    assert_rc 0
+    assert_log_line "CODEX_CHATGPT_TOKEN=x"
+
+    run_cx status
+    assert_rc 0
+    assert_out_has "Exists:    yes"
+    assert_out_has "codex-agent:local (configured)"
+
+    reset_log
+    run_cx rm
+    assert_rc 1
+    assert_log_missing "delete"
+    run_cx rm --yes
+    assert_rc 0
+    assert_log_line "delete"
+
+    reset_log
+    cx_config "account_id = \"$CX_ACCOUNT\""
+    run_cx
+    assert_rc 1
+    assert_err_has "codex-oss provider setup"
+    if [ -s "$LOG" ]; then
+        bad "gateway was contacted without a provider"
+    fi
+}
+
+test_cx_timeout_proposals_idle() {
+    begin "codex-oss run --timeout wraps codex; proposals surface; idle stop waits on codex"
+    cx_case cx-timeout
+    cx_ready_project
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    printf 'LEAKED-STDIN\n' >"$CASE/stdin.txt"
+
+    run_cx_with_input "$CASE/stdin.txt" run --timeout 30 "check"
+    assert_rc 0
+    assert_log_line "codex-oss-run"
+    assert_log_has "/tmp/codex-oss-stop/"
+    assert_log_before "codex-oss-run" "--dangerously-bypass-approvals-and-sandbox"
+    assert_stdin_closed
+
+    reset_log
+    RULE_PENDING='Network Rules:  (version 3, 1 chunks)
+
+  Chunk: 2258b82a-8253-4094-bf5f-3e309b2b9c11
+  Status: pending'
+    run_cx run "check"
+    assert_rc 0
+    assert_log_line "agent_policy_proposals_enabled"
+    assert_err_has "1 pending network-rule proposal(s) for 'cx-myproject'. Review: codex-oss policy review"
+
+    reset_log
+    RULE_PENDING=
+    printf 'idle\n' >"$CASE/scan-answer"
+    printf 'codex-oss-idle|0|%s\n' "$CASE/scan-answer" >"$CASE/exec-cases"
+    EXEC_CASES=$CASE/exec-cases
+    ENV_IDLE_STOP=2s
+    run_cx run "check"
+    assert_rc 0
+    if ! wait_for_match "$LOG" '^stop$' 15; then
+        bad "no sandbox stop after the idle period"
+    fi
+    assert_log_has '= codex ]'
+    sed -n 's/.*watcher=\([0-9][0-9]*\).*/\1/p' "$(cx_session_dir cx-myproject)/idle.log" 2>/dev/null |
+        while read -r cx_pid; do
+            pkill -P "$cx_pid" 2>/dev/null || true
+            kill "$cx_pid" 2>/dev/null || true
+        done
+}
+
+test_cx_sync_clean_git() {
+    begin "codex-oss applies a clean git session by fast-forward"
+    cx_case cx-sync-git
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_sandbox cx-repo Ready
+    seed_cx_provider codex-chatgpt
+    cx_config "account_id = \"$CX_ACCOUNT\""
+    attach_stub_provider cx-repo codex-chatgpt
+    run_cx upload .
+    commit_before=$(git -C "$RUN_DIR" rev-parse HEAD)
+    STUB_MAKI_SCRIPT='printf "agent\n" > agent.txt; printf "modified\n" > tracked.txt'
+
+    run_cx run "edit"
+    assert_rc 0
+    [ "$(cat "$RUN_DIR/tracked.txt")" = modified ] || bad "agent change is not on the host"
+    [ "$(cat "$RUN_DIR/agent.txt" 2>/dev/null)" = agent ] || bad "agent file is not on the host"
+    [ "$(git -C "$RUN_DIR" rev-parse HEAD^)" = "$commit_before" ] || bad "result commit parent is not the baseline"
+    [ "$(git -C "$RUN_DIR" log -1 --format=%s)" = "codex-oss: apply sandbox changes" ] \
+        || bad "result commit has the wrong subject"
+}
+
+test_cx_sync_dirty_host() {
+    begin "codex-oss keeps a dirty host and commits the result on a review branch"
+    cx_case cx-sync-dirty
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    printf 'local edit\n' >>"$RUN_DIR/tracked.txt"
+    seed_sandbox cx-repo Ready
+    seed_cx_provider codex-chatgpt
+    cx_config "account_id = \"$CX_ACCOUNT\""
+    attach_stub_provider cx-repo codex-chatgpt
+    STUB_MAKI_SCRIPT='printf "agent edited\n" > tracked.txt'
+
+    run_cx run "edit"
+    assert_rc 0
+    assert_err_has "Uncommitted host work was not committed"
+    cx_branch=$(git -C "$RUN_DIR" for-each-ref --format='%(refname:short)' 'refs/heads/codex-oss/*' | head -n 1)
+    [ -n "$cx_branch" ] || bad "result branch was not kept"
+    grep -Fq 'local edit' "$RUN_DIR/tracked.txt" || bad "local edit was lost"
+    [ -f "$(cx_session_dir cx-repo)/pending" ] || bad "no pending marker for the dirty host"
+}
+
+test_cx_sync_plain_directory() {
+    begin "codex-oss applies a clean patch to a plain directory"
+    cx_case cx-sync-plain
+    CX_SEED_FILES='readme.txt=host-version
+hostonly.txt=host-only'
+    cx_ready_project
+    STUB_MAKI_SCRIPT='printf "sandbox-version\n" > readme.txt'
+
+    run_cx run "edit"
+    assert_rc 0
+    grep -Fq 'sandbox-version' "$RUN_DIR/readme.txt" || bad "the patch did not update the file"
+    grep -Fq 'host-only' "$RUN_DIR/hostonly.txt" || bad "a host-only file was removed"
+}
+
+test_cx_sync_no_git() {
+    begin "codex-oss applies a text patch with patch when the host has no git"
+    cx_case cx-sync-nogit
+    CX_SEED_FILES='file.txt=v1'
+    cx_ready_project
+    PATH_OVERRIDE=$(no_git_path with_patch)
+    STUB_MAKI_SCRIPT='printf "v2\n" > file.txt'
+
+    run_cx run "edit"
+    assert_rc 0
+    [ "$(cat "$RUN_DIR/file.txt")" = v2 ] || bad "text patch did not apply without git"
+}
+
 test_sandbox_id_recorded() {
     begin "a session records the sandbox ID and status reads it back"
     new_case sandbox-id
@@ -5972,15 +6795,16 @@ assert_json_array() { # COUNT
 }
 
 test_osa_usage() {
-    begin "osa offers projects, status, and help, and rejects anything else"
+    begin "osa offers projects, status, resolve, and help, and rejects anything else"
     new_case osa-usage
     run_osa help
     assert_rc 0
     assert_out_has "projects"
     assert_out_has "status"
+    assert_out_has "resolve"
     run_osa up
     assert_rc 1
-    assert_err_has "projects, status, help"
+    assert_err_has "projects, status, resolve, help"
     run_osa projects --quick
     assert_rc 1
 }
@@ -6165,6 +6989,623 @@ test_osa_read_only() {
     cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "osa changed a file under the state root"
 }
 
+# ---------------------------------------------------------------------------
+# osa resolve (specs/osa-project-layer: "osa resolves retained patches",
+# "osa resolves parked workspaces", "Session and resolve exclusion").
+# ---------------------------------------------------------------------------
+
+# Runs a front-end (maki, oc, or cc) with its stub environment.
+run_front() { # FRONT ARGS...
+    rfr_front=$1
+    shift
+    case $rfr_front in
+        maki) run_maki "$@" ;;
+        oc) run_oc "$@" ;;
+        cc) run_cc "$@" ;;
+    esac
+}
+
+# Starts a case with FRONT's settings cleared (maki, oc, or cc).
+front_case() { # FRONT NAME
+    case $1 in
+        maki) new_case "$2" ;;
+        oc) oc_case "$2" ;;
+        cc) cc_case "$2" ;;
+    esac
+}
+
+# Runs osa with FRONT's environment, so `resolve` reaches that front-end with
+# the same settings the sessions used.
+run_osa_for() { # FRONT ARGS...
+    rof_rc=0
+    (
+        MAKI=$OSA
+        OC=$OSA
+        CC=$OSA
+        run_front "$@"
+        exit "$RC"
+    ) || rof_rc=$?
+    RC=$rof_rc
+}
+
+# Leaves FRONT's sandbox with one pending kind. Sets RUN_DIR, RS_NAME (the
+# sandbox), and RS_PATCH (the retained patch, if any); stderr keeps the exit
+# sync's recovery block.
+#   clean     retained: git project; the host committed during the session
+#   conflict  retained: the host edited the patch's lines during the session
+#   dirty     retained: dirty baseline; the agent changed another file
+#   plain     retained: plain folder; the host had no git and no patch at exit
+#   binary    retained: like plain, with a binary file in the patch
+#   parked    parked: --no-sync
+resolve_fixture() { # FRONT KIND
+    rsf_front=$1
+    rsf_kind=$2
+    case $rsf_kind in
+        plain|binary|parked) rsf_dir=myproject ;;
+        *) rsf_dir=repo ;;
+    esac
+    RUN_DIR=$CASE/project/$rsf_dir
+    RS_NAME=$rsf_front-$rsf_dir
+    case $rsf_kind in
+        plain|binary|parked)
+            mkdir -p "$RUN_DIR"
+            printf 'base\n' >"$RUN_DIR/file.txt"
+            ;;
+        *)
+            seed_git_project "$RUN_DIR"
+            ;;
+    esac
+    if [ "$rsf_kind" = dirty ]; then
+        printf 'local edit\n' >>"$RUN_DIR/tracked.txt"
+    fi
+    seed_sandbox "$RS_NAME" Ready
+    case $rsf_front in
+        maki)
+            seed_remembered_provider maki-stub
+            attach_stub_provider "$RS_NAME" maki-stub
+            ;;
+        oc)
+            seed_oc_provider opencode-stub
+            attach_stub_provider "$RS_NAME" opencode-stub
+            ;;
+        cc)
+            seed_cc_provider claude-anthropic
+            attach_stub_provider "$RS_NAME" claude-anthropic
+            ;;
+    esac
+    case $rsf_kind in
+        clean|conflict)
+            run_front "$rsf_front" upload .
+            ;;
+    esac
+    case $rsf_kind in
+        clean)
+            STUB_MAKI_SCRIPT='printf "agent\n" > agent.txt
+printf "host\n" > "'"$RUN_DIR"'/host.txt"
+git -C "'"$RUN_DIR"'" add host.txt
+git -C "'"$RUN_DIR"'" commit -q -m host-move'
+            ;;
+        conflict)
+            STUB_MAKI_SCRIPT='printf "agent\n" > tracked.txt
+printf "host edit\n" > "'"$RUN_DIR"'/tracked.txt"'
+            ;;
+        dirty)
+            STUB_MAKI_SCRIPT='printf "agent new\n" > new.txt'
+            ;;
+        plain|parked)
+            STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+            ;;
+        binary)
+            STUB_MAKI_SCRIPT='printf "agent\n" > file.txt
+printf "\000\001\002" > data.bin'
+            ;;
+    esac
+    case $rsf_kind in
+        plain|binary) PATH_OVERRIDE=$(no_git_path) ;;
+    esac
+    if [ "$rsf_kind" = parked ]; then
+        run_front "$rsf_front" --no-sync run "edit"
+    else
+        run_front "$rsf_front" run "edit"
+    fi
+    PATH_OVERRIDE=
+    STUB_MAKI_SCRIPT=
+    RS_PATCH=$(pending_value "$RS_NAME" patch)
+}
+
+# Prints every project file (not .git) with its checksum, plus HEAD and the
+# index state for a git project.
+project_snapshot() {
+    (cd "$RUN_DIR" && find . -path ./.git -prune -o -type f -print | LC_ALL=C sort \
+        | while IFS= read -r ps_file; do
+            printf '%s %s\n' "$ps_file" "$(cksum <"$ps_file")"
+        done)
+    if [ -d "$RUN_DIR/.git" ]; then
+        git -C "$RUN_DIR" rev-parse HEAD
+        git -C "$RUN_DIR" status --porcelain=v1 -z | cksum
+        git -C "$RUN_DIR" diff --cached | cksum
+    fi
+}
+
+# Checks that stdout is exactly one JSON object (with jq when present) for
+# which FILTER holds.
+assert_json_object() { # FILTER
+    if [ "$(wc -l <"$OUT" | tr -d ' ')" != 1 ]; then
+        bad "stdout is not one line: $(cat "$OUT")"
+        return
+    fi
+    if command -v jq >/dev/null 2>&1; then
+        jq -e "type == \"object\" and ($1)" "$OUT" >/dev/null 2>&1 \
+            || bad "stdout fails '$1': $(cat "$OUT")"
+    else
+        case $(cat "$OUT") in
+            '{"sandbox":'*'}') ;;
+            *) bad "stdout is not a JSON object: $(cat "$OUT")" ;;
+        esac
+    fi
+}
+
+test_resolve_fixtures() {
+    begin "resolve fixtures leave the expected pending kind for maki-oss and opencode-oss"
+    for rf_front in maki oc; do
+        for rf_kind in clean conflict dirty plain parked; do
+            front_case "$rf_front" "resolve-fixture-$rf_front-$rf_kind"
+            resolve_fixture "$rf_front" "$rf_kind"
+            rf_expect=retained
+            [ "$rf_kind" = parked ] && rf_expect=parked
+            run_osa projects --json
+            assert_rc 0
+            assert_out_has "\"pending\":\"$rf_expect\""
+            if [ "$rf_expect" = retained ] && [ ! -s "$RS_PATCH" ]; then
+                bad "$rf_front $rf_kind: no retained patch file"
+            fi
+        done
+    done
+}
+
+test_resolve_dispatch_refusals() {
+    begin "osa resolve validates the action and refuses unregistered and orphan sandboxes"
+    new_case resolve-dispatch
+    mkdir -p "$CASE/project"
+    run_osa help
+    assert_rc 0
+    assert_out_has "resolve SANDBOX ACTION"
+    run_osa up
+    assert_rc 1
+    assert_err_has "projects, status, resolve, help"
+    run_osa resolve
+    assert_rc 1
+    run_osa resolve maki-x frobnicate
+    assert_rc 1
+    assert_err_has "unknown resolve action"
+    run_osa resolve maki-x apply extra
+    assert_rc 1
+
+    reset_log
+    run_osa resolve maki-nope apply
+    assert_rc 2
+    assert_err_has "not registered"
+    run_osa resolve ../projects/maki-nope apply
+    assert_rc 2
+    assert_err_has "not registered"
+    run_osa resolve maki-nope apply --json
+    assert_rc 2
+    assert_json_object '.ok == false and .action == "apply" and .sandbox == "maki-nope" and .changed == []'
+
+    seed_registry_entry mk-ghost-0000 mk "$CASE/project/gone"
+    run_osa resolve mk-ghost-0000 drop --yes
+    assert_rc 2
+    assert_err_has "folder for 'mk-ghost-0000' is missing"
+    if [ -s "$LOG" ]; then
+        bad "a refusal contacted the gateway: $(tr '\n' ' ' <"$LOG")"
+    fi
+    [ -f "$(registry_entry mk-ghost-0000)" ] || bad "the refusal removed the orphan's entry"
+}
+
+test_resolve_wrong_kind() {
+    begin "osa resolve refuses an action for the other pending kind, for every front-end"
+    for wk_front in maki oc cc; do
+        front_case "$wk_front" "resolve-kind-parked-$wk_front"
+        resolve_fixture "$wk_front" parked
+        project_snapshot >"$CASE/before.txt"
+        reset_log
+        run_osa_for "$wk_front" resolve "$RS_NAME" apply
+        assert_rc 2
+        assert_err_has "parked"
+        assert_err_has "osa resolve $RS_NAME rescue"
+        assert_err_has "osa resolve $RS_NAME discard --yes"
+        [ "$(pending_value "$RS_NAME" kind)" = parked ] || bad "$wk_front: the marker changed"
+        project_snapshot >"$CASE/after.txt"
+        cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "$wk_front: a refused apply changed the project"
+        if [ -s "$LOG" ]; then
+            bad "$wk_front: a refused apply contacted the gateway"
+        fi
+
+        front_case "$wk_front" "resolve-kind-retained-$wk_front"
+        resolve_fixture "$wk_front" plain
+        reset_log
+        run_osa_for "$wk_front" resolve "$RS_NAME" rescue
+        assert_rc 2
+        assert_err_has "retained patch"
+        assert_err_has "osa resolve $RS_NAME apply"
+        assert_err_has "osa resolve $RS_NAME branch"
+        assert_err_has "osa resolve $RS_NAME drop --yes"
+        assert_log_missing "download"
+        [ "$(pending_value "$RS_NAME" kind)" = retained ] || bad "$wk_front: the marker changed"
+        [ -s "$RS_PATCH" ] || bad "$wk_front: the patch is gone"
+    done
+
+    begin "osa resolve refuses when nothing is pending"
+    new_case resolve-kind-none
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    run_osa resolve maki-myproject drop --yes
+    assert_rc 2
+    assert_err_has "nothing is pending"
+}
+
+test_resolve_json_output() {
+    begin "osa resolve --json prints one result object for success, refusal, and failure"
+    new_case resolve-json-ok
+    resolve_fixture maki plain
+    run_osa resolve "$RS_NAME" drop --yes --json
+    assert_rc 0
+    assert_json_object '.ok == true and .action == "drop" and (.changed | length) == 1 and (.message | length) > 0'
+
+    new_case resolve-json-refused
+    resolve_fixture maki parked
+    run_osa resolve "$RS_NAME" apply --json
+    assert_rc 2
+    assert_json_object '.ok == false and (.message | test("parked"))'
+
+    new_case resolve-json-failed
+    resolve_fixture maki parked
+    DOWNLOAD_EXIT=1
+    run_osa resolve "$RS_NAME" rescue --json
+    assert_rc 3
+    assert_json_object '.ok == false and .action == "rescue" and .changed == []'
+    if [ -n "$(find "$(session_dir "$RS_NAME")" -maxdepth 1 -name 'rescue-*' 2>/dev/null)" ]; then
+        bad "a failed rescue left its directory"
+    fi
+    [ "$(pending_value "$RS_NAME" kind)" = parked ] || bad "a failed rescue changed the marker"
+}
+
+test_resolve_apply() {
+    begin "resolve apply changes only the working tree and clears the marker"
+    new_case resolve-apply-clean
+    resolve_fixture maki clean
+    head_before=$(git -C "$RUN_DIR" rev-parse HEAD)
+    reset_log
+    run_osa resolve "$RS_NAME" apply
+    assert_rc 0
+    assert_out_has "Applied the retained patch"
+    [ "$(cat "$RUN_DIR/agent.txt" 2>/dev/null)" = agent ] || bad "the patch's change is not in the host"
+    [ "$(git -C "$RUN_DIR" rev-parse HEAD)" = "$head_before" ] || bad "apply moved HEAD"
+    git -C "$RUN_DIR" diff --cached --quiet || bad "apply staged changes"
+    [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "apply left the marker"
+    [ -s "$RS_PATCH" ] || bad "apply removed the patch file"
+    if [ -s "$LOG" ]; then
+        bad "apply contacted the gateway: $(tr '\n' ' ' <"$LOG")"
+    fi
+    # The next session refreshes the workspace instead of parking it.
+    run_maki status
+    assert_out_has "Sync:      behind"
+
+    begin "resolve apply refuses a conflicting patch and changes nothing"
+    new_case resolve-apply-conflict
+    resolve_fixture maki conflict
+    project_snapshot >"$CASE/before.txt"
+    run_osa resolve "$RS_NAME" apply
+    assert_rc 2
+    assert_err_has "does not apply cleanly"
+    assert_err_has "osa resolve $RS_NAME branch"
+    project_snapshot >"$CASE/after.txt"
+    cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "a refused apply changed the project"
+    [ "$(pending_value "$RS_NAME" kind)" = retained ] || bad "a refused apply changed the marker"
+
+    begin "resolve apply of an already-applied patch only clears the marker"
+    new_case resolve-apply-present
+    resolve_fixture maki clean
+    git -C "$RUN_DIR" apply "$RS_PATCH"
+    project_snapshot >"$CASE/before.txt"
+    run_osa resolve "$RS_NAME" apply
+    assert_rc 0
+    assert_out_has "already in"
+    project_snapshot >"$CASE/after.txt"
+    cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "an applied patch changed the project again"
+    [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "the marker was not cleared"
+
+    begin "resolve apply works in a plain folder with git and with patch"
+    new_case resolve-apply-plain-git
+    resolve_fixture maki plain
+    run_osa resolve "$RS_NAME" apply
+    assert_rc 0
+    [ "$(cat "$RUN_DIR/file.txt")" = agent ] || bad "git apply did not change the plain folder"
+    [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "the marker was not cleared"
+
+    if command -v patch >/dev/null 2>&1; then
+        new_case resolve-apply-plain-patch
+        resolve_fixture maki plain
+        PATH_OVERRIDE=$(no_git_path with_patch)
+        run_osa resolve "$RS_NAME" apply
+        assert_rc 0
+        [ "$(cat "$RUN_DIR/file.txt")" = agent ] || bad "patch did not change the plain folder"
+        [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "the marker was not cleared"
+        run_osa resolve "$RS_NAME" apply
+        assert_rc 2
+
+        new_case resolve-apply-binary-no-git
+        resolve_fixture maki binary
+        PATH_OVERRIDE=$(no_git_path with_patch)
+        project_snapshot >"$CASE/before.txt"
+        run_osa resolve "$RS_NAME" apply
+        assert_rc 2
+        assert_err_has "binary changes"
+        assert_err_has "osa resolve $RS_NAME branch"
+        project_snapshot >"$CASE/after.txt"
+        cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "a refused binary apply changed the project"
+        PATH_OVERRIDE=
+    else
+        skipped "no patch tool on this host"
+    fi
+}
+
+test_resolve_branch() {
+    begin "resolve branch commits on the recorded base without touching the checkout"
+    new_case resolve-branch-dirty
+    resolve_fixture maki dirty
+    base=$(baseline_value "$RS_NAME" base)
+    [ -n "$base" ] || bad "the fixture recorded no base"
+    head_before=$(git -C "$RUN_DIR" rev-parse HEAD)
+    status_before=$(git -C "$RUN_DIR" status --porcelain=v1 -z | cksum)
+    worktrees_before=$(git -C "$RUN_DIR" worktree list | wc -l | tr -d ' ')
+    reset_log
+    run_osa resolve "$RS_NAME" branch --json
+    assert_rc 0
+    assert_json_object '.ok == true and (.changed[0] | startswith("refs/heads/osa/"))'
+    branch=$(git -C "$RUN_DIR" for-each-ref --format='%(refname:short)' 'refs/heads/osa/*' | head -n 1)
+    case $branch in
+        "osa/$RS_NAME-"[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+        *) bad "unexpected branch name: '$branch'" ;;
+    esac
+    if [ -n "$branch" ]; then
+        [ "$(git -C "$RUN_DIR" rev-parse "$branch^")" = "$base" ] \
+            || bad "the branch commit's parent is not the recorded base"
+        branch_id=$(git -C "$RUN_DIR" diff --binary --full-index "$base" "$branch" | git patch-id --stable | cut -d' ' -f1)
+        patch_id=$(git patch-id --stable <"$RS_PATCH" | cut -d' ' -f1)
+        [ -n "$patch_id" ] && [ "$branch_id" = "$patch_id" ] || bad "the branch diff differs from the patch"
+    fi
+    [ "$(git -C "$RUN_DIR" rev-parse HEAD)" = "$head_before" ] || bad "branch moved HEAD"
+    [ "$(git -C "$RUN_DIR" status --porcelain=v1 -z | cksum)" = "$status_before" ] \
+        || bad "branch changed the working tree or index"
+    [ "$(git -C "$RUN_DIR" worktree list | wc -l | tr -d ' ')" = "$worktrees_before" ] \
+        || bad "branch left a worktree"
+    [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "branch left the marker"
+    [ -s "$RS_PATCH" ] || bad "branch removed the patch file"
+    if [ -s "$LOG" ]; then
+        bad "branch contacted the gateway"
+    fi
+
+    begin "resolve branch leaves no branch behind on a conflict"
+    new_case resolve-branch-conflict
+    resolve_fixture maki conflict
+    git -C "$RUN_DIR" commit -qam "host edit"
+    conflict_base=$(git -C "$RUN_DIR" rev-parse HEAD)
+    sed "s/^base=.*/base=$conflict_base/" "$(session_dir "$RS_NAME")/baseline" >"$CASE/baseline"
+    cp "$CASE/baseline" "$(session_dir "$RS_NAME")/baseline"
+    project_snapshot >"$CASE/before.txt"
+    worktrees_before=$(git -C "$RUN_DIR" worktree list | wc -l | tr -d ' ')
+    run_osa resolve "$RS_NAME" branch
+    assert_rc 2
+    assert_err_has "conflicts"
+    [ -z "$(git -C "$RUN_DIR" branch --list 'osa/*')" ] || bad "a conflict left a branch"
+    [ "$(git -C "$RUN_DIR" worktree list | wc -l | tr -d ' ')" = "$worktrees_before" ] \
+        || bad "a conflict left a worktree"
+    project_snapshot >"$CASE/after.txt"
+    cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "a conflict changed the project"
+    [ "$(pending_value "$RS_NAME" kind)" = retained ] || bad "a conflict changed the marker"
+
+    begin "resolve branch refuses a missing base and a plain folder"
+    sed "s/^base=.*/base=0123456789abcdef0123456789abcdef01234567/" "$CASE/baseline" \
+        >"$(session_dir "$RS_NAME")/baseline"
+    run_osa resolve "$RS_NAME" branch
+    assert_rc 2
+    assert_err_has "no longer in the repository"
+
+    new_case resolve-branch-plain
+    resolve_fixture maki plain
+    run_osa resolve "$RS_NAME" branch
+    assert_rc 2
+    assert_err_has "osa resolve $RS_NAME apply"
+    [ "$(pending_value "$RS_NAME" kind)" = retained ] || bad "a refused branch changed the marker"
+}
+
+test_resolve_drop() {
+    begin "resolve drop needs --yes and moves the patch into dropped/"
+    new_case resolve-drop
+    resolve_fixture maki plain
+    run_osa resolve "$RS_NAME" drop
+    assert_rc 2
+    assert_err_has "--yes"
+    [ -s "$RS_PATCH" ] || bad "drop without --yes moved the patch"
+    [ "$(pending_value "$RS_NAME" kind)" = retained ] || bad "drop without --yes changed the marker"
+
+    run_osa resolve "$RS_NAME" drop --yes
+    assert_rc 0
+    dropped=$(session_dir "$RS_NAME")/dropped/$(basename -- "$RS_PATCH")
+    [ -s "$dropped" ] || bad "the patch is not in dropped/"
+    [ ! -e "$RS_PATCH" ] || bad "the patch is still at its old path"
+    [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "drop left the marker"
+    [ "$(cat "$RUN_DIR/file.txt")" = base ] || bad "drop changed a project file"
+}
+
+test_resolve_rescue() {
+    begin "resolve rescue downloads into the session directory and stays parked"
+    new_case resolve-rescue
+    resolve_fixture maki parked
+    project_snapshot >"$CASE/before.txt"
+    reset_log
+    run_osa resolve "$RS_NAME" rescue
+    assert_rc 0
+    rescue_dir=$(find "$(session_dir "$RS_NAME")" -maxdepth 1 -type d -name 'rescue-*' | head -n 1)
+    [ -n "$rescue_dir" ] || bad "no rescue directory"
+    [ "$(cat "$rescue_dir/file.txt" 2>/dev/null)" = agent ] || bad "the rescue copy lacks the workspace files"
+    assert_out_has "$rescue_dir"
+    download_dests=$(awk '
+        $0 == "---" { n = 0; next }
+        { n++; arg[n] = $0 }
+        n == 5 && arg[1] == "sandbox" && arg[2] == "download" { print arg[5] }' "$LOG")
+    [ "$(printf '%s\n' "$download_dests" | grep -c .)" = 1 ] || bad "expected one download, got: $download_dests"
+    case $download_dests in
+        "$rescue_dir"/) ;;
+        *) bad "the download went outside the rescue directory: $download_dests" ;;
+    esac
+    project_snapshot >"$CASE/after.txt"
+    cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "rescue changed the project"
+    [ "$(pending_value "$RS_NAME" kind)" = parked ] || bad "rescue changed the marker"
+
+    begin "resolve rescue starts a stopped sandbox and says so"
+    printf 'Stopped\n' >"$STUB_STATE_DIR/sandboxes/$RS_NAME"
+    run_osa resolve "$RS_NAME" rescue
+    assert_rc 0
+    assert_out_has "Started sandbox '$RS_NAME'"
+}
+
+test_resolve_discard() {
+    begin "resolve discard needs --yes and replaces the parked workspace"
+    new_case resolve-discard
+    resolve_fixture maki parked
+    old_patch=$(session_dir "$RS_NAME")/patch-old.patch
+    printf '+old\n' >"$old_patch"
+    reset_log
+    run_osa resolve "$RS_NAME" discard
+    assert_rc 2
+    assert_err_has "--yes"
+    assert_log_missing "upload"
+    [ "$(pending_value "$RS_NAME" kind)" = parked ] || bad "discard without --yes changed the marker"
+
+    printf 'Stopped\n' >"$STUB_STATE_DIR/sandboxes/$RS_NAME"
+    run_osa resolve "$RS_NAME" discard --yes
+    assert_rc 2
+    assert_err_has "is Stopped"
+    assert_log_missing "upload"
+    assert_log_line_missing "start"
+    printf 'Ready\n' >"$STUB_STATE_DIR/sandboxes/$RS_NAME"
+
+    run_osa resolve "$RS_NAME" discard --yes
+    assert_rc 0
+    assert_log_has "upload"
+    [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "discard left the marker"
+    [ -f "$old_patch" ] || bad "discard removed an existing patch file"
+    [ "$(cat "$SANDBOX_WORKDIR/file.txt")" = base ] || bad "the workspace does not match the host"
+    run_maki status
+    assert_out_has "Sync:      clean"
+    run_osa status --json
+    assert_out_has '"sync":"clean"'
+}
+
+# Starts a process that outlives the next few commands; prints its PID.
+start_holder() {
+    sleep 60 >/dev/null 2>&1 &
+    printf '%s' "$!"
+}
+
+# Prints the PID of a process that has exited.
+dead_pid() {
+    sh -c 'exit 0' &
+    dp_pid=$!
+    wait "$dp_pid" 2>/dev/null || true
+    printf '%s' "$dp_pid"
+}
+
+test_resolve_session_lock() {
+    begin "resolve refuses while a session holds the sandbox, and a stale lock is ignored"
+    new_case resolve-lock
+    resolve_fixture maki plain
+    lock_dir=$(session_dir "$RS_NAME")/locks
+    [ -d "$lock_dir" ] || bad "the session took no lock"
+    [ -z "$(find "$lock_dir" -name 'session.*')" ] || bad "the finished session left its lock file"
+    holder=$(start_holder)
+    : >"$lock_dir/session.$holder"
+    run_osa resolve "$RS_NAME" drop --yes
+    assert_rc 2
+    assert_err_has "a session is running"
+    assert_err_has "PID $holder"
+    [ -s "$RS_PATCH" ] || bad "a refused drop moved the patch"
+    [ ! -d "$lock_dir/resolve.d" ] || bad "a refused resolve kept its lock"
+
+    begin "osa status --quick reports busy while a holder lives"
+    run_osa status --quick --json
+    assert_out_has '"busy":true'
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+    run_osa status --quick --json
+    assert_out_has '"busy":false'
+
+    begin "a stale session lock is cleaned and ignored"
+    stale=$(dead_pid)
+    : >"$lock_dir/session.$stale"
+    run_osa resolve "$RS_NAME" apply
+    assert_rc 0
+    [ ! -e "$lock_dir/session.$stale" ] || bad "the stale lock file was not removed"
+    [ ! -d "$lock_dir/resolve.d" ] || bad "resolve did not release its lock"
+
+    begin "a session refuses to start while a resolve runs, and sessions share"
+    new_case resolve-lock-session
+    resolve_fixture maki parked
+    lock_dir=$(session_dir "$RS_NAME")/locks
+    holder=$(start_holder)
+    mkdir -p "$lock_dir/resolve.d"
+    printf '%s\n' "$holder" >"$lock_dir/resolve.d/pid"
+    reset_log
+    run_maki run "edit"
+    assert_rc 1
+    assert_err_has "osa resolve is running"
+    assert_err_has "PID $holder"
+    assert_log_missing "exec"
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+    rm -rf "$lock_dir/resolve.d"
+    run_osa resolve "$RS_NAME" discard --yes
+    assert_rc 0
+
+    holder=$(start_holder)
+    : >"$lock_dir/session.$holder"
+    run_maki run "edit"
+    assert_rc 0
+    [ -e "$lock_dir/session.$holder" ] || bad "a session removed another live session's lock"
+    [ "$(find "$lock_dir" -name 'session.*' | wc -l | tr -d ' ')" = 1 ] \
+        || bad "the session did not release its own lock"
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+
+    begin "a stale resolve lock does not block a session"
+    stale=$(dead_pid)
+    mkdir -p "$lock_dir/resolve.d"
+    printf '%s\n' "$stale" >"$lock_dir/resolve.d/pid"
+    run_maki run "edit"
+    assert_rc 0
+    [ ! -d "$lock_dir/resolve.d" ] || bad "the stale resolve lock was not removed"
+}
+
+test_resolve_recovery_text() {
+    begin "Recovery names the osa resolve commands"
+    for rt_front in maki oc; do
+        front_case "$rt_front" "resolve-recovery-$rt_front"
+        resolve_fixture "$rt_front" conflict
+        assert_err_has "osa resolve $RS_NAME apply"
+        assert_err_has "osa resolve $RS_NAME branch"
+        assert_err_has "osa resolve $RS_NAME drop --yes"
+
+        front_case "$rt_front" "resolve-recovery-parked-$rt_front"
+        resolve_fixture "$rt_front" parked
+        assert_err_has "osa resolve $RS_NAME rescue"
+        assert_err_has "osa resolve $RS_NAME discard --yes"
+    done
+}
+
 run_test test_flat_get_helper
 run_test test_shared_state_root
 run_test test_old_state_root_ignored
@@ -6179,6 +7620,17 @@ run_test test_osa_projects
 run_test test_osa_status_quick
 run_test test_osa_status_full
 run_test test_osa_read_only
+run_test test_resolve_fixtures
+run_test test_resolve_dispatch_refusals
+run_test test_resolve_wrong_kind
+run_test test_resolve_json_output
+run_test test_resolve_apply
+run_test test_resolve_branch
+run_test test_resolve_drop
+run_test test_resolve_rescue
+run_test test_resolve_discard
+run_test test_resolve_session_lock
+run_test test_resolve_recovery_text
 run_test test_help
 run_test test_usage_errors
 run_test test_config_precedence
@@ -6369,6 +7821,24 @@ run_test test_cc_sync_clean_git
 run_test test_cc_sync_dirty_host
 run_test test_cc_sync_plain_directory
 run_test test_cc_sync_no_git
+run_test test_cx_help
+run_test test_cx_run_argv
+run_test test_cx_tui_argv
+run_test test_cx_session_flags
+run_test test_cx_image_build
+run_test test_cx_profiles_and_catalogs
+run_test test_cx_codex_stub
+run_test test_cx_provider_setup
+run_test test_cx_provider_setup_rerun_and_errors
+run_test test_cx_doctor
+run_test test_cx_mcp_status
+run_test test_cx_isolation_and_registry
+run_test test_cx_lifecycle_and_guard
+run_test test_cx_timeout_proposals_idle
+run_test test_cx_sync_clean_git
+run_test test_cx_sync_dirty_host
+run_test test_cx_sync_plain_directory
+run_test test_cx_sync_no_git
 
 printf '\n%d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"
 if [ "$FAIL" -ne 0 ]; then

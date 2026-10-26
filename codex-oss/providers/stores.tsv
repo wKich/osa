@@ -1,0 +1,12 @@
+# Credential-store slug to OpenShell profile mapping for codex-oss provider
+# setup.
+#
+# Columns, tab-separated (the same format as examples/providers/catalog.tsv,
+# which maki-oss reads):
+#   store       maki | opencode (the credential store the slug comes from)
+#   slug        provider id as stored by that agent
+#   profile-id  file in this directory (<profile-id>.yaml)
+#   note        short note
+#
+# No rows: no credential store holds a ChatGPT login. codex-oss provider setup
+# logs in on the host instead (see docs/codex-oss.md).

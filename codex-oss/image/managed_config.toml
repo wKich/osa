@@ -1,0 +1,53 @@
+# Codex managed configuration for codex-agent:local.
+#
+# Installed root-owned at /etc/codex/managed_config.toml. It ranks above the
+# user's ~/.codex/config.toml, so the agent cannot redirect the provider or
+# turn traffic back on. No credential and no account ID: the access token
+# arrives as an OpenShell placeholder in CODEX_CHATGPT_TOKEN, and codex-oss
+# passes the (non-secret) account ID per exec in CODEX_CHATGPT_ACCOUNT_ID.
+
+model_provider = "chatgpt-oss"
+
+# Never write auth.json: the sandbox holds no login state.
+cli_auth_credentials_store = "ephemeral"
+
+# Updates come from rebuilding the pinned image, not from Codex.
+check_for_update_on_startup = false
+
+[model_providers.chatgpt-oss]
+name = "ChatGPT (codex-oss)"
+base_url = "https://chatgpt.com/backend-api/codex"
+wire_api = "responses"
+env_key = "CODEX_CHATGPT_TOKEN"
+requires_openai_auth = false
+env_http_headers = { "ChatGPT-Account-Id" = "CODEX_CHATGPT_ACCOUNT_ID" }
+
+# The helper's default in-sandbox project directory.
+[projects."/sandbox/project"]
+trust_level = "trusted"
+
+# Catalog and connector features reach chatgpt.com paths outside the Codex
+# backend and github.com; the sandbox denies them anyway, so they are turned
+# off rather than left to fail. No background app-server daemon: the idle
+# stop waits on the codex process, and a daemon would outlive the session.
+[features]
+apps = false
+plugins = false
+remote_plugin = false
+plugin_sharing = false
+skill_mcp_dependency_install = false
+in_app_updates = false
+daemon_auto_start = false
+
+# Startup tips fetch an announcement file from raw.githubusercontent.com.
+[tui]
+show_tooltips = false
+
+[analytics]
+enabled = false
+
+[otel]
+metrics_exporter = "none"
+
+[feedback]
+enabled = false

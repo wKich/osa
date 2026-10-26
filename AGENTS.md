@@ -59,3 +59,9 @@ Never violate these, even to make a command succeed:
   subscription token on the host), do not set `ANTHROPIC_BASE_URL` or an
   `apiKeyHelper`, and never mount or upload the host's `~/.claude`,
   `~/.claude.json`, or `~/.config/anthropic`.
+- **Codex never authenticates inside the sandbox.** Do not run `codex login`
+  there, and never create, upload, or mount an `auth.json` or the host's
+  `~/.codex`. The ChatGPT login happens on the host in a throwaway
+  `CODEX_HOME` (`codex-oss provider setup`), and the gateway keeps and
+  refreshes the tokens. Do not override the provider's base URL: it would
+  leave the credential unbound.

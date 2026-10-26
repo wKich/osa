@@ -80,6 +80,9 @@ export function renderPage(options: PageOptions): string {
   .badge-retained, .badge-parked { color: #b45309; }
   .badge-orphan { color: #c44; }
   .full-status { margin-top: .3rem; }
+  .resolve-outcome { margin-top: .3rem; }
+  .resolve-outcome ul { margin: .2rem 0; padding-left: 1.2rem; }
+  .resolve-outcome pre { margin: .2rem 0; }
   #patch-view { max-height: 40rem; overflow: auto; border: 1px solid rgba(128, 128, 128, .4); padding: .4rem; }
   .patch-line { white-space: pre-wrap; word-break: break-word; min-height: 1.2em; }
   .patch-add { color: #1a7f37; background: rgba(40, 160, 80, .12); }

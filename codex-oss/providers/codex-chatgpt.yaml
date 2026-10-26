@@ -1,0 +1,67 @@
+# Codex + ChatGPT plan provider profile for OpenShell.
+#
+# Set it up with the helper, which logs in on the host in a throwaway
+# CODEX_HOME and never touches ~/.codex:
+#   bin/codex-oss provider setup
+#
+# Raw-command fallback, from the repository root (see codex-oss/README.md):
+#   openshell profile lint -f codex-oss/providers/codex-chatgpt.yaml
+#   openshell profile import -f codex-oss/providers/codex-chatgpt.yaml
+#   CODEX_CHATGPT_TOKEN=<access token> openshell provider create \
+#     --name codex-chatgpt --type codex-chatgpt --credential CODEX_CHATGPT_TOKEN
+#   CODEX_RT=<refresh token> openshell provider refresh configure codex-chatgpt \
+#     --credential-key CODEX_CHATGPT_TOKEN --strategy oauth2-refresh-token \
+#     --material client_id=<client_id claim> --secret-material-env refresh_token=CODEX_RT \
+#     --credential-expires-at <exp claim in epoch ms>
+#
+# The gateway keeps the refresh token as secret material and refreshes the
+# access token itself; the sandbox only ever sees a placeholder. Without
+# max_lifetime the gateway assumes a 1 h token and refreshes continuously.
+#
+# The profile authorizes only /usr/local/bin/codex (the path used by
+# codex-oss/image) to reach the Codex backend path on chatgpt.com, and binds
+# CODEX_CHATGPT_TOKEN to the bearer authorization header. The proxy denies
+# other chatgpt.com paths. Do not override the provider base URL in the
+# sandbox: a different URL would leave the credential unbound.
+
+id: codex-chatgpt
+display_name: Codex (ChatGPT plan)
+description: ChatGPT Codex backend for the Codex CLI through a ChatGPT login refreshed by the gateway
+category: inference
+inference_capable: true
+
+credentials:
+  - name: access_token
+    description: ChatGPT access token, refreshed by the gateway
+    env_vars: [CODEX_CHATGPT_TOKEN]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+    refresh:
+      strategy: oauth2_refresh_token
+      token_url: https://auth.openai.com/oauth/token
+      refresh_before: "300s"
+      max_lifetime: "864000s"
+      material:
+        - name: client_id
+          description: OAuth client id (from the access token client_id claim)
+          required: true
+          secret: false
+        - name: refresh_token
+          description: ChatGPT refresh token from a throwaway host login
+          required: true
+          secret: true
+
+discovery:
+  credentials: [access_token]
+
+endpoints:
+  - host: chatgpt.com
+    port: 443
+    path: /backend-api/codex/**
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+
+binaries:
+  - /usr/local/bin/codex

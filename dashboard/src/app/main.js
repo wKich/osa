@@ -10,7 +10,7 @@ import { loadInventory, renderInventory } from "./inventory.js";
 import { cleanupLogStream, renderLogs, startLogStream } from "./logs.js";
 import { loadPatch, renderPatch } from "./patch.js";
 import { loadPolicy, renderPolicy } from "./policy.js";
-import { loadProjects, renderProjects, updateProjectsTable } from "./projects.js";
+import { loadProjects, refreshProject, renderProjects, updateProjectsTable } from "./projects.js";
 import { loadRules, renderRules } from "./rules.js";
 import { actions, state } from "./state.js";
 
@@ -76,6 +76,7 @@ actions.navigate = navigate;
 actions.render = render;
 actions.loadInventory = loadInventory;
 actions.openDetail = openDetail;
+actions.refreshProject = refreshProject;
 
 state.tabs.projects.addEventListener("click", () => navigate("projects"));
 state.tabs.sandboxes.addEventListener("click", () => navigate("inventory"));

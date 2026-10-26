@@ -2,13 +2,13 @@
 
 ## Purpose
 
-The agent-neutral project layer shared by every agent front-end, and the `osa` entry point that reports on it. It binds host project folders to sandboxes in one state root and publishes a versioned, read-only state contract that other tools such as the dashboard can rely on.
+The agent-neutral project layer shared by every agent front-end, and the `osa` entry point that reports on it and resolves pending sync output. It binds host project folders to sandboxes in one state root and publishes a versioned, read-only state contract that other tools such as the dashboard can rely on.
 
 ## Requirements
 
 ### Requirement: Shared state root
 
-Every agent front-end (`maki-oss`, `opencode-oss`, `claude-oss`) SHALL keep its sync state and its project registry entries under one state root, `${XDG_STATE_HOME:-$HOME/.local/state}/osa/`. Session state SHALL live in `sessions/<sandbox-name>/` and registry entries in `projects/`. The front-ends MUST NOT read or write the former per-tool roots `${XDG_STATE_HOME:-$HOME/.local/state}/maki-oss/` and `…/opencode-oss/`, and `claude-oss` MUST NOT create a per-tool root `…/claude-oss/`. Configuration files stay per front-end and do not move.
+Every agent front-end (`maki-oss`, `opencode-oss`, `claude-oss`, `codex-oss`) SHALL keep its sync state and its project registry entries under one state root, `${XDG_STATE_HOME:-$HOME/.local/state}/osa/`. Session state SHALL live in `sessions/<sandbox-name>/` and registry entries in `projects/`. The front-ends MUST NOT read or write the former per-tool roots `${XDG_STATE_HOME:-$HOME/.local/state}/maki-oss/` and `…/opencode-oss/`, and `claude-oss` and `codex-oss` MUST NOT create a per-tool root `…/claude-oss/` or `…/codex-oss/`. Configuration files stay per front-end and do not move.
 
 #### Scenario: Both front-ends write to one root
 - **WHEN** `maki-oss up` and `opencode-oss up` run in the same project folder
@@ -17,6 +17,10 @@ Every agent front-end (`maki-oss`, `opencode-oss`, `claude-oss`) SHALL keep its 
 #### Scenario: Claude front-end writes to the same root
 - **WHEN** `claude-oss up` runs in a project folder already registered for `mk`
 - **THEN** a second entry with agent `cc` is written under `osa/projects/`, its session state lives in `osa/sessions/<cc-sandbox-name>/`, and nothing is written under `claude-oss/` in the state home
+
+#### Scenario: Codex front-end writes to the same root
+- **WHEN** `codex-oss up` runs in a project folder already registered for `cc`
+- **THEN** a second entry with agent `cx` is written under `osa/projects/`, its session state lives in `osa/sessions/<cx-sandbox-name>/`, and nothing is written under `codex-oss/` in the state home
 
 #### Scenario: A former per-tool root is ignored
 - **WHEN** `${XDG_STATE_HOME}/maki-oss/sessions/<name>/pending` exists from an older helper and the user starts a session for that sandbox
@@ -74,9 +78,9 @@ For a git project, the helper SHALL record a host fingerprint in the registry en
 - **WHEN** the project folder is not a git repository
 - **THEN** its registry entry has no `fingerprint` key
 
-### Requirement: osa entry point is read-only
+### Requirement: osa entry point
 
-The repository SHALL provide an `osa` command that works across every agent front-end. `osa` SHALL offer `projects`, `status`, and `help`, and every other command SHALL be a usage error. `osa` MUST NOT create, start, stop, delete, upload to, or download from a sandbox, MUST NOT launch an agent, and MUST NOT write any file under the state root. The full `osa status` MAY query the gateway read-only and MAY run the same read-only workspace probe that the front-end's `status` runs; it MUST NOT run anything else in a sandbox. `osa projects` and `osa status --quick` MUST NOT contact the gateway.
+The repository SHALL provide an `osa` command that works across every agent front-end. `osa` SHALL offer `projects`, `status`, `resolve`, and `help`, and every other command SHALL be a usage error. `resolve` is the only `osa` command that changes anything; it is defined by the requirements "osa resolves retained patches" and "osa resolves parked workspaces". `projects`, `status`, and `help` MUST NOT create, start, stop, delete, upload to, or download from a sandbox, MUST NOT launch an agent, and MUST NOT write any file under the state root. No `osa` command MUST create, stop, or delete a sandbox or launch an agent, and only `osa resolve <sandbox> rescue` MAY start a stopped one. The full `osa status` MAY query the gateway read-only and MAY run the same read-only workspace probe that the front-end's `status` runs; it MUST NOT run anything else in a sandbox. `osa projects` and `osa status --quick` MUST NOT contact the gateway.
 
 #### Scenario: osa never changes a sandbox
 - **WHEN** the user runs `osa projects`, `osa status`, and `osa status --quick` while a registered sandbox is `Ready`
@@ -88,7 +92,7 @@ The repository SHALL provide an `osa` command that works across every agent fron
 
 #### Scenario: Unknown command is a usage error
 - **WHEN** the user runs `osa up`
-- **THEN** the command exits as a usage error that lists `projects`, `status`, and `help`
+- **THEN** the command exits as a usage error that lists `projects`, `status`, `resolve`, and `help`
 
 ### Requirement: osa projects lists every registered project
 
@@ -104,7 +108,7 @@ The repository SHALL provide an `osa` command that works across every agent fron
 
 ### Requirement: osa status reports a project across agents
 
-`osa status [PATH]` SHALL report every registry entry whose `host_path` is the absolute physical form of `PATH` (default: the current directory), one entry per agent. The full mode SHALL report phase, attached providers, sync state (`clean`, `behind`, `retained`, or `parked`), the retained patch path, and the next command, with the same classification the agent's front-end `status` gives for that project. With `--quick` it SHALL NOT hash the project tree: it SHALL report the pending kind from the files and the fingerprint result `changed`, `unchanged`, or `unknown`, and MUST NOT report `clean` or `behind`. With `--json` it SHALL print one JSON array on stdout and nothing else. A path with no registry entry SHALL print `[]` with `--json` and exit 0.
+`osa status [PATH]` SHALL report every registry entry whose `host_path` is the absolute physical form of `PATH` (default: the current directory), one entry per agent. The full mode SHALL report phase, attached providers, sync state (`clean`, `behind`, `retained`, or `parked`), the retained patch path, and the next command, with the same classification the agent's front-end `status` gives for that project. With `--quick` it SHALL NOT hash the project tree: it SHALL report the pending kind from the files, the fingerprint result `changed`, `unchanged`, or `unknown`, and `busy` (`true` while a live session or resolve holds that sandbox's lock), and MUST NOT report `clean` or `behind`. With `--json` it SHALL print one JSON array on stdout and nothing else. A path with no registry entry SHALL print `[]` with `--json` and exit 0.
 
 #### Scenario: Full status matches the front-end
 - **WHEN** a Maki project is `behind` and the user runs `osa status --json` in its folder
@@ -118,6 +122,87 @@ The repository SHALL provide an `osa` command that works across every agent fron
 - **WHEN** the project is not a git repository and the user runs `osa status --quick --json`
 - **THEN** the entry reports fingerprint `unknown`
 
+#### Scenario: Quick status reports a live session
+- **WHEN** a `maki-oss` session is running for a project and the user runs `osa status --quick --json` in its folder
+- **THEN** the entry for agent `mk` reports `busy` as `true`
+
 #### Scenario: Unregistered path
 - **WHEN** the user runs `osa status --json /tmp/elsewhere` and no entry has that `host_path`
 - **THEN** stdout is `[]` and the exit code is 0
+
+### Requirement: osa resolves retained patches
+
+`osa resolve SANDBOX apply|branch|drop [--yes] [--json]` SHALL resolve the retained patch named by that sandbox's `pending` marker. `SANDBOX` SHALL be a registered sandbox name; an unregistered name, an orphan entry, or a sandbox whose marker is not `retained` SHALL be refused with an error that names the current pending kind, and nothing SHALL change. The action SHALL run with the owning front-end's configuration and SHALL NOT contact the gateway.
+
+- `apply` SHALL change the host working tree only when a dry run of the whole patch succeeds against the current tree (`git apply --check` with git, `patch --dry-run` without it), and then SHALL apply it all at once. It MUST NOT commit, stage, switch branches, or move `HEAD`. When the patch is already present in the host tree (its reverse applies cleanly), `apply` SHALL change no project file and SHALL clear the marker. A failed dry run SHALL change nothing, keep the marker, and suggest `branch`.
+- `branch` SHALL require a git project and the base commit recorded for the session. It SHALL apply the patch in a temporary worktree at that commit, falling back to a three-way apply, commit the result on a new branch named `osa/<sandbox>-<timestamp>`, and remove the temporary worktree. It MUST NOT change the host working tree, the index, the current branch, or `HEAD`. A patch that does not apply SHALL leave no branch behind, keep the marker, and report the conflict.
+- `drop` SHALL require `--yes`. It SHALL remove the marker and move the patch file into `dropped/` inside the session directory. It MUST NOT delete the patch file or change any project file.
+- After a successful `apply`, `branch`, or `drop`, the sandbox's `pending` marker SHALL be removed and the patch file SHALL remain on disk (moved, for `drop`). With `--json`, `osa resolve` SHALL print one JSON object with `sandbox`, `action`, `ok`, `changed` (the paths or ref it wrote), and `message`, and nothing else on stdout.
+
+#### Scenario: Apply on a clean tree
+- **WHEN** a project has a retained patch whose dry run succeeds and the user runs `osa resolve <sandbox> apply`
+- **THEN** the patch's changes appear in the host working tree, `HEAD` and the index are unchanged, the marker is removed, and the patch file still exists
+
+#### Scenario: Apply refuses a conflicting patch
+- **WHEN** the host edited the same lines the retained patch changes and the user runs `osa resolve <sandbox> apply`
+- **THEN** no project file changes, the marker stays `retained`, and the error suggests `osa resolve <sandbox> branch`
+
+#### Scenario: Apply of an already-applied patch
+- **WHEN** the retained patch's changes are already in the host tree and the user runs `osa resolve <sandbox> apply`
+- **THEN** no project file changes and the marker is removed
+
+#### Scenario: Branch leaves the working tree alone
+- **WHEN** the host has uncommitted edits and the user runs `osa resolve <sandbox> branch`
+- **THEN** a branch `osa/<sandbox>-<timestamp>` exists whose commit holds the patch on the recorded base, `git status` output and `HEAD` are unchanged, no temporary worktree remains, and the marker is removed
+
+#### Scenario: Branch in a plain folder
+- **WHEN** the project is not a git repository and the user runs `osa resolve <sandbox> branch`
+- **THEN** the command is refused, nothing changes, and the error suggests `apply`
+
+#### Scenario: Drop needs confirmation
+- **WHEN** the user runs `osa resolve <sandbox> drop` without `--yes`
+- **THEN** nothing changes and the error names `--yes`
+
+#### Scenario: Drop keeps the file
+- **WHEN** the user runs `osa resolve <sandbox> drop --yes`
+- **THEN** the marker is removed and the patch file is in the session's `dropped/` directory
+
+#### Scenario: Wrong pending kind
+- **WHEN** a sandbox's workspace is parked and the user runs `osa resolve <sandbox> apply`
+- **THEN** nothing changes and the error says the workspace is parked and names `rescue` and `discard`
+
+#### Scenario: Orphan is refused
+- **WHEN** the registry entry's host folder no longer exists and the user runs `osa resolve <sandbox> drop --yes`
+- **THEN** nothing changes and the error says the project folder is missing
+
+### Requirement: osa resolves parked workspaces
+
+`osa resolve SANDBOX rescue|discard [--yes] [--json]` SHALL resolve a parked workspace. A sandbox whose marker is not `parked`, an unregistered name, or an orphan entry SHALL be refused, and nothing SHALL change.
+
+- `rescue` SHALL download the sandbox workspace into a new directory `rescue-<timestamp>/` inside that sandbox's session directory and SHALL print its path. It MUST NOT write anywhere else on the host and MUST NOT change the marker; the workspace stays parked. It MAY start a stopped sandbox to download and SHALL report that it did.
+- `discard` SHALL require `--yes` and SHALL behave as the front-end's `upload --discard`: replace the sandbox workspace with the host project, record a new baseline, and remove the marker. Existing patch files SHALL be kept.
+- With `--json`, the output SHALL follow the shape defined for retained actions.
+
+#### Scenario: Rescue writes only under the session directory
+- **WHEN** a workspace is parked and the user runs `osa resolve <sandbox> rescue`
+- **THEN** the workspace files are in a new `rescue-<timestamp>/` directory in that sandbox's session directory, no project file changes, and the marker is still `parked`
+
+#### Scenario: Discard clears the parked state
+- **WHEN** a workspace is parked and the user runs `osa resolve <sandbox> discard --yes`
+- **THEN** the sandbox workspace matches the host project, the marker is removed, and a later `osa status --json` reports `clean`
+
+#### Scenario: Discard needs confirmation
+- **WHEN** the user runs `osa resolve <sandbox> discard` without `--yes`
+- **THEN** no upload is sent and the error names `--yes`
+
+### Requirement: Session and resolve exclusion
+
+Every front-end session and every `osa resolve` SHALL hold a per-sandbox lock in that sandbox's session directory for as long as it runs, including the session's exit sync. `osa resolve` SHALL refuse with an error naming the holder when a live process holds the lock, and a session SHALL refuse to start while a live `osa resolve` holds it. A lock whose holder process no longer exists SHALL be treated as free and replaced. The lock file is internal state and is not part of the published contract.
+
+#### Scenario: Resolve during a session is refused
+- **WHEN** a `maki-oss` session is running for a sandbox and the user runs `osa resolve <sandbox> drop --yes`
+- **THEN** nothing changes and the error says a session is running for that sandbox
+
+#### Scenario: Stale lock is replaced
+- **WHEN** a session crashed and left a lock whose process no longer exists, and the user runs `osa resolve <sandbox> apply`
+- **THEN** the resolve runs normally

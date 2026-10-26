@@ -1460,3 +1460,88 @@ The page listed all 5 projects as "nothing pending", each sandbox linked to
 the live gateway, and the attention counter stayed hidden (0). This host had
 no retained, parked, or orphan entries at the time, so those badges were
 covered only by the fixture-backed checks above.
+
+## osa resolve — 2026-10-26
+
+Change `add-sync-resolve-commands`. Offline: `make test` 215 passed (11 new
+resolve cases across `maki-oss`, `opencode-oss`, and `claude-oss`),
+`make lint` and `make lint-docs` pass, and
+`openspec validate add-sync-resolve-commands --strict` is valid.
+
+### Real retained patch resolved with branch (task 6.3)
+
+A throwaway git project with one commit and an uncommitted edit to
+`notes.txt` (a dirty baseline), on the real gateway with
+`maki-agent:personal`:
+
+```text
+$ maki-oss run --timeout 300 --model kontur/code-ultra "Create a new file named hello.txt ..."
+Creating sandbox 'mk-resolve-dem-cbfc'...
+Collected sandbox changes: .../sessions/mk-resolve-dem-cbfc/patch-20261026214811-95318.patch
+Uncommitted host work was not committed. ...
+  apply:     osa resolve mk-resolve-dem-cbfc apply      (to the working tree, no commit)
+  branch:    osa resolve mk-resolve-dem-cbfc branch     (commit on a new branch)
+  drop:      osa resolve mk-resolve-dem-cbfc drop --yes (keep the patch aside)
+
+$ osa status --quick --json      → "pending":"retained", "busy":false
+$ osa resolve mk-resolve-dem-cbfc branch --json
+{"sandbox":"mk-resolve-dem-cbfc","action":"branch","ok":true,
+ "changed":["refs/heads/osa/mk-resolve-dem-cbfc-20261026214821"],...}
+exit 0
+```
+
+Checks on the host repository afterwards:
+
+- The branch commit's parent is the recorded `base` (the dirty-baseline
+  snapshot `5cf6d49`), and `git diff base branch` has the same
+  `git patch-id --stable` as the retained patch (adds `hello.txt`).
+- `HEAD` and `git status --porcelain=v1 -z` are unchanged; `notes.txt` keeps
+  the uncommitted edit; `git worktree list` has the same 2 entries (the
+  exit sync's kept review worktree), so no temporary worktree remains.
+- The commit author is `maki-oss <maki-oss@localhost>`.
+- The `pending` marker is gone, the patch file is still in the session
+  directory, `osa projects` shows no pending kind, and `maki-oss status`
+  reports `Sync: behind`, so the next session refreshes instead of parking.
+
+The first attempt used the configured default model and failed with an
+API 403 (`glm-5-code` not permitted) before any change; the run above passed
+`--model kontur/code-ultra`.
+
+## Dashboard resolve actions — 2026-10-26
+
+Change `dashboard-sync-actions`. Offline: `cd dashboard && bun test` 109
+passed, `bun run scripts/browser-check.ts` 55 passed (the resolve journey
+included), `make lint-docs` passes, and
+`openspec validate dashboard-sync-actions --strict` is valid.
+
+### Real retained patch applied from the browser (task 5.3)
+
+A throwaway git project (`dash-resolve`, one commit and an uncommitted edit
+to `notes.txt`) on the real gateway with `maki-agent:personal`:
+
+```text
+$ maki-oss run --timeout 300 --model kontur/code-ultra "Create a new file named hello.txt ..."
+Collected sandbox changes: .../sessions/mk-dash-resolv-24a7/patch-20261026231052-24943.patch
+The sandbox patch is retained for review; the workspace can be refreshed.
+
+$ osa status --quick --json      → "pending":"retained", "busy":false
+```
+
+The dashboard then ran with its defaults (`$HOME/.local/state/osa`, the
+repository's `bin/osa`, a minted token, read-write) and was driven in
+headless Chrome:
+
+- The row showed `retained`, "unchanged since last sync", and
+  **Review patch**; the patch view offered `Apply,Branch,Drop` under the diff.
+- **Apply** listed `hello.txt` before sending anything. **Confirm apply** ran
+  `osa resolve mk-dash-resolv-24a7 apply --json`, and the outcome read
+  "Apply done. Applied the retained patch to …/dash-resolve (not staged or
+  committed). Patch kept: …/patch-20261026231052-24943.patch" with the changed
+  file `…/dash-resolve/hello.txt`.
+- The viewer dropped its actions, and back on Projects the row read "nothing
+  pending" with no `retained` badge before the next poll.
+
+Checks on the host afterwards: `git status --short` shows ` M notes.txt` (the
+uncommitted edit kept) and `?? hello.txt` ("hello from the sandbox"); `HEAD`
+is still the `init` commit; the `pending` marker is gone and the patch file
+is still in the session directory; `osa projects` shows no pending kind.

@@ -1,0 +1,663 @@
+#!/bin/sh
+# shellcheck shell=sh source-path=SCRIPTDIR
+#
+# codex-oss: safe workflow helper for running OpenAI's Codex CLI inside
+# OpenShell sandboxes.
+#
+# The Codex front-end of lib/oss-core.sh, the core it shares with maki-oss,
+# opencode-oss, and claude-oss. The OpenShell sandbox is the security
+# boundary. This helper:
+#   - never bind-mounts host directories (project files move with
+#     `openshell sandbox upload` / `download`);
+#   - never passes credential-like values through `--env` or `--env-from`
+#     (the codex-chatgpt provider carries the ChatGPT access token, and the
+#     gateway refreshes it);
+#   - never reads the host's Codex login state (~/.codex): provider setup
+#     logs in again in a throwaway CODEX_HOME;
+#   - asks for confirmation before deleting a sandbox.
+#
+# POSIX sh. See docs/codex-oss.md for the differences from maki-oss and
+# docs/helper.md for the shared behavior.
+
+set -eu
+
+PROGRAM=codex-oss
+
+agent_usage() {
+    cat <<'EOF'
+codex-oss: run Codex in an OpenShell sandbox.
+
+Usage:
+  codex-oss <command> [options] [arguments]
+
+Commands:
+  doctor                        Check prerequisites (CLI, gateway, engine,
+                                image, policy, providers, model, refresh)
+  image build                   Build the Codex sandbox image
+  init, up                      Create or start this project's sandbox
+  codex                         Ensure the sandbox and attach the Codex TUI
+                                (bare `codex-oss` does the same)
+  run "<prompt>"                Ensure the sandbox, run Codex headless, and
+                                print its JSON events
+  upload [PATH] [DEST]          Copy local files into the sandbox
+  download [SANDBOX_PATH] DEST  Copy files from the sandbox to the host
+  status                        Show this project's sandbox
+  list                          List sandboxes on the gateway
+  logs                          Show sandbox logs
+  start, stop                   Start or stop the sandbox
+  rm [--yes]                    Delete the sandbox (confirmation required)
+  policy show|edit|apply        Work with the sandbox policy
+  policy review                 List pending network-rule proposals
+  policy approve CHUNK_ID       Approve one proposal (confirmation required)
+  policy reject CHUNK_ID        Reject one proposal (--reason sent to agent)
+  provider add|attach|list      Work with provider credentials
+  provider setup                Log in to ChatGPT on the host and set up the
+                                codex-chatgpt provider with gateway refresh
+  mcp status                    Report MCP server readiness in the sandbox
+  help                          Show this help
+
+Common options:
+  --name NAME      Sandbox name (default: cx-<project directory>)
+  --image REF      Sandbox image (default: codex-agent:local)
+  --policy FILE    Sandbox policy YAML
+  --provider NAME  Attach a provider at creation (repeatable)
+  --cpu QTY        CPU limit (for example: 2, 500m)
+  --memory QTY     Memory limit (for example: 4Gi)
+  --engine NAME    Container engine: docker or podman
+  --gateway NAME   OpenShell gateway to use
+  --workdir PATH   In-sandbox project directory (default: /sandbox/project)
+  --env KEY=VALUE  Non-secret environment variable at creation (repeatable)
+  --env-from SPEC  Sandbox environment variable read from the caller's
+                   environment: KEY or KEY=ENVVAR (repeatable); the
+                   credential check covers the sandbox name and the source name
+  --allow-env KEY  Allow a credential-like key passed with --env or --env-from
+                   (repeatable)
+  --model SPEC     Model for sessions and run (for example gpt-6-astra);
+                   passed as -m
+  --continue (-c)  Session commands: continue the most recent session
+                   (the TUI includes headless runs)
+  --resume ID (-r ID)
+                   Session commands: continue session ID
+  --timeout SECS   run: end Codex inside the sandbox after SECS seconds
+                   (exit 124)
+  --no-sync        Session commands: skip collecting changes on exit
+                   (default: collect a patch and apply it only when the
+                   sandbox baseline matches the host)
+  --idle-stop DUR  Session commands: stop the sandbox DUR after the last
+                   session closes and no Codex runs in it (seconds, or
+                   with an s, m, or h suffix; default 1h; 0 disables)
+  --yes            Skip confirmation prompts (rm, policy approve, policy set,
+                   provider setup)
+  --device-auth    provider setup: log in with a device code instead of the
+                   browser (enable it first in ChatGPT settings, Security)
+  --attach         provider setup: attach the provider to the project sandbox
+  --no-attach      provider setup: never attach, even interactively
+  --tail, --since, --source, --level, -n  Options for logs
+  --full, --base   Options for policy show
+  --reason TEXT    Reason for policy reject (sent to the agent)
+  --type, --credential, --config, --from-existing, --runtime-credentials,
+  --global-profile  Options for provider add
+  --codex-version V
+                   Build argument for image build (default: the version the
+                   Dockerfile pins)
+
+Codex cannot start a session with a chosen ID, so --session-id is refused.
+
+Exit codes: 0 success, 1 usage error, 2 dependency error, 3 gateway error.
+
+Configuration is resolved from flags, then CODEX_OSS_<KEY> environment
+variables, then the config file below, then built-in defaults:
+
+  ${XDG_CONFIG_HOME:-$HOME/.config}/codex-oss/config.toml
+
+provider setup writes account_id (the non-secret ChatGPT account ID that
+Codex sends with each request) to that file.
+
+See codex-oss/README.md and docs/codex-oss.md.
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Locate this script's repository root
+# ---------------------------------------------------------------------------
+
+script=$0
+case $script in
+    */*) ;;
+    *) script=$(command -v -- "$script" 2>/dev/null || printf '%s' "$script") ;;
+esac
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$script")" && pwd -P)
+repo_root=$(CDPATH='' cd -- "$script_dir/.." && pwd -P)
+
+# ---------------------------------------------------------------------------
+# Identity and defaults read by the core
+#
+# Set before lib/oss-core.sh is sourced: the core splices them into its
+# sandbox-side scripts at source time.
+# ---------------------------------------------------------------------------
+
+OSS_ENV_PREFIX=CODEX_OSS                 # CODEX_OSS_<KEY> environment settings
+OSS_CONFIG_NAME=codex-oss                # XDG config directory name
+OSS_STATE_NAME=.codex-oss                # in-sandbox sync state directory
+OSS_TMP_PREFIX=codex-oss                 # /tmp/codex-oss-stop, temp file names
+OSS_CONFIG_EXAMPLE=docs/codex-oss.md     # named in a generated config header
+OSS_PROFILES_DIR=$repo_root/codex-oss/providers
+OSS_CATALOG_FILE=$OSS_PROFILES_DIR/stores.tsv
+OSS_CUSTOM_PROFILE_PREFIX=codex-         # default id for a custom profile
+OSS_AGENT_NAME=Codex                     # named in generated profiles
+OSS_AGENT_PROCESS=codex                  # in-sandbox process the idle stop waits on
+OSS_AGENT_TAG=cx                         # registry agent tag and default name prefix
+OSS_AGENT_CONFIG_KEYS=account_id         # front-end keys in config.toml
+OSS_HOST_MCP_CONFIG=${CODEX_HOME:-${HOME:-/tmp}/.codex}/config.toml
+OSS_SANDBOX_MCP_CONFIG=/sandbox/.codex/config.toml
+OSS_MCP_PROVIDER_PREFIX=codex-mcp-       # provider name for server <name>
+OSS_MCP_FIX_IMAGE='an environment image built FROM codex-agent:local'
+OSS_MCP_FIX_DOC=docs/codex-oss.md
+
+DEFAULT_IMAGE=codex-agent:local
+DEFAULT_POLICY=$repo_root/codex-oss/policies/minimal.yaml
+DEFAULT_NAME='cx-{project}-{hash}'
+
+# profile-id -> example model, read for the post-setup hint.
+CX_MODEL_CATALOG=$OSS_PROFILES_DIR/catalog.tsv
+
+# The one curated provider: a ChatGPT login whose access token the gateway
+# refreshes. Its credential key and the env var the image's managed config
+# reads the account ID from.
+CX_PROVIDER=codex-chatgpt
+CX_PROFILE_FILE=$OSS_PROFILES_DIR/codex-chatgpt.yaml
+CX_TOKEN_ENV=CODEX_CHATGPT_TOKEN
+CX_ACCOUNT_ENV=CODEX_CHATGPT_ACCOUNT_ID
+
+# Codex's documentation for the native binary, named when it is missing on
+# the host.
+CX_INSTALL_HINT='install the Codex CLI on the host (https://github.com/openai/codex/releases, or npm install -g @openai/codex)'
+
+cmd_codex() {
+    [ "$#" -eq 0 ] || die_usage "codex takes no arguments"
+    # shellcheck disable=SC2119  # the session builds its own argv
+    cmd_session
+}
+
+# The account ID from CODEX_OSS_ACCOUNT_ID or the config file's account_id.
+cx_account_id() {
+    # shellcheck disable=SC2154  # config_agent_account_id is set by load_config
+    resolve_setting "" "$(env_setting ACCOUNT_ID)" "${config_agent_account_id:-}" ""
+}
+
+# ---------------------------------------------------------------------------
+# Agent hooks called by the core
+# ---------------------------------------------------------------------------
+
+# Codex resumes sessions but cannot create one with a chosen ID. Every
+# session also needs the account ID that provider setup stores. Both checks
+# run before any sandbox work. `--continue --resume` is refused by the core
+# for every front-end.
+agent_check_session_flags() { # interactive|headless
+    if [ -n "$opt_session_id" ]; then
+        die_usage "--session-id is not supported: Codex cannot start a session with a chosen ID; use --resume ID to continue one"
+    fi
+    if [ -z "$(cx_account_id)" ]; then
+        die_usage "no ChatGPT account ID configured; run '$PROGRAM provider setup' (it writes account_id to $config_file)"
+    fi
+}
+
+# Arguments after `codex [exec] resume` that pick the session: --last goes
+# before the launch flags, an ID after them.
+cx_resume_word() {
+    if [ "$opt_continue" -eq 1 ] || [ -n "$opt_resume" ]; then
+        argv_add resume
+    fi
+}
+
+cx_model_flags() {
+    if [ -n "$model" ]; then
+        argv_add -m "$model"
+    fi
+}
+
+# The TUI's --last skips headless sessions unless asked, so `codex-oss
+# --continue` after `codex-oss run` reopens the run.
+agent_interactive_argv() {
+    argv_add codex
+    cx_resume_word
+    if [ "$opt_continue" -eq 1 ]; then
+        argv_add --last --include-non-interactive
+    fi
+    argv_add --dangerously-bypass-approvals-and-sandbox
+    cx_model_flags
+    if [ -n "$opt_resume" ]; then
+        argv_add "$opt_resume"
+    fi
+}
+
+agent_headless_argv() { # PROMPT
+    argv_add codex exec
+    cx_resume_word
+    if [ "$opt_continue" -eq 1 ]; then
+        argv_add --last
+    fi
+    argv_add --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox
+    cx_model_flags
+    if [ -n "$opt_resume" ]; then
+        argv_add "$opt_resume"
+    fi
+    argv_add "$1"
+}
+
+# `codex exec` reads piped stdin into the prompt; closing it keeps a headless
+# run from ever waiting on input.
+agent_exec_stdin() {
+    printf 'null'
+}
+
+# The image's managed config reads the ChatGPT-Account-Id header from this
+# variable. It is not a credential, and `sandbox exec` does not pass image
+# ENV through, so it travels on every exec.
+agent_exec_env() { # interactive|headless
+    env_add "$CX_ACCOUNT_ENV=$(cx_account_id)"
+}
+
+agent_dispatch() { # CMD ARGS...
+    ag_cmd=$1
+    shift
+    case $ag_cmd in
+        image)
+            if [ "$#" -eq 0 ]; then
+                die_usage "image requires a subcommand: build"
+            fi
+            sub=$1
+            shift
+            case $sub in
+                build) cmd_image_build "$@" ;;
+                *) die_usage "unknown image subcommand: $sub" ;;
+            esac
+            ;;
+        codex)
+            cmd_codex "$@"
+            ;;
+        mcp)
+            if [ "$#" -eq 0 ]; then
+                die_usage "mcp requires a subcommand: status"
+            fi
+            sub=$1
+            shift
+            case $sub in
+                status) cmd_mcp_status "$@" ;;
+                *) die_usage "unknown mcp subcommand: $sub" ;;
+            esac
+            ;;
+        *)
+            die_usage "unknown command: $ag_cmd"
+            ;;
+    esac
+}
+
+opt_codex_version=
+opt_device_auth=0
+
+# Consumes --codex-version VALUE and --device-auth; returns 1 for any other
+# option.
+agent_parse_option() { # OPT [ARGS...]
+    agent_opt_values=0
+    case $1 in
+        --codex-version)
+            [ "$#" -gt 1 ] || die_usage "option --codex-version requires a value"
+            opt_codex_version=$2
+            agent_opt_values=1
+            ;;
+        --device-auth)
+            opt_device_auth=1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+# ---------------------------------------------------------------------------
+# doctor
+# ---------------------------------------------------------------------------
+
+# Epoch seconds for a gateway timestamp (YYYY-MM-DD HH:MM:SS, UTC), with GNU
+# or BSD date. Fails for anything else, such as "-".
+cx_epoch() { # TIMESTAMP
+    case $1 in
+        [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\ [0-9][0-9]:[0-9][0-9]:[0-9][0-9]) ;;
+        *) return 1 ;;
+    esac
+    date -u -d "$1" +%s 2>/dev/null \
+        || date -j -u -f '%Y-%m-%d %H:%M:%S' "$1" +%s 2>/dev/null
+}
+
+# The profile's refresh lead time in seconds (refresh_before: "300s").
+cx_refresh_before() {
+    crb_value=$(sed -n 's/^[[:space:]]*refresh_before:[[:space:]]*"\{0,1\}\([0-9][0-9]*[smh]\{0,1\}\)"\{0,1\}[[:space:]]*$/\1/p' "$CX_PROFILE_FILE" | head -n 1)
+    crb_number=${crb_value%[smh]}
+    case $crb_value in
+        *m) printf '%s' "$((crb_number * 60))" ;;
+        *h) printf '%s' "$((crb_number * 3600))" ;;
+        '') printf '0' ;;
+        *) printf '%s' "$crb_number" ;;
+    esac
+}
+
+# Reports the gateway's refresh state for codex-chatgpt. Informational: it
+# never fails, and a missing gateway or provider skips it. A recorded
+# lifetime no longer than the lead time means the next refresh is always
+# due, so the gateway refreshes continuously.
+cx_doctor_refresh() {
+    [ "${gateway_ok:-0}" -eq 1 ] || return 0
+    cx_names=$(os provider list --names 2>/dev/null) || return 0
+    printf '%s\n' "$cx_names" | grep -Fqx -- "$CX_PROVIDER" || return 0
+    cx_status=$(os provider refresh status "$CX_PROVIDER" 2>/dev/null) || cx_status=
+    cx_row=$(printf '%s\n' "$cx_status" | awk -v key="$CX_TOKEN_ENV" '
+        BEGIN { FS = "  +" }
+        $2 == key { print $4 "\t" $6 "\t" $8 "\t" $9; exit }')
+    if [ -z "$cx_row" ]; then
+        say "warn  refresh: $CX_PROVIDER has no gateway refresh; run '$PROGRAM provider setup' again"
+        return 0
+    fi
+    tab=$(printf '\t')
+    IFS=$tab read -r cx_state cx_expires cx_last cx_failure <<EOF
+$cx_row
+EOF
+    case $cx_state in
+        *fail*|*error*)
+            say "warn  refresh: $CX_PROVIDER last refresh failed ($cx_state, ${cx_failure:--}); run '$PROGRAM provider setup' again"
+            return 0
+            ;;
+    esac
+    if [ -n "$cx_failure" ] && [ "$cx_failure" != - ]; then
+        say "warn  refresh: $CX_PROVIDER last refresh failed ($cx_failure); run '$PROGRAM provider setup' again"
+        return 0
+    fi
+    cx_expires_s=$(cx_epoch "$cx_expires") || cx_expires_s=
+    if [ -z "$cx_expires_s" ]; then
+        say "ok    refresh: $CX_PROVIDER $cx_state (expiry not reported)"
+        return 0
+    fi
+    cx_now=$(date -u +%s)
+    if cx_last_s=$(cx_epoch "$cx_last"); then
+        cx_lead=$(cx_refresh_before)
+        if [ "$((cx_expires_s - cx_last_s))" -le "$cx_lead" ]; then
+            say "warn  refresh: the gateway recorded $CX_PROVIDER as expiring $((cx_expires_s - cx_last_s))s after its last refresh, within the ${cx_lead}s lead time, so it refreshes continuously; see 'Refresh' in codex-oss/README.md"
+            return 0
+        fi
+    fi
+    if [ "$((cx_expires_s - cx_now))" -lt 86400 ]; then
+        say "warn  refresh: $CX_PROVIDER expires $cx_expires UTC, in under 24 hours"
+        return 0
+    fi
+    say "ok    refresh: $CX_PROVIDER $cx_state, expires $cx_expires UTC"
+}
+
+agent_doctor_extra() {
+    doctor_model=$(resolved_model)
+    if [ -n "$doctor_model" ]; then
+        say "ok    model: $doctor_model"
+    else
+        say "ok    model: Codex's default"
+    fi
+    if [ -n "$(cx_account_id)" ]; then
+        say "ok    account: ChatGPT account ID configured"
+    else
+        say "warn  account: no ChatGPT account ID; run '$PROGRAM provider setup'"
+    fi
+    cx_doctor_refresh
+    doctor_mcp_section
+}
+
+# ---------------------------------------------------------------------------
+# provider setup: a ChatGPT login on the host, kept on the gateway
+# ---------------------------------------------------------------------------
+
+agent_setup_hint() { # PROFILE
+    ag_model=$(awk -F'\t' -v id="$1" '$1 == id { print $3; exit }' "$CX_MODEL_CATALOG" 2>/dev/null) || ag_model=
+    [ -n "$ag_model" ] || return 0
+    say ""
+    say "example model: $ag_model"
+    say "set it as the default: model = \"$ag_model\" in $config_file"
+}
+
+cx_login_dir=
+
+cx_login_cleanup() {
+    if [ -n "$cx_login_dir" ]; then
+        rm -rf -- "$cx_login_dir"
+        cx_login_dir=
+    fi
+}
+
+# Prints the decoded JSON payload of a JWT.
+cx_jwt_payload() { # TOKEN
+    cjp_part=$(printf '%s' "$1" | cut -d. -f2 | tr '_-' '/+')
+    case $((${#cjp_part} % 4)) in
+        2) cjp_part="$cjp_part==" ;;
+        3) cjp_part="$cjp_part=" ;;
+    esac
+    printf '%s' "$cjp_part" | base64 -d 2>/dev/null \
+        || printf '%s' "$cjp_part" | base64 -D 2>/dev/null
+}
+
+agent_provider_setup() {
+    if [ -n "$opt_from" ] || [ -n "$opt_file" ] || [ -n "$opt_field" ] || [ -n "$opt_envs" ]; then
+        die_usage "$PROGRAM provider setup takes no credential source: it logs in to ChatGPT on the host (codex login) and keeps the tokens on the gateway"
+    fi
+    if [ "$have_jq" -eq 0 ]; then
+        die_dep "provider setup needs jq to read the login; install jq"
+    fi
+    if ! command -v codex >/dev/null 2>&1; then
+        die_dep "codex not found on PATH; $CX_INSTALL_HINT"
+    fi
+    require_openshell
+
+    cx_names=$(os provider list --names 2>/dev/null) \
+        || die_gateway "cannot list providers; is the gateway running? Try '$PROGRAM doctor'"
+    cx_exists=0
+    if printf '%s\n' "$cx_names" | grep -Fqx -- "$CX_PROVIDER"; then
+        cx_exists=1
+    fi
+    if [ "$cx_exists" -eq 1 ] && [ "$opt_yes" -eq 0 ]; then
+        if ! is_interactive; then
+            die_usage "provider '$CX_PROVIDER' already exists; pass --yes to replace its login (stdin is not a terminal)"
+        fi
+        if ! confirm "Provider '$CX_PROVIDER' exists. Replace its login with a new one? [y/N] "; then
+            say "Keeping provider '$CX_PROVIDER'."
+            return 0
+        fi
+    fi
+
+    # A throwaway home: the provider gets its own login, so it never shares a
+    # rotating refresh token with the host's ~/.codex session.
+    trap cx_login_cleanup EXIT
+    trap 'cx_login_cleanup; exit 130' INT TERM
+    cx_login_dir=$(mktemp -d "${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-login.XXXXXX") \
+        || die_dep "cannot create a temporary login directory"
+    chmod 700 "$cx_login_dir"
+
+    if [ "$opt_device_auth" -eq 1 ]; then
+        say "Device-code login must be enabled first: ChatGPT > Settings > Security."
+        set -- --device-auth
+    else
+        say "Logging in to ChatGPT in your browser (callback on localhost:1455)..."
+        set --
+    fi
+    cx_login_rc=0
+    CODEX_HOME=$cx_login_dir codex login "$@" -c 'cli_auth_credentials_store="file"' \
+        || cx_login_rc=$?
+    if [ "$cx_login_rc" -ne 0 ]; then
+        cx_login_cleanup
+        die_dep "codex login failed (exit status $cx_login_rc); no provider was changed"
+    fi
+    cx_auth=$cx_login_dir/auth.json
+    cx_access=$(jq -r '.tokens.access_token // empty' "$cx_auth" 2>/dev/null) || cx_access=
+    cx_refresh=$(jq -r '.tokens.refresh_token // empty' "$cx_auth" 2>/dev/null) || cx_refresh=
+    cx_account=$(jq -r '.tokens.account_id // empty' "$cx_auth" 2>/dev/null) || cx_account=
+    cx_login_cleanup
+    if [ -z "$cx_access" ] || [ -z "$cx_refresh" ]; then
+        die_dep "the login produced no ChatGPT tokens; log in with a ChatGPT account, not an API key"
+    fi
+    cx_claims=$(cx_jwt_payload "$cx_access") || cx_claims=
+    cx_client_id=$(printf '%s' "$cx_claims" | jq -r '.client_id // empty' 2>/dev/null) || cx_client_id=
+    cx_exp=$(printf '%s' "$cx_claims" | jq -r '.exp // empty' 2>/dev/null) || cx_exp=
+    if [ -z "$cx_account" ]; then
+        cx_account=$(printf '%s' "$cx_claims" \
+            | jq -r '.["https://api.openai.com/auth"].chatgpt_account_id // empty' 2>/dev/null) || cx_account=
+    fi
+    case $cx_exp in
+        ''|*[!0-9]*) die_dep "cannot read the access token expiry; no provider was changed" ;;
+    esac
+    if [ -z "$cx_client_id" ] || [ -z "$cx_account" ]; then
+        die_dep "cannot read the client ID or account ID from the login; no provider was changed"
+    fi
+
+    say "Linting profile '$CX_PROVIDER'..."
+    run_gateway profile lint -f "$CX_PROFILE_FILE"
+    if profile_exists_in_gateway "$CX_PROVIDER"; then
+        say "Profile '$CX_PROVIDER' is already imported."
+    else
+        say "Importing profile '$CX_PROVIDER' globally..."
+        run_gateway profile import -f "$CX_PROFILE_FILE" --global
+    fi
+
+    if [ "$cx_exists" -eq 1 ]; then
+        run_credential_env "$CX_TOKEN_ENV" "$cx_access" provider update "$CX_PROVIDER" \
+            --credential "$CX_TOKEN_ENV"
+        # A fresh configure is how the gateway picks up the profile's refresh
+        # schedule; an old configuration may be missing.
+        os provider refresh delete "$CX_PROVIDER" --credential-key "$CX_TOKEN_ENV" >/dev/null 2>&1 || true
+        say "Provider '$CX_PROVIDER' updated."
+    else
+        run_credential_env "$CX_TOKEN_ENV" "$cx_access" provider create \
+            --name "$CX_PROVIDER" --type "$CX_PROVIDER" --credential "$CX_TOKEN_ENV" --global-profile
+        say "Provider '$CX_PROVIDER' created."
+    fi
+    run_credential_env CODEX_OSS_REFRESH_TOKEN "$cx_refresh" provider refresh configure "$CX_PROVIDER" \
+        --credential-key "$CX_TOKEN_ENV" --strategy oauth2-refresh-token \
+        --material "client_id=$cx_client_id" \
+        --secret-material-env refresh_token=CODEX_OSS_REFRESH_TOKEN \
+        --credential-expires-at "${cx_exp}000"
+    unset cx_access cx_refresh
+    say "Gateway refresh configured for '$CX_PROVIDER'."
+
+    config_set_value account_id "$cx_account"
+    remember_provider "$CX_PROVIDER"
+    say "Remembered provider '$CX_PROVIDER' and account_id in $config_file."
+
+    sandbox_name=$(resolved_name)
+    if [ -n "$(sandbox_phase "$sandbox_name")" ]; then
+        attach_now=0
+        if [ "${opt_attach:-}" = 1 ]; then
+            attach_now=1
+        elif [ "${opt_attach:-}" != 0 ] && is_interactive \
+            && confirm "Attach provider '$CX_PROVIDER' to sandbox '$sandbox_name'? [y/N] "; then
+            attach_now=1
+        fi
+        if [ "$attach_now" -eq 1 ]; then
+            run_gateway sandbox provider attach "$sandbox_name" "$CX_PROVIDER" --wait
+            say "Provider '$CX_PROVIDER' attached to '$sandbox_name'."
+        fi
+    elif [ "${opt_attach:-}" = 1 ]; then
+        warn "sandbox '$sandbox_name' not found; skipping attach (run '$PROGRAM up' first)"
+    fi
+
+    agent_setup_hint "$CX_PROVIDER"
+    say ""
+    say "Next steps:"
+    say "  start a session:   $PROGRAM (from the project directory)"
+    say "  check the refresh: $PROGRAM doctor"
+}
+
+# ---------------------------------------------------------------------------
+# MCP status
+# ---------------------------------------------------------------------------
+
+# Prints `name<TAB>transport<TAB>enabled<TAB>host<TAB>argv0` for each
+# [mcp_servers.<name>] table of a Codex config.toml: a server with a url is
+# http with the url's hostname, one with a command is stdio. `enabled =
+# false` disables it. A missing or empty file has no servers. Servers written
+# as an inline table or as dotted keys under [mcp_servers] are not read: the
+# function fails and the core reports the file as unreadable.
+agent_mcp_servers() { # FILE
+    [ -s "$1" ] || return 0
+    awk '
+        function unquote(s) {
+            sub(/^[[:space:]]+/, "", s); sub(/[[:space:]]+$/, "", s)
+            if (s ~ /^".*"$/ || s ~ /^\047.*\047$/) s = substr(s, 2, length(s) - 2)
+            return s
+        }
+        function flush() {
+            if (name == "") return
+            transport = url != "" ? "http" : (command != "" ? "stdio" : "unknown")
+            host = url
+            sub(/^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//, "", host)
+            sub(/[\/:?].*$/, "", host)
+            printf "%s\t%s\t%s\t%s\t%s\n", name, transport, enabled, host, command
+            name = ""
+        }
+        /^[[:space:]]*#/ { next }
+        /^[[:space:]]*mcp_servers[[:space:]]*=/ { bad = 1; exit }
+        /^[[:space:]]*\[/ {
+            flush()
+            header = $0
+            sub(/^[[:space:]]*\[/, "", header); sub(/\][[:space:]]*(#.*)?$/, "", header)
+            if (header == "mcp_servers") { in_root = 1; next }
+            in_root = 0
+            if (header ~ /^mcp_servers\./) {
+                rest = substr(header, 13)
+                if (rest ~ /^"/) { sub(/^"/, "", rest); end = index(rest, "\""); n = substr(rest, 1, end - 1); rest = substr(rest, end + 1) }
+                else { end = index(rest, "."); if (end == 0) { n = rest; rest = "" } else { n = substr(rest, 1, end - 1); rest = substr(rest, end) } }
+                if (rest == "") { name = n; url = ""; command = ""; enabled = "true" }
+            }
+            next
+        }
+        in_root && /=/ { bad = 1; exit }
+        name != "" && /^[[:space:]]*url[[:space:]]*=/ { v = $0; sub(/^[^=]*=/, "", v); url = unquote(v); next }
+        name != "" && /^[[:space:]]*command[[:space:]]*=/ { v = $0; sub(/^[^=]*=/, "", v); command = unquote(v); next }
+        name != "" && /^[[:space:]]*enabled[[:space:]]*=/ { v = $0; sub(/^[^=]*=/, "", v); enabled = (unquote(v) == "false") ? "false" : "true"; next }
+        END { if (bad) exit 1; flush() }
+    ' "$1"
+}
+
+# ---------------------------------------------------------------------------
+# image build
+# ---------------------------------------------------------------------------
+
+cmd_image_build() {
+    [ "$#" -eq 0 ] || die_usage "image build takes no arguments"
+    context=$repo_root/codex-oss/image
+    if [ ! -d "$context" ]; then
+        die_dep "missing $context; keep the repository layout or build your image elsewhere"
+    fi
+    engine=$(resolved_engine)
+    if ! command -v "$engine" >/dev/null 2>&1; then
+        die_dep "container engine '$engine' not found on PATH"
+    fi
+    # The base build never uses the configured `image`: that may name a derived
+    # environment, and tagging the base with it would overwrite the environment.
+    image=$(resolve_setting "$opt_image" "$(env_setting IMAGE)" "" "$DEFAULT_IMAGE")
+    set -- build
+    if [ -n "$opt_codex_version" ]; then
+        set -- "$@" --build-arg "CODEX_VERSION=$opt_codex_version"
+    fi
+    set -- "$@" -t "$image" "$context"
+    say "Building image '$image' with $engine..."
+    image_build_rc=0
+    "$engine" "$@" || image_build_rc=$?
+    if [ "$image_build_rc" -ne 0 ]; then
+        if [ -n "$opt_codex_version" ]; then
+            err "the Dockerfile verifies a pinned sha256 per architecture for both"
+            err "  codex and codex-code-mode-host; a new CODEX_VERSION needs matching"
+            err "  CODEX_SHA256_ARM64/AMD64 and CODEX_HOST_SHA256_ARM64/AMD64 values"
+            err "  (see 'Build the image' in codex-oss/README.md)"
+        fi
+        die_dep "image build failed (exit status $image_build_rc)"
+    fi
+    say "Built image '$image'."
+}
+
+# shellcheck source=../lib/oss-core.sh
+. "$repo_root/lib/oss-core.sh"
+
+oss_main "$@"

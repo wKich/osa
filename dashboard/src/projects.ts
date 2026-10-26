@@ -8,8 +8,10 @@
 // (cached per host path, design D2) and `osa status PATH --json` for the full
 // sync state on request (design D3).
 //
-// Read-only: nothing here creates, modifies, or deletes a file, and the runner
-// refuses every `osa` argv except the two `status … --json` shapes.
+// The one write is `osa resolve SANDBOX ACTION --json` for a registered
+// sandbox: nothing here creates, modifies, or deletes a file itself, and the
+// runner refuses every `osa` argv except the two `status … --json` shapes and
+// that one `resolve` shape.
 
 import {
   closeSync,
@@ -30,6 +32,18 @@ export const HOST_CHANGE_CONCURRENCY = 2;
 export const QUICK_TIMEOUT_MS = 20_000;
 export const FULL_TIMEOUT_MS = 30_000;
 export const PATCH_LIMIT_BYTES = 2 * 1024 * 1024;
+export const RESOLVE_TIMEOUT_MS = 60_000;
+/** Rescue downloads the sandbox workdir, so it gets longer. */
+export const RESCUE_TIMEOUT_MS = 120_000;
+
+export const RESOLVE_ACTIONS = ["apply", "branch", "drop", "rescue", "discard"] as const;
+export type ResolveAction = (typeof RESOLVE_ACTIONS)[number];
+/** Actions osa runs only with `--yes`; the dashboard's typed confirmation is that yes. */
+const CONFIRMED_ACTIONS: readonly string[] = ["drop", "discard"];
+
+export function isResolveAction(value: unknown): value is ResolveAction {
+  return typeof value === "string" && (RESOLVE_ACTIONS as readonly string[]).includes(value);
+}
 
 /** Sandbox names the front-ends generate; anything else is never joined into a path. */
 const SANDBOX_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
@@ -64,6 +78,8 @@ export interface ProjectRow extends ProjectEntry {
   checkedAt: number | null;
   /** The last host-change check's error, or null. */
   osaError: OpenShellError | null;
+  /** A session or resolve held the sandbox at the last check. */
+  busy: boolean;
 }
 
 export interface PatchView {
@@ -230,12 +246,26 @@ export function resolveOsaBinary(
   return existsSync(bundled) ? bundled : "osa";
 }
 
+/** `osa resolve SANDBOX ACTION --json`, with `--yes` for drop and discard (design D1). */
+export function resolveArgv(sandbox: string, action: ResolveAction): string[] {
+  const args = ["resolve", sandbox, action, "--json"];
+  if (CONFIRMED_ACTIONS.includes(action)) args.push("--yes");
+  return args;
+}
+
 /**
  * The only `osa` argv shapes the dashboard may spawn: `status PATH --json` and
  * `status PATH --quick --json`, with PATH absolute so it cannot read as an
- * option.
+ * option, and `resolve SANDBOX ACTION --json` plus `--yes` for drop and
+ * discard only, with SANDBOX a generated sandbox name.
  */
 export function isAllowedOsaArgv(args: readonly string[]): boolean {
+  if (args[0] === "resolve") {
+    const [, sandbox = "", action] = args;
+    if (!SANDBOX_NAME.test(sandbox) || !isResolveAction(action)) return false;
+    const expected = resolveArgv(sandbox, action);
+    return args.length === expected.length && expected.every((arg, index) => args[index] === arg);
+  }
   const path = args[1] ?? "";
   if (args[0] !== "status" || !path.startsWith("/")) return false;
   if (args.length === 3) return args[2] === "--json";
@@ -257,6 +287,13 @@ function fail(
   return { ok: false, error: { kind, message, ...extra } };
 }
 
+export interface OsaOutput {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+  argv: string[];
+}
+
 export class OsaRunner {
   readonly binary: string;
   private readonly env: Record<string, string | undefined>;
@@ -268,6 +305,18 @@ export class OsaRunner {
 
   /** Spawns `osa` with an argv array (no shell) and parses its JSON stdout. */
   async runJson(args: string[], timeoutMs: number): Promise<Result<unknown>> {
+    const output = await this.run(args, timeoutMs);
+    if (!output.ok) return output;
+    const { exitCode, stdout, stderr, argv } = output.value;
+    if (exitCode !== 0) {
+      const detail = stderr.trim() || stdout.trim();
+      return fail("exit", detail || `osa exited with code ${exitCode}`, { exitCode, detail, argv });
+    }
+    return parseJson(stdout, argv);
+  }
+
+  /** Spawns `osa` with an argv array (no shell); any exit code is a result. */
+  async run(args: string[], timeoutMs: number): Promise<Result<OsaOutput>> {
     if (!isAllowedOsaArgv(args)) {
       return fail("invalid_request", `refusing to run osa ${args.join(" ")}`);
     }
@@ -306,19 +355,19 @@ export class OsaRunner {
       return fail("timeout", `osa ${args.join(" ")} timed out after ${timeoutMs} ms`, { argv });
     }
     const [stdout, stderr] = await Promise.all([stdoutText, stderrText]);
-    if (exitCode !== 0) {
-      const detail = stderr.trim() || stdout.trim();
-      return fail("exit", detail || `osa exited with code ${exitCode}`, { exitCode, detail, argv });
-    }
-    try {
-      return { ok: true, value: JSON.parse(stdout) };
-    } catch (cause) {
-      const message = cause instanceof Error ? cause.message : String(cause);
-      return fail("invalid_json", `could not parse osa output as JSON: ${message}`, {
-        detail: stdout.slice(0, 500),
-        argv,
-      });
-    }
+    return { ok: true, value: { exitCode, stdout, stderr, argv } };
+  }
+}
+
+function parseJson(stdout: string, argv: string[]): Result<unknown> {
+  try {
+    return { ok: true, value: JSON.parse(stdout) };
+  } catch (cause) {
+    const message = cause instanceof Error ? cause.message : String(cause);
+    return fail("invalid_json", `could not parse osa output as JSON: ${message}`, {
+      detail: stdout.slice(0, 500),
+      argv,
+    });
   }
 }
 
@@ -330,6 +379,8 @@ interface HostCheck {
   at: number;
   /** fingerprint_result by sandbox_name, from one quick status of the path. */
   results: Map<string, FingerprintResult>;
+  /** Sandboxes the quick status reported `busy`. */
+  busy: Set<string>;
   error: OpenShellError | null;
 }
 
@@ -345,6 +396,8 @@ export class HostChangeCache {
   private readonly inflight = new Set<string>();
   private running = 0;
   private generation = 0;
+  /** Per-path generation, bumped by `drop`. */
+  private readonly pathGenerations = new Map<string, number>();
   private waiters: Array<() => void> = [];
 
   constructor(
@@ -370,6 +423,14 @@ export class HostChangeCache {
     this.checks.clear();
     this.queue.length = 0;
     this.generation += 1;
+  }
+
+  /** Drops one path's result, so the next `schedule` checks it again. */
+  drop(hostPath: string): void {
+    this.checks.delete(hostPath);
+    const index = this.queue.indexOf(hostPath);
+    if (index >= 0) this.queue.splice(index, 1);
+    this.pathGenerations.set(hostPath, (this.pathGenerations.get(hostPath) ?? 0) + 1);
   }
 
   /** Queues a check for each path whose result is missing or stale. */
@@ -411,13 +472,15 @@ export class HostChangeCache {
 
   private async check(path: string): Promise<void> {
     const generation = this.generation;
+    const pathGeneration = this.pathGenerations.get(path) ?? 0;
     const result = await this.runner.runJson(
       ["status", path, "--quick", "--json"],
       this.options.timeoutMs ?? QUICK_TIMEOUT_MS,
     );
-    // A `clear()` while this ran means the caller asked for a fresh result.
+    // A `clear()` or `drop()` while this ran means the caller asked for a fresh result.
     if (generation !== this.generation) return;
-    const check: HostCheck = { at: this.now(), results: new Map(), error: null };
+    if (pathGeneration !== (this.pathGenerations.get(path) ?? 0)) return;
+    const check: HostCheck = { at: this.now(), results: new Map(), busy: new Set(), error: null };
     if (!result.ok) {
       check.error = result.error;
     } else if (!Array.isArray(result.value)) {
@@ -426,6 +489,9 @@ export class HostChangeCache {
       for (const item of result.value) {
         if (typeof item !== "object" || item === null) continue;
         const record = item as Record<string, unknown>;
+        if (typeof record.sandbox_name === "string" && record.busy === true) {
+          check.busy.add(record.sandbox_name);
+        }
         const value = record.fingerprint_result;
         if (
           typeof record.sandbox_name === "string" &&
@@ -451,6 +517,9 @@ export interface ProjectServiceOptions {
   cache?: { ttlMs?: number; concurrency?: number; now?: () => number; timeoutMs?: number };
   /** Full status timeout, milliseconds (default 30 s). */
   fullTimeoutMs?: number;
+  /** Resolve timeouts, milliseconds (default 60 s, and 120 s for rescue). */
+  resolveTimeoutMs?: number;
+  rescueTimeoutMs?: number;
 }
 
 export type ServiceResult<T> =
@@ -458,40 +527,89 @@ export type ServiceResult<T> =
   /** `status` is the HTTP status; when absent the server derives it from the error kind. */
   | { ok: false; status?: number; error: OpenShellError | { kind: string; message: string } };
 
+/** `osa resolve --json`'s result object. */
+export interface ResolveResult {
+  sandbox: string;
+  action: string;
+  ok: boolean;
+  changed: string[];
+  message: string;
+}
+
+/**
+ * A resolve reply (design D1): HTTP 200 for exit 0 and 409 for exit 2 carry
+ * osa's object plus `exitCode` (409 also an `error`); any other outcome is an
+ * `error`, with osa's object when it printed one. `status` is absent when osa
+ * never ran to completion; the server derives it from the error kind.
+ */
+export interface ResolveReply {
+  status?: number;
+  body: Partial<ResolveResult> & {
+    exitCode?: number;
+    error?: OpenShellError | { kind: string; message: string; detail?: string };
+  };
+}
+
+function resolveResult(value: unknown): ResolveResult | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.ok !== "boolean" || !Array.isArray(record.changed)) return null;
+  return {
+    sandbox: typeof record.sandbox === "string" ? record.sandbox : "",
+    action: typeof record.action === "string" ? record.action : "",
+    ok: record.ok,
+    changed: record.changed.map((entry) => String(entry)),
+    message: typeof record.message === "string" ? record.message : "",
+  };
+}
+
 export class ProjectService {
   readonly stateRoot: string;
   readonly runner: OsaRunner;
   readonly cache: HostChangeCache;
   private readonly fullTimeoutMs: number;
+  private readonly resolveTimeoutMs: number;
+  private readonly rescueTimeoutMs: number;
+  /** Sandboxes with a resolve running (design D2). */
+  private readonly resolving = new Set<string>();
 
   constructor(options: ProjectServiceOptions = {}) {
     this.stateRoot = options.stateRoot ?? resolveStateRoot();
     this.fullTimeoutMs = options.fullTimeoutMs ?? FULL_TIMEOUT_MS;
+    this.resolveTimeoutMs = options.resolveTimeoutMs ?? RESOLVE_TIMEOUT_MS;
+    this.rescueTimeoutMs = options.rescueTimeoutMs ?? RESCUE_TIMEOUT_MS;
     this.runner = options.runner ?? new OsaRunner(options.runnerOptions);
     this.cache = new HostChangeCache(this.runner, options.cache);
   }
 
-  /** The project rows with cached host-change results; schedules stale checks. */
-  list(options: { refresh?: boolean } = {}): ProjectRow[] {
-    if (options.refresh) this.cache.clear();
-    const entries = listProjects(this.stateRoot);
+  /**
+   * The project rows with cached host-change results; schedules stale checks.
+   * With `path`, only the rows registered at that host path, and only that
+   * path is checked or, with `refresh`, dropped (design D4).
+   */
+  list(options: { refresh?: boolean; path?: string } = {}): ProjectRow[] {
+    const { path } = options;
+    if (options.refresh) {
+      if (path === undefined) this.cache.clear();
+      else this.cache.drop(path);
+    }
+    let entries = listProjects(this.stateRoot);
+    if (path !== undefined) entries = entries.filter((entry) => entry.supported && entry.host_path === path);
     this.cache.schedule(
       entries.filter((entry) => entry.supported && !entry.orphan).map((entry) => entry.host_path),
     );
     return entries.map((entry): ProjectRow => {
-      if (!entry.supported) {
-        return { ...entry, fingerprintResult: null, checkedAt: null, osaError: null };
-      }
-      if (entry.orphan) {
-        return { ...entry, fingerprintResult: "unknown", checkedAt: null, osaError: null };
-      }
+      const none = { fingerprintResult: null, checkedAt: null, osaError: null, busy: false };
+      if (!entry.supported) return { ...entry, ...none };
+      if (entry.orphan) return { ...entry, ...none, fingerprintResult: "unknown" };
       const check = this.cache.get(entry.host_path);
-      if (!check) return { ...entry, fingerprintResult: null, checkedAt: null, osaError: null };
+      if (!check) return { ...entry, ...none };
       return {
         ...entry,
         fingerprintResult: check.error ? null : (check.results.get(entry.sandbox_name) ?? "unknown"),
         checkedAt: check.at,
         osaError: check.error,
+        busy: check.busy.has(entry.sandbox_name),
       };
     });
   }
@@ -517,6 +635,55 @@ export class ProjectService {
       };
     }
     return { ok: true, value: match };
+  }
+
+  /**
+   * Runs `osa resolve SANDBOX ACTION --json` for a registered sandbox (design
+   * D1, D2): 400 for an unknown action, 404 for an unregistered sandbox, 409
+   * while another resolve for it runs. Drops the cached quick status for the
+   * entry's host path afterwards, whatever the outcome.
+   */
+  async resolve(sandbox: string, action: unknown): Promise<ResolveReply> {
+    if (!isResolveAction(action)) {
+      const message = `action must be one of ${RESOLVE_ACTIONS.join(", ")}`;
+      return { status: 400, body: { error: { kind: "invalid_request", message } } };
+    }
+    const entry = findProject(this.stateRoot, sandbox);
+    if (!entry) {
+      const message = `no registered project for sandbox ${sandbox}`;
+      return { status: 404, body: { error: { kind: "not_found", message } } };
+    }
+    if (this.resolving.has(sandbox)) {
+      const message = `a resolve for ${sandbox} is already running`;
+      return { status: 409, body: { error: { kind: "busy", message } } };
+    }
+    this.resolving.add(sandbox);
+    let output: Result<OsaOutput>;
+    try {
+      const timeoutMs = action === "rescue" ? this.rescueTimeoutMs : this.resolveTimeoutMs;
+      output = await this.runner.run(resolveArgv(sandbox, action), timeoutMs);
+    } finally {
+      this.resolving.delete(sandbox);
+      this.cache.drop(entry.host_path);
+    }
+    if (!output.ok) return { body: { error: output.error } };
+    const { exitCode, stdout, stderr, argv } = output.value;
+    const parsed = parseJson(stdout, argv);
+    const result = parsed.ok ? resolveResult(parsed.value) : null;
+    const detail = stderr.trim();
+    if (result && exitCode === 0) return { status: 200, body: { ...result, exitCode } };
+    if (result && exitCode === 2) {
+      const message = result.message || "osa refused; nothing changed";
+      return { status: 409, body: { ...result, exitCode, error: { kind: "refused", message, detail } } };
+    }
+    if (!result) {
+      const error = parsed.ok
+        ? { kind: "invalid_json", message: "osa resolve did not print a result object", detail }
+        : { ...parsed.error, detail: detail || parsed.error.detail };
+      return { status: 502, body: { exitCode, error } };
+    }
+    const message = result.message || `osa resolve exited with code ${exitCode}`;
+    return { status: 502, body: { ...result, exitCode, error: { kind: "exit", message, detail } } };
   }
 
   /** The retained patch for a sandbox, confined to its session directory (design D5). */

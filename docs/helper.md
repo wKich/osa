@@ -498,6 +498,38 @@ processes. The stop has to go through the wrapper because each
 the run's processes but cannot read their environment to find them
 (measured on OpenShell 0.1.5). oskhs uses this for cancellation.
 
+#### Caller-owned workspace (`MAKI_OSS_WORKSPACE=caller`)
+
+A program that owns the sandbox workspace itself — oskhs puts its own git
+worktrees under `/sandbox/tasks/<id>` — sets `MAKI_OSS_WORKSPACE=caller` for
+`up` and `run`. The default, `managed`, is everything above; any other value
+is a usage error before any gateway call. The setting has no flag and no
+config key: it is an interface for programs, not a user preference.
+
+In caller mode the helper keeps no host-side session state for the sandbox:
+
+- no workspace sync — no baseline, freshness check, refresh, patch
+  collection, or parking; a `parked` or `retained` marker left for the
+  sandbox neither blocks the run nor changes, and `--no-sync` has no
+  further effect;
+- no project registry entry and no registry check, so the caller's current
+  directory never binds the sandbox name;
+- no upload when the sandbox is created;
+- no policy advisor (nobody would review the agent's network proposals).
+
+The sandbox name must be given literally (`MAKI_OSS_SANDBOX_NAME` or
+`--name`, no `{project}` pattern) and, for `run`, the workdir too
+(`MAKI_OSS_WORKDIR` or `--workdir`); otherwise the command is a usage error
+before any gateway call. Providers, the model, the timeout wrapper with its
+run tag and stop file, the session lock, the idle stop (its own setting —
+oskhs passes `MAKI_OSS_IDLE_STOP=0`), and stdout/exit-code behavior are the
+same as in managed mode.
+
+```sh
+MAKI_OSS_WORKSPACE=caller MAKI_OSS_IDLE_STOP=0 MAKI_OSS_SANDBOX_NAME=repo-app \
+  MAKI_OSS_WORKDIR=/sandbox/tasks/t1 maki-oss run --timeout 600 "answer the task"
+```
+
 ### upload / download
 
 `upload [--discard] [LOCAL_PATH] [SANDBOX_DEST]` copies local files into the

@@ -1,6 +1,6 @@
 // Project, sandbox, and task naming (design decision 3).
 import { basename, resolve } from "node:path";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 export function projectName(repoPath: string): string {
   const raw = basename(resolve(repoPath)).toLowerCase().replace(/[^a-z0-9-]/g, "-");
@@ -9,7 +9,19 @@ export function projectName(repoPath: string): string {
   return name;
 }
 
-export const sandboxName = (project: string) => `repo-${project}`;
+// OpenShell allows 19 characters; `repo-` leaves 14 for the project. A longer
+// project keeps 9 characters plus a hash of the whole name, as the helper
+// core fits its own names, so two long titles sharing a prefix still differ.
+const SANDBOX_NAME_MAX = 19;
+const SANDBOX_PREFIX = "repo-";
+
+export function sandboxName(project: string): string {
+  const budget = SANDBOX_NAME_MAX - SANDBOX_PREFIX.length;
+  if (project.length <= budget) return `${SANDBOX_PREFIX}${project}`;
+  const hash = createHash("sha256").update(project).digest("hex").slice(0, 4);
+  const keep = project.slice(0, budget - 5).replace(/-+$/, "");
+  return `${SANDBOX_PREFIX}${keep ? `${keep}-` : ""}${hash}`;
+}
 
 /** CLI task ids; B1.3b replaces them with kiss task ids. */
 export function newTaskId(now = Date.now()): string {

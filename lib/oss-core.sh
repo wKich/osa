@@ -250,6 +250,33 @@ resolved_idle_stop() {
     printf '%s' "$((ris_number * ris_scale))"
 }
 
+# Workspace mode, a caller interface with no flag or config key: `managed`
+# (default) keeps the session sync, registry, and policy advisor; `caller`
+# means a program such as oskhs owns the sandbox workspace, so `up` and `run`
+# keep no host-side session state for it. Sets workspace_mode; a bad value is
+# a usage error before any gateway call.
+resolve_workspace_mode() {
+    workspace_mode=$(env_setting WORKSPACE)
+    case ${workspace_mode:=managed} in
+        managed|caller) ;;
+        *) die_usage "invalid ${OSS_ENV_PREFIX}_WORKSPACE value <$workspace_mode>: use managed or caller" ;;
+    esac
+}
+
+# Caller mode never derives a name or workdir from the current directory:
+# both must be given literally. NEED_WORKDIR=1 for commands that exec there.
+require_caller_target() { # NEED_WORKDIR
+    rct_name=$(resolve_setting "$opt_name" "$(env_setting SANDBOX_NAME)" "" "")
+    case $rct_name in
+        ''|*'{'*)
+            die_usage "${OSS_ENV_PREFIX}_WORKSPACE=caller needs a literal sandbox name: set ${OSS_ENV_PREFIX}_SANDBOX_NAME or pass --name"
+            ;;
+    esac
+    if [ "$1" -eq 1 ] && [ -z "$(resolve_setting "$opt_workdir" "$(env_setting WORKDIR)" "" "")" ]; then
+        die_usage "${OSS_ENV_PREFIX}_WORKSPACE=caller needs the workspace path: set ${OSS_ENV_PREFIX}_WORKDIR or pass --workdir"
+    fi
+}
+
 # Precedence: flag > environment > config > the name registered for this
 # project folder > the default pattern. {hash} expands first; a pattern that
 # carries it needs no second hash when {project} is shortened.
@@ -784,8 +811,14 @@ cmd_up() {
         die_dep "policy file not found: $policy (pass --policy or fix the config)"
     fi
     check_env_hygiene
+    resolve_workspace_mode
+    if [ "$workspace_mode" = caller ]; then
+        require_caller_target 0
+    fi
     name=$(resolved_name)
-    registry_guard "$name"
+    if [ "$workspace_mode" = managed ]; then
+        registry_guard "$name"
+    fi
     phase=$(sandbox_phase "$name")
     if [ -n "$phase" ]; then
         case $phase in
@@ -800,6 +833,10 @@ cmd_up() {
     else
         say "Creating sandbox '$name' from $image..."
         run_sandbox_create "$name"
+    fi
+    if [ "$workspace_mode" = caller ]; then
+        say "Sandbox '$name' is ready."
+        return 0
     fi
     registry_update "$name" "$(sandbox_id "$name")" 0 0
     say "Sandbox '$name' is ready. Next: $PROGRAM (the session refreshes the workspace)."
@@ -2236,6 +2273,10 @@ announce_sandbox_reuse() { # NAME
 ensure_project_sandbox() {
     ensure_provider_list
     name=$(resolved_name)
+    if [ "${workspace_mode:-managed}" = caller ]; then
+        ensure_caller_sandbox
+        return 0
+    fi
     registry_guard "$name"
     phase=$(sandbox_phase "$name")
     if [ -n "$phase" ]; then
@@ -2292,6 +2333,44 @@ ensure_project_sandbox() {
     if [ "${sync_blocked:-0}" -eq 1 ]; then
         exit "$EX_USAGE"
     fi
+    ensure_attach_missing "$name"
+}
+
+# The caller-mode ensure: start or create the sandbox and attach providers,
+# with no registry, workspace sync, or policy advisor. Creating never uploads;
+# the managed path uploads only through the session refresh.
+ensure_caller_sandbox() {
+    phase=$(sandbox_phase "$name")
+    case $phase in
+        Ready)
+            note "Reusing sandbox '$name'."
+            ;;
+        Stopped|Completed|Error)
+            note "Starting sandbox '$name' (phase: $phase)..."
+            run_gateway sandbox start "$name"
+            wait_for_sandbox_ready "$name"
+            ;;
+        '')
+            ensure_policy=$(resolved_policy)
+            if [ ! -f "$ensure_policy" ]; then
+                die_dep "policy file not found: $ensure_policy (pass --policy or fix the config)"
+            fi
+            note "Creating sandbox '$name'..."
+            create_rc=0
+            create_allow_fail=1
+            run_sandbox_create "$name" || create_rc=$?
+            create_allow_fail=0
+            if [ "$create_rc" -ne 0 ] && [ -z "$(sandbox_phase "$name")" ]; then
+                err "openshell sandbox create failed (exit status $create_rc)"
+                exit "$EX_GATEWAY"
+            fi
+            wait_for_sandbox_ready "$name"
+            ;;
+        *)
+            note "Waiting for sandbox '$name' (phase: $phase)..."
+            wait_for_sandbox_ready "$name"
+            ;;
+    esac
     ensure_attach_missing "$name"
 }
 
@@ -2515,6 +2594,10 @@ cmd_run() {
         *[!A-Za-z0-9._-]*) die_usage "${OSS_ENV_PREFIX}_RUN_TAG may only contain letters, digits, '.', '_', and '-'" ;;
     esac
     session_idle_stop=$(resolved_idle_stop)
+    resolve_workspace_mode
+    if [ "$workspace_mode" = caller ]; then
+        require_caller_target 1
+    fi
     agent_check_session_flags headless
     require_openshell
     session_lock_name=$(resolved_name)
@@ -2527,7 +2610,10 @@ cmd_run() {
     # shellcheck disable=SC2034  # read by the front-end's argv hooks
     model=$(resolved_model)
     prompt=$*
-    arm_sync
+    # The caller owns the workspace: nothing to collect, nothing to park.
+    if [ "$workspace_mode" = managed ]; then
+        arm_sync
+    fi
     session_interrupted=0
     trap 'session_interrupted=1' INT TERM
     run_rc=0

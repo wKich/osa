@@ -1,0 +1,40 @@
+# Credential-store slug to OpenShell profile mapping for opencode-oss provider
+# setup.
+#
+# Columns, tab-separated (the same format as examples/providers/catalog.tsv,
+# which maki-oss reads):
+#   store       maki | opencode (the credential store the slug comes from)
+#   slug        provider id as stored by that agent
+#   profile-id  file in this directory (<profile-id>.yaml)
+#   note        short note
+#
+# The wizard looks up "<store>:<slug>" here to resolve a stored credential to
+# its curated opencode-* profile. Slugs not listed (google, mistral, xai, zai:
+# no OpenCode profile yet) fall through to custom profile generation with the
+# opencode- prefix. Stores: Maki (~/.local/state/maki/auth), OpenCode
+# (~/.local/share/opencode/auth.json). The example model for each profile is
+# in catalog.tsv.
+maki	anthropic	opencode-anthropic	Anthropic API key
+maki	openrouter	opencode-openrouter	OpenRouter API key
+maki	deepseek	opencode-deepseek	DeepSeek API key
+maki	synthetic	opencode-synthetic	Synthetic API key
+maki	openai	opencode-openai	OpenAI platform key (ChatGPT OAuth is not supported)
+maki	zhipuai-coding-plan	opencode-zai-coding	Z.AI coding-plan key
+maki	opencode	opencode-opencode	OpenCode Zen API key
+maki	opencode-go	opencode-opencode-go	OpenCode Go API key
+maki	xiaomi-token-plan-sgp	opencode-xiaomi-token-plan-sgp	Xiaomi token plan key (Singapore region)
+maki	minimax-coding-plan	opencode-minimax-coding-plan	MiniMax coding-plan key (Anthropic-protocol endpoint)
+maki	kimi-for-coding	opencode-kimi-for-coding	Kimi coding-plan key (api.kimi.ai)
+maki	nano-gpt	opencode-nano-gpt	NanoGPT API key
+opencode	anthropic	opencode-anthropic	Anthropic API key
+opencode	openrouter	opencode-openrouter	OpenRouter API key
+opencode	deepseek	opencode-deepseek	DeepSeek API key
+opencode	synthetic	opencode-synthetic	Synthetic API key
+opencode	openai	opencode-openai	OpenAI platform key (ChatGPT OAuth is not supported)
+opencode	zai-coding-plan	opencode-zai-coding	Z.AI coding-plan key
+opencode	opencode	opencode-opencode	OpenCode Zen API key
+opencode	opencode-go	opencode-opencode-go	OpenCode Go API key
+opencode	xiaomi-token-plan-sgp	opencode-xiaomi-token-plan-sgp	Xiaomi token plan key (Singapore region)
+opencode	minimax-coding-plan	opencode-minimax-coding-plan	MiniMax coding-plan key (Anthropic-protocol endpoint)
+opencode	kimi-for-coding	opencode-kimi-for-coding	Kimi coding-plan key (api.kimi.ai)
+opencode	nano-gpt	opencode-nano-gpt	NanoGPT API key

@@ -11,6 +11,8 @@ All OpenCode sandbox deliverables SHALL live under `opencode-oss/`, except:
 - `docs/opencode-oss.md`
 - the `Makefile` lint and test entries for the helper
 - one pointer from the root `README.md`
+- edits to `bin/maki-oss` that move shared logic into the core without
+  changing its observable behavior
 
 OpenCode work MUST NOT modify `bridge/`, `oskhs/`, `dashboard/`,
 `examples/`, or the observable behavior of `bin/maki-oss`.
@@ -19,7 +21,8 @@ observed results for the pinned version.
 
 #### Scenario: No cross-subproject edits
 - **WHEN** `git diff --stat` for an OpenCode change is inspected
-- **THEN** every changed path is under `opencode-oss/`, `lib/`, `tests/`, or that change's `openspec/changes/` directory, or is `bin/opencode-oss`, `docs/opencode-oss.md`, `Makefile`, or the root `README.md`
+- **THEN** every changed path is under `opencode-oss/`, `lib/`, `tests/`, or that change's `openspec/changes/` directory, or is `bin/opencode-oss`, `docs/opencode-oss.md`, `Makefile`, the root `README.md`, or `bin/maki-oss`
+- **AND** a `bin/maki-oss` edit only moves shared logic into `lib/`, so every existing `maki-oss` test passes without edits
 
 #### Scenario: maki-oss behavior unchanged
 - **WHEN** an OpenCode change is applied and `make test` runs

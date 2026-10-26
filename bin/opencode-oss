@@ -1,0 +1,381 @@
+#!/bin/sh
+# shellcheck shell=sh source-path=SCRIPTDIR
+#
+# opencode-oss: safe workflow helper for running OpenCode inside OpenShell
+# sandboxes.
+#
+# The OpenCode front-end of lib/oss-core.sh, the core it shares with
+# maki-oss. The OpenShell sandbox is the security boundary. This helper:
+#   - never bind-mounts host directories (project files move with
+#     `openshell sandbox upload` / `download`);
+#   - never passes credential-like values through `--env` or `--env-from`
+#     (provider profiles carry credentials instead);
+#   - starts every OpenCode process with --standalone, so no background
+#     service runs in the sandbox;
+#   - asks for confirmation before deleting a sandbox.
+#
+# POSIX sh. See docs/opencode-oss.md for the differences from maki-oss and
+# docs/helper.md for the shared behavior.
+
+set -eu
+
+PROGRAM=opencode-oss
+
+agent_usage() {
+    cat <<'EOF'
+opencode-oss: run OpenCode in an OpenShell sandbox.
+
+Usage:
+  opencode-oss <command> [options] [arguments]
+
+Commands:
+  doctor                        Check prerequisites (CLI, gateway, engine,
+                                image, policy, providers, model)
+  image build                   Build the OpenCode sandbox image
+  init, up                      Create or start this project's sandbox
+  opencode                      Ensure the sandbox and attach the OpenCode
+                                TUI (bare `opencode-oss` does the same)
+  run "<prompt>"                Ensure the sandbox, run OpenCode headless, and
+                                print its JSON events
+  upload [PATH] [DEST]          Copy local files into the sandbox
+  download [SANDBOX_PATH] DEST  Copy files from the sandbox to the host
+  status                        Show this project's sandbox
+  list                          List sandboxes on the gateway
+  logs                          Show sandbox logs
+  start, stop                   Start or stop the sandbox
+  rm [--yes]                    Delete the sandbox (confirmation required)
+  policy show|edit|apply        Work with the sandbox policy
+  policy review                 List pending network-rule proposals
+  policy approve CHUNK_ID       Approve one proposal (confirmation required)
+  policy reject CHUNK_ID        Reject one proposal (--reason sent to agent)
+  provider add|attach|list      Work with provider credentials
+  provider setup                Set up a provider from a stored or generic key
+  mcp status                    Report MCP server readiness in the sandbox
+  help                          Show this help
+
+Common options:
+  --name NAME      Sandbox name (default: opencode-<project directory>), or
+                   the provider name for provider setup
+  --image REF      Sandbox image (default: opencode-agent:local)
+  --policy FILE    Sandbox policy YAML
+  --provider NAME  Attach a provider at creation (repeatable)
+  --cpu QTY        CPU limit (for example: 2, 500m)
+  --memory QTY     Memory limit (for example: 4Gi)
+  --engine NAME    Container engine: docker or podman
+  --gateway NAME   OpenShell gateway to use
+  --workdir PATH   In-sandbox project directory (default: /sandbox/project)
+  --env KEY=VALUE  Non-secret environment variable at creation (repeatable);
+                   for provider setup, the host variable name to read
+  --env-from SPEC  Sandbox environment variable read from the caller's
+                   environment: KEY or KEY=ENVVAR (repeatable); the
+                   credential check covers the sandbox name and the source name
+  --allow-env KEY  Allow a credential-like key passed with --env or --env-from
+                   (repeatable)
+  --model SPEC     Model for sessions and run (provider/model); the TUI gets
+                   it as a config overlay, run as --model
+  --continue (-c)  Session commands: continue the most recent session
+  --resume ID (-r ID)
+                   Session commands: continue session ID (OpenCode --session)
+  --session-id ID  Session commands: use session ID, creating it if missing
+                   (OpenCode --session; IDs start with "ses")
+  --timeout SECS   run: end OpenCode inside the sandbox after SECS seconds
+                   (exit 124)
+  --no-sync        Session commands: skip collecting changes on exit
+                   (default: collect a patch and apply it only when the
+                   sandbox baseline matches the host)
+  --idle-stop DUR  Session commands: stop the sandbox DUR after the last
+                   session closes and no OpenCode runs in it (seconds, or
+                   with an s, m, or h suffix; default 1h; 0 disables)
+  --yes            Skip confirmation prompts (rm, policy approve, policy set,
+                   provider setup)
+  --from STORE     provider setup credential store: maki or opencode
+  --file PATH      provider setup JSON credential file
+  --field PATH     Field path to read from --file (default: .api_key)
+  --profile FILE   provider setup profile file (default: the curated catalog)
+  --attach         provider setup: attach the provider to the project sandbox
+  --no-attach      provider setup: never attach, even interactively
+  --tail, --since, --source, --level, -n  Options for logs
+  --full, --base   Options for policy show
+  --reason TEXT    Reason for policy reject (sent to the agent)
+  --type, --credential, --config, --from-existing, --runtime-credentials,
+  --global-profile  Options for provider add (provider setup uses
+                   --credential as the store slug)
+  --opencode-version V
+                   Build argument for image build (default: the version the
+                   Dockerfile pins)
+
+Exit codes: 0 success, 1 usage error, 2 dependency error, 3 gateway error.
+
+Configuration is resolved from flags, then OPENCODE_OSS_<KEY> environment
+variables, then the config file below, then built-in defaults:
+
+  ${XDG_CONFIG_HOME:-$HOME/.config}/opencode-oss/config.toml
+
+See opencode-oss/README.md and docs/opencode-oss.md.
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Locate this script's repository root
+# ---------------------------------------------------------------------------
+
+script=$0
+case $script in
+    */*) ;;
+    *) script=$(command -v -- "$script" 2>/dev/null || printf '%s' "$script") ;;
+esac
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$script")" && pwd -P)
+repo_root=$(CDPATH='' cd -- "$script_dir/.." && pwd -P)
+
+# ---------------------------------------------------------------------------
+# Identity and defaults read by the core
+#
+# Set before lib/oss-core.sh is sourced: the core splices them into its
+# sandbox-side scripts at source time.
+# ---------------------------------------------------------------------------
+
+OSS_ENV_PREFIX=OPENCODE_OSS              # OPENCODE_OSS_<KEY> environment settings
+OSS_CONFIG_NAME=opencode-oss             # XDG config and state directory name
+OSS_STATE_NAME=.opencode-oss             # in-sandbox sync state directory
+OSS_TMP_PREFIX=opencode-oss              # /tmp/opencode-oss-stop, temp file names
+OSS_CONFIG_EXAMPLE=docs/opencode-oss.md  # named in a generated config header
+OSS_PROFILES_DIR=$repo_root/opencode-oss/providers
+OSS_CATALOG_FILE=$OSS_PROFILES_DIR/stores.tsv
+OSS_CUSTOM_PROFILE_PREFIX=opencode-      # default id for a custom profile
+OSS_AGENT_NAME=OpenCode                  # named in generated profiles
+OSS_AGENT_PROCESS=opencode               # in-sandbox process the idle stop waits on
+OSS_HOST_MCP_CONFIG=${HOME:-/tmp}/.config/opencode/opencode.json
+OSS_SANDBOX_MCP_CONFIG=/sandbox/.config/opencode/opencode.json
+OSS_MCP_FIX_IMAGE='an environment image built FROM opencode-agent:local'
+OSS_MCP_FIX_DOC=docs/opencode-oss.md
+
+DEFAULT_IMAGE=opencode-agent:local
+DEFAULT_POLICY=$repo_root/opencode-oss/policies/minimal.yaml
+DEFAULT_NAME='opencode-{project}'
+
+# profile-id -> example model, read for the post-setup hint.
+OC_MODEL_CATALOG=$OSS_PROFILES_DIR/catalog.tsv
+
+cmd_opencode() {
+    [ "$#" -eq 0 ] || die_usage "opencode takes no arguments"
+    # shellcheck disable=SC2119  # the session builds its own argv
+    cmd_session
+}
+
+# ---------------------------------------------------------------------------
+# Agent hooks called by the core
+# ---------------------------------------------------------------------------
+
+# OpenCode has one --session flag for both resume and a chosen id, so the
+# shared options cannot be combined. `--continue --resume` is refused by the
+# core for every front-end.
+agent_check_session_flags() { # interactive|headless
+    if [ "$opt_continue" -eq 1 ] && [ -n "$opt_session_id" ]; then
+        die_usage "--continue cannot be combined with --session-id"
+    fi
+    if [ -n "$opt_resume" ] && [ -n "$opt_session_id" ]; then
+        die_usage "--resume cannot be combined with --session-id"
+    fi
+}
+
+# --continue passes through; --resume ID and --session-id ID both become
+# OpenCode's --session ID, which resumes ID or creates it when missing.
+oc_session_flags() {
+    if [ "$opt_continue" -eq 1 ]; then
+        argv_add --continue
+    fi
+    if [ -n "$opt_resume" ]; then
+        argv_add --session "$opt_resume"
+    fi
+    if [ -n "$opt_session_id" ]; then
+        argv_add --session "$opt_session_id"
+    fi
+}
+
+# The TUI has no model flag: the model reaches it through agent_exec_env.
+# No --auto: interactive approval is the user's choice, set in an environment
+# image's permissions.
+agent_interactive_argv() {
+    argv_add opencode --standalone
+    oc_session_flags
+}
+
+agent_headless_argv() { # PROMPT
+    argv_add opencode run --standalone --auto --format json
+    if [ -n "$model" ]; then
+        argv_add --model "$model"
+    fi
+    oc_session_flags
+    argv_add "$1"
+}
+
+# `opencode run` reads stdin when it is not a terminal, and `sandbox exec`
+# leaves it open, so a headless run would wait forever without this.
+agent_exec_stdin() {
+    printf 'null'
+}
+
+# Prints S with backslashes and double quotes escaped for a JSON string.
+oc_json_escape() { # S
+    printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+# Non-secret per-exec values. `sandbox exec` does not pass image ENV through,
+# so the catalog-fetch switch travels on every exec. The model overlay is an
+# extra config source that OpenCode merges over the baked global config, so
+# the image's deny rules stay in force; nothing is written to the project or
+# to /sandbox/.config.
+agent_exec_env() { # interactive|headless
+    env_add OPENCODE_DISABLE_MODELS_FETCH=1
+    if [ "$1" = interactive ] && [ -n "$model" ]; then
+        env_add "OPENCODE_CONFIG_CONTENT={\"model\":\"$(oc_json_escape "$model")\"}"
+    fi
+}
+
+agent_dispatch() { # CMD ARGS...
+    ag_cmd=$1
+    shift
+    case $ag_cmd in
+        image)
+            if [ "$#" -eq 0 ]; then
+                die_usage "image requires a subcommand: build"
+            fi
+            sub=$1
+            shift
+            case $sub in
+                build) cmd_image_build "$@" ;;
+                *) die_usage "unknown image subcommand: $sub" ;;
+            esac
+            ;;
+        opencode)
+            cmd_opencode "$@"
+            ;;
+        mcp)
+            if [ "$#" -eq 0 ]; then
+                die_usage "mcp requires a subcommand: status"
+            fi
+            sub=$1
+            shift
+            case $sub in
+                status)
+                    if [ "$have_jq" -eq 0 ]; then
+                        die_dep "mcp status needs jq to read opencode.json; install jq"
+                    fi
+                    cmd_mcp_status "$@"
+                    ;;
+                *) die_usage "unknown mcp subcommand: $sub" ;;
+            esac
+            ;;
+        *)
+            die_usage "unknown command: $ag_cmd"
+            ;;
+    esac
+}
+
+opt_opencode_version=
+
+# Consumes --opencode-version VALUE; returns 1 for any other option.
+agent_parse_option() { # OPT [ARGS...]
+    agent_opt_values=0
+    case $1 in
+        --opencode-version)
+            [ "$#" -gt 1 ] || die_usage "option --opencode-version requires a value"
+            opt_opencode_version=$2
+            agent_opt_values=1
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+agent_doctor_extra() {
+    # The TUI falls back to OpenCode's own default model, which is usually a
+    # free tier the sandbox policy denies. Informational: it never fails.
+    doctor_model=$(resolved_model)
+    if [ -n "$doctor_model" ]; then
+        say "ok    model: $doctor_model"
+    else
+        say "warn  model: none set; OpenCode's default may be a model no attached profile covers (set model = \"provider/model\" in $config_file)"
+    fi
+
+    if [ "$have_jq" -eq 0 ]; then
+        say ""
+        say "MCP readiness (informational):"
+        say "  skipped: jq not found"
+        return 0
+    fi
+    doctor_mcp_section
+}
+
+agent_setup_hint() { # PROFILE
+    ag_model=$(awk -F'\t' -v id="$1" '$1 == id { print $4; exit }' "$OC_MODEL_CATALOG" 2>/dev/null) || ag_model=
+    [ -n "$ag_model" ] || return 0
+    say ""
+    say "example model: $ag_model"
+    say "set it as the default: model = \"$ag_model\" in $config_file"
+}
+
+# Prints `name<TAB>transport<TAB>enabled<TAB>host<TAB>argv0` for each server
+# under the `mcp` key of an opencode.json: `remote` servers are http with the
+# url's hostname, `local` servers are stdio with command[0]; enabled defaults
+# to true. A missing or empty file has no servers; a file jq cannot parse
+# (JSONC comments included) fails, and the core reports it as unreadable.
+agent_mcp_servers() { # FILE
+    [ -s "$1" ] || return 0
+    jq -r '
+        (.mcp // {}) | to_entries[]
+        | .value as $v
+        | [ .key,
+            (if ($v.type == "remote") or ($v.url != null) then "http"
+             elif $v.command != null then "stdio"
+             else "unknown" end),
+            (if $v.enabled == false then "false" else "true" end),
+            (($v.url // "") | sub("^[a-zA-Z][a-zA-Z0-9+.-]*://"; "") | sub("[/:?].*$"; "")),
+            (if ($v.command | type) == "array" then ($v.command[0] // "")
+             elif ($v.command | type) == "string" then $v.command
+             else "" end) ]
+        | @tsv
+    ' "$1" 2>/dev/null
+}
+
+# ---------------------------------------------------------------------------
+# image build
+# ---------------------------------------------------------------------------
+
+cmd_image_build() {
+    [ "$#" -eq 0 ] || die_usage "image build takes no arguments"
+    context=$repo_root/opencode-oss/image
+    if [ ! -d "$context" ]; then
+        die_dep "missing $context; keep the repository layout or build your image elsewhere"
+    fi
+    engine=$(resolved_engine)
+    if ! command -v "$engine" >/dev/null 2>&1; then
+        die_dep "container engine '$engine' not found on PATH"
+    fi
+    # The base build never uses the configured `image`: that may name a derived
+    # environment, and tagging the base with it would overwrite the environment.
+    image=$(resolve_setting "$opt_image" "$(env_setting IMAGE)" "" "$DEFAULT_IMAGE")
+    set -- build
+    if [ -n "$opt_opencode_version" ]; then
+        set -- "$@" --build-arg "OPENCODE_VERSION=$opt_opencode_version"
+    fi
+    set -- "$@" -t "$image" "$context"
+    say "Building image '$image' with $engine..."
+    image_build_rc=0
+    "$engine" "$@" || image_build_rc=$?
+    if [ "$image_build_rc" -ne 0 ]; then
+        if [ -n "$opt_opencode_version" ]; then
+            err "the Dockerfile verifies a pinned sha512 per architecture; a new"
+            err "  OPENCODE_VERSION needs matching OPENCODE_SHA512_ARM64/AMD64 values"
+            err "  (see 'Build the image' in opencode-oss/README.md)"
+        fi
+        die_dep "image build failed (exit status $image_build_rc)"
+    fi
+    say "Built image '$image'."
+}
+
+# shellcheck source=../lib/oss-core.sh
+. "$repo_root/lib/oss-core.sh"
+
+oss_main "$@"

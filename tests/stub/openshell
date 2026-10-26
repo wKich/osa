@@ -41,7 +41,11 @@
 #                         `sandbox upload` copies into it and `download`
 #                         copies back out of it
 #   STUB_MAKI_SCRIPT      shell snippet run in the workdir when the exec
-#                         command is `maki` (simulates agent changes)
+#                         command is `maki` or `opencode` (simulates agent
+#                         changes)
+#   STUB_EXEC_STDIN_LOG   file receiving the stdin of agent `sandbox exec`
+#                         calls (internal sync scripts excluded), so tests
+#                         can assert a closed stdin
 #   STUB_EXEC_SCRIPT_FAIL substring; an internal `sh -c` script containing it
 #                         fails as a sandbox error (simulates collection or
 #                         baseline failures)
@@ -281,10 +285,15 @@ case $command_name in
                     esac
                     shift
                 done
-                # Internal sandbox scripts run locally so the stub suite
-                # exercises the real git baseline and patch logic. The
-                # timeout wrapper (argv0 maki-oss-run) is not one of them.
-                if [ "${1:-}" = sh ] && [ "${2:-}" = -c ] && [ "${4:-}" = maki-oss-git ]; then
+                # Internal sandbox scripts (argv0 <program>-git) run locally
+                # so the stub suite exercises the real git baseline and patch
+                # logic. The timeout wrapper (argv0 <program>-run) is not one
+                # of them.
+                stub_internal=0
+                case ${4:-} in
+                    *-oss-git) stub_internal=1 ;;
+                esac
+                if [ "${1:-}" = sh ] && [ "${2:-}" = -c ] && [ "$stub_internal" -eq 1 ]; then
                     stub_script=$3
                     shift 3
                     if [ -n "${STUB_EXEC_SCRIPT_FAIL:-}" ]; then
@@ -301,9 +310,16 @@ case $command_name in
                         sh -c "$stub_script" "$@"
                     exit $?
                 fi
-                if [ "${1:-}" = maki ] && [ -n "${STUB_MAKI_SCRIPT:-}" ] && [ -n "$stub_workdir" ]; then
-                    ( cd "$stub_workdir" && sh -c "$STUB_MAKI_SCRIPT" )
+                if [ -n "${STUB_EXEC_STDIN_LOG:-}" ]; then
+                    cat >"$STUB_EXEC_STDIN_LOG"
                 fi
+                case ${1:-} in
+                    maki|opencode)
+                        if [ -n "${STUB_MAKI_SCRIPT:-}" ] && [ -n "$stub_workdir" ]; then
+                            ( cd "$stub_workdir" && sh -c "$STUB_MAKI_SCRIPT" )
+                        fi
+                        ;;
+                esac
                 printf '%s\n' "${STUB_EXEC_STDOUT:-stub-exec-output}"
                 exit "${STUB_EXEC_EXIT:-0}"
                 ;;
@@ -344,6 +360,7 @@ case $command_name in
                             done
                         fi
                     else
+                        mkdir -p "$(dirname -- "$stub_upload_dest")"
                         cp -p "$stub_upload_src" "$stub_upload_dest"
                     fi
                 fi

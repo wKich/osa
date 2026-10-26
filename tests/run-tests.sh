@@ -1,6 +1,7 @@
 #!/bin/sh
-# Stub-backed test suite for bin/maki-oss, the fish plugin, and the safety
-# rules in specs/helper-cli and specs/fish-integration.
+# Stub-backed test suite for bin/maki-oss, bin/opencode-oss, the fish plugin,
+# and the safety rules in specs/helper-cli, specs/opencode-oss-helper, and
+# specs/fish-integration.
 #
 # Runs with only a POSIX shell and the stubs under tests/stub: no Docker, no
 # gateway, no network. Run it with `make test` or directly:
@@ -1191,7 +1192,7 @@ test_image_build_ignores_configured_image() {
 }
 
 test_asset_environment_split() {
-    begin "assets: base has no MCP environment; reference store carries it"
+    begin "assets: base is zero-MCP with YOLO; reference store carries the environment"
     new_case assets-environment-split
     if grep -Eq 'BUN_VERSION|bun add|synthetic-search-mcp' \
         "$ROOT/examples/maki-image/Dockerfile"; then
@@ -1200,9 +1201,8 @@ test_asset_environment_split() {
     if grep -Eq '^\[mcp\.' "$ROOT/examples/maki-image/config/mcp.toml"; then
         bad "base mcp.toml declares an MCP server"
     fi
-    if grep -q 'always_yolo' "$ROOT/examples/maki-image/config/init.lua"; then
-        bad "base init.lua still sets a personal preference"
-    fi
+    grep -q 'always_yolo = true' "$ROOT/examples/maki-image/config/init.lua" \
+        || bad "base init.lua does not start sessions in YOLO mode"
     grep -q 'BUN_VERSION' "$ROOT/examples/environments/reference/Dockerfile" \
         || bad "reference Dockerfile does not pin Bun"
     grep -q 'synthetic-search-mcp' "$ROOT/examples/environments/reference/Dockerfile" \
@@ -1212,7 +1212,7 @@ test_asset_environment_split() {
     grep -q '^\[mcp.synthetic\]' "$ROOT/examples/environments/reference/config/mcp.toml" \
         || bad "reference mcp.toml does not declare synthetic"
     grep -q 'always_yolo = true' "$ROOT/examples/environments/reference/config/init.lua" \
-        || bad "reference init.lua does not carry the relocated preference"
+        || bad "reference init.lua does not keep the base YOLO and trust settings"
     grep -q 'maki models --refresh' "$ROOT/examples/maki-image/Dockerfile" \
         || bad "base Dockerfile does not seed Maki's models.dev catalog"
 }
@@ -3786,6 +3786,655 @@ test_run_stdout_is_maki_only() {
 
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# opencode-oss: the OpenCode front-end over the same core and stubs
+# (specs/opencode-oss-helper). The runner reuses run_maki_with_input with the
+# binary swapped and the OPENCODE_OSS_* settings exported; the MAKI_OSS_*
+# values that runner always passes must have no effect on opencode-oss.
+# ---------------------------------------------------------------------------
+
+OC=$ROOT/bin/opencode-oss
+
+oc_case() { # NAME
+    new_case "$1"
+    ENV_OC_MODEL=
+    ENV_OC_IMAGE=
+    EXEC_STDIN_LOG=
+    ENGINE_EXIT=
+    OC_SEED_FILES=
+}
+
+run_oc_with_input() { # STDIN_FILE ARGS...
+    oc_rc=0
+    (
+        MAKI=$OC
+        OPENCODE_OSS_SANDBOX_NAME=${ENV_NAME:-}
+        OPENCODE_OSS_TIMEOUT=${ENV_TIMEOUT:-}
+        OPENCODE_OSS_IDLE_STOP=${ENV_IDLE_STOP-0}
+        OPENCODE_OSS_RUN_TAG=${ENV_RUN_TAG:-}
+        OPENCODE_OSS_WORKDIR=$CASE/sandbox/project
+        OPENCODE_OSS_IMAGE=${ENV_OC_IMAGE:-}
+        OPENCODE_OSS_MODEL=${ENV_OC_MODEL:-}
+        OPENCODE_OSS_INTERACTIVE=${INTERACTIVE:-}
+        STUB_EXEC_STDIN_LOG=${EXEC_STDIN_LOG:-}
+        STUB_ENGINE_EXIT=${ENGINE_EXIT:-0}
+        export OPENCODE_OSS_SANDBOX_NAME OPENCODE_OSS_TIMEOUT OPENCODE_OSS_IDLE_STOP \
+            OPENCODE_OSS_RUN_TAG OPENCODE_OSS_WORKDIR OPENCODE_OSS_IMAGE \
+            OPENCODE_OSS_MODEL OPENCODE_OSS_INTERACTIVE STUB_EXEC_STDIN_LOG \
+            STUB_ENGINE_EXIT
+        run_maki_with_input "$@"
+        exit "$RC"
+    ) || oc_rc=$?
+    RC=$oc_rc
+}
+
+run_oc() {
+    run_oc_with_input /dev/null "$@"
+}
+
+run_oc_stdin() {
+    oc_stdin_input=$1
+    shift
+    printf '%b\n' "$oc_stdin_input" >"$CASE/stdin.txt"
+    INTERACTIVE=1
+    run_oc_with_input "$CASE/stdin.txt" "$@"
+}
+
+oc_config() { # LINE
+    mkdir -p "$XDG_CONFIG_HOME/opencode-oss"
+    printf '%s\n' "$1" >>"$XDG_CONFIG_HOME/opencode-oss/config.toml"
+}
+
+seed_oc_provider() { # NAME
+    oc_config "providers = \"$1\""
+    mkdir -p "$STUB_STATE_DIR"
+    printf '%s\n' "$1" >>"$STUB_STATE_DIR/providers.list"
+}
+
+oc_session_dir() { # SANDBOX
+    printf '%s/.local/state/opencode-oss/sessions/%s' "$HOME" "$1"
+}
+
+# A project directory with its Ready sandbox and a remembered, attached
+# provider: the state every session test starts from.
+# Host files the test needs in the sandbox go in OC_SEED_FILES (NAME=CONTENT
+# lines) so they exist before the sandbox mirrors the project.
+oc_ready_project() { # [DIR-NAME]
+    RUN_DIR=$CASE/project/${1:-myproject}
+    mkdir -p "$RUN_DIR"
+    while IFS= read -r oc_seed; do
+        [ -n "$oc_seed" ] || continue
+        printf '%s\n' "${oc_seed#*=}" >"$RUN_DIR/${oc_seed%%=*}"
+    done <<OC_SEED
+${OC_SEED_FILES:-}
+OC_SEED
+    seed_sandbox "opencode-${1:-myproject}" Ready
+    seed_oc_provider opencode-stub
+    attach_stub_provider "opencode-${1:-myproject}" opencode-stub
+}
+
+assert_stdin_closed() {
+    if [ ! -f "$EXEC_STDIN_LOG" ]; then
+        bad "the agent exec stdin was not recorded"
+    elif [ -s "$EXEC_STDIN_LOG" ]; then
+        bad "the agent exec read the helper's stdin: $(head -n 1 "$EXEC_STDIN_LOG")"
+    fi
+}
+
+test_oc_help() {
+    begin "opencode-oss help lists the shared commands and no Maki-only ones"
+    oc_case oc-help
+    run_oc help
+    assert_rc 0
+    for oc_cmd in doctor 'image build' 'init, up' opencode 'run "<prompt>"' upload download \
+        status list logs 'start, stop' rm 'policy show|edit|apply' 'policy review' \
+        'policy approve' 'policy reject' 'provider add|attach|list' 'provider setup' \
+        'mcp status' help; do
+        if ! grep -Eq "^  $(printf '%s' "$oc_cmd" | sed 's/[|.]/\\&/g')( |$)" "$OUT"; then
+            bad "help does not list: $oc_cmd"
+        fi
+    done
+    if grep -Eq '^  (maki|fish)( |$)' "$OUT"; then
+        bad "help lists a Maki-only command"
+    fi
+    assert_out_has "OPENCODE_OSS_<KEY>"
+    assert_out_has "opencode-oss/config.toml"
+
+    run_oc maki
+    assert_rc 1
+    assert_err_has "unknown command: maki"
+    run_oc fish install
+    assert_rc 1
+    assert_err_has "unknown command: fish"
+}
+
+test_oc_run_argv() {
+    begin "opencode-oss run launches opencode run --standalone --auto with stdin closed"
+    oc_case oc-run
+    oc_ready_project
+    EXEC_STDOUT='{"type":"text","part":{"text":"OK"}}'
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    printf 'LEAKED-STDIN\n' >"$CASE/stdin.txt"
+
+    run_oc_with_input "$CASE/stdin.txt" run "reply OK"
+    assert_rc 0
+    assert_out_has '{"type":"text","part":{"text":"OK"}}'
+    assert_stdin_closed
+    assert_log_line "opencode"
+    assert_log_line "run"
+    assert_log_line "--standalone"
+    assert_log_line "--auto"
+    assert_log_line "--format"
+    assert_log_line "json"
+    assert_log_line "reply OK"
+    assert_log_before "--standalone" "reply OK"
+    assert_log_line "OPENCODE_DISABLE_MODELS_FETCH=1"
+    assert_log_missing "OPENCODE_CONFIG_CONTENT"
+    assert_log_line_missing "--model"
+    assert_log_line_missing "--print"
+
+    # A resolved model goes in as --model, never as the overlay.
+    reset_log
+    ENV_OC_MODEL=synthetic/hf:zai-org/GLM-5.3
+    run_oc run "reply OK"
+    assert_rc 0
+    assert_log_line "--model"
+    assert_log_line "synthetic/hf:zai-org/GLM-5.3"
+    assert_log_before "--model" "reply OK"
+    assert_log_missing "OPENCODE_CONFIG_CONTENT"
+
+    # OpenCode's exit code is the helper's.
+    reset_log
+    EXEC_EXIT=1
+    EXEC_STDOUT='partial'
+    run_oc run "fail please"
+    assert_rc 1
+    assert_out_has "partial"
+}
+
+test_oc_tui_argv() {
+    begin "bare opencode-oss attaches opencode --standalone with the model overlay"
+    oc_case oc-tui
+    oc_ready_project
+    oc_config 'model = "synthetic/hf:zai-org/GLM-5.3"'
+
+    run_oc
+    assert_rc 0
+    assert_log_line "--tty"
+    assert_log_line "opencode"
+    assert_log_line "--standalone"
+    assert_log_line_missing "--auto"
+    assert_log_line_missing "run"
+    assert_log_line_missing "--model"
+    assert_log_line "OPENCODE_DISABLE_MODELS_FETCH=1"
+    assert_log_line 'OPENCODE_CONFIG_CONTENT={"model":"synthetic/hf:zai-org/GLM-5.3"}'
+    assert_log_before "OPENCODE_CONFIG_CONTENT" "--standalone"
+    # Nothing is written into the project for the model.
+    if [ -e "$SANDBOX_WORKDIR/opencode.json" ] || [ -e "$RUN_DIR/opencode.json" ]; then
+        bad "the helper wrote an opencode.json into the project"
+    fi
+    # The session exit still collects a patch and checks for proposals.
+    assert_log_has "refs/opencode-oss/base"
+    assert_log_line_before "--standalone" "rule"
+
+    # `opencode-oss opencode` is the same session; arguments are refused.
+    reset_log
+    run_oc opencode
+    assert_rc 0
+    assert_log_line "--tty"
+    assert_log_line "--standalone"
+    run_oc opencode extra
+    assert_rc 1
+    assert_err_has "opencode takes no arguments"
+
+    # Without a model there is no overlay.
+    : >"$XDG_CONFIG_HOME/opencode-oss/config.toml"
+    seed_oc_provider opencode-stub
+    reset_log
+    run_oc
+    assert_rc 0
+    assert_log_missing "OPENCODE_CONFIG_CONTENT"
+    assert_log_line "OPENCODE_DISABLE_MODELS_FETCH=1"
+}
+
+test_oc_session_mapping() {
+    begin "opencode-oss maps --resume and --session-id to --session"
+    oc_case oc-session-map
+    oc_ready_project
+
+    run_oc run --resume ses_123 "next"
+    assert_rc 0
+    assert_log_line "--session"
+    assert_log_line "ses_123"
+    assert_log_line_missing "--resume"
+    assert_log_before "--session" "next"
+
+    reset_log
+    run_oc run --session-id ses_new "start"
+    assert_rc 0
+    assert_log_line "--session"
+    assert_log_line "ses_new"
+    assert_log_line_missing "--session-id"
+
+    reset_log
+    run_oc run --continue "and now"
+    assert_rc 0
+    assert_log_line "--continue"
+    assert_log_line_missing "--session"
+
+    reset_log
+    run_oc -r ses_tui
+    assert_rc 0
+    assert_log_line "--tty"
+    assert_log_line "--session"
+    assert_log_line "ses_tui"
+    assert_log_line_missing "--resume"
+}
+
+test_oc_session_conflicts() {
+    begin "conflicting opencode-oss session flags fail before any sandbox work"
+    oc_case oc-session-conflicts
+    oc_ready_project
+    for oc_flags in "--continue --resume ses_123" "--continue --session-id ses_123" \
+        "--resume ses_1 --session-id ses_2"; do
+        reset_log
+        # shellcheck disable=SC2086  # the flag list splits on purpose
+        run_oc run $oc_flags "x"
+        assert_rc 1
+        if [ -s "$LOG" ]; then
+            bad "gateway was contacted for '$oc_flags': $(head -n 3 "$LOG" | tr '\n' ' ')"
+        fi
+        reset_log
+        # shellcheck disable=SC2086
+        run_oc $oc_flags
+        assert_rc 1
+        if [ -s "$LOG" ]; then
+            bad "gateway was contacted for the session with '$oc_flags'"
+        fi
+    done
+    assert_err_has "cannot be combined with --session-id"
+}
+
+test_oc_image_build() {
+    begin "opencode-oss image build builds opencode-oss/image as opencode-agent:local"
+    oc_case oc-image
+    oc_config 'image = "my-env:latest"'
+    run_oc image build
+    assert_rc 0
+    assert_log_line "build"
+    assert_log_line "-t"
+    assert_log_line "opencode-agent:local"
+    assert_log_line "$ROOT/opencode-oss/image"
+    assert_log_line_missing "--build-arg"
+    assert_log_line_missing "my-env:latest"
+
+    reset_log
+    run_oc image build --opencode-version 9.9.9
+    assert_rc 0
+    assert_log_line "--build-arg"
+    assert_log_line "OPENCODE_VERSION=9.9.9"
+
+    # A version without matching checksums fails the build; the helper says why.
+    reset_log
+    ENGINE_EXIT=1
+    run_oc image build --opencode-version 9.9.9
+    assert_rc 2
+    assert_err_has "OPENCODE_SHA512_ARM64/AMD64"
+    assert_err_has "image build failed"
+
+    run_oc image build --maki-version 1
+    assert_rc 1
+    assert_err_has "unknown option: --maki-version"
+}
+
+test_oc_stores_catalog() {
+    begin "stores.tsv rows resolve to opencode-* profiles and every profile is reachable"
+    oc_case oc-stores
+    oc_dir=$ROOT/opencode-oss/providers
+    while IFS=$(printf '\t') read -r oc_store oc_slug oc_id _; do
+        case $oc_store in
+            ''|'#'*) continue ;;
+        esac
+        case $oc_store in
+            maki|opencode) ;;
+            *) bad "stores.tsv has an unknown store: $oc_store" ;;
+        esac
+        case $oc_id in
+            opencode-*) ;;
+            *) bad "stores.tsv maps $oc_store:$oc_slug to a non-OpenCode profile: $oc_id" ;;
+        esac
+        [ -f "$oc_dir/$oc_id.yaml" ] || bad "stores.tsv names a missing profile: $oc_id"
+    done <"$oc_dir/stores.tsv"
+    for oc_profile in "$oc_dir"/opencode-*.yaml; do
+        oc_id=$(basename -- "$oc_profile" .yaml)
+        grep -q "	$oc_id	" "$oc_dir/stores.tsv" || bad "no store slug reaches $oc_id"
+        grep -q "^$oc_id	" "$oc_dir/catalog.tsv" || bad "catalog.tsv has no example model for $oc_id"
+    done
+    grep -Fxq '  - /usr/local/bin/opencode' "$oc_dir/template.yaml" \
+        || bad "the custom-profile template does not bind /usr/local/bin/opencode"
+}
+
+test_oc_provider_setup() {
+    begin "opencode-oss provider setup maps an OpenCode store key to its opencode-* profile"
+    oc_case oc-setup
+    oc_value='fixture-oc-synthetic-key-7c1e'
+    seed_opencode_auth "{\"synthetic\": {\"type\": \"api\", \"key\": \"$oc_value\"}}"
+    CREDENTIAL_ENV=SYNTHETIC_API_KEY
+    CREDENTIAL_LOG=$CASE/credential-env.log
+
+    run_oc provider setup --from opencode --credential synthetic --yes
+    assert_rc 0
+    assert_log_line "lint"
+    assert_log_line "$ROOT/opencode-oss/providers/opencode-synthetic.yaml"
+    assert_log_line "import"
+    assert_log_before "lint" "import"
+    assert_log_line "create"
+    assert_log_line "opencode-synthetic"
+    assert_log_line "--from-existing"
+    assert_out_has "Provider 'opencode-synthetic' created."
+    assert_out_has "example model: synthetic/hf:zai-org/GLM-5.3"
+    assert_out_has "model = \"synthetic/hf:zai-org/GLM-5.3\" in $XDG_CONFIG_HOME/opencode-oss/config.toml"
+    grep -Fxq 'providers = "opencode-synthetic"' "$XDG_CONFIG_HOME/opencode-oss/config.toml" 2>/dev/null \
+        || bad "the provider was not recorded in the opencode-oss config"
+    [ ! -e "$XDG_CONFIG_HOME/maki-oss/config.toml" ] || bad "the maki-oss config was written"
+    assert_credential_env "$oc_value"
+    assert_secret_absent "$oc_value"
+    if grep -rFq -- "$oc_value" "$XDG_CONFIG_HOME" 2>/dev/null; then
+        bad "a config or profile file contains the credential value"
+    fi
+
+    # A Maki store key reaches the same profile.
+    reset_log
+    seed_maki_store deepseek "fixture-oc-deepseek-key"
+    CREDENTIAL_ENV=DEEPSEEK_API_KEY
+    run_oc provider setup --from maki --credential deepseek --yes
+    assert_rc 0
+    assert_log_line "$ROOT/opencode-oss/providers/opencode-deepseek.yaml"
+    assert_out_has "example model: deepseek/deepseek-v4-pro"
+}
+
+test_oc_provider_setup_custom() {
+    begin "opencode-oss custom profiles use the opencode- prefix and bind opencode"
+    oc_case oc-setup-custom
+    oc_value='fixture-oc-custom-9d2b'
+    seed_maki_store acme-router "$oc_value"
+    CREDENTIAL_ENV=ACME_ROUTER_API_KEY
+    CREDENTIAL_LOG=$CASE/credential-env.log
+
+    run_oc_stdin "1\n\n\napi.acme-router.test\n/v1\n" provider setup --yes
+    assert_rc 0
+    oc_generated=$XDG_CONFIG_HOME/opencode-oss/profiles/opencode-acme-router.yaml
+    [ -f "$oc_generated" ] || bad "no opencode-acme-router profile was generated"
+    grep -Fxq '  - /usr/local/bin/opencode' "$oc_generated" 2>/dev/null \
+        || bad "the generated profile does not bind /usr/local/bin/opencode"
+    grep -Fq 'OpenCode coding agent' "$oc_generated" 2>/dev/null \
+        || bad "the generated profile does not describe OpenCode"
+    assert_credential_env "$oc_value"
+    assert_secret_absent "$oc_value"
+    if grep -Fq -- "$oc_value" "$oc_generated" 2>/dev/null; then
+        bad "the generated profile contains the credential value"
+    fi
+}
+
+seed_oc_host_mcp() { # JSON
+    mkdir -p "$HOME/.config/opencode"
+    printf '%s\n' "$1" >"$HOME/.config/opencode/opencode.json"
+}
+
+OC_HOST_MCP='{"mcp": {"context7": {"type": "remote", "url": "https://mcp.context7.com/mcp", "headers": {"CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"}}, "off": {"type": "local", "command": ["bunx", "off-mcp"], "enabled": false}}}'
+
+test_oc_mcp_status_missing_in_sandbox() {
+    begin "opencode-oss mcp status reports a server missing from the base image"
+    oc_case oc-mcp-missing
+    oc_ready_project
+    seed_oc_host_mcp "$OC_HOST_MCP"
+    EXEC_STDOUT=$(cat "$ROOT/opencode-oss/image/config/opencode.json")
+
+    run_oc mcp status
+    assert_rc 3
+    assert_out_has "context7: sandbox=missing"
+    assert_out_has "fix: build and select an environment image built FROM opencode-agent:local that declares 'context7' (see docs/opencode-oss.md)"
+    assert_out_has "fix: opencode-oss provider attach mcp-context7"
+    assert_out_missing "off:"
+    assert_log_line "/sandbox/.config/opencode/opencode.json"
+    assert_log_missing "create"
+    assert_log_missing "attach"
+}
+
+test_oc_mcp_status_present() {
+    begin "opencode-oss mcp status passes a server present on both sides"
+    oc_case oc-mcp-present
+    oc_ready_project
+    attach_stub_provider opencode-myproject mcp-context7
+    seed_oc_host_mcp "$OC_HOST_MCP"
+    EXEC_STDOUT=$OC_HOST_MCP
+    POLICY_FULL='host: mcp.context7.com'
+
+    run_oc mcp status
+    assert_rc 0
+    assert_out_has "context7: sandbox=ok provider=ok endpoint=ok transport=http"
+    assert_out_missing "off:"
+    assert_out_missing "fix:"
+}
+
+test_oc_mcp_status_unreadable() {
+    begin "opencode-oss mcp status reports a JSONC file as unreadable"
+    oc_case oc-mcp-jsonc
+    oc_ready_project
+    seed_oc_host_mcp '{
+  // a comment makes this JSONC, which jq cannot parse
+  "mcp": {}
+}'
+    EXEC_STDOUT=$(cat "$ROOT/opencode-oss/image/config/opencode.json")
+
+    run_oc mcp status
+    assert_rc 3
+    assert_out_has "unreadable: host config $HOME/.config/opencode/opencode.json"
+    assert_out_missing "sandbox=missing"
+}
+
+test_oc_mcp_no_jq_and_doctor() {
+    begin "opencode-oss mcp status needs jq; doctor shows the table or skips it"
+    oc_case oc-mcp-nojq
+    oc_ready_project
+    seed_oc_host_mcp "$OC_HOST_MCP"
+    EXEC_STDOUT=$(cat "$ROOT/opencode-oss/image/config/opencode.json")
+
+    run_oc doctor
+    assert_out_has "MCP readiness (informational):"
+    assert_out_has "context7: sandbox=missing"
+    assert_out_has "warn  model: none set"
+
+    oc_config 'model = "synthetic/hf:zai-org/GLM-5.3"'
+    run_oc doctor
+    assert_out_has "ok    model: synthetic/hf:zai-org/GLM-5.3"
+
+    PATH_OVERRIDE=$(no_jq_path)
+    run_oc mcp status
+    assert_rc 2
+    assert_err_has "needs jq"
+    run_oc doctor
+    assert_out_has "skipped: jq not found"
+    assert_out_missing "context7:"
+}
+
+test_oc_isolation() {
+    begin "opencode-oss and maki-oss keep separate sandboxes, config, env, and state"
+    oc_case oc-isolation
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    ENV_IMAGE=maki-only:tag
+
+    run_oc up
+    assert_rc 0
+    assert_log_line "opencode-myproject"
+    assert_log_line "opencode-agent:local"
+    assert_log_line "$ROOT/opencode-oss/policies/minimal.yaml"
+    assert_log_line_missing "maki-only:tag"
+
+    reset_log
+    reset_state
+    ENV_OC_IMAGE=custom:tag
+    run_oc up
+    assert_rc 0
+    assert_log_line "custom:tag"
+
+    reset_log
+    run_maki status
+    assert_out_has "Sandbox:   maki-myproject"
+    run_oc status
+    assert_out_has "Sandbox:   opencode-myproject"
+
+    # A session keeps its sync state under the opencode-oss names only.
+    reset_state
+    oc_ready_project
+    run_oc run "touch nothing"
+    assert_rc 0
+    [ -d "$(oc_session_dir opencode-myproject)" ] || bad "no opencode-oss session state"
+    [ ! -e "$HOME/.local/state/maki-oss" ] || bad "opencode-oss wrote maki-oss state"
+    [ -d "$CASE/sandbox/.opencode-oss/git" ] || bad "the sandbox baseline is not under .opencode-oss"
+    [ ! -e "$CASE/sandbox/.maki-oss" ] || bad "the sandbox has .maki-oss state"
+    assert_log_has "refs/opencode-oss/base"
+    [ ! -e "$XDG_CONFIG_HOME/maki-oss" ] || bad "opencode-oss wrote the maki-oss config"
+}
+
+test_oc_lifecycle_and_guard() {
+    begin "opencode-oss up/status/rm, the --env guard, and the no-provider refusal"
+    oc_case oc-lifecycle
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+
+    run_oc up --env OPENAI_API_KEY=x
+    assert_rc 1
+    assert_err_has "OPENAI_API_KEY"
+    assert_log_missing "create"
+    run_oc up --env OPENAI_API_KEY=x --allow-env OPENAI_API_KEY
+    assert_rc 0
+    assert_log_line "OPENAI_API_KEY=x"
+
+    run_oc status
+    assert_rc 0
+    assert_out_has "Exists:    yes"
+    assert_out_has "opencode-agent:local (configured)"
+
+    reset_log
+    run_oc rm
+    assert_rc 1
+    assert_log_missing "delete"
+    run_oc rm --yes
+    assert_rc 0
+    assert_log_line "delete"
+    [ ! -e "$STUB_STATE_DIR/sandboxes/opencode-myproject" ] || bad "rm --yes kept the sandbox"
+
+    reset_log
+    run_oc
+    assert_rc 1
+    assert_err_has "opencode-oss provider setup"
+    if [ -s "$LOG" ]; then
+        bad "gateway was contacted without a provider"
+    fi
+}
+
+test_oc_run_timeout_and_proposals() {
+    begin "opencode-oss run --timeout wraps opencode; sessions enable and surface proposals"
+    oc_case oc-timeout
+    oc_ready_project
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    printf 'LEAKED-STDIN\n' >"$CASE/stdin.txt"
+
+    run_oc_with_input "$CASE/stdin.txt" run --timeout 30 "check"
+    assert_rc 0
+    assert_log_line "opencode-oss-run"
+    assert_log_has "OPENCODE_OSS_RUN_TAG"
+    assert_log_has "/tmp/opencode-oss-stop/"
+    assert_log_line "30"
+    assert_log_before "opencode-oss-run" "--standalone"
+    assert_stdin_closed
+
+    reset_log
+    RULE_PENDING='Network Rules:  (version 3, 1 chunks)
+
+  Chunk: 2258b82a-8253-4094-bf5f-3e309b2b9c11
+  Status: pending'
+    run_oc run "check"
+    assert_rc 0
+    assert_log_line "agent_policy_proposals_enabled"
+    assert_log_before "settings" "--standalone"
+    assert_err_has "1 pending network-rule proposal(s) for 'opencode-myproject'. Review: opencode-oss policy review"
+}
+
+test_oc_sync_clean_git() {
+    begin "opencode-oss applies a clean git session by fast-forward"
+    oc_case oc-sync-git
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_sandbox opencode-repo Ready
+    seed_oc_provider opencode-stub
+    attach_stub_provider opencode-repo opencode-stub
+    run_oc upload .
+    commit_before=$(git -C "$RUN_DIR" rev-parse HEAD)
+    STUB_MAKI_SCRIPT='printf "agent\n" > agent.txt; printf "modified\n" > tracked.txt'
+
+    run_oc run "edit"
+    assert_rc 0
+    [ "$(cat "$RUN_DIR/tracked.txt")" = modified ] || bad "agent change is not on the host"
+    [ "$(cat "$RUN_DIR/agent.txt" 2>/dev/null)" = agent ] || bad "agent file is not on the host"
+    [ "$(git -C "$RUN_DIR" rev-parse HEAD^)" = "$commit_before" ] || bad "result commit parent is not the baseline"
+    [ "$(git -C "$RUN_DIR" log -1 --format=%s)" = "opencode-oss: apply sandbox changes" ] \
+        || bad "result commit has the wrong subject"
+    [ -z "$(git -C "$RUN_DIR" branch --list 'opencode-oss/*')" ] || bad "temporary branch was not deleted"
+    [ ! -f "$(oc_session_dir opencode-repo)/pending" ] || bad "a clean apply left a pending marker"
+}
+
+test_oc_sync_dirty_host() {
+    begin "opencode-oss keeps a dirty host and commits the result on a review branch"
+    oc_case oc-sync-dirty
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    printf 'local edit\n' >>"$RUN_DIR/tracked.txt"
+    seed_sandbox opencode-repo Ready
+    seed_oc_provider opencode-stub
+    attach_stub_provider opencode-repo opencode-stub
+    STUB_MAKI_SCRIPT='printf "agent edited\n" > tracked.txt'
+
+    run_oc
+    assert_rc 0
+    assert_err_has "Uncommitted host work was not committed"
+    oc_branch=$(git -C "$RUN_DIR" for-each-ref --format='%(refname:short)' 'refs/heads/opencode-oss/*' | head -n 1)
+    [ -n "$oc_branch" ] || bad "result branch was not kept"
+    grep -Fq 'local edit' "$RUN_DIR/tracked.txt" || bad "local edit was lost"
+    [ -f "$(oc_session_dir opencode-repo)/pending" ] || bad "no pending marker for the dirty host"
+}
+
+test_oc_sync_plain_directory() {
+    begin "opencode-oss applies a clean patch to a plain directory"
+    oc_case oc-sync-plain
+    OC_SEED_FILES='readme.txt=host-version
+hostonly.txt=host-only'
+    oc_ready_project
+    STUB_MAKI_SCRIPT='printf "sandbox-version\n" > readme.txt'
+
+    run_oc run "edit"
+    assert_rc 0
+    grep -Fq 'sandbox-version' "$RUN_DIR/readme.txt" || bad "the patch did not update the file"
+    grep -Fq 'host-only' "$RUN_DIR/hostonly.txt" || bad "a host-only file was removed"
+    assert_log_missing "download"
+}
+
+test_oc_sync_no_git() {
+    begin "opencode-oss applies a text patch with patch when the host has no git"
+    oc_case oc-sync-nogit
+    OC_SEED_FILES='file.txt=v1'
+    oc_ready_project
+    PATH_OVERRIDE=$(no_git_path with_patch)
+    STUB_MAKI_SCRIPT='printf "v2\n" > file.txt'
+
+    run_oc run "edit"
+    assert_rc 0
+    [ "$(cat "$RUN_DIR/file.txt")" = v2 ] || bad "text patch did not apply without git"
+    assert_err_has "Applied sandbox changes"
+}
+
 test_sandbox_id_recorded() {
     begin "a session records the sandbox ID and status reads it back"
     new_case sandbox-id
@@ -4351,6 +5000,26 @@ run_test test_idle_stop_newer_session_cancels
 run_test test_idle_stop_busy_sandbox
 run_test test_idle_stop_failure_is_silent
 run_test test_no_placeholder_spelling
+run_test test_oc_help
+run_test test_oc_run_argv
+run_test test_oc_tui_argv
+run_test test_oc_session_mapping
+run_test test_oc_session_conflicts
+run_test test_oc_image_build
+run_test test_oc_stores_catalog
+run_test test_oc_provider_setup
+run_test test_oc_provider_setup_custom
+run_test test_oc_mcp_status_missing_in_sandbox
+run_test test_oc_mcp_status_present
+run_test test_oc_mcp_status_unreadable
+run_test test_oc_mcp_no_jq_and_doctor
+run_test test_oc_isolation
+run_test test_oc_lifecycle_and_guard
+run_test test_oc_run_timeout_and_proposals
+run_test test_oc_sync_clean_git
+run_test test_oc_sync_dirty_host
+run_test test_oc_sync_plain_directory
+run_test test_oc_sync_no_git
 
 printf '\n%d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"
 if [ "$FAIL" -ne 0 ]; then

@@ -100,7 +100,7 @@ maki-drift:
 	fi
 
 lint:
-	shellcheck -x bin/maki-oss lib/oss-core.sh tests/run-tests.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode
+	shellcheck -x bin/maki-oss bin/opencode-oss lib/oss-core.sh tests/run-tests.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode
 	fish -n fish/functions/maki-oss.fish
 	fish -n fish/conf.d/maki-oss.fish
 	fish -n fish/completions/maki-oss.fish

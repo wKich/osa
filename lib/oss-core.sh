@@ -2215,30 +2215,57 @@ cmd_idle_watch() { # NAME PID SECS
     fi
 }
 
-# Agent argv. A hook adds words with argv_add; the core expands the list with
-# eval "set -- $agent_argv". Each word is single-quoted by parameter expansion
-# alone (no subshell), so quotes and trailing newlines in a prompt survive.
+# Agent argv and exec env. A hook adds words with argv_add and non-secret
+# per-exec environment values with env_add; the core expands both lists with
+# eval "set -- ...". Each word is single-quoted by parameter expansion alone
+# (no subshell), so quotes and trailing newlines in a prompt survive.
 agent_argv=
+agent_env=
+
+# Sets oss_quoted to WORD with every single quote escaped for '...'.
+oss_quote() { # WORD
+    argv_rest=$1
+    oss_quoted=
+    while :; do
+        case $argv_rest in
+            *\'*)
+                argv_head=${argv_rest%%\'*}
+                oss_quoted="$oss_quoted$argv_head'\\''"
+                argv_rest=${argv_rest#*\'}
+                ;;
+            *)
+                oss_quoted=$oss_quoted$argv_rest
+                break
+                ;;
+        esac
+    done
+}
 
 argv_add() { # WORD...
     for argv_word in "$@"; do
-        argv_rest=$argv_word
-        argv_quoted=
-        while :; do
-            case $argv_rest in
-                *\'*)
-                    argv_head=${argv_rest%%\'*}
-                    argv_quoted="$argv_quoted$argv_head'\\''"
-                    argv_rest=${argv_rest#*\'}
-                    ;;
-                *)
-                    argv_quoted=$argv_quoted$argv_rest
-                    break
-                    ;;
-            esac
-        done
-        agent_argv="$agent_argv '$argv_quoted'"
+        oss_quote "$argv_word"
+        agent_argv="$agent_argv '$oss_quoted'"
     done
+}
+
+# Adds `--env KEY=VALUE` to the agent's `sandbox exec`. Only for non-secret
+# values: the key goes through the same credential-name guard as --env.
+env_add() { # KEY=VALUE
+    case $1 in
+        *=*) ;;
+        *) die_usage "agent exec environment expects KEY=VALUE, got '$1'" ;;
+    esac
+    env_add_key=${1%%=*}
+    case $env_add_key in
+        ''|[!A-Za-z_]*|*[!A-Za-z0-9_]*)
+            die_usage "agent exec environment key must match [A-Za-z_][A-Za-z0-9_]*; got '$env_add_key'"
+            ;;
+    esac
+    if credential_like "$env_add_key" && ! env_key_allowed "$env_add_key"; then
+        env_refusal --env "$env_add_key"
+    fi
+    oss_quote "$1"
+    agent_env="$agent_env '--env' '$oss_quoted'"
 }
 
 # Interactive session: the bare invocation, and the front-end's session
@@ -2259,8 +2286,10 @@ cmd_session() {
     session_rc=0
     agent_argv=
     agent_interactive_argv
-    eval "set -- $agent_argv"
-    os sandbox exec -n "$name" --tty --workdir "$workdir" -- "$@" || session_rc=$?
+    agent_env=
+    agent_exec_env interactive
+    eval "set -- $agent_env -- $agent_argv"
+    os sandbox exec -n "$name" --tty --workdir "$workdir" "$@" || session_rc=$?
     trap - INT TERM
     if [ "$session_interrupted" -eq 1 ] && [ "$session_rc" -eq 0 ]; then
         session_rc=130
@@ -2337,13 +2366,16 @@ cmd_run() {
         run_tag=${run_tag_env:-$PROGRAM-$$-$(date +%s)}
         set -- sh -c "$RUN_TIMEOUT_WRAPPER" "$PROGRAM-run" "$run_tag" "$run_timeout" "$@"
     fi
+    agent_env=
+    agent_exec_env headless
+    eval "set -- $agent_env -- \"\$@\""
     case $(agent_exec_stdin) in
         null)
-            os sandbox exec -n "$name" --no-login-shell --workdir "$workdir" -- "$@" \
+            os sandbox exec -n "$name" --no-login-shell --workdir "$workdir" "$@" \
                 </dev/null || run_rc=$?
             ;;
         *)
-            os sandbox exec -n "$name" --no-login-shell --workdir "$workdir" -- "$@" || run_rc=$?
+            os sandbox exec -n "$name" --no-login-shell --workdir "$workdir" "$@" || run_rc=$?
             ;;
     esac
     trap - INT TERM
@@ -2850,6 +2882,183 @@ cmd_provider_list() {
     [ "$#" -eq 0 ] || die_usage "provider list takes no arguments"
     require_openshell
     run_gateway provider list
+}
+
+# ---------------------------------------------------------------------------
+# MCP readiness: mcp status and the doctor section
+#
+# Compares the servers enabled in the host's agent config
+# ($OSS_HOST_MCP_CONFIG) against the sandbox's baked config
+# ($OSS_SANDBOX_MCP_CONFIG) and reports the gates that decide whether each
+# server works in the sandbox. The front-end's agent_mcp_servers FILE parses
+# one config into `name<TAB>transport<TAB>enabled<TAB>host<TAB>argv0` lines
+# and fails when the file cannot be parsed. Read-only: it never mutates the
+# sandbox, the gateway, or any profile, and never parses or prints a
+# credential value.
+# ---------------------------------------------------------------------------
+
+# Prints the per-server gate table for sandbox $1 and sets mcp_any (any
+# enabled server on either side) and mcp_failed (servers with a failing
+# gate). Returns 1 when gateway data cannot be read at all.
+mcp_readiness_report() { # NAME
+    mcp_name=$1
+    mcp_tmp=${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-mcp.$$
+    mcp_any=0
+    mcp_failed=0
+    mcp_unreadable_host=0
+    mcp_unreadable_sandbox=0
+    agent_mcp_servers "$OSS_HOST_MCP_CONFIG" >"$mcp_tmp.host" || mcp_unreadable_host=1
+    # An unreadable sandbox config counts as absent: the gate then names the
+    # environment image that supplies the server, not a base-image rebuild.
+    os sandbox exec -n "$mcp_name" --no-login-shell -- cat "$OSS_SANDBOX_MCP_CONFIG" \
+        >"$mcp_tmp.config" 2>/dev/null || :
+    agent_mcp_servers "$mcp_tmp.config" >"$mcp_tmp.sandbox" || mcp_unreadable_sandbox=1
+    # A file that exists but does not parse is reported as unreadable rather
+    # than read as "no servers", which would invent gate results.
+    if [ "$mcp_unreadable_host" -eq 1 ] || [ "$mcp_unreadable_sandbox" -eq 1 ]; then
+        if [ "$mcp_unreadable_host" -eq 1 ]; then
+            say "  unreadable: host config $OSS_HOST_MCP_CONFIG (cannot parse it)"
+        fi
+        if [ "$mcp_unreadable_sandbox" -eq 1 ]; then
+            say "  unreadable: sandbox config $OSS_SANDBOX_MCP_CONFIG (cannot parse it)"
+        fi
+        mcp_any=1
+        mcp_failed=1
+        rm -f -- "$mcp_tmp".host "$mcp_tmp".config "$mcp_tmp".sandbox
+        return 0
+    fi
+    if ! mcp_attached=$(attached_providers "$mcp_name"); then
+        rm -f -- "$mcp_tmp".host "$mcp_tmp".config "$mcp_tmp".sandbox
+        return 1
+    fi
+    mcp_policy=$(os policy get "$mcp_name" --full 2>/dev/null) || mcp_policy=
+    {
+        cat "$mcp_tmp.host"
+        cat "$mcp_tmp.sandbox"
+    } | awk -F'\t' '$3 == "true" && !seen[$1]++ { print $1 }' >"$mcp_tmp.list"
+    while IFS= read -r mcp_server; do
+        if [ -z "$mcp_server" ]; then
+            continue
+        fi
+        mcp_any=1
+        mcp_h=$(awk -F'\t' -v s="$mcp_server" '$1 == s { print; exit }' "$mcp_tmp.host")
+        mcp_s=$(awk -F'\t' -v s="$mcp_server" '$1 == s { print; exit }' "$mcp_tmp.sandbox")
+        mcp_sandbox_gate=ok
+        [ -n "$mcp_s" ] || mcp_sandbox_gate=missing
+        mcp_endpoint_host=
+        if [ -n "$mcp_s" ]; then
+            mcp_endpoint_host=$(printf '%s\n' "$mcp_s" | cut -f4)
+        elif [ -n "$mcp_h" ]; then
+            mcp_endpoint_host=$(printf '%s\n' "$mcp_h" | cut -f4)
+        fi
+        mcp_provider=mcp-$mcp_server
+        mcp_transport=$(printf '%s\n%s\n' "$mcp_h" "$mcp_s" | awk -F'\t' '$2 == "http" { print "http"; exit }')
+        mcp_provider_gate=ok
+        if ! printf '%s\n' "$mcp_attached" | grep -Fqx -- "$mcp_provider"; then
+            mcp_provider_gate=missing
+        fi
+        if [ "$mcp_transport" != http ]; then
+            # stdio (or unparseable): the transport itself decides nothing.
+            # Gates are config present, the runtime argv[0] resolvable in the
+            # sandbox (checked read-only on the same exec path as the config
+            # read), and provider attached. No endpoint gate: a stdio command
+            # names no URL, and the attached profile carries the endpoint.
+            mcp_argv0=$(printf '%s\n%s\n' "$mcp_s" "$mcp_h" | awk -F'\t' '$5 != "" { print $5; exit }')
+            mcp_runtime_gate=missing
+            if [ -n "$mcp_argv0" ] \
+                && os sandbox exec -n "$mcp_name" --no-login-shell -- command -v "$mcp_argv0" \
+                    >/dev/null 2>&1; then
+                mcp_runtime_gate=ok
+            fi
+            if [ "$mcp_sandbox_gate" = ok ] && [ "$mcp_runtime_gate" = ok ] \
+                && [ "$mcp_provider_gate" = ok ]; then
+                say "  $mcp_server: sandbox=ok runtime=ok provider=ok transport=stdio"
+                continue
+            fi
+            mcp_failed=$((mcp_failed + 1))
+            say "  $mcp_server: sandbox=$mcp_sandbox_gate runtime=$mcp_runtime_gate provider=$mcp_provider_gate transport=stdio"
+            mcp_build_fix=0
+            if [ "$mcp_sandbox_gate" = missing ]; then
+                say "    fix: build and select $OSS_MCP_FIX_IMAGE that declares '$mcp_server' (see $OSS_MCP_FIX_DOC)"
+                mcp_build_fix=1
+            fi
+            if [ "$mcp_runtime_gate" = missing ] && [ "$mcp_build_fix" -eq 0 ]; then
+                say "    fix: build and select $OSS_MCP_FIX_IMAGE that provides the runtime '$mcp_argv0' for '$mcp_server' (see $OSS_MCP_FIX_DOC)"
+            fi
+            if [ "$mcp_provider_gate" = missing ]; then
+                say "    fix: $PROGRAM provider attach $mcp_provider"
+            fi
+            continue
+        fi
+        mcp_endpoint_gate=ok
+        if [ -z "$mcp_endpoint_host" ] \
+            || ! printf '%s\n' "$mcp_policy" | grep -Fq -- "$mcp_endpoint_host"; then
+            mcp_endpoint_gate=missing
+        fi
+        if [ "$mcp_sandbox_gate" = ok ] && [ "$mcp_provider_gate" = ok ] \
+            && [ "$mcp_endpoint_gate" = ok ]; then
+            say "  $mcp_server: sandbox=$mcp_sandbox_gate provider=ok endpoint=ok transport=http"
+            continue
+        fi
+        mcp_failed=$((mcp_failed + 1))
+        say "  $mcp_server: sandbox=$mcp_sandbox_gate provider=$mcp_provider_gate endpoint=$mcp_endpoint_gate transport=http"
+        if [ "$mcp_sandbox_gate" = missing ]; then
+            say "    fix: build and select $OSS_MCP_FIX_IMAGE that declares '$mcp_server' (see $OSS_MCP_FIX_DOC)"
+        fi
+        if [ "$mcp_provider_gate" = missing ]; then
+            say "    fix: $PROGRAM provider attach $mcp_provider"
+        fi
+        if [ "$mcp_endpoint_gate" = missing ]; then
+            say "    fix: the endpoint for '$mcp_endpoint_host' comes from the provider profile; run '$PROGRAM provider attach $mcp_provider' or import a profile that declares it"
+        fi
+    done <"$mcp_tmp.list"
+    rm -f -- "$mcp_tmp".host "$mcp_tmp".config "$mcp_tmp".sandbox "$mcp_tmp".list
+    return 0
+}
+
+cmd_mcp_status() {
+    [ "$#" -eq 0 ] || die_usage "mcp status takes no arguments"
+    require_openshell
+    name=$(resolved_name)
+    phase=$(sandbox_phase "$name")
+    if [ -z "$phase" ]; then
+        say "No sandbox '$name' for this project; run '$PROGRAM up' first."
+        exit 0
+    fi
+    say "MCP readiness for sandbox '$name':"
+    if ! mcp_readiness_report "$name"; then
+        die_gateway "cannot read MCP readiness from the gateway; try '$PROGRAM doctor'"
+    fi
+    if [ "$mcp_any" -eq 0 ]; then
+        say "  no MCP servers configured (host or sandbox declares no enabled server)."
+        exit 0
+    fi
+    if [ "$mcp_failed" -gt 0 ]; then
+        exit "$EX_GATEWAY"
+    fi
+}
+
+# The doctor's MCP section, for a front-end's agent_doctor_extra.
+doctor_mcp_section() {
+    # MCP readiness is informational: MCP is not a prerequisite for running
+    # the agent, so the exit code stays decided by the checks above. It also
+    # needs a reachable gateway, so it is skipped when the CLI or gateway is
+    # down.
+    say ""
+    say "MCP readiness (informational):"
+    if [ "$have_openshell" -eq 0 ] || [ "$gateway_ok" -eq 0 ]; then
+        say "  skipped (gateway unavailable)"
+    else
+        doctor_name=$(resolved_name)
+        doctor_phase=$(sandbox_phase "$doctor_name")
+        if [ -z "$doctor_phase" ]; then
+            say "  no sandbox '$doctor_name' (run '$PROGRAM up' first)"
+        elif ! mcp_readiness_report "$doctor_name"; then
+            say "  cannot read MCP readiness from the gateway"
+        elif [ "$mcp_any" -eq 0 ]; then
+            say "  none configured"
+        fi
+    fi
 }
 
 # ---------------------------------------------------------------------------
@@ -3777,6 +3986,15 @@ append_list() {
 # Computes the state that depends on the environment and the front-end
 # settings, and installs the setup cleanup traps. Called by oss_main.
 oss_init() {
+    # Optional agent hooks: a front-end that leaves one out gets the default
+    # (no per-exec environment; the headless exec inherits stdin).
+    if ! command -v agent_exec_env >/dev/null 2>&1; then
+        agent_exec_env() { :; }
+    fi
+    if ! command -v agent_exec_stdin >/dev/null 2>&1; then
+        agent_exec_stdin() { printf 'tty'; }
+    fi
+
     TAB=$(printf '\t')
 
     config_home=${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}

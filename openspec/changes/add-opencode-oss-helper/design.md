@@ -27,6 +27,29 @@ OpenShell 0.1.5) that shape the hooks:
 - `opencode run` accepts `--continue` and `--session ID`. `--session`
   resumes an existing session or creates one with that ID.
 
+### Spike results (2026-10-26, OpenCode 2.1.4, OpenShell 0.1.5)
+
+- **The overlay merges.** With `--env OPENCODE_CONFIG_CONTENT=…`,
+  `opencode debug config` lists the baked
+  `/sandbox/.config/opencode/opencode.json` and then the inline document
+  as a separate source. A headless `--auto` run with only the overlay
+  model was denied on both probes: `shell sudo -n true` returned
+  "Permission denied: shell", and a write to `/sandbox/.config/spike.txt`
+  returned "Permission denied: edit" (the file was not created). The TUI
+  footer showed `GLM-5.3 Synthetic`. So D2's main branch holds: the
+  overlay is `{"model":"…"}` alone, with no copy of the baked config.
+- **The fetch switch works per exec.** A run with
+  `--env OPENCODE_DISABLE_MODELS_FETCH=1` logged no `models.opencode.ai`
+  event. A control run without it logged `DENIED /usr/local/bin/opencode
+  -> models.opencode.ai:443`.
+- **`--session ID`** creates a session with that exact ID when it does not
+  exist, and resumes it on a later call. A second run recalled a word from
+  the first. `--continue` resumes the most recent session. OpenCode
+  accepts only IDs that start with `ses`. Any other ID makes it emit a JSON
+  `error` event and exit 1, and the helper passes that through unchanged.
+- `opencode debug config` takes no `--standalone` and starts
+  `opencode serve --service` in the sandbox, so the helper never runs it.
+
 ## Goals / Non-Goals
 
 **Goals:**
@@ -150,6 +173,25 @@ set it as the default: model = "…" in ~/.config/opencode-oss/config.toml
 entry under `.mcp`, using `jq`. The core's existing gate table consumes
 that format. The Maki hook keeps its TOML parsing, refactored behind the
 same hook only if the extraction did not already split it.
+
+*As implemented:* the gate table was still in `bin/maki-oss`, so this
+change moved `mcp_readiness_report`, `cmd_mcp_status`, and doctor's MCP
+section into the core as `doctor_mcp_section`. They sit behind the
+`agent_mcp_servers FILE` hook, which prints the existing five-column
+format (`name`, `transport`, `enabled`, `host`, `argv0`), and four
+front-end variables:
+
+- `OSS_HOST_MCP_CONFIG` and `OSS_SANDBOX_MCP_CONFIG`, the two config
+  paths;
+- `OSS_MCP_FIX_IMAGE` and `OSS_MCP_FIX_DOC`, the fix-hint wording.
+
+Maki's hook wraps its TOML parser, and its output is unchanged. When a hook
+fails on an existing file, the core reports that file as `unreadable`,
+does not guess its gates, and returns `mcp_failed`.
+
+Custom-profile generation needs `$OSS_PROFILES_DIR/template.yaml`, so the
+change adds `opencode-oss/providers/template.yaml`, an inert profile that
+binds `/usr/local/bin/opencode`.
 
 The sandbox file is read with `sandbox exec cat` and parsed on the host.
 Without `jq`, `mcp status` exits with the dependency code, and `doctor`

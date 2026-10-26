@@ -2,9 +2,10 @@
 
 **Your AI coding agent, locked in a sandbox.**
 
-`osa` is the project and repository. Its two agent front-ends keep their
-command names: `maki-oss` runs Maki and `opencode-oss` runs OpenCode; the
-read-only `osa` command reports on the projects they register. Earlier
+`osa` is the project and repository. Its three agent front-ends keep their
+command names: `maki-oss` runs Maki, `opencode-oss` runs OpenCode, and
+`claude-oss` runs Claude Code; the read-only `osa` command reports on the
+projects they register. Earlier
 releases used the names `maki-openshell` and `maki-oss`, and historical
 records keep them.
 
@@ -132,6 +133,9 @@ sandboxes by hand is a chore. osa gives you:
 - [`docs/glossary.md`](docs/glossary.md) — shared vocabulary for these docs.
 - [`opencode-oss/README.md`](opencode-oss/README.md) — run OpenCode itself
   natively in a sandbox (image, profiles, policy, verification record).
+- [`claude-oss/README.md`](claude-oss/README.md) — run Claude Code natively in
+  a sandbox with an API key or a Claude subscription token (image, managed
+  settings, profiles, verification record).
 
 ## Security invariants
 

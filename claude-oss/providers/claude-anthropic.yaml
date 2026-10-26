@@ -1,0 +1,41 @@
+# Claude Code + Anthropic API key provider profile for OpenShell.
+#
+# Lint and import from the repository root:
+#   openshell profile lint -f claude-oss/providers/claude-anthropic.yaml
+#   openshell profile import -f claude-oss/providers/claude-anthropic.yaml --global
+#
+# Then create the provider instance from your host environment:
+#   ANTHROPIC_API_KEY=<key> openshell provider create \
+#     --name claude-anthropic --type claude-anthropic --from-existing
+#
+# The profile authorizes only /usr/local/bin/claude (the path used by
+# claude-oss/image) to reach api.anthropic.com, and binds ANTHROPIC_API_KEY to
+# the x-api-key header Claude Code sends. Do not set ANTHROPIC_BASE_URL in the
+# sandbox: a different base URL would leave the credential unbound.
+
+id: claude-anthropic
+display_name: Claude Code (Anthropic API key)
+description: Anthropic API for the Claude Code agent, billed per call
+category: inference
+inference_capable: true
+
+credentials:
+  - name: api_key
+    description: Anthropic API key
+    env_vars: [ANTHROPIC_API_KEY]
+    required: true
+    auth_style: header
+    header_name: x-api-key
+
+discovery:
+  credentials: [api_key]
+
+endpoints:
+  - host: api.anthropic.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+
+binaries:
+  - /usr/local/bin/claude

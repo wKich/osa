@@ -1,6 +1,7 @@
 #!/bin/sh
-# Stub-backed test suite for bin/maki-oss, bin/opencode-oss, the fish plugin,
-# and the safety rules in specs/helper-cli, specs/opencode-oss-helper, and
+# Stub-backed test suite for bin/maki-oss, bin/opencode-oss, bin/claude-oss,
+# the fish plugin, and the safety rules in specs/helper-cli,
+# specs/opencode-oss-helper, specs/claude-oss-helper, and
 # specs/fish-integration.
 #
 # Runs with only a POSIX shell and the stubs under tests/stub: no Docker, no
@@ -4562,6 +4563,648 @@ test_oc_sync_no_git() {
     assert_err_has "Applied sandbox changes"
 }
 
+# ---------------------------------------------------------------------------
+# claude-oss: the Claude Code front-end over the same core and stubs
+# (specs/claude-oss-helper). Same runner pattern as opencode-oss: the
+# CLAUDE_OSS_* settings are exported, and the MAKI_OSS_* values the shared
+# runner always passes must have no effect.
+# ---------------------------------------------------------------------------
+
+CC=$ROOT/bin/claude-oss
+CC_UUID=123e4567-e89b-12d3-a456-426614174000
+
+cc_case() { # NAME
+    new_case "$1"
+    ENV_CC_MODEL=
+    ENV_CC_IMAGE=
+    EXEC_STDIN_LOG=
+    ENGINE_EXIT=
+    CC_SEED_FILES=
+    CC_TOKEN_ENV=
+    CC_NAME_PIN='cc-{project}'
+}
+
+run_cc_with_input() { # STDIN_FILE ARGS...
+    cc_rc=0
+    (
+        MAKI=$CC
+        CLAUDE_OSS_SANDBOX_NAME=${ENV_NAME:-$CC_NAME_PIN}
+        CLAUDE_OSS_TIMEOUT=${ENV_TIMEOUT:-}
+        CLAUDE_OSS_IDLE_STOP=${ENV_IDLE_STOP-0}
+        CLAUDE_OSS_RUN_TAG=${ENV_RUN_TAG:-}
+        CLAUDE_OSS_WORKDIR=$CASE/sandbox/project
+        CLAUDE_OSS_IMAGE=${ENV_CC_IMAGE:-}
+        CLAUDE_OSS_MODEL=${ENV_CC_MODEL:-}
+        CLAUDE_OSS_INTERACTIVE=${INTERACTIVE:-}
+        STUB_EXEC_STDIN_LOG=${EXEC_STDIN_LOG:-}
+        STUB_ENGINE_EXIT=${ENGINE_EXIT:-0}
+        export CLAUDE_OSS_SANDBOX_NAME CLAUDE_OSS_TIMEOUT CLAUDE_OSS_IDLE_STOP \
+            CLAUDE_OSS_RUN_TAG CLAUDE_OSS_WORKDIR CLAUDE_OSS_IMAGE \
+            CLAUDE_OSS_MODEL CLAUDE_OSS_INTERACTIVE STUB_EXEC_STDIN_LOG \
+            STUB_ENGINE_EXIT
+        unset CLAUDE_CONFIG_DIR CLAUDE_CODE_OAUTH_TOKEN ANTHROPIC_API_KEY
+        if [ -n "${CC_TOKEN_ENV:-}" ]; then
+            CLAUDE_CODE_OAUTH_TOKEN=$CC_TOKEN_ENV
+            export CLAUDE_CODE_OAUTH_TOKEN
+        fi
+        if [ -n "${CC_CONFIG_DIR:-}" ]; then
+            CLAUDE_CONFIG_DIR=$CC_CONFIG_DIR
+            export CLAUDE_CONFIG_DIR
+        fi
+        run_maki_with_input "$@"
+        exit "$RC"
+    ) || cc_rc=$?
+    RC=$cc_rc
+}
+
+run_cc() {
+    run_cc_with_input /dev/null "$@"
+}
+
+run_cc_stdin() {
+    cc_stdin_input=$1
+    shift
+    printf '%b\n' "$cc_stdin_input" >"$CASE/stdin.txt"
+    INTERACTIVE=1
+    run_cc_with_input "$CASE/stdin.txt" "$@"
+}
+
+cc_config() { # LINE
+    mkdir -p "$XDG_CONFIG_HOME/claude-oss"
+    printf '%s\n' "$1" >>"$XDG_CONFIG_HOME/claude-oss/config.toml"
+}
+
+seed_cc_provider() { # NAME
+    cc_config "providers = \"$1\""
+    mkdir -p "$STUB_STATE_DIR"
+    printf '%s\n' "$1" >>"$STUB_STATE_DIR/providers.list"
+}
+
+cc_session_dir() { # SANDBOX
+    printf '%s/.local/state/osa/sessions/%s' "$HOME" "$1"
+}
+
+# A project directory with its Ready sandbox and a remembered, attached
+# provider. Host files the test needs go in CC_SEED_FILES (NAME=CONTENT).
+cc_ready_project() { # [DIR-NAME]
+    RUN_DIR=$CASE/project/${1:-myproject}
+    mkdir -p "$RUN_DIR"
+    while IFS= read -r cc_seed; do
+        [ -n "$cc_seed" ] || continue
+        printf '%s\n' "${cc_seed#*=}" >"$RUN_DIR/${cc_seed%%=*}"
+    done <<CC_SEED
+${CC_SEED_FILES:-}
+CC_SEED
+    seed_sandbox "cc-${1:-myproject}" Ready
+    seed_cc_provider claude-anthropic
+    attach_stub_provider "cc-${1:-myproject}" claude-anthropic
+}
+
+test_cc_help() {
+    begin "claude-oss help lists the shared commands and no Maki, OpenCode, or fish ones"
+    cc_case cc-help
+    run_cc help
+    assert_rc 0
+    for cc_cmd in doctor 'image build' 'init, up' claude 'run "<prompt>"' upload download \
+        status list logs 'start, stop' rm 'policy show|edit|apply' 'policy review' \
+        'policy approve' 'policy reject' 'provider add|attach|list' 'provider setup' \
+        'mcp status' help; do
+        if ! grep -Eq "^  $(printf '%s' "$cc_cmd" | sed 's/[|.]/\\&/g')( |$)" "$OUT"; then
+            bad "help does not list: $cc_cmd"
+        fi
+    done
+    for cc_cmd in maki opencode fish; do
+        if grep -Eq "^  $cc_cmd( |$)" "$OUT"; then
+            bad "help lists $cc_cmd"
+        fi
+    done
+    assert_out_has "CLAUDE_OSS_<KEY>"
+    assert_out_has "claude-oss/config.toml"
+
+    for cc_cmd in maki opencode fish; do
+        run_cc "$cc_cmd"
+        assert_rc 1
+        assert_err_has "unknown command: $cc_cmd"
+    done
+}
+
+test_cc_run_argv() {
+    begin "claude-oss run launches claude -p stream-json with bypass and stdin closed"
+    cc_case cc-run
+    cc_ready_project
+    EXEC_STDOUT='{"type":"result","result":"OK"}'
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    printf 'LEAKED-STDIN\n' >"$CASE/stdin.txt"
+
+    run_cc_with_input "$CASE/stdin.txt" run "reply OK"
+    assert_rc 0
+    assert_out_has '{"type":"result","result":"OK"}'
+    assert_stdin_closed
+    for cc_word in claude -p --output-format stream-json --verbose \
+        --dangerously-skip-permissions "reply OK"; do
+        assert_log_line "$cc_word"
+    done
+    assert_log_before "--dangerously-skip-permissions" "reply OK"
+    assert_log_line_missing "--model"
+    assert_log_line_missing "--bare"
+    assert_log_line_missing "--settings"
+    assert_log_missing "approve-api-key"
+
+    reset_log
+    ENV_CC_MODEL=claude-sonnet-5-5
+    run_cc run "reply OK"
+    assert_rc 0
+    assert_log_line "--model"
+    assert_log_line "claude-sonnet-5-5"
+    assert_log_before "--model" "reply OK"
+
+    reset_log
+    EXEC_EXIT=3
+    EXEC_STDOUT='partial'
+    run_cc run "fail please"
+    assert_rc 3
+    assert_out_has "partial"
+}
+
+test_cc_tui_argv() {
+    begin "bare claude-oss runs the key approval step, then claude with the model"
+    cc_case cc-tui
+    cc_ready_project
+    cc_config 'model = "claude-opus-5-5"'
+
+    run_cc --continue
+    assert_rc 0
+    assert_log_line "--tty"
+    assert_log_line "sh"
+    assert_log_line "-c"
+    assert_log_line '/usr/local/libexec/claude-oss/approve-api-key; exec "$@"'
+    assert_log_line "claude"
+    assert_log_line "--dangerously-skip-permissions"
+    assert_log_line "--continue"
+    assert_log_line "--model"
+    assert_log_line "claude-opus-5-5"
+    assert_log_before "approve-api-key" "--dangerously-skip-permissions"
+    assert_log_line_missing "-p"
+    assert_log_line_missing "stream-json"
+    # The helper writes the model nowhere.
+    if grep -rqs 'claude-opus-5-5' "$RUN_DIR" "$SANDBOX_WORKDIR"; then
+        bad "the helper wrote the model into the project"
+    fi
+    assert_log_has "refs/claude-oss/base"
+
+    reset_log
+    run_cc claude
+    assert_rc 0
+    assert_log_line "--tty"
+    assert_log_line "--dangerously-skip-permissions"
+    run_cc claude extra
+    assert_rc 1
+    assert_err_has "claude takes no arguments"
+}
+
+test_cc_session_flags() {
+    begin "claude-oss passes session flags through and requires a UUID session ID"
+    cc_case cc-session
+    cc_ready_project
+
+    run_cc run --resume abc-123 "next"
+    assert_rc 0
+    assert_log_line "--resume"
+    assert_log_line "abc-123"
+    assert_log_before "--resume" "next"
+
+    reset_log
+    run_cc run --session-id "$CC_UUID" "start"
+    assert_rc 0
+    assert_log_line "--session-id"
+    assert_log_line "$CC_UUID"
+
+    reset_log
+    run_cc -r abc-tui
+    assert_rc 0
+    assert_log_line "--tty"
+    assert_log_line "--resume"
+    assert_log_line "abc-tui"
+
+    for cc_flags in "--session-id abc" "--continue --resume x" "--continue --session-id $CC_UUID" \
+        "--resume x --session-id $CC_UUID"; do
+        reset_log
+        # shellcheck disable=SC2086  # the flag list splits on purpose
+        run_cc run $cc_flags "x"
+        assert_rc 1
+        if [ -s "$LOG" ]; then
+            bad "gateway was contacted for '$cc_flags'"
+        fi
+        reset_log
+        # shellcheck disable=SC2086
+        run_cc $cc_flags
+        assert_rc 1
+        if [ -s "$LOG" ]; then
+            bad "gateway was contacted for the session with '$cc_flags'"
+        fi
+    done
+    run_cc run --session-id abc "x"
+    assert_err_has "--session-id must be a UUID"
+}
+
+test_cc_image_build() {
+    begin "claude-oss image build builds claude-oss/image as claude-agent:local"
+    cc_case cc-image
+    cc_config 'image = "my-env:latest"'
+    run_cc image build
+    assert_rc 0
+    assert_log_line "build"
+    assert_log_line "claude-agent:local"
+    assert_log_line "$ROOT/claude-oss/image"
+    assert_log_line_missing "--build-arg"
+    assert_log_line_missing "my-env:latest"
+
+    reset_log
+    run_cc image build --claude-version 9.9.9
+    assert_rc 0
+    assert_log_line "--build-arg"
+    assert_log_line "CLAUDE_VERSION=9.9.9"
+
+    reset_log
+    ENGINE_EXIT=1
+    run_cc image build --claude-version 9.9.9
+    assert_rc 2
+    assert_err_has "CLAUDE_SHA256_ARM64/AMD64"
+    assert_err_has "image build failed"
+
+    run_cc image build --opencode-version 1
+    assert_rc 1
+    assert_err_has "unknown option: --opencode-version"
+}
+
+test_cc_profiles_and_catalogs() {
+    begin "claude-oss profiles bind claude, and the catalogs name existing profiles"
+    cc_case cc-catalogs
+    cc_dir=$ROOT/claude-oss/providers
+    for cc_profile in "$cc_dir"/claude-*.yaml "$cc_dir/template.yaml"; do
+        cc_bins=$(awk '/^binaries:/{b=1;next} b&&/^  - /{print $2;next} {b=0}' "$cc_profile")
+        [ "$cc_bins" = /usr/local/bin/claude ] || bad "$(basename -- "$cc_profile") binds: $cc_bins"
+    done
+    grep -q 'header_name: x-api-key' "$cc_dir/claude-anthropic.yaml" || bad "the API key profile does not use x-api-key"
+    grep -q 'auth_style: bearer' "$cc_dir/claude-anthropic-oauth.yaml" || bad "the token profile is not bearer"
+    grep -q 'env_vars: \[CLAUDE_CODE_OAUTH_TOKEN\]' "$cc_dir/claude-anthropic-oauth.yaml" \
+        || bad "the token profile does not bind CLAUDE_CODE_OAUTH_TOKEN"
+    while IFS=$(printf '\t') read -r cc_store _ cc_id _; do
+        case $cc_store in ''|'#'*) continue ;; esac
+        [ -f "$cc_dir/$cc_id.yaml" ] || bad "stores.tsv names a missing profile: $cc_id"
+    done <"$cc_dir/stores.tsv"
+    for cc_profile in "$cc_dir"/claude-*.yaml; do
+        cc_id=$(basename -- "$cc_profile" .yaml)
+        grep -q "^$cc_id	" "$cc_dir/catalog.tsv" || bad "catalog.tsv has no row for $cc_id"
+    done
+    while IFS=$(printf '\t') read -r cc_id _; do
+        case $cc_id in ''|'#'*) continue ;; esac
+        [ -f "$cc_dir/$cc_id.yaml" ] || bad "catalog.tsv names a missing profile: $cc_id"
+    done <"$cc_dir/catalog.tsv"
+    # No file under claude-oss/ or its docs spells the placeholder prefix.
+    cc_needle=$(printf 'openshell:resolve'':env:')
+    if cc_hits=$(grep -rlF -- "$cc_needle" "$ROOT/claude-oss" "$ROOT/docs/claude-oss.md" 2>/dev/null); then
+        bad "placeholder prefix spelled in: $cc_hits"
+    fi
+}
+
+test_cc_provider_setup_store() {
+    begin "claude-oss provider setup maps a stored Anthropic key to claude-anthropic"
+    cc_case cc-setup-store
+    cc_value='fixture-cc-anthropic-key-31aa'
+    seed_maki_store anthropic "$cc_value"
+    CREDENTIAL_ENV=ANTHROPIC_API_KEY
+    CREDENTIAL_LOG=$CASE/credential-env.log
+
+    run_cc provider setup --from maki --credential anthropic --yes
+    assert_rc 0
+    assert_log_line "$ROOT/claude-oss/providers/claude-anthropic.yaml"
+    assert_log_line "create"
+    assert_log_line "claude-anthropic"
+    assert_out_has "example model: sonnet"
+    assert_out_has "model = \"sonnet\" in $XDG_CONFIG_HOME/claude-oss/config.toml"
+    grep -Fxq 'providers = "claude-anthropic"' "$XDG_CONFIG_HOME/claude-oss/config.toml" 2>/dev/null \
+        || bad "the provider was not recorded in the claude-oss config"
+    assert_credential_env "$cc_value"
+    assert_secret_absent "$cc_value"
+}
+
+test_cc_provider_setup_token() {
+    begin "claude-oss provider setup takes a setup-token from the host env, never the host login"
+    cc_case cc-setup-token
+    cc_value='fixture-cc-oauth-token-5e7f'
+    # A host Claude Code login that must never be read.
+    mkdir -p "$HOME/.claude" "$HOME/.config/anthropic"
+    printf '{"claudeAiOauth":{"accessToken":"fixture-host-login-access"}}\n' >"$HOME/.claude/.credentials.json"
+    printf 'fixture-host-login-profile\n' >"$HOME/.config/anthropic/profile"
+    CREDENTIAL_ENV=CLAUDE_CODE_OAUTH_TOKEN
+    CREDENTIAL_LOG=$CASE/credential-env.log
+    CC_TOKEN_ENV=$cc_value
+
+    run_cc provider setup --env CLAUDE_CODE_OAUTH_TOKEN --yes
+    assert_rc 0
+    assert_out_has "Using curated profile 'claude-anthropic-oauth'."
+    assert_log_line "$ROOT/claude-oss/providers/claude-anthropic-oauth.yaml"
+    assert_log_line "claude-anthropic-oauth"
+    assert_out_has "claude setup-token"
+    assert_credential_env "$cc_value"
+    assert_secret_absent "$cc_value"
+    for cc_host in fixture-host-login-access fixture-host-login-profile; do
+        assert_secret_absent "$cc_host"
+        if [ -f "$CREDENTIAL_LOG" ] && grep -Fq -- "$cc_host" "$CREDENTIAL_LOG"; then
+            bad "the host Claude Code login reached the provider flow"
+        fi
+    done
+
+    # No token in the environment: the error says where a token comes from.
+    reset_log
+    CC_TOKEN_ENV=
+    run_cc provider setup --env CLAUDE_CODE_OAUTH_TOKEN --yes
+    assert_rc 1
+    assert_err_has "claude setup-token"
+    assert_log_missing "create"
+
+    # The hidden prompt asks which credential it is.
+    reset_log
+    CC_TOKEN_ENV=
+    run_cc_stdin "g\n3\n$cc_value\n2\n" provider setup --yes
+    assert_rc 0
+    assert_out_has "Claude subscription token"
+    assert_log_line "claude-anthropic-oauth"
+    assert_credential_env "$cc_value"
+    assert_secret_absent "$cc_value"
+}
+
+test_cc_doctor() {
+    begin "claude-oss doctor reports the model and warns when both credentials are attached"
+    cc_case cc-doctor
+    cc_ready_project
+
+    run_cc doctor
+    assert_out_has "ok    model: Claude Code's default"
+    assert_out_missing "warn  credentials:"
+    cc_doctor_rc=$RC
+
+    attach_stub_provider cc-myproject claude-anthropic-oauth
+    run_cc doctor
+    assert_out_has "warn  credentials: claude-anthropic and claude-anthropic-oauth are both attached"
+    assert_out_has "Claude Code uses the API key (claude-anthropic)"
+    [ "$RC" = "$cc_doctor_rc" ] || bad "the warning changed the doctor exit code ($cc_doctor_rc -> $RC)"
+
+    cc_config 'model = "sonnet"'
+    run_cc doctor
+    assert_out_has "ok    model: sonnet"
+}
+
+seed_cc_host_mcp() { # JSON [DIR]
+    cc_mcp_dir=${2:-$HOME}
+    mkdir -p "$cc_mcp_dir"
+    printf '%s\n' "$1" >"$cc_mcp_dir/.claude.json"
+}
+
+CC_HOST_MCP='{"mcpServers": {"context7": {"type": "http", "url": "https://mcp.context7.com/mcp"}, "local": {"command": "/usr/local/bin/local-mcp", "args": []}}}'
+
+test_cc_mcp_status() {
+    begin "claude-oss mcp status compares mcpServers in the host and sandbox .claude.json"
+    cc_case cc-mcp
+    cc_ready_project
+    seed_cc_host_mcp "$CC_HOST_MCP"
+    EXEC_STDOUT=$(cat "$ROOT/claude-oss/image/claude.json")
+
+    run_cc mcp status
+    assert_rc 3
+    assert_out_has "context7: sandbox=missing"
+    assert_out_has "fix: claude-oss provider attach claude-mcp-context7"
+    assert_out_has "an environment image built FROM claude-agent:local"
+    assert_out_has "local: sandbox=missing"
+    assert_log_line "/sandbox/.claude.json"
+
+    reset_log
+    attach_stub_provider cc-myproject claude-mcp-context7
+    EXEC_STDOUT='{"mcpServers": {"context7": {"type": "http", "url": "https://mcp.context7.com/mcp"}}}'
+    seed_cc_host_mcp '{"mcpServers": {"context7": {"type": "http", "url": "https://mcp.context7.com/mcp"}}}'
+    POLICY_FULL='host: mcp.context7.com'
+    run_cc mcp status
+    assert_rc 0
+    assert_out_has "context7: sandbox=ok provider=ok endpoint=ok transport=http"
+
+    # CLAUDE_CONFIG_DIR selects the host file.
+    seed_cc_host_mcp '{"mcpServers": {"other": {"type": "http", "url": "https://other.test/mcp"}}}' "$CASE/cfgdir"
+    CC_CONFIG_DIR=$CASE/cfgdir
+    run_cc mcp status
+    assert_out_has "other: sandbox=missing"
+    CC_CONFIG_DIR=
+
+    seed_cc_host_mcp '{ not json'
+    run_cc mcp status
+    assert_rc 3
+    assert_out_has "unreadable: host config $HOME/.claude.json"
+
+    seed_cc_host_mcp "$CC_HOST_MCP"
+    PATH_OVERRIDE=$(no_jq_path)
+    run_cc mcp status
+    assert_rc 2
+    assert_err_has "needs jq"
+    run_cc doctor
+    assert_out_has "skipped: jq not found"
+}
+
+test_cc_isolation_and_registry() {
+    begin "claude-oss keeps its own sandbox, config, and state, and registers as cc"
+    cc_case cc-isolation
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    ENV_IMAGE=maki-only:tag
+
+    run_cc up
+    assert_rc 0
+    assert_log_line "cc-myproject"
+    assert_log_line "claude-agent:local"
+    assert_log_line "$ROOT/claude-oss/policies/minimal.yaml"
+    assert_log_line_missing "maki-only:tag"
+    [ "$(registry_value cc-myproject agent)" = cc ] || bad "the registry entry is not agent cc"
+
+    reset_log
+    reset_state
+    ENV_CC_IMAGE=custom:tag
+    run_cc up
+    assert_rc 0
+    assert_log_line "custom:tag"
+
+    reset_state
+    cc_ready_project
+    run_cc run "touch nothing"
+    assert_rc 0
+    [ -d "$(cc_session_dir cc-myproject)" ] || bad "no claude-oss session state"
+    [ ! -e "$HOME/.local/state/claude-oss" ] || bad "claude-oss wrote a per-tool state root"
+    [ ! -e "$HOME/.local/state/maki-oss" ] || bad "claude-oss wrote a maki-oss state root"
+    [ -d "$CASE/sandbox/.claude-oss/git" ] || bad "the sandbox baseline is not under .claude-oss"
+    [ ! -e "$XDG_CONFIG_HOME/maki-oss" ] || bad "claude-oss wrote the maki-oss config"
+    [ ! -e "$XDG_CONFIG_HOME/opencode-oss" ] || bad "claude-oss wrote the opencode-oss config"
+
+    run_osa projects --json
+    assert_rc 0
+    assert_out_has '"agent":"cc"'
+    run_cc status
+    cc_sync=$(sed -n 's/^Sync: *//p' "$OUT" | awk '{print $1}')
+    # osa runs the front-end itself, so it needs the case's sandbox workdir.
+    (
+        CLAUDE_OSS_WORKDIR=$CASE/sandbox/project
+        export CLAUDE_OSS_WORKDIR
+        run_osa status --json
+        exit "$RC"
+    ) || RC=$?
+    assert_rc 0
+    assert_out_has "\"sync\":\"$cc_sync\""
+}
+
+test_cc_lifecycle_and_guard() {
+    begin "claude-oss up/status/rm, the --env guard, and the no-provider refusal"
+    cc_case cc-lifecycle
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+
+    run_cc up --env CLAUDE_CODE_OAUTH_TOKEN=x
+    assert_rc 1
+    assert_err_has "CLAUDE_CODE_OAUTH_TOKEN"
+    assert_log_missing "create"
+    run_cc up --env CLAUDE_CODE_OAUTH_TOKEN=x --allow-env CLAUDE_CODE_OAUTH_TOKEN
+    assert_rc 0
+    assert_log_line "CLAUDE_CODE_OAUTH_TOKEN=x"
+
+    run_cc status
+    assert_rc 0
+    assert_out_has "Exists:    yes"
+    assert_out_has "claude-agent:local (configured)"
+
+    reset_log
+    run_cc rm
+    assert_rc 1
+    assert_log_missing "delete"
+    run_cc rm --yes
+    assert_rc 0
+    assert_log_line "delete"
+
+    reset_log
+    run_cc
+    assert_rc 1
+    assert_err_has "claude-oss provider setup"
+    if [ -s "$LOG" ]; then
+        bad "gateway was contacted without a provider"
+    fi
+}
+
+test_cc_timeout_proposals_idle() {
+    begin "claude-oss run --timeout wraps claude; proposals surface; idle stop waits on claude"
+    cc_case cc-timeout
+    cc_ready_project
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    printf 'LEAKED-STDIN\n' >"$CASE/stdin.txt"
+
+    run_cc_with_input "$CASE/stdin.txt" run --timeout 30 "check"
+    assert_rc 0
+    assert_log_line "claude-oss-run"
+    assert_log_has "/tmp/claude-oss-stop/"
+    assert_log_before "claude-oss-run" "--dangerously-skip-permissions"
+    assert_stdin_closed
+
+    reset_log
+    RULE_PENDING='Network Rules:  (version 3, 1 chunks)
+
+  Chunk: 2258b82a-8253-4094-bf5f-3e309b2b9c11
+  Status: pending'
+    run_cc run "check"
+    assert_rc 0
+    assert_log_line "agent_policy_proposals_enabled"
+    assert_err_has "1 pending network-rule proposal(s) for 'cc-myproject'. Review: claude-oss policy review"
+
+    reset_log
+    RULE_PENDING=
+    printf 'idle\n' >"$CASE/scan-answer"
+    printf 'claude-oss-idle|0|%s\n' "$CASE/scan-answer" >"$CASE/exec-cases"
+    EXEC_CASES=$CASE/exec-cases
+    ENV_IDLE_STOP=2s
+    run_cc run "check"
+    assert_rc 0
+    if ! wait_for_match "$LOG" '^stop$' 15; then
+        bad "no sandbox stop after the idle period"
+    fi
+    assert_log_has '= claude ]'
+    sed -n 's/.*watcher=\([0-9][0-9]*\).*/\1/p' "$(cc_session_dir cc-myproject)/idle.log" 2>/dev/null |
+        while read -r cc_pid; do
+            pkill -P "$cc_pid" 2>/dev/null || true
+            kill "$cc_pid" 2>/dev/null || true
+        done
+}
+
+test_cc_sync_clean_git() {
+    begin "claude-oss applies a clean git session by fast-forward"
+    cc_case cc-sync-git
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_sandbox cc-repo Ready
+    seed_cc_provider claude-anthropic
+    attach_stub_provider cc-repo claude-anthropic
+    run_cc upload .
+    commit_before=$(git -C "$RUN_DIR" rev-parse HEAD)
+    STUB_MAKI_SCRIPT='printf "agent\n" > agent.txt; printf "modified\n" > tracked.txt'
+
+    run_cc run "edit"
+    assert_rc 0
+    [ "$(cat "$RUN_DIR/tracked.txt")" = modified ] || bad "agent change is not on the host"
+    [ "$(cat "$RUN_DIR/agent.txt" 2>/dev/null)" = agent ] || bad "agent file is not on the host"
+    [ "$(git -C "$RUN_DIR" rev-parse HEAD^)" = "$commit_before" ] || bad "result commit parent is not the baseline"
+    [ "$(git -C "$RUN_DIR" log -1 --format=%s)" = "claude-oss: apply sandbox changes" ] \
+        || bad "result commit has the wrong subject"
+}
+
+test_cc_sync_dirty_host() {
+    begin "claude-oss keeps a dirty host and commits the result on a review branch"
+    cc_case cc-sync-dirty
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    printf 'local edit\n' >>"$RUN_DIR/tracked.txt"
+    seed_sandbox cc-repo Ready
+    seed_cc_provider claude-anthropic
+    attach_stub_provider cc-repo claude-anthropic
+    STUB_MAKI_SCRIPT='printf "agent edited\n" > tracked.txt'
+
+    run_cc run "edit"
+    assert_rc 0
+    assert_err_has "Uncommitted host work was not committed"
+    cc_branch=$(git -C "$RUN_DIR" for-each-ref --format='%(refname:short)' 'refs/heads/claude-oss/*' | head -n 1)
+    [ -n "$cc_branch" ] || bad "result branch was not kept"
+    grep -Fq 'local edit' "$RUN_DIR/tracked.txt" || bad "local edit was lost"
+    [ -f "$(cc_session_dir cc-repo)/pending" ] || bad "no pending marker for the dirty host"
+}
+
+test_cc_sync_plain_directory() {
+    begin "claude-oss applies a clean patch to a plain directory"
+    cc_case cc-sync-plain
+    CC_SEED_FILES='readme.txt=host-version
+hostonly.txt=host-only'
+    cc_ready_project
+    STUB_MAKI_SCRIPT='printf "sandbox-version\n" > readme.txt'
+
+    run_cc run "edit"
+    assert_rc 0
+    grep -Fq 'sandbox-version' "$RUN_DIR/readme.txt" || bad "the patch did not update the file"
+    grep -Fq 'host-only' "$RUN_DIR/hostonly.txt" || bad "a host-only file was removed"
+}
+
+test_cc_sync_no_git() {
+    begin "claude-oss applies a text patch with patch when the host has no git"
+    cc_case cc-sync-nogit
+    CC_SEED_FILES='file.txt=v1'
+    cc_ready_project
+    PATH_OVERRIDE=$(no_git_path with_patch)
+    STUB_MAKI_SCRIPT='printf "v2\n" > file.txt'
+
+    run_cc run "edit"
+    assert_rc 0
+    [ "$(cat "$RUN_DIR/file.txt")" = v2 ] || bad "text patch did not apply without git"
+}
+
 test_sandbox_id_recorded() {
     begin "a session records the sandbox ID and status reads it back"
     new_case sandbox-id
@@ -5682,6 +6325,23 @@ run_test test_oc_sync_clean_git
 run_test test_oc_sync_dirty_host
 run_test test_oc_sync_plain_directory
 run_test test_oc_sync_no_git
+run_test test_cc_help
+run_test test_cc_run_argv
+run_test test_cc_tui_argv
+run_test test_cc_session_flags
+run_test test_cc_image_build
+run_test test_cc_profiles_and_catalogs
+run_test test_cc_provider_setup_store
+run_test test_cc_provider_setup_token
+run_test test_cc_doctor
+run_test test_cc_mcp_status
+run_test test_cc_isolation_and_registry
+run_test test_cc_lifecycle_and_guard
+run_test test_cc_timeout_proposals_idle
+run_test test_cc_sync_clean_git
+run_test test_cc_sync_dirty_host
+run_test test_cc_sync_plain_directory
+run_test test_cc_sync_no_git
 
 printf '\n%d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"
 if [ "$FAIL" -ne 0 ]; then

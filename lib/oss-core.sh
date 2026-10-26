@@ -3834,6 +3834,7 @@ cmd_provider_setup() {
         cred_value=$(printenv "$source_env" || true)
         if [ -z "$cred_value" ]; then
             err "environment variable '$source_env' is not set (or empty)"
+            agent_missing_env_hint "$source_env"
             exit "$EX_USAGE"
         fi
     else
@@ -3865,6 +3866,21 @@ cmd_provider_setup() {
             profile_file=$profiles_dir/$profile_id.yaml
             if [ ! -f "$profile_file" ]; then
                 die_dep "catalog maps $source_store:$source_slug to '$profile_id', but $profile_file is missing"
+            fi
+            say "Using curated profile '$profile_id'."
+        fi
+    fi
+    # A generic credential (file, env var, prompt) may still belong to a
+    # curated profile; the front-end decides, or leaves agent_profile_id empty
+    # for custom setup.
+    if [ -z "$profile_file" ] && [ "$source_kind" != store ]; then
+        agent_profile_id=
+        agent_generic_profile "$source_kind" "$source_env"
+        if [ -n "$agent_profile_id" ]; then
+            profile_id=$agent_profile_id
+            profile_file=$profiles_dir/$profile_id.yaml
+            if [ ! -f "$profile_file" ]; then
+                die_dep "curated profile '$profile_id' is missing: $profile_file"
             fi
             say "Using curated profile '$profile_id'."
         fi
@@ -4112,6 +4128,14 @@ oss_init() {
     fi
     if ! command -v agent_exec_stdin >/dev/null 2>&1; then
         agent_exec_stdin() { printf 'tty'; }
+    fi
+    # provider setup: a generic credential goes to custom setup, and an unset
+    # --env variable gets no extra hint.
+    if ! command -v agent_generic_profile >/dev/null 2>&1; then
+        agent_generic_profile() { :; }
+    fi
+    if ! command -v agent_missing_env_hint >/dev/null 2>&1; then
+        agent_missing_env_hint() { :; }
     fi
 
     TAB=$(printf '\t')

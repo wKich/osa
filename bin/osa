@@ -1,8 +1,8 @@
 #!/bin/sh
 # shellcheck shell=sh source-path=SCRIPTDIR
 #
-# osa: report on every project the agent front-ends (maki-oss, opencode-oss)
-# have registered in the shared state root.
+# osa: report on every project the agent front-ends (maki-oss, opencode-oss,
+# claude-oss) have registered in the shared state root.
 #
 # osa is read-only: it never creates, starts, stops, deletes, uploads to,
 # downloads from, or runs anything in a sandbox, and it never writes the state
@@ -46,8 +46,8 @@ Options:
             whether the host changed since the last sync (changed,
             unchanged, or unknown)
 
-osa never changes a sandbox or the state root. Run maki-oss or opencode-oss
-in the project to act on it.
+osa never changes a sandbox or the state root. Run maki-oss, opencode-oss,
+or claude-oss in the project to act on it.
 EOF
 }
 
@@ -62,6 +62,7 @@ front_end() { # TAG
     case $1 in
         mk) printf '%s/bin/maki-oss' "$repo_root" ;;
         oc) printf '%s/bin/opencode-oss' "$repo_root" ;;
+        cc) printf '%s/bin/claude-oss' "$repo_root" ;;
     esac
 }
 
@@ -148,7 +149,7 @@ ENTRIES
 $(registry_entries)
 ENTRIES
     if [ "$cp_count" -eq 0 ]; then
-        printf 'No registered projects. Run maki-oss or opencode-oss in a project.\n'
+        printf 'No registered projects. Run maki-oss, opencode-oss, or claude-oss in a project.\n'
     fi
 }
 

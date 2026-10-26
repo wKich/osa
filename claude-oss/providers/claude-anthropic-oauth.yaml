@@ -1,0 +1,45 @@
+# Claude Code + Claude subscription (Pro/Max) provider profile for OpenShell.
+#
+# Create the token on the host, never in a sandbox:
+#   claude setup-token
+#
+# Lint and import from the repository root:
+#   openshell profile lint -f claude-oss/providers/claude-anthropic-oauth.yaml
+#   openshell profile import -f claude-oss/providers/claude-anthropic-oauth.yaml --global
+#
+# Then create the provider instance from your host environment:
+#   CLAUDE_CODE_OAUTH_TOKEN=<token> openshell provider create \
+#     --name claude-anthropic-oauth --type claude-anthropic-oauth --from-existing
+#
+# The profile authorizes only /usr/local/bin/claude (the path used by
+# claude-oss/image) to reach api.anthropic.com, and binds
+# CLAUDE_CODE_OAUTH_TOKEN to the bearer authorization header Claude Code sends.
+# The token is long-lived and needs no refresh endpoint. If an Anthropic API
+# key is attached to the same sandbox, Claude Code uses the key instead.
+
+id: claude-anthropic-oauth
+display_name: Claude Code (Claude subscription)
+description: Anthropic API for the Claude Code agent through a Claude Pro/Max subscription token
+category: inference
+inference_capable: true
+
+credentials:
+  - name: oauth_token
+    description: Claude Code subscription token from claude setup-token
+    env_vars: [CLAUDE_CODE_OAUTH_TOKEN]
+    required: true
+    auth_style: bearer
+    header_name: authorization
+
+discovery:
+  credentials: [oauth_token]
+
+endpoints:
+  - host: api.anthropic.com
+    port: 443
+    protocol: rest
+    access: read-write
+    enforcement: enforce
+
+binaries:
+  - /usr/local/bin/claude

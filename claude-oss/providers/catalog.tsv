@@ -1,0 +1,12 @@
+# OpenShell profile to credential mapping for claude-oss.
+#
+# Columns, tab-separated:
+#   profile-id     file in this directory (<profile-id>.yaml)
+#   env-var        credential env var the profile binds
+#   example-model  a model Claude Code accepts for --model
+#   note           short note
+#
+# Both profiles reach api.anthropic.com. Claude Code prefers ANTHROPIC_API_KEY
+# over CLAUDE_CODE_OAUTH_TOKEN, so attach one of them to a sandbox.
+claude-anthropic	ANTHROPIC_API_KEY	sonnet	Anthropic API key, billed per call
+claude-anthropic-oauth	CLAUDE_CODE_OAUTH_TOKEN	sonnet	Claude Pro/Max subscription token from claude setup-token on the host

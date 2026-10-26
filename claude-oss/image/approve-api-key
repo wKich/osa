@@ -1,0 +1,32 @@
+#!/bin/sh
+# Records the attached ANTHROPIC_API_KEY as approved in ~/.claude.json, so an
+# interactive Claude Code session does not stop at "Do you want to use this
+# API key?" (whose default answer, No, would make Claude Code ignore the key
+# for good).
+#
+# The value is the OpenShell placeholder, never the real key, and it never
+# leaves the sandbox. Claude Code matches approvals by the last 20
+# characters, which do not include the placeholder prefix. With no API key in
+# the environment this does nothing, so subscription-token sandboxes are
+# unaffected.
+
+set -eu
+
+key=${ANTHROPIC_API_KEY:-}
+[ -n "$key" ] || exit 0
+
+key_tail=$(printf '%s' "$key" | tail -c 20)
+state=${HOME:-/sandbox}/.claude.json
+[ -s "$state" ] || printf '{}\n' >"$state"
+
+tmp=$(mktemp "$state.XXXXXX")
+if jq --arg t "$key_tail" '
+    .customApiKeyResponses.approved = (((.customApiKeyResponses.approved // []) + [$t]) | unique)
+    | .customApiKeyResponses.rejected = ((.customApiKeyResponses.rejected // []) - [$t])
+' "$state" >"$tmp"; then
+    chmod 0600 "$tmp"
+    mv "$tmp" "$state"
+else
+    rm -f "$tmp"
+    echo "approve-api-key: could not update $state; answer Yes at the API key prompt" >&2
+fi

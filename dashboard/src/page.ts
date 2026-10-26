@@ -2,8 +2,8 @@
 //
 // The page embeds a bootstrap JSON data block (session token, read-only flag,
 // refresh interval, create defaults) and loads the vanilla-JS frontend from
-// `/app.js`. No framework, no bundler, no inline script: the CSP only allows
-// `script-src 'self'`.
+// the ES module `/app/main.js`. No framework, no bundler, no inline script:
+// the CSP only allows `script-src 'self'`.
 
 import type { DashboardConfig } from "./config.ts";
 
@@ -73,17 +73,34 @@ export function renderPage(options: PageOptions): string {
   .log-warn { color: #b45309; }
   .log-debug, .log-trace { opacity: .7; }
   #log-view { height: 24rem; overflow: auto; border: 1px solid rgba(128, 128, 128, .4); padding: .4rem; }
+  nav.tabs { display: flex; gap: .6rem; align-items: baseline; }
+  nav.tabs button { background: none; border: 0; padding: 0; cursor: pointer; color: inherit; }
+  nav.tabs button.attention { border: 1px solid #b45309; color: #b45309; padding: 0 .4rem; }
+  .badge { display: inline-block; border: 1px solid currentColor; padding: 0 .35rem; margin-right: .3rem; font-size: .85em; }
+  .badge-retained, .badge-parked { color: #b45309; }
+  .badge-orphan { color: #c44; }
+  .full-status { margin-top: .3rem; }
+  #patch-view { max-height: 40rem; overflow: auto; border: 1px solid rgba(128, 128, 128, .4); padding: .4rem; }
+  .patch-line { white-space: pre-wrap; word-break: break-word; min-height: 1.2em; }
+  .patch-add { color: #1a7f37; background: rgba(40, 160, 80, .12); }
+  .patch-del { color: #c44; background: rgba(200, 80, 80, .12); }
+  .patch-hunk { color: #6f42c1; }
 </style>
 </head>
 <body>
 <header>
   <h1>OpenShell dashboard</h1>
+  <nav class="tabs">
+    <button id="tab-projects" type="button">Projects</button>
+    <button id="tab-sandboxes" type="button">Sandboxes</button>
+    <button id="attention" class="attention" type="button" hidden></button>
+  </nav>
   <div id="status" class="muted">loading…</div>
 </header>
 <div id="banner" role="alert"></div>
 <main id="app"></main>
 <script id="dashboard-bootstrap" type="application/json">${escapeScriptJson(bootstrap)}</script>
-<script src="/app.js" defer></script>
+<script type="module" src="/app/main.js"></script>
 </body>
 </html>
 `;

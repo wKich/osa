@@ -1,0 +1,54 @@
+#!/usr/bin/env bun
+// Stub osa CLI for the dashboard test suite.
+//
+// Answers `status PATH --quick --json` and `status PATH --json` from a JSON
+// fixture keyed by host path:
+//
+//   { "/abs/path": { "quick": [ ...entries ], "full": [ ...entries ] } }
+//
+// A path missing from the fixture (or a missing mode) answers `[]`, like osa
+// for an unregistered path. Every other command is a usage error.
+//
+// Environment knobs:
+//   STUB_OSA_FIXTURE  JSON fixture file (default: none, every answer is [])
+//   STUB_OSA_LOG      file to append each argv to, one JSON array per line
+//   STUB_OSA_FAIL     "exit": exit 1 with a message on stderr
+//                     "hang": never answer (until killed)
+//                     "invalid-json": exit 0 with non-JSON output
+//   STUB_OSA_DELAY    seconds to wait before answering
+
+import { appendFileSync, existsSync, readFileSync } from "node:fs";
+
+const args = process.argv.slice(2);
+const env = process.env;
+
+if (env.STUB_OSA_LOG) appendFileSync(env.STUB_OSA_LOG, `${JSON.stringify(args)}\n`);
+
+switch (env.STUB_OSA_FAIL) {
+  case "exit":
+    process.stderr.write("stub osa: forced failure\n");
+    process.exit(1);
+  case "hang":
+    setInterval(() => {}, 1000);
+    await new Promise(() => {});
+  case "invalid-json":
+    process.stdout.write("this is not valid json\n");
+    process.exit(0);
+}
+
+const quick = args.length === 4 && args[2] === "--quick" && args[3] === "--json";
+const full = args.length === 3 && args[2] === "--json";
+if (args[0] !== "status" || !(quick || full)) {
+  process.stderr.write(`stub osa: unsupported argv: ${args.join(" ")}\n`);
+  process.exit(1);
+}
+
+const delay = Number(env.STUB_OSA_DELAY || "0");
+if (delay > 0) await Bun.sleep(delay * 1000);
+
+const fixture =
+  env.STUB_OSA_FIXTURE && existsSync(env.STUB_OSA_FIXTURE)
+    ? JSON.parse(readFileSync(env.STUB_OSA_FIXTURE, "utf8"))
+    : {};
+const answer = fixture[args[1]]?.[quick ? "quick" : "full"] ?? [];
+process.stdout.write(`${JSON.stringify(answer)}\n`);

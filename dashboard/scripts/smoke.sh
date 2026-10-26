@@ -163,15 +163,22 @@ if wait_http "$BASE/"; then ok "server starts with --port and the stub on PATH";
 curl -s "$BASE/" >"$WORK/page.html"
 curl -s -D "$WORK/page.headers" "$BASE/" >/dev/null
 assert_contains "page embeds the session bootstrap" "$WORK/page.html" '"token":"'
-assert_contains "page loads the client script" "$WORK/page.html" 'src="/app.js"'
+assert_contains "page loads the client module" "$WORK/page.html" 'src="/app/main.js"'
 assert_contains "page carries a CSP" "$WORK/page.headers" "script-src 'self'"
 
-curl -s "$BASE/app.js" >"$WORK/app.js"
-assert_contains "client script served" "$WORK/app.js" "document.createElement"
+for module in main.js dom.js projects.js patch.js; do
+    curl -s "$BASE/app/$module" >>"$WORK/app.js"
+done
+assert_contains "client modules served" "$WORK/app.js" "document.createElement"
 if grep -q "innerHTML" "$WORK/app.js"; then
-    bad "client script contains an HTML sink"
+    bad "client modules contain an HTML sink"
 else
-    ok "client script has no HTML sinks"
+    ok "client modules have no HTML sinks"
+fi
+if [ "$(curl -s -o /dev/null -w '%{http_code}' "$BASE/app.js")" = 404 ]; then
+    ok "the old /app.js path is gone"
+else
+    bad "/app.js is still served"
 fi
 
 TOKEN=$(sed -n 's/.*"token":"\([^"]*\)".*/\1/p' "$WORK/page.html" | head -n 1)

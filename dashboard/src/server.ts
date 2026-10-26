@@ -1,5 +1,5 @@
-// HTTP server: Bun.serve routes for the page, the JSON API, and the log SSE
-// stream.
+// HTTP server: Bun.serve routes for the page, the frontend modules, the JSON
+// API, and the log SSE stream.
 //
 // Safety model (see the change design):
 //   - loopback bind by default; any other host requires an explicit token;
@@ -7,7 +7,10 @@
 //     also blocks cross-site form posts;
 //   - the log stream requires the same token as a `token` query parameter
 //     (EventSource cannot send headers), in read-only mode too;
-//   - `--read-only` rejects every mutating route with 403.
+//   - `--read-only` rejects every mutating route with 403;
+//   - project routes are GET only and never write: the list reads the osa
+//     state contract, status runs `osa status … --json`, and the patch route
+//     (host source code) requires the session token in both modes.
 
 import { loadConfig, type DashboardConfig } from "./config.ts";
 import { LogHub } from "./logs.ts";
@@ -18,6 +21,8 @@ import {
   type Result,
 } from "./openshell.ts";
 import { renderPage } from "./page.ts";
+import { ProjectService, type ProjectServiceOptions, type ServiceResult } from "./projects.ts";
+import { readdirSync } from "node:fs";
 import { join } from "node:path";
 
 export const DEFAULT_HOST = "127.0.0.1";
@@ -38,6 +43,18 @@ const JS_HEADERS = {
   "x-content-type-options": "nosniff",
 };
 
+/** Directory holding the frontend ES modules. */
+const APP_DIR = join(import.meta.dir, "app");
+const MODULE_NAME = /^[a-z-]+\.js$/;
+
+/**
+ * Module names served under `/app/`, read once at startup. A request path is
+ * only ever compared against this set, so no URL text reaches the file system.
+ */
+export function moduleAllowlist(dir: string = APP_DIR): Set<string> {
+  return new Set(readdirSync(dir).filter((name) => MODULE_NAME.test(name)));
+}
+
 export interface DashboardServerOptions {
   host?: string;
   port?: number;
@@ -46,6 +63,8 @@ export interface DashboardServerOptions {
   config?: DashboardConfig;
   client?: OpenShellClient;
   clientOptions?: OpenShellClientOptions;
+  projects?: ProjectService;
+  projectOptions?: ProjectServiceOptions;
 }
 
 export interface DashboardHandle {
@@ -145,6 +164,8 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
   const config = options.config ?? loadConfig();
   const client = options.client ?? new OpenShellClient(options.clientOptions);
   const hubs = new Map<string, LogHub>();
+  const modules = moduleAllowlist();
+  const projects = options.projects ?? new ProjectService(options.projectOptions);
 
   const guardMutation = (request: Request): Response | null => {
     if (readOnly) {
@@ -186,8 +207,45 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
     return new Response(subscription.stream, { headers: SSE_HEADERS });
   };
 
+  const hasToken = (request: Request): boolean => {
+    const provided = request.headers.get("x-dashboard-token") ?? "";
+    return Boolean(provided) && tokensEqual(provided, token);
+  };
+
+  const serviceResponse = <T>(result: ServiceResult<T>, wrap: (value: T) => unknown): Response => {
+    if (result.ok) return json(wrap(result.value));
+    const status = result.status ?? errorStatus(result.error as OpenShellError);
+    return json({ error: result.error }, status);
+  };
+
+  // GET /api/projects, /api/projects/:sandbox/status, /api/projects/:sandbox/patch
+  const handleProjects = async (request: Request, segments: string[]): Promise<Response> => {
+    if (request.method.toUpperCase() !== "GET") {
+      return new Response(
+        JSON.stringify({ error: { kind: "method_not_allowed", message: "project routes are read-only" } }),
+        { status: 405, headers: { "content-type": "application/json; charset=utf-8", allow: "GET" } },
+      );
+    }
+    if (segments.length === 2) {
+      const refresh = new URL(request.url).searchParams.get("refresh") === "1";
+      return json({ projects: projects.list({ refresh }) });
+    }
+    const sandbox = segments[2] ?? "";
+    if (segments.length === 4 && segments[3] === "status") {
+      return serviceResponse(await projects.status(sandbox), (status) => ({ status }));
+    }
+    if (segments.length === 4 && segments[3] === "patch") {
+      // A patch carries host source code: token required, read-only mode too.
+      if (!hasToken(request)) return forbidden("forbidden", "missing or invalid session token");
+      return serviceResponse(projects.patch(sandbox), (patch) => ({ patch }));
+    }
+    return json({ error: { kind: "not_found", message: "unknown route" } }, 404);
+  };
+
   const handleApi = async (request: Request, segments: string[]): Promise<Response> => {
     const method = request.method.toUpperCase();
+
+    if (segments[1] === "projects") return handleProjects(request, segments);
 
     if (method === "GET" && segments.length === 2 && segments[1] === "doctor") {
       const result = await client.doctor();
@@ -331,9 +389,12 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
             headers: HTML_HEADERS,
           });
         }
-        if (method === "GET" && segments[0] === "app.js") {
-          const source = await Bun.file(join(import.meta.dir, "app.js")).text();
-          return new Response(source, { headers: JS_HEADERS });
+        if (method === "GET" && segments[0] === "app" && segments.length === 2) {
+          const name = segments[1] ?? "";
+          if (modules.has(name)) {
+            const source = await Bun.file(join(APP_DIR, name)).text();
+            return new Response(source, { headers: JS_HEADERS });
+          }
         }
         if (method === "GET" && segments[0] === "favicon.ico") {
           return new Response(null, { status: 204 });

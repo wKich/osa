@@ -103,7 +103,9 @@ export function usage(): string {
     "  --read-only  Reject every mutating route with 403 and hide the controls.",
     "",
     "Environment: DASHBOARD_PORT, DASHBOARD_HOST, DASHBOARD_TOKEN, DASHBOARD_READ_ONLY,",
-    "DASHBOARD_OPENSHELL_BIN.",
+    "DASHBOARD_OPENSHELL_BIN (openshell binary, default: openshell),",
+    "DASHBOARD_OSA_BIN (osa binary, default: ../bin/osa next to the dashboard, else osa),",
+    "XDG_STATE_HOME (osa state root base for the Projects view, default: ~/.local/state).",
   ].join("\n");
 }
 

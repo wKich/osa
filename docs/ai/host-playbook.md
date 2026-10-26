@@ -49,8 +49,9 @@ Never relax the security invariants listed at the end.
 
 ### Run
 
-Report which tools are already present; on a bare host every command below is
-absent, which is expected:
+Report which tools are already present. On a bare host the engine and OpenShell
+checks are absent and `uname -m` still reports the architecture, which is
+expected:
 
 ```sh
 docker version --format '{{.Server.Version}}'
@@ -167,10 +168,10 @@ export PATH="/absolute/path/to/osa/bin:$PATH"
 ```
 
 Fish users: this page installs nothing into fish. Fish integration and the
-helper fallback variable are per-agent; follow the shell integration section of
-the playbook for the agent you chose — for Maki,
-[`playbooks/maki.md`](playbooks/maki.md) `Shell preparation`; for OpenCode,
-[`docs/opencode-oss.md`](../opencode-oss.md). Claude Code has no fish plugin.
+helper fallback variables are covered by the shared
+[Fish setup](../helper.md#fish-setup) section for both `maki-oss` and
+`opencode-oss`; the Maki playbook's [`Shell preparation`](playbooks/maki.md)
+section is the Maki-specific sequence. Claude Code has no fish plugin.
 
 ### Verify
 

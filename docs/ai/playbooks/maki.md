@@ -5,7 +5,7 @@
 | Doc | `playbook-maki` |
 | Kind | `playbook` |
 | Agent | `Maki` |
-| Covers | `P0, P3-P8` |
+| Covers | `P0-P8` |
 | Preconditions | `docs/ai/host-playbook.md` `P0-P2` |
 | Handoff | `docs/verification.md` |
 | Verification | `docs/verification.md` |
@@ -151,8 +151,7 @@ docker run --rm maki-agent:local maki --version
 IMAGE=maki-agent:local
 ```
 
-Or use the helper's thin wrapper, which builds the same tag from
-`examples/maki-image/`:
+Or use the helper's thin wrapper for the build, then verify with the helper:
 
 ```sh
 ./bin/maki-oss image build
@@ -356,14 +355,8 @@ placeholders. Use `--output-format json` for machine-readable results.
 #### Helper shortcut
 
 If `maki-oss` is available (from this repository), it performs Phases 2–7 —
-except cleanup — in one command per project:
-
-```sh
-maki-oss provider setup        # one-time; remembers the provider
-cd "$PROJECT_PATH"
-maki-oss                       # ensure sandbox + interactive Maki + safe sync
-maki-oss run "the task text"   # headless variant
-```
+except cleanup — in one command per project. The one-time setup and the
+everyday session loop are in [`## Daily driver`](#daily-driver) below.
 
 The helper still uses provider profiles and the minimal policy, and never
 relaxes the invariants below. Use the raw commands when you need explicit
@@ -417,10 +410,11 @@ path.
 
 ### Run
 
-**Once per machine** (completed in Phases 1-2; listed here only to keep it
-separate from the loop): `maki-oss doctor`, `maki-oss image build`, an optional
-environment-store build, `maki-oss provider setup`, and setting `image` when a
-derived environment image is used.
+**Once per machine** (completed in Shell preparation and Phases 1-2; listed
+here only to keep it separate from the loop): `maki-oss doctor`,
+`maki-oss image build`, an optional environment-store build,
+`maki-oss provider setup`, and setting `image` when a derived environment image
+is used.
 
 **Every project** — the everyday loop:
 
@@ -490,8 +484,9 @@ action; do not start a new sandbox to fix a report.
 ## Invariants (never relax these to make a command work)
 
 - No host bind mounts. Move files with `sandbox upload` / `sandbox download`.
-- No secrets via `openshell sandbox create --env` or `sandbox exec --env`.
-  Credentials come from provider profiles only.
+- No secrets via `openshell sandbox create --env`/`--env-from` or
+  `sandbox exec --env`/`--env-from`. Credentials come from provider profiles
+  only.
 - Egress stays deny-by-default. Add the narrowest missing rule, never `tls:
   skip`, `access: full`, or a wildcard host to fix a denial.
 - The sandbox process stays non-root (uid/gid 1500).

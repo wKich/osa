@@ -94,14 +94,15 @@ agent columns name the command or page for that front-end.
 For OpenCode and Claude Code the agent CLI is baked into the image; the P1
 agent-CLI gate is satisfied by the P3 build, not by a host install.
 
-Local numbering stays where it is. This table maps the existing Maki pages to
-the canonical IDs; the OpenCode and Claude pages are unnumbered references.
+Local numbering stays where it is. This table maps the shared host playbook and
+the Maki agent playbook to the canonical IDs; the OpenCode and Claude pages are
+unnumbered references.
 
-| Canonical | Maki host playbook | Maki agent playbook |
+| Canonical | Shared host playbook | Maki agent playbook |
 |---|---|---|
 | P0 | Phase 1 | Phase 0 |
 | P1 | Phase 2 | Phase 0 |
-| P2 | Phase 3 | Shell preparation |
+| P2 | Phase 3 | Phases 1-2, Shell preparation |
 | P3 | - | Phase 1 |
 | P4 | - | Phase 2 |
 | P5 | - | Phases 3-4 |
@@ -274,8 +275,8 @@ These are the same rules as `AGENTS.md`; restate them, never relax them.
 
 - [`docs/ai/host-playbook.md`](host-playbook.md) — the shared host path,
   P0-P2.
-- [`docs/ai/playbooks/maki.md`](playbooks/maki.md) — the Maki sandbox path,
-  P0, P3-P8.
+- [`docs/ai/playbooks/maki.md`](playbooks/maki.md) — the Maki agent path,
+  P0-P8.
 - [`docs/ai/environment-playbook.md`](environment-playbook.md) — compose a
   same-agent environment store.
 - [`docs/opencode-oss.md`](../opencode-oss.md) — the OpenCode path.

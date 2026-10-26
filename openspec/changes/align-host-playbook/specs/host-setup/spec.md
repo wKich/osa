@@ -235,10 +235,11 @@ isolation-verification, or agent-run commands of its own.
 
 ### Requirement: Versions match their canonical sources
 
-Every version the shared playbook pins (OpenShell version, container engine
-minimum) SHALL match `docs/ai/references.md`. The Maki playbook's pinned Maki
-version SHALL match `examples/maki-image/Dockerfile` and the verified version
-in `docs/ai/references.md`. Each page SHALL link `docs/ai/references.md` rather
+The OpenShell version the shared playbook pins SHALL match
+`docs/ai/references.md`, and its container-engine minimum SHALL match
+`docs/setup-guide.md`. The Maki playbook's pinned Maki version SHALL match
+`examples/maki-image/Dockerfile` and the verified version in
+`docs/ai/references.md`. Each page SHALL link `docs/ai/references.md` rather
 than restate external documentation links.
 
 The OpenShell version a document claims to be verified against SHALL match
@@ -256,10 +257,11 @@ measurement rather than an edited string.
 
 #### Scenario: Shared OpenShell and engine pins
 
-- **WHEN** the OpenShell and container-engine versions in
-  `docs/ai/host-playbook.md` are compared with `docs/ai/references.md`
-- **THEN** the shared page states the same verified OpenShell version and a
-  container-engine minimum of `28.0` or later
+- **WHEN** the OpenShell version in `docs/ai/host-playbook.md` is compared with
+  `docs/ai/references.md`, and its container-engine minimum with
+  `docs/setup-guide.md`
+- **THEN** the shared page states the same verified OpenShell version and the
+  same container-engine minimum of `28.0` or later
 
 #### Scenario: External links stay centralized
 
@@ -290,8 +292,8 @@ measurement rather than an edited string.
 
 Agent-specific host steps SHALL live in the page for that agent.
 `docs/ai/host-playbook.md` MUST NOT contain an agent CLI install or version
-check, an agent image build, a provider wizard or profile command, a shell
-integration command, or a daily-driver loop for any agent.
+check, an agent image build, a provider wizard or profile command, an
+agent-specific shell integration command, or a daily-driver loop for any agent.
 `docs/ai/playbooks/maki.md`, `docs/opencode-oss.md`, and
 `docs/claude-oss.md` SHALL own those steps for Maki, OpenCode, and Claude Code
 respectively, and MAY link `docs/helper.md` for behavior shared by the

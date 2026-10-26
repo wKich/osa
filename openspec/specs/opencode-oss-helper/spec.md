@@ -147,7 +147,9 @@ host.
 `opencode-oss mcp status` SHALL compare the servers enabled under the `mcp`
 key of the host's `~/.config/opencode/opencode.json` with the servers in
 the sandbox's `/sandbox/.config/opencode/opencode.json`. It SHALL report one
-line per server name with the same gate vocabulary as `maki-oss mcp status`.
+line per server name with the same gate vocabulary as `maki-oss mcp status`,
+and SHALL expect the provider for server `<name>` to be named
+`opencode-mcp-<name>`.
 `opencode-oss doctor` SHALL include the same table. When a file cannot be
 parsed as JSON, the helper SHALL report that file as unreadable rather than
 guessing.

@@ -4271,7 +4271,7 @@ test_oc_mcp_status_missing_in_sandbox() {
     assert_rc 3
     assert_out_has "context7: sandbox=missing"
     assert_out_has "fix: build and select an environment image built FROM opencode-agent:local that declares 'context7' (see docs/opencode-oss.md)"
-    assert_out_has "fix: opencode-oss provider attach mcp-context7"
+    assert_out_has "fix: opencode-oss provider attach opencode-mcp-context7"
     assert_out_missing "off:"
     assert_log_line "/sandbox/.config/opencode/opencode.json"
     assert_log_missing "create"
@@ -4282,7 +4282,7 @@ test_oc_mcp_status_present() {
     begin "opencode-oss mcp status passes a server present on both sides"
     oc_case oc-mcp-present
     oc_ready_project
-    attach_stub_provider oc-myproject mcp-context7
+    attach_stub_provider oc-myproject opencode-mcp-context7
     seed_oc_host_mcp "$OC_HOST_MCP"
     EXEC_STDOUT=$OC_HOST_MCP
     POLICY_FULL='host: mcp.context7.com'

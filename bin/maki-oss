@@ -145,6 +145,7 @@ OSS_AGENT_NAME=Maki                      # named in generated profiles
 OSS_AGENT_PROCESS=maki                   # in-sandbox process the idle stop waits on
 OSS_HOST_MCP_CONFIG=${HOME:-/tmp}/.config/maki/mcp.toml
 OSS_SANDBOX_MCP_CONFIG=/sandbox/.config/maki/mcp.toml
+OSS_MCP_PROVIDER_PREFIX=mcp-            # provider name for server <name>
 OSS_MCP_FIX_IMAGE='an environment image' # named in mcp status fix hints
 OSS_MCP_FIX_DOC=docs/ai/environment-playbook.md
 

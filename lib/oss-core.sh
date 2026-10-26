@@ -2987,7 +2987,7 @@ mcp_readiness_report() { # NAME
         elif [ -n "$mcp_h" ]; then
             mcp_endpoint_host=$(printf '%s\n' "$mcp_h" | cut -f4)
         fi
-        mcp_provider=mcp-$mcp_server
+        mcp_provider=$OSS_MCP_PROVIDER_PREFIX$mcp_server
         mcp_transport=$(printf '%s\n%s\n' "$mcp_h" "$mcp_s" | awk -F'\t' '$2 == "http" { print "http"; exit }')
         mcp_provider_gate=ok
         if ! printf '%s\n' "$mcp_attached" | grep -Fqx -- "$mcp_provider"; then

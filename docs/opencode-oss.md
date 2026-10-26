@@ -160,9 +160,9 @@ per credential key.
 `opencode-oss mcp status` compares the servers enabled under the `mcp`
 key of the host's `~/.config/opencode/opencode.json` with the servers in
 the sandbox's `/sandbox/.config/opencode/opencode.json`. It uses the same
-gate vocabulary as `maki-oss mcp status`: sandbox, provider (`mcp-<name>`
-attached), endpoint, and runtime for `local` servers. `doctor` prints the
-same table.
+gate vocabulary as `maki-oss mcp status`: sandbox, provider
+(`opencode-mcp-<name>` attached), endpoint, and runtime for `local` servers.
+`doctor` prints the same table.
 
 - The base image declares no MCP servers. A missing server points to an
   environment image built `FROM opencode-agent:local` that declares it.
@@ -171,6 +171,42 @@ same table.
 - A file that `jq` cannot parse, such as JSONC with comments, is reported
   as `unreadable` and its servers are not guessed. `mcp status` then exits
   3.
+
+## Personal environment
+
+The base image is agent-only. Personal OpenCode config, MCP servers, and
+global skills belong in an environment store built `FROM opencode-agent:local`
+— the OpenCode counterpart of
+[the environment playbook](ai/environment-playbook.md). A store needs:
+
+- **`Dockerfile`** — pinned runtimes and `COPY` of `config/opencode.json` to
+  `/sandbox/.config/opencode/opencode.json` and `config/skills/` to
+  `/sandbox/.config/opencode/skills/`. Install a local MCP server's runtime and
+  pre-install its package as uid 1500 at build; a session never fetches from a
+  registry.
+- **`config/opencode.json`** — the host config with every credential replaced
+  by an `{env:VAR}` reference. The file replaces the baked one, so repeat the
+  base image's `permissions` deny rules. `opencode debug config --print-logs`
+  reports any normalization warning; fix or drop the entry rather than
+  shipping the warning.
+- **Provider profiles** — one per credential, bound to
+  `/usr/local/bin/opencode`. MCP profiles are imported as
+  `opencode-mcp-<server>`; that is the provider name `mcp status` checks.
+  `provider setup --profile <file> --env <VAR>` lints, imports, and creates
+  one without putting the value in argv or files.
+
+Build the store, select it through the `image` setting, then verify:
+
+```sh
+docker build -t opencode-agent:personal <store>
+# image = "opencode-agent:personal" in .../opencode-oss/config.toml
+opencode-oss doctor
+opencode-oss mcp status
+```
+
+Existing sandboxes keep their old image until they are deleted and recreated.
+Host servers that are disabled, OAuth-only, or point at a loopback endpoint
+are reported and skipped, not copied into the store.
 
 ## Image build
 

@@ -147,6 +147,7 @@ OSS_AGENT_NAME=OpenCode                  # named in generated profiles
 OSS_AGENT_PROCESS=opencode               # in-sandbox process the idle stop waits on
 OSS_HOST_MCP_CONFIG=${HOME:-/tmp}/.config/opencode/opencode.json
 OSS_SANDBOX_MCP_CONFIG=/sandbox/.config/opencode/opencode.json
+OSS_MCP_PROVIDER_PREFIX=opencode-mcp-  # provider name for server <name>
 OSS_MCP_FIX_IMAGE='an environment image built FROM opencode-agent:local'
 OSS_MCP_FIX_DOC=docs/opencode-oss.md
 

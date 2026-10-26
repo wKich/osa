@@ -219,8 +219,9 @@ Notes for 2.1.4:
 
 Personal additions (MCP servers, plugins, skills, a default model, UI
 preferences) belong in an image built `FROM opencode-agent:local` or in the
-project's own `opencode.json`, not in this base. See the environment-store
-pattern in [`docs/ai/environment-playbook.md`](../docs/ai/environment-playbook.md).
+project's own `opencode.json`, not in this base. See
+[Personal environment](../docs/opencode-oss.md#personal-environment) for the
+store shape and the provider naming that `mcp status` checks.
 
 ## Known behavior
 

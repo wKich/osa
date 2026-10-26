@@ -1,12 +1,14 @@
 # osa: the sandbox helper
 
-`bin/maki-oss` and `bin/opencode-oss` are POSIX sh workflow layers over the
-OpenShell CLI. They create one sandbox per project, move files in and out
-without bind mounts, run the agent headless or interactively, and encode the
-safety rules from the [setup guide](setup-guide.md) so they are not retyped per
-project. The OpenCode path is in
-[the OpenCode playbook](ai/playbooks/opencode.md) and its differences in
-[the OpenCode reference](ai/reference/opencode.md).
+`bin/maki-oss`, `bin/opencode-oss`, and `bin/claude-oss` are POSIX sh workflow
+layers over the OpenShell CLI for Maki, OpenCode, and Claude Code. They create
+one sandbox per project, move files in and out without bind mounts, run the
+agent headless or interactively, and encode the safety rules from the
+[setup guide](setup-guide.md) so they are not retyped per project. Each
+agent's path is in its playbook — [Maki](ai/playbooks/maki.md),
+[OpenCode](ai/playbooks/opencode.md), and
+[Claude Code](ai/playbooks/claude.md) — with configuration differences in the
+matching reference under `ai/reference/`.
 
 Bare `maki-oss` (no subcommand) is the one-command session: it ensures the
 project sandbox, makes the workspace match the host, launches Maki, and on
@@ -61,7 +63,7 @@ make lint     # shellcheck + fish -n
 
 ### Code layout
 
-The helper is four files:
+The helper is a shared core plus one front-end per agent:
 
 - `bin/maki-oss` is the Maki front-end. It sets the identity and defaults
   (the `MAKI_OSS_` prefix, config and state paths, image, policy, sandbox
@@ -69,6 +71,10 @@ The helper is four files:
   provider-setup hint), and keeps the Maki-only commands: `maki` and the
   OpenCode TUI mode. Each front-end defines its own `mcp status`,
   `image build`, and `fish install`/`uninstall`.
+- `bin/opencode-oss` is the OpenCode front-end. It sets the `OPENCODE_OSS_`
+  identity and defaults, and defines the OpenCode session argv and TUI.
+- `bin/claude-oss` is the Claude Code front-end. It sets the `CLAUDE_OSS_`
+  identity and defaults, and defines the Claude Code session argv and TUI.
 - `lib/oss-core.sh` is the agent-neutral core: config, OpenShell wrappers,
   safety checks, the session ensure and patch sync, idle stop, policy and
   provider commands, the project registry, and argument parsing. The

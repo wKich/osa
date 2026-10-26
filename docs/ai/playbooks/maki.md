@@ -149,6 +149,7 @@ Report which path or shell failed; do not mix the two shell paths.
 docker build --build-arg MAKI_VERSION=0.6.5 -t maki-agent:local examples/maki-image
 docker run --rm maki-agent:local maki --version
 IMAGE=maki-agent:local
+REPO_ROOT=$(pwd)
 ```
 
 Or use the helper's thin wrapper for the build, then verify with the helper:
@@ -194,9 +195,11 @@ as current.
 
 If Phase 0 used `maki-oss provider setup`, the lint, import, and provider
 creation already happened; run the verification commands below. Otherwise
-substitute the profile file and type chosen in Phase 0:
+substitute the profile file, type, and provider name chosen in Phase 0; the
+example uses `maki-anthropic`:
 
 ```sh
+PROVIDER=maki-anthropic
 openshell profile lint -f examples/providers/maki-anthropic.yaml
 openshell profile import -f examples/providers/maki-anthropic.yaml --global
 openshell provider create --name maki-anthropic --type maki-anthropic --from-existing
@@ -252,7 +255,7 @@ changed later with `openshell policy set`.
 ### Verify
 
 ```sh
-test -f examples/policies/maki-minimal.yaml
+test -f "$REPO_ROOT/examples/policies/maki-minimal.yaml"
 ```
 
 Expected: the default policy exists and, when `git push` is required, the
@@ -291,15 +294,15 @@ git add -A && git commit -qm init
 # main command; Maki is launched later with sandbox exec):
 openshell sandbox create --name maki \
   --from "$IMAGE" \
-  --policy examples/policies/maki-minimal.yaml \
-  --provider maki-anthropic \
+  --policy "$REPO_ROOT/examples/policies/maki-minimal.yaml" \
+  --provider "$PROVIDER" \
   --upload "$PROJECT_PATH:/sandbox/project"
 
 # Without a project:
 openshell sandbox create --name maki \
   --from "$IMAGE" \
-  --policy examples/policies/maki-minimal.yaml \
-  --provider maki-anthropic
+  --policy "$REPO_ROOT/examples/policies/maki-minimal.yaml" \
+  --provider "$PROVIDER"
 ```
 
 ### Verify

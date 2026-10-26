@@ -61,6 +61,7 @@ Helper path:
 ./bin/opencode-oss image build
 docker run --rm opencode-agent:local opencode --version
 IMAGE=opencode-agent:local
+REPO_ROOT=$(pwd)
 ```
 
 Raw fallback:
@@ -69,6 +70,7 @@ Raw fallback:
 docker build -t opencode-agent:local opencode-oss/image
 docker run --rm opencode-agent:local opencode --version
 IMAGE=opencode-agent:local
+REPO_ROOT=$(pwd)
 ```
 
 The base image is agent-only: pinned OpenCode `2.1.4`, uid/gid 1500, no
@@ -230,7 +232,7 @@ SANDBOX=opencode
 WORKDIR=/sandbox/project/$(basename "$PROJECT_PATH")
 openshell sandbox create --name "$SANDBOX" \
   --from "$IMAGE" \
-  --policy opencode-oss/policies/minimal.yaml \
+  --policy "$REPO_ROOT/opencode-oss/policies/minimal.yaml" \
   --provider "$PROVIDER" \
   --upload "$PROJECT_PATH:/sandbox/project"
 ```

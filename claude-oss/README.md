@@ -59,7 +59,7 @@ bin/claude-oss provider setup --from maki --credential anthropic --yes
 and each new project sandbox attaches it. To use a provider you created
 yourself, set `providers = "claude-anthropic-oauth"` in that file, or export
 `CLAUDE_OSS_PROVIDERS` (see
-[Choosing the credential](../docs/claude-oss.md#credentials)). Attach only
+[Choosing the credential](../docs/ai/reference/claude.md#credentials)). Attach only
 one of the two to a sandbox: when both are attached, Claude Code uses the API
 key, and `claude-oss doctor` warns.
 
@@ -77,8 +77,10 @@ The first session creates the project's sandbox (`cc-<directory>-<hash>`),
 uploads the project, and attaches the remembered provider. On exit, the
 helper collects the sandbox changes as a patch and applies it only when the
 sandbox baseline still matches the host. See
-[docs/claude-oss.md](../docs/claude-oss.md) for the command reference and the
-differences from `maki-oss`.
+[docs/ai/reference/claude.md](../docs/ai/reference/claude.md) for configuration
+and the differences from `maki-oss`, and
+[docs/ai/playbooks/claude.md](../docs/ai/playbooks/claude.md) for the ordered
+sandbox path.
 
 ## Without the helper
 

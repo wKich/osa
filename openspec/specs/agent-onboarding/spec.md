@@ -130,5 +130,6 @@ agent-specific pages SHALL state which path they belong to.
 #### Scenario: Agent page names its path
 - **WHEN** a reader opens `docs/ai/host-playbook.md`,
   `docs/ai/playbooks/maki.md`, `docs/ai/playbooks/opencode.md`,
-  `docs/ai/reference/opencode.md`, or `docs/claude-oss.md`
+  `docs/ai/reference/opencode.md`, `docs/ai/playbooks/claude.md`, or
+  `docs/ai/reference/claude.md`
 - **THEN** the shared host page says it is the shared host path for every agent and links back to the onboarding guide, and the Maki, OpenCode, and Claude pages each state which agent path they belong to and link back to onboarding

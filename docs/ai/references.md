@@ -1,16 +1,19 @@
 # AI reference pack: external sources
 
-Curated upstream documentation for running Maki inside NVIDIA OpenShell
-sandboxes. This is the only index of external documentation links in this
-repository, so `scripts/check-links.sh` can keep link rot in one place.
+Curated upstream documentation for running Maki, OpenCode, and Claude Code
+inside NVIDIA OpenShell sandboxes. This is the only index of external
+documentation links in this repository, so `scripts/check-links.sh` can keep
+link rot in one place.
 
 **Verified against OpenShell v0.1.5 and Maki v0.6.5 on 2026-10-25.** Maki
 `v0.6.5` is pinned in `examples/maki-image/Dockerfile`; re-verify the links and
-version notes after either project publishes a release.
+version notes after any project publishes a release.
 
 How to use this pack:
 
-- `docs/ai/playbooks/maki.md` is the executable path — exact commands in order.
+- `docs/ai/playbooks/maki.md`, `docs/ai/playbooks/opencode.md`, and
+  `docs/ai/playbooks/claude.md` are the executable paths — exact commands in
+  order.
 - This file is the lookup table when a command fails or a concept is unclear.
 - `docs/glossary.md` defines the shared vocabulary once.
 
@@ -79,6 +82,14 @@ rises, swap the text parse for JSON without changing behavior.
 | Source repository (SSE event envelopes live in `packages/schema/src/`) | [anomalyco/opencode](https://github.com/anomalyco/opencode) | tag v2.1.4 (bridge contract pin) |
 | TUI source at the pin: keybindings, commands, slash commands, dialogs, session views — the journey catalog's enumeration source | [packages/tui/src at v2.1.4](https://github.com/anomalyco/opencode/tree/v2.1.4/packages/tui/src) | tag v2.1.4 (bridge contract pin) |
 | Server docs — versionless, newer than the pin; a pointer to where to look, never a citation | [OpenCode server docs](https://opencode.ai/docs/server/) | newer than v2.1.4 |
+
+## Claude Code
+
+| Topic | Link | Verified against |
+|---|---|---|
+| Docs index: install, CLI, sessions, and configuration | [Claude Code docs](https://code.claude.com/docs/en/overview) | v2.1.308 |
+| Authentication: API key and subscription token | [Claude Code authentication](https://code.claude.com/docs/en/authentication) | v2.1.308 |
+| Setup: binary integrity and code signing | [Claude Code setup](https://code.claude.com/docs/en/setup#binary-integrity-and-code-signing) | v2.1.308 |
 
 ## Ponytail (project-local YAGNI ruleset)
 

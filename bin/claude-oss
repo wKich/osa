@@ -15,7 +15,7 @@
 #     ~/.config/anthropic, the keychain);
 #   - asks for confirmation before deleting a sandbox.
 #
-# POSIX sh. See docs/claude-oss.md for the differences from maki-oss and
+# POSIX sh. See docs/ai/reference/claude.md for the differences from maki-oss and
 # docs/helper.md for the shared behavior.
 
 set -eu
@@ -112,7 +112,7 @@ variables, then the config file below, then built-in defaults:
 
   ${XDG_CONFIG_HOME:-$HOME/.config}/claude-oss/config.toml
 
-See claude-oss/README.md and docs/claude-oss.md.
+See claude-oss/README.md and docs/ai/reference/claude.md.
 EOF
 }
 
@@ -139,7 +139,7 @@ OSS_ENV_PREFIX=CLAUDE_OSS                # CLAUDE_OSS_<KEY> environment settings
 OSS_CONFIG_NAME=claude-oss               # XDG config directory name
 OSS_STATE_NAME=.claude-oss               # in-sandbox sync state directory
 OSS_TMP_PREFIX=claude-oss                # /tmp/claude-oss-stop, temp file names
-OSS_CONFIG_EXAMPLE=docs/claude-oss.md    # named in a generated config header
+OSS_CONFIG_EXAMPLE=docs/ai/reference/claude.md  # named in a generated config header
 OSS_PROFILES_DIR=$repo_root/claude-oss/providers
 OSS_CATALOG_FILE=$OSS_PROFILES_DIR/stores.tsv
 OSS_CUSTOM_PROFILE_PREFIX=claude-        # default id for a custom profile
@@ -150,7 +150,7 @@ OSS_HOST_MCP_CONFIG=${CLAUDE_CONFIG_DIR:-${HOME:-/tmp}}/.claude.json
 OSS_SANDBOX_MCP_CONFIG=/sandbox/.claude.json
 OSS_MCP_PROVIDER_PREFIX=claude-mcp-      # provider name for server <name>
 OSS_MCP_FIX_IMAGE='an environment image built FROM claude-agent:local'
-OSS_MCP_FIX_DOC=docs/claude-oss.md
+OSS_MCP_FIX_DOC=docs/ai/reference/claude.md
 
 DEFAULT_IMAGE=claude-agent:local
 DEFAULT_POLICY=$repo_root/claude-oss/policies/minimal.yaml

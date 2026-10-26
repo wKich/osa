@@ -221,7 +221,10 @@ steps from this file.
   path, continuing P3-P8.
 - [`docs/ai/reference/opencode.md`](reference/opencode.md) — OpenCode
   configuration, profiles, sessions, MCP, and store shape.
-- [`docs/claude-oss.md`](../claude-oss.md) — the Claude Code path.
+- [`docs/ai/playbooks/claude.md`](playbooks/claude.md) — the Claude Code path,
+  continuing P3-P8.
+- [`docs/ai/reference/claude.md`](reference/claude.md) — Claude Code
+  configuration, credentials, profiles, sessions, MCP, and store shape.
 - [`docs/helper.md`](../helper.md) — shared helper commands and sync states.
 - [`docs/providers.md`](../providers.md) — provider profiles and setup.
 - [`docs/ai/references.md`](references.md) — upstream documentation index.

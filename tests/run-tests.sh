@@ -4888,7 +4888,7 @@ test_cc_profiles_and_catalogs() {
     done <"$cc_dir/catalog.tsv"
     # No file under claude-oss/ or its docs spells the placeholder prefix.
     cc_needle=$(printf 'openshell:resolve'':env:')
-    if cc_hits=$(grep -rlF -- "$cc_needle" "$ROOT/claude-oss" "$ROOT/docs/claude-oss.md" 2>/dev/null); then
+    if cc_hits=$(grep -rlF -- "$cc_needle" "$ROOT/claude-oss" "$ROOT/docs/ai/reference/claude.md" 2>/dev/null); then
         bad "placeholder prefix spelled in: $cc_hits"
     fi
 }

@@ -2,12 +2,30 @@
 // Stub osa CLI for the dashboard test suite.
 //
 // Answers `status PATH --quick --json` and `status PATH --json` from a JSON
-// fixture keyed by host path:
+// fixture keyed by host path, and `resolve SANDBOX ACTION --json [--yes]` from
+// its `resolve` key, by sandbox and action:
 //
-//   { "/abs/path": { "quick": [ ...entries ], "full": [ ...entries ] } }
+//   {
+//     "/abs/path": { "quick": [ ...entries ], "full": [ ...entries ] },
+//     "resolve": {
+//       "SANDBOX": {
+//         "ACTION": {
+//           "exit": 0,            // 0 done, 2 refused, 3 failed (default 0)
+//           "changed": [ ... ],   // the result object's `changed` (default [])
+//           "message": "...",     // the result object's `message`
+//           "stderr": "...",      // written to stderr
+//           "raw": "...",         // printed instead of the result object
+//           "delay": 0.5,         // seconds to wait before answering
+//           "remove": [ ... ]     // files deleted on exit 0, like a cleared marker
+//         }
+//       }
+//     }
+//   }
 //
 // A path missing from the fixture (or a missing mode) answers `[]`, like osa
-// for an unregistered path. Every other command is a usage error.
+// for an unregistered path; a quick entry reports `busy` when the fixture
+// says so. A resolve with no answer is refused with exit 2. Every other
+// command is a usage error.
 //
 // Environment knobs:
 //   STUB_OSA_FIXTURE  JSON fixture file (default: none, every answer is [])
@@ -17,7 +35,7 @@
 //                     "invalid-json": exit 0 with non-JSON output
 //   STUB_OSA_DELAY    seconds to wait before answering
 
-import { appendFileSync, existsSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
 
 const args = process.argv.slice(2);
 const env = process.env;
@@ -36,9 +54,13 @@ switch (env.STUB_OSA_FAIL) {
     process.exit(0);
 }
 
-const quick = args.length === 4 && args[2] === "--quick" && args[3] === "--json";
-const full = args.length === 3 && args[2] === "--json";
-if (args[0] !== "status" || !(quick || full)) {
+const quick = args[0] === "status" && args.length === 4 && args[2] === "--quick" && args[3] === "--json";
+const full = args[0] === "status" && args.length === 3 && args[2] === "--json";
+const resolve =
+  args[0] === "resolve" &&
+  args[3] === "--json" &&
+  (args.length === 4 || (args.length === 5 && args[4] === "--yes"));
+if (!(quick || full || resolve)) {
   process.stderr.write(`stub osa: unsupported argv: ${args.join(" ")}\n`);
   process.exit(1);
 }
@@ -50,5 +72,27 @@ const fixture =
   env.STUB_OSA_FIXTURE && existsSync(env.STUB_OSA_FIXTURE)
     ? JSON.parse(readFileSync(env.STUB_OSA_FIXTURE, "utf8"))
     : {};
-const answer = fixture[args[1]]?.[quick ? "quick" : "full"] ?? [];
+
+if (resolve) {
+  const [, sandbox, action] = args as [string, string, string];
+  const answer = fixture.resolve?.[sandbox]?.[action] ?? {
+    exit: 2,
+    message: `stub osa: no resolve answer for ${sandbox} ${action}`,
+  };
+  const exit = answer.exit ?? 0;
+  if (answer.delay) await Bun.sleep(answer.delay * 1000);
+  if (answer.stderr) process.stderr.write(`${answer.stderr}\n`);
+  if (exit === 0) for (const path of answer.remove ?? []) rmSync(path, { force: true });
+  const result = {
+    sandbox,
+    action,
+    ok: exit === 0,
+    changed: answer.changed ?? [],
+    message: answer.message ?? "",
+  };
+  process.stdout.write(answer.raw ?? `${JSON.stringify(result)}\n`);
+  process.exit(exit);
+}
+
+const answer = fixture[args[1]!]?.[quick ? "quick" : "full"] ?? [];
 process.stdout.write(`${JSON.stringify(answer)}\n`);

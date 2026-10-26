@@ -6794,15 +6794,16 @@ assert_json_array() { # COUNT
 }
 
 test_osa_usage() {
-    begin "osa offers projects, status, and help, and rejects anything else"
+    begin "osa offers projects, status, resolve, and help, and rejects anything else"
     new_case osa-usage
     run_osa help
     assert_rc 0
     assert_out_has "projects"
     assert_out_has "status"
+    assert_out_has "resolve"
     run_osa up
     assert_rc 1
-    assert_err_has "projects, status, help"
+    assert_err_has "projects, status, resolve, help"
     run_osa projects --quick
     assert_rc 1
 }
@@ -6987,6 +6988,623 @@ test_osa_read_only() {
     cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "osa changed a file under the state root"
 }
 
+# ---------------------------------------------------------------------------
+# osa resolve (specs/osa-project-layer: "osa resolves retained patches",
+# "osa resolves parked workspaces", "Session and resolve exclusion").
+# ---------------------------------------------------------------------------
+
+# Runs a front-end (maki, oc, or cc) with its stub environment.
+run_front() { # FRONT ARGS...
+    rfr_front=$1
+    shift
+    case $rfr_front in
+        maki) run_maki "$@" ;;
+        oc) run_oc "$@" ;;
+        cc) run_cc "$@" ;;
+    esac
+}
+
+# Starts a case with FRONT's settings cleared (maki, oc, or cc).
+front_case() { # FRONT NAME
+    case $1 in
+        maki) new_case "$2" ;;
+        oc) oc_case "$2" ;;
+        cc) cc_case "$2" ;;
+    esac
+}
+
+# Runs osa with FRONT's environment, so `resolve` reaches that front-end with
+# the same settings the sessions used.
+run_osa_for() { # FRONT ARGS...
+    rof_rc=0
+    (
+        MAKI=$OSA
+        OC=$OSA
+        CC=$OSA
+        run_front "$@"
+        exit "$RC"
+    ) || rof_rc=$?
+    RC=$rof_rc
+}
+
+# Leaves FRONT's sandbox with one pending kind. Sets RUN_DIR, RS_NAME (the
+# sandbox), and RS_PATCH (the retained patch, if any); stderr keeps the exit
+# sync's recovery block.
+#   clean     retained: git project; the host committed during the session
+#   conflict  retained: the host edited the patch's lines during the session
+#   dirty     retained: dirty baseline; the agent changed another file
+#   plain     retained: plain folder; the host had no git and no patch at exit
+#   binary    retained: like plain, with a binary file in the patch
+#   parked    parked: --no-sync
+resolve_fixture() { # FRONT KIND
+    rsf_front=$1
+    rsf_kind=$2
+    case $rsf_kind in
+        plain|binary|parked) rsf_dir=myproject ;;
+        *) rsf_dir=repo ;;
+    esac
+    RUN_DIR=$CASE/project/$rsf_dir
+    RS_NAME=$rsf_front-$rsf_dir
+    case $rsf_kind in
+        plain|binary|parked)
+            mkdir -p "$RUN_DIR"
+            printf 'base\n' >"$RUN_DIR/file.txt"
+            ;;
+        *)
+            seed_git_project "$RUN_DIR"
+            ;;
+    esac
+    if [ "$rsf_kind" = dirty ]; then
+        printf 'local edit\n' >>"$RUN_DIR/tracked.txt"
+    fi
+    seed_sandbox "$RS_NAME" Ready
+    case $rsf_front in
+        maki)
+            seed_remembered_provider maki-stub
+            attach_stub_provider "$RS_NAME" maki-stub
+            ;;
+        oc)
+            seed_oc_provider opencode-stub
+            attach_stub_provider "$RS_NAME" opencode-stub
+            ;;
+        cc)
+            seed_cc_provider claude-anthropic
+            attach_stub_provider "$RS_NAME" claude-anthropic
+            ;;
+    esac
+    case $rsf_kind in
+        clean|conflict)
+            run_front "$rsf_front" upload .
+            ;;
+    esac
+    case $rsf_kind in
+        clean)
+            STUB_MAKI_SCRIPT='printf "agent\n" > agent.txt
+printf "host\n" > "'"$RUN_DIR"'/host.txt"
+git -C "'"$RUN_DIR"'" add host.txt
+git -C "'"$RUN_DIR"'" commit -q -m host-move'
+            ;;
+        conflict)
+            STUB_MAKI_SCRIPT='printf "agent\n" > tracked.txt
+printf "host edit\n" > "'"$RUN_DIR"'/tracked.txt"'
+            ;;
+        dirty)
+            STUB_MAKI_SCRIPT='printf "agent new\n" > new.txt'
+            ;;
+        plain|parked)
+            STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+            ;;
+        binary)
+            STUB_MAKI_SCRIPT='printf "agent\n" > file.txt
+printf "\000\001\002" > data.bin'
+            ;;
+    esac
+    case $rsf_kind in
+        plain|binary) PATH_OVERRIDE=$(no_git_path) ;;
+    esac
+    if [ "$rsf_kind" = parked ]; then
+        run_front "$rsf_front" --no-sync run "edit"
+    else
+        run_front "$rsf_front" run "edit"
+    fi
+    PATH_OVERRIDE=
+    STUB_MAKI_SCRIPT=
+    RS_PATCH=$(pending_value "$RS_NAME" patch)
+}
+
+# Prints every project file (not .git) with its checksum, plus HEAD and the
+# index state for a git project.
+project_snapshot() {
+    (cd "$RUN_DIR" && find . -path ./.git -prune -o -type f -print | LC_ALL=C sort \
+        | while IFS= read -r ps_file; do
+            printf '%s %s\n' "$ps_file" "$(cksum <"$ps_file")"
+        done)
+    if [ -d "$RUN_DIR/.git" ]; then
+        git -C "$RUN_DIR" rev-parse HEAD
+        git -C "$RUN_DIR" status --porcelain=v1 -z | cksum
+        git -C "$RUN_DIR" diff --cached | cksum
+    fi
+}
+
+# Checks that stdout is exactly one JSON object (with jq when present) for
+# which FILTER holds.
+assert_json_object() { # FILTER
+    if [ "$(wc -l <"$OUT" | tr -d ' ')" != 1 ]; then
+        bad "stdout is not one line: $(cat "$OUT")"
+        return
+    fi
+    if command -v jq >/dev/null 2>&1; then
+        jq -e "type == \"object\" and ($1)" "$OUT" >/dev/null 2>&1 \
+            || bad "stdout fails '$1': $(cat "$OUT")"
+    else
+        case $(cat "$OUT") in
+            '{"sandbox":'*'}') ;;
+            *) bad "stdout is not a JSON object: $(cat "$OUT")" ;;
+        esac
+    fi
+}
+
+test_resolve_fixtures() {
+    begin "resolve fixtures leave the expected pending kind for maki-oss and opencode-oss"
+    for rf_front in maki oc; do
+        for rf_kind in clean conflict dirty plain parked; do
+            front_case "$rf_front" "resolve-fixture-$rf_front-$rf_kind"
+            resolve_fixture "$rf_front" "$rf_kind"
+            rf_expect=retained
+            [ "$rf_kind" = parked ] && rf_expect=parked
+            run_osa projects --json
+            assert_rc 0
+            assert_out_has "\"pending\":\"$rf_expect\""
+            if [ "$rf_expect" = retained ] && [ ! -s "$RS_PATCH" ]; then
+                bad "$rf_front $rf_kind: no retained patch file"
+            fi
+        done
+    done
+}
+
+test_resolve_dispatch_refusals() {
+    begin "osa resolve validates the action and refuses unregistered and orphan sandboxes"
+    new_case resolve-dispatch
+    mkdir -p "$CASE/project"
+    run_osa help
+    assert_rc 0
+    assert_out_has "resolve SANDBOX ACTION"
+    run_osa up
+    assert_rc 1
+    assert_err_has "projects, status, resolve, help"
+    run_osa resolve
+    assert_rc 1
+    run_osa resolve maki-x frobnicate
+    assert_rc 1
+    assert_err_has "unknown resolve action"
+    run_osa resolve maki-x apply extra
+    assert_rc 1
+
+    reset_log
+    run_osa resolve maki-nope apply
+    assert_rc 2
+    assert_err_has "not registered"
+    run_osa resolve ../projects/maki-nope apply
+    assert_rc 2
+    assert_err_has "not registered"
+    run_osa resolve maki-nope apply --json
+    assert_rc 2
+    assert_json_object '.ok == false and .action == "apply" and .sandbox == "maki-nope" and .changed == []'
+
+    seed_registry_entry mk-ghost-0000 mk "$CASE/project/gone"
+    run_osa resolve mk-ghost-0000 drop --yes
+    assert_rc 2
+    assert_err_has "folder for 'mk-ghost-0000' is missing"
+    if [ -s "$LOG" ]; then
+        bad "a refusal contacted the gateway: $(tr '\n' ' ' <"$LOG")"
+    fi
+    [ -f "$(registry_entry mk-ghost-0000)" ] || bad "the refusal removed the orphan's entry"
+}
+
+test_resolve_wrong_kind() {
+    begin "osa resolve refuses an action for the other pending kind, for every front-end"
+    for wk_front in maki oc cc; do
+        front_case "$wk_front" "resolve-kind-parked-$wk_front"
+        resolve_fixture "$wk_front" parked
+        project_snapshot >"$CASE/before.txt"
+        reset_log
+        run_osa_for "$wk_front" resolve "$RS_NAME" apply
+        assert_rc 2
+        assert_err_has "parked"
+        assert_err_has "osa resolve $RS_NAME rescue"
+        assert_err_has "osa resolve $RS_NAME discard --yes"
+        [ "$(pending_value "$RS_NAME" kind)" = parked ] || bad "$wk_front: the marker changed"
+        project_snapshot >"$CASE/after.txt"
+        cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "$wk_front: a refused apply changed the project"
+        if [ -s "$LOG" ]; then
+            bad "$wk_front: a refused apply contacted the gateway"
+        fi
+
+        front_case "$wk_front" "resolve-kind-retained-$wk_front"
+        resolve_fixture "$wk_front" plain
+        reset_log
+        run_osa_for "$wk_front" resolve "$RS_NAME" rescue
+        assert_rc 2
+        assert_err_has "retained patch"
+        assert_err_has "osa resolve $RS_NAME apply"
+        assert_err_has "osa resolve $RS_NAME branch"
+        assert_err_has "osa resolve $RS_NAME drop --yes"
+        assert_log_missing "download"
+        [ "$(pending_value "$RS_NAME" kind)" = retained ] || bad "$wk_front: the marker changed"
+        [ -s "$RS_PATCH" ] || bad "$wk_front: the patch is gone"
+    done
+
+    begin "osa resolve refuses when nothing is pending"
+    new_case resolve-kind-none
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    run_osa resolve maki-myproject drop --yes
+    assert_rc 2
+    assert_err_has "nothing is pending"
+}
+
+test_resolve_json_output() {
+    begin "osa resolve --json prints one result object for success, refusal, and failure"
+    new_case resolve-json-ok
+    resolve_fixture maki plain
+    run_osa resolve "$RS_NAME" drop --yes --json
+    assert_rc 0
+    assert_json_object '.ok == true and .action == "drop" and (.changed | length) == 1 and (.message | length) > 0'
+
+    new_case resolve-json-refused
+    resolve_fixture maki parked
+    run_osa resolve "$RS_NAME" apply --json
+    assert_rc 2
+    assert_json_object '.ok == false and (.message | test("parked"))'
+
+    new_case resolve-json-failed
+    resolve_fixture maki parked
+    DOWNLOAD_EXIT=1
+    run_osa resolve "$RS_NAME" rescue --json
+    assert_rc 3
+    assert_json_object '.ok == false and .action == "rescue" and .changed == []'
+    if [ -n "$(find "$(session_dir "$RS_NAME")" -maxdepth 1 -name 'rescue-*' 2>/dev/null)" ]; then
+        bad "a failed rescue left its directory"
+    fi
+    [ "$(pending_value "$RS_NAME" kind)" = parked ] || bad "a failed rescue changed the marker"
+}
+
+test_resolve_apply() {
+    begin "resolve apply changes only the working tree and clears the marker"
+    new_case resolve-apply-clean
+    resolve_fixture maki clean
+    head_before=$(git -C "$RUN_DIR" rev-parse HEAD)
+    reset_log
+    run_osa resolve "$RS_NAME" apply
+    assert_rc 0
+    assert_out_has "Applied the retained patch"
+    [ "$(cat "$RUN_DIR/agent.txt" 2>/dev/null)" = agent ] || bad "the patch's change is not in the host"
+    [ "$(git -C "$RUN_DIR" rev-parse HEAD)" = "$head_before" ] || bad "apply moved HEAD"
+    git -C "$RUN_DIR" diff --cached --quiet || bad "apply staged changes"
+    [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "apply left the marker"
+    [ -s "$RS_PATCH" ] || bad "apply removed the patch file"
+    if [ -s "$LOG" ]; then
+        bad "apply contacted the gateway: $(tr '\n' ' ' <"$LOG")"
+    fi
+    # The next session refreshes the workspace instead of parking it.
+    run_maki status
+    assert_out_has "Sync:      behind"
+
+    begin "resolve apply refuses a conflicting patch and changes nothing"
+    new_case resolve-apply-conflict
+    resolve_fixture maki conflict
+    project_snapshot >"$CASE/before.txt"
+    run_osa resolve "$RS_NAME" apply
+    assert_rc 2
+    assert_err_has "does not apply cleanly"
+    assert_err_has "osa resolve $RS_NAME branch"
+    project_snapshot >"$CASE/after.txt"
+    cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "a refused apply changed the project"
+    [ "$(pending_value "$RS_NAME" kind)" = retained ] || bad "a refused apply changed the marker"
+
+    begin "resolve apply of an already-applied patch only clears the marker"
+    new_case resolve-apply-present
+    resolve_fixture maki clean
+    git -C "$RUN_DIR" apply "$RS_PATCH"
+    project_snapshot >"$CASE/before.txt"
+    run_osa resolve "$RS_NAME" apply
+    assert_rc 0
+    assert_out_has "already in"
+    project_snapshot >"$CASE/after.txt"
+    cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "an applied patch changed the project again"
+    [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "the marker was not cleared"
+
+    begin "resolve apply works in a plain folder with git and with patch"
+    new_case resolve-apply-plain-git
+    resolve_fixture maki plain
+    run_osa resolve "$RS_NAME" apply
+    assert_rc 0
+    [ "$(cat "$RUN_DIR/file.txt")" = agent ] || bad "git apply did not change the plain folder"
+    [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "the marker was not cleared"
+
+    if command -v patch >/dev/null 2>&1; then
+        new_case resolve-apply-plain-patch
+        resolve_fixture maki plain
+        PATH_OVERRIDE=$(no_git_path with_patch)
+        run_osa resolve "$RS_NAME" apply
+        assert_rc 0
+        [ "$(cat "$RUN_DIR/file.txt")" = agent ] || bad "patch did not change the plain folder"
+        [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "the marker was not cleared"
+        run_osa resolve "$RS_NAME" apply
+        assert_rc 2
+
+        new_case resolve-apply-binary-no-git
+        resolve_fixture maki binary
+        PATH_OVERRIDE=$(no_git_path with_patch)
+        project_snapshot >"$CASE/before.txt"
+        run_osa resolve "$RS_NAME" apply
+        assert_rc 2
+        assert_err_has "binary changes"
+        assert_err_has "osa resolve $RS_NAME branch"
+        project_snapshot >"$CASE/after.txt"
+        cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "a refused binary apply changed the project"
+        PATH_OVERRIDE=
+    else
+        skipped "no patch tool on this host"
+    fi
+}
+
+test_resolve_branch() {
+    begin "resolve branch commits on the recorded base without touching the checkout"
+    new_case resolve-branch-dirty
+    resolve_fixture maki dirty
+    base=$(baseline_value "$RS_NAME" base)
+    [ -n "$base" ] || bad "the fixture recorded no base"
+    head_before=$(git -C "$RUN_DIR" rev-parse HEAD)
+    status_before=$(git -C "$RUN_DIR" status --porcelain=v1 -z | cksum)
+    worktrees_before=$(git -C "$RUN_DIR" worktree list | wc -l | tr -d ' ')
+    reset_log
+    run_osa resolve "$RS_NAME" branch --json
+    assert_rc 0
+    assert_json_object '.ok == true and (.changed[0] | startswith("refs/heads/osa/"))'
+    branch=$(git -C "$RUN_DIR" for-each-ref --format='%(refname:short)' 'refs/heads/osa/*' | head -n 1)
+    case $branch in
+        "osa/$RS_NAME-"[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]) ;;
+        *) bad "unexpected branch name: '$branch'" ;;
+    esac
+    if [ -n "$branch" ]; then
+        [ "$(git -C "$RUN_DIR" rev-parse "$branch^")" = "$base" ] \
+            || bad "the branch commit's parent is not the recorded base"
+        branch_id=$(git -C "$RUN_DIR" diff --binary --full-index "$base" "$branch" | git patch-id --stable | cut -d' ' -f1)
+        patch_id=$(git patch-id --stable <"$RS_PATCH" | cut -d' ' -f1)
+        [ -n "$patch_id" ] && [ "$branch_id" = "$patch_id" ] || bad "the branch diff differs from the patch"
+    fi
+    [ "$(git -C "$RUN_DIR" rev-parse HEAD)" = "$head_before" ] || bad "branch moved HEAD"
+    [ "$(git -C "$RUN_DIR" status --porcelain=v1 -z | cksum)" = "$status_before" ] \
+        || bad "branch changed the working tree or index"
+    [ "$(git -C "$RUN_DIR" worktree list | wc -l | tr -d ' ')" = "$worktrees_before" ] \
+        || bad "branch left a worktree"
+    [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "branch left the marker"
+    [ -s "$RS_PATCH" ] || bad "branch removed the patch file"
+    if [ -s "$LOG" ]; then
+        bad "branch contacted the gateway"
+    fi
+
+    begin "resolve branch leaves no branch behind on a conflict"
+    new_case resolve-branch-conflict
+    resolve_fixture maki conflict
+    git -C "$RUN_DIR" commit -qam "host edit"
+    conflict_base=$(git -C "$RUN_DIR" rev-parse HEAD)
+    sed "s/^base=.*/base=$conflict_base/" "$(session_dir "$RS_NAME")/baseline" >"$CASE/baseline"
+    cp "$CASE/baseline" "$(session_dir "$RS_NAME")/baseline"
+    project_snapshot >"$CASE/before.txt"
+    worktrees_before=$(git -C "$RUN_DIR" worktree list | wc -l | tr -d ' ')
+    run_osa resolve "$RS_NAME" branch
+    assert_rc 2
+    assert_err_has "conflicts"
+    [ -z "$(git -C "$RUN_DIR" branch --list 'osa/*')" ] || bad "a conflict left a branch"
+    [ "$(git -C "$RUN_DIR" worktree list | wc -l | tr -d ' ')" = "$worktrees_before" ] \
+        || bad "a conflict left a worktree"
+    project_snapshot >"$CASE/after.txt"
+    cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "a conflict changed the project"
+    [ "$(pending_value "$RS_NAME" kind)" = retained ] || bad "a conflict changed the marker"
+
+    begin "resolve branch refuses a missing base and a plain folder"
+    sed "s/^base=.*/base=0123456789abcdef0123456789abcdef01234567/" "$CASE/baseline" \
+        >"$(session_dir "$RS_NAME")/baseline"
+    run_osa resolve "$RS_NAME" branch
+    assert_rc 2
+    assert_err_has "no longer in the repository"
+
+    new_case resolve-branch-plain
+    resolve_fixture maki plain
+    run_osa resolve "$RS_NAME" branch
+    assert_rc 2
+    assert_err_has "osa resolve $RS_NAME apply"
+    [ "$(pending_value "$RS_NAME" kind)" = retained ] || bad "a refused branch changed the marker"
+}
+
+test_resolve_drop() {
+    begin "resolve drop needs --yes and moves the patch into dropped/"
+    new_case resolve-drop
+    resolve_fixture maki plain
+    run_osa resolve "$RS_NAME" drop
+    assert_rc 2
+    assert_err_has "--yes"
+    [ -s "$RS_PATCH" ] || bad "drop without --yes moved the patch"
+    [ "$(pending_value "$RS_NAME" kind)" = retained ] || bad "drop without --yes changed the marker"
+
+    run_osa resolve "$RS_NAME" drop --yes
+    assert_rc 0
+    dropped=$(session_dir "$RS_NAME")/dropped/$(basename -- "$RS_PATCH")
+    [ -s "$dropped" ] || bad "the patch is not in dropped/"
+    [ ! -e "$RS_PATCH" ] || bad "the patch is still at its old path"
+    [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "drop left the marker"
+    [ "$(cat "$RUN_DIR/file.txt")" = base ] || bad "drop changed a project file"
+}
+
+test_resolve_rescue() {
+    begin "resolve rescue downloads into the session directory and stays parked"
+    new_case resolve-rescue
+    resolve_fixture maki parked
+    project_snapshot >"$CASE/before.txt"
+    reset_log
+    run_osa resolve "$RS_NAME" rescue
+    assert_rc 0
+    rescue_dir=$(find "$(session_dir "$RS_NAME")" -maxdepth 1 -type d -name 'rescue-*' | head -n 1)
+    [ -n "$rescue_dir" ] || bad "no rescue directory"
+    [ "$(cat "$rescue_dir/file.txt" 2>/dev/null)" = agent ] || bad "the rescue copy lacks the workspace files"
+    assert_out_has "$rescue_dir"
+    download_dests=$(awk '
+        $0 == "---" { n = 0; next }
+        { n++; arg[n] = $0 }
+        n == 5 && arg[1] == "sandbox" && arg[2] == "download" { print arg[5] }' "$LOG")
+    [ "$(printf '%s\n' "$download_dests" | grep -c .)" = 1 ] || bad "expected one download, got: $download_dests"
+    case $download_dests in
+        "$rescue_dir"/) ;;
+        *) bad "the download went outside the rescue directory: $download_dests" ;;
+    esac
+    project_snapshot >"$CASE/after.txt"
+    cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "rescue changed the project"
+    [ "$(pending_value "$RS_NAME" kind)" = parked ] || bad "rescue changed the marker"
+
+    begin "resolve rescue starts a stopped sandbox and says so"
+    printf 'Stopped\n' >"$STUB_STATE_DIR/sandboxes/$RS_NAME"
+    run_osa resolve "$RS_NAME" rescue
+    assert_rc 0
+    assert_out_has "Started sandbox '$RS_NAME'"
+}
+
+test_resolve_discard() {
+    begin "resolve discard needs --yes and replaces the parked workspace"
+    new_case resolve-discard
+    resolve_fixture maki parked
+    old_patch=$(session_dir "$RS_NAME")/patch-old.patch
+    printf '+old\n' >"$old_patch"
+    reset_log
+    run_osa resolve "$RS_NAME" discard
+    assert_rc 2
+    assert_err_has "--yes"
+    assert_log_missing "upload"
+    [ "$(pending_value "$RS_NAME" kind)" = parked ] || bad "discard without --yes changed the marker"
+
+    printf 'Stopped\n' >"$STUB_STATE_DIR/sandboxes/$RS_NAME"
+    run_osa resolve "$RS_NAME" discard --yes
+    assert_rc 2
+    assert_err_has "is Stopped"
+    assert_log_missing "upload"
+    assert_log_line_missing "start"
+    printf 'Ready\n' >"$STUB_STATE_DIR/sandboxes/$RS_NAME"
+
+    run_osa resolve "$RS_NAME" discard --yes
+    assert_rc 0
+    assert_log_has "upload"
+    [ ! -f "$(session_dir "$RS_NAME")/pending" ] || bad "discard left the marker"
+    [ -f "$old_patch" ] || bad "discard removed an existing patch file"
+    [ "$(cat "$SANDBOX_WORKDIR/file.txt")" = base ] || bad "the workspace does not match the host"
+    run_maki status
+    assert_out_has "Sync:      clean"
+    run_osa status --json
+    assert_out_has '"sync":"clean"'
+}
+
+# Starts a process that outlives the next few commands; prints its PID.
+start_holder() {
+    sleep 60 >/dev/null 2>&1 &
+    printf '%s' "$!"
+}
+
+# Prints the PID of a process that has exited.
+dead_pid() {
+    sh -c 'exit 0' &
+    dp_pid=$!
+    wait "$dp_pid" 2>/dev/null || true
+    printf '%s' "$dp_pid"
+}
+
+test_resolve_session_lock() {
+    begin "resolve refuses while a session holds the sandbox, and a stale lock is ignored"
+    new_case resolve-lock
+    resolve_fixture maki plain
+    lock_dir=$(session_dir "$RS_NAME")/locks
+    [ -d "$lock_dir" ] || bad "the session took no lock"
+    [ -z "$(find "$lock_dir" -name 'session.*')" ] || bad "the finished session left its lock file"
+    holder=$(start_holder)
+    : >"$lock_dir/session.$holder"
+    run_osa resolve "$RS_NAME" drop --yes
+    assert_rc 2
+    assert_err_has "a session is running"
+    assert_err_has "PID $holder"
+    [ -s "$RS_PATCH" ] || bad "a refused drop moved the patch"
+    [ ! -d "$lock_dir/resolve.d" ] || bad "a refused resolve kept its lock"
+
+    begin "osa status --quick reports busy while a holder lives"
+    run_osa status --quick --json
+    assert_out_has '"busy":true'
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+    run_osa status --quick --json
+    assert_out_has '"busy":false'
+
+    begin "a stale session lock is cleaned and ignored"
+    stale=$(dead_pid)
+    : >"$lock_dir/session.$stale"
+    run_osa resolve "$RS_NAME" apply
+    assert_rc 0
+    [ ! -e "$lock_dir/session.$stale" ] || bad "the stale lock file was not removed"
+    [ ! -d "$lock_dir/resolve.d" ] || bad "resolve did not release its lock"
+
+    begin "a session refuses to start while a resolve runs, and sessions share"
+    new_case resolve-lock-session
+    resolve_fixture maki parked
+    lock_dir=$(session_dir "$RS_NAME")/locks
+    holder=$(start_holder)
+    mkdir -p "$lock_dir/resolve.d"
+    printf '%s\n' "$holder" >"$lock_dir/resolve.d/pid"
+    reset_log
+    run_maki run "edit"
+    assert_rc 1
+    assert_err_has "osa resolve is running"
+    assert_err_has "PID $holder"
+    assert_log_missing "exec"
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+    rm -rf "$lock_dir/resolve.d"
+    run_osa resolve "$RS_NAME" discard --yes
+    assert_rc 0
+
+    holder=$(start_holder)
+    : >"$lock_dir/session.$holder"
+    run_maki run "edit"
+    assert_rc 0
+    [ -e "$lock_dir/session.$holder" ] || bad "a session removed another live session's lock"
+    [ "$(find "$lock_dir" -name 'session.*' | wc -l | tr -d ' ')" = 1 ] \
+        || bad "the session did not release its own lock"
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+
+    begin "a stale resolve lock does not block a session"
+    stale=$(dead_pid)
+    mkdir -p "$lock_dir/resolve.d"
+    printf '%s\n' "$stale" >"$lock_dir/resolve.d/pid"
+    run_maki run "edit"
+    assert_rc 0
+    [ ! -d "$lock_dir/resolve.d" ] || bad "the stale resolve lock was not removed"
+}
+
+test_resolve_recovery_text() {
+    begin "Recovery names the osa resolve commands"
+    for rt_front in maki oc; do
+        front_case "$rt_front" "resolve-recovery-$rt_front"
+        resolve_fixture "$rt_front" conflict
+        assert_err_has "osa resolve $RS_NAME apply"
+        assert_err_has "osa resolve $RS_NAME branch"
+        assert_err_has "osa resolve $RS_NAME drop --yes"
+
+        front_case "$rt_front" "resolve-recovery-parked-$rt_front"
+        resolve_fixture "$rt_front" parked
+        assert_err_has "osa resolve $RS_NAME rescue"
+        assert_err_has "osa resolve $RS_NAME discard --yes"
+    done
+}
+
 run_test test_flat_get_helper
 run_test test_shared_state_root
 run_test test_old_state_root_ignored
@@ -7001,6 +7619,17 @@ run_test test_osa_projects
 run_test test_osa_status_quick
 run_test test_osa_status_full
 run_test test_osa_read_only
+run_test test_resolve_fixtures
+run_test test_resolve_dispatch_refusals
+run_test test_resolve_wrong_kind
+run_test test_resolve_json_output
+run_test test_resolve_apply
+run_test test_resolve_branch
+run_test test_resolve_drop
+run_test test_resolve_rescue
+run_test test_resolve_discard
+run_test test_resolve_session_lock
+run_test test_resolve_recovery_text
 run_test test_help
 run_test test_usage_errors
 run_test test_config_precedence

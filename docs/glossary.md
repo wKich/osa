@@ -5,7 +5,8 @@ the same words are used consistently in `docs/`, `examples/`, and the AI
 reference pack.
 
 - **osa** — the project and repository. It hosts the agent front-ends and the
-  read-only `osa` reporter.
+  `osa` command, which reports on every project and resolves pending sync
+  output with `osa resolve`.
 - **maki-oss** — the Maki front-end command (`bin/maki-oss`). Its command,
   environment prefix, and config path are unchanged by the repository rename.
 - **opencode-oss** — the OpenCode front-end command (`bin/opencode-oss`),
@@ -94,6 +95,13 @@ reference pack.
     failed, `--no-sync`, or a manual edit); the helper refuses to upload over
     it or launch Maki until the output is downloaded or discarded with
     `--discard`.
+- **Rescue copy** — a full download of a parked project workspace into
+  `rescue-<timestamp>/` in the sandbox's session directory, made by
+  `osa resolve <sandbox> rescue`. It is a backup: the workspace stays parked.
+- **Dropped patch** — a retained patch set aside with
+  `osa resolve <sandbox> drop --yes`: the marker is cleared and the patch file
+  moves to `dropped/` in the session directory, where `git apply` can still
+  use it.
 - **Project layer** — the agent-neutral part of the helpers (in
   `lib/oss-core.sh` and `lib/osa-state.sh`) that binds host project folders
   to sandboxes and syncs them, between the agent front-ends (`maki-oss`,

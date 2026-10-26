@@ -1,12 +1,22 @@
 // Projects view: every osa registry entry across agents, with its sandbox,
 // pending and orphan badges, the cached host-change result, and an on-demand
-// full status. Read-only: nothing here changes a project or the state root.
+// full status. Outside read-only mode a parked row offers Rescue and Discard;
+// a retained row's Apply, Branch, and Drop live in the patch viewer. Those
+// resolve actions are the only writes; everything else here only reads.
 
 import { request } from "./api.js";
 import { showError, showNotice } from "./banner.js";
 import { clear, h } from "./dom.js";
-import { openPatch } from "./patch.js";
-import { actions, state } from "./state.js";
+import { openPatch, updatePatchActions } from "./patch.js";
+import {
+  disabledReason,
+  focusedConfirmKey,
+  outcomeView,
+  restoreConfirmFocus,
+  runResolve,
+  typedConfirm,
+} from "./resolve.js";
+import { state } from "./state.js";
 
 const AGENT_LABELS = { mk: "Maki", oc: "OpenCode", cc: "Claude Code", cx: "Codex" };
 
@@ -32,6 +42,25 @@ export async function loadProjects(refresh) {
     const data = await request(`/api/projects${refresh ? "?refresh=1" : ""}`);
     state.projects = data.projects || [];
     state.projectsLoaded = true;
+  } catch (error) {
+    showError(error);
+  }
+  updateAttention();
+  if (state.view === "projects") updateProjectsTable();
+  if (state.view === "patch") updatePatchActions();
+}
+
+/** Re-reads the rows registered at one host path and checks it again (design D4). */
+export async function refreshProject(hostPath) {
+  try {
+    const data = await request(`/api/projects?refresh=1&path=${encodeURIComponent(hostPath)}`);
+    const fresh = new Map((data.projects || []).map((project) => [project.file, project]));
+    // Keep the row order: replace in place, drop rows gone from that path, append new ones.
+    const merged = state.projects
+      .filter((project) => fresh.has(project.file) || !(project.supported && project.host_path === hostPath))
+      .map((project) => fresh.get(project.file) || project);
+    for (const project of fresh.values()) if (!merged.includes(project)) merged.push(project);
+    state.projects = merged;
   } catch (error) {
     showError(error);
   }
@@ -108,23 +137,58 @@ function fullStatusText(entry) {
   return parts.join(" · ");
 }
 
+/** Rescue and Discard for a parked workspace (design D3); null when none apply. */
+function parkedActions(project) {
+  if (state.readOnly || project.orphan || project.pending !== "parked") return null;
+  const sandbox = project.sandbox_name;
+  const reason = disabledReason(project);
+  const confirming = state.resolveConfirm[sandbox] === "discard" && !reason;
+  return h("div", { class: "resolve-actions" }, [
+    h("div", { class: "actions" }, [
+      h("button", {
+        text: "Rescue",
+        disabled: Boolean(reason),
+        title: "Copy the sandbox workspace into a rescue folder; the workspace stays parked",
+        onclick: () => runResolve(sandbox, "rescue", updateProjectsTable),
+      }),
+      h("button", {
+        class: "danger",
+        text: "Discard",
+        disabled: Boolean(reason),
+        title: "Replace the sandbox workspace with the host project",
+        onclick: () => {
+          state.resolveConfirm[sandbox] = confirming ? null : "discard";
+          updateProjectsTable();
+        },
+      }),
+      reason ? h("span", { class: "muted", text: reason }) : null,
+    ]),
+    confirming ? typedConfirm(sandbox, "discard", updateProjectsTable) : null,
+  ]);
+}
+
 function actionsCell(project) {
   const result = state.projectStatus[project.sandbox_name];
   let output = null;
   if (result && result.loading) output = h("div", { class: "muted", text: "checking…" });
   else if (result && result.error) output = h("div", { class: "warn", text: result.error.message });
   else if (result && result.value) output = h("div", { class: "full-status", text: fullStatusText(result.value) });
+  const retained = project.pending === "retained" && !project.orphan;
+  const reason = retained && !state.readOnly ? disabledReason(project) : null;
   return h("td", null, [
     h("div", { class: "actions" }, [
-      project.pending === "retained"
-        ? h("button", { text: "View patch", onclick: () => openPatch(project.sandbox_name) })
+      retained
+        ? h("button", { text: "Review patch", onclick: () => openPatch(project.sandbox_name) })
         : null,
       h("button", {
         text: "Check (contacts gateway)",
         disabled: Boolean(result && result.loading),
         onclick: () => checkStatus(project.sandbox_name),
       }),
+      reason ? h("span", { class: "muted", text: reason }) : null,
     ]),
+    parkedActions(project),
+    outcomeView(project.sandbox_name),
     output,
   ]);
 }
@@ -187,8 +251,11 @@ function projectsTable() {
 export function updateProjectsTable() {
   const container = document.getElementById("projects-table");
   if (!container) return;
+  // The table is rebuilt on every poll; keep a typed confirmation focused.
+  const focused = focusedConfirmKey();
   clear(container);
   container.append(projectsTable());
+  restoreConfirmFocus(container, focused);
 }
 
 export function renderProjects() {
@@ -206,7 +273,9 @@ export function renderProjects() {
     ]),
     h("p", {
       class: "muted",
-      text: "Every project an agent front-end registered. Read-only: run the front-end in the project to act on it.",
+      text: state.readOnly
+        ? "Every project an agent front-end registered. Read-only mode: run osa resolve or the front-end in the project to act on it."
+        : "Every project an agent front-end registered. Resolve a retained patch from its patch view, or a parked workspace from its row; each action runs osa resolve.",
     }),
   );
   const container = h("div", { id: "projects-table" });

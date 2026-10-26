@@ -1,8 +1,8 @@
 # OpenShell dashboard
 
 A minimal local web dashboard for osa and [OpenShell](https://docs.nvidia.com/openshell):
-the projects every agent front-end has registered with their sync state,
-sandbox inventory and lifecycle, live logs over Server-Sent Events, read-only
+the projects every agent front-end has registered with their sync state and
+`osa resolve` actions for their pending work, sandbox inventory and lifecycle, live logs over Server-Sent Events, read-only
 policy inspection, and rule-proposal review, without replacing `openshell term`
 or the CLIs.
 
@@ -57,13 +57,34 @@ Each row shows:
 - **Status**: **Check (contacts gateway)** runs `osa status PATH --json` (30 s
   timeout) and shows the sync state (`clean`, `behind`, `retained`, `parked`),
   phase, and the next command the front-end suggests.
-- **View patch** (retained patches only): the patch text read-only, with added
-  and removed lines marked, truncated at 2 MiB with a notice.
+- **Review patch** (retained patches only): the patch text, never editable,
+  with added and removed lines marked, truncated at 2 MiB with a notice.
 
 The header's attention counter shows how many projects have a retained patch,
 a parked workspace, or a missing folder; it is visible from every view and
-opens Projects. Nothing in the Projects view writes: resolving pending work
-stays with the front-end in the project.
+opens Projects.
+
+### Resolve actions
+
+Outside read-only mode, pending work can be resolved from the browser. Each
+action runs exactly one `osa resolve SANDBOX ACTION --json` (see
+[`docs/helper.md`](../docs/helper.md#osa-resolve) for what each one does):
+
+| Pending | Where | Actions |
+|---|---|---|
+| `retained` | Under the diff in the patch view, so the patch is on screen first | **Apply** lists the files the patch touches (parsed from its `diff --git` headers, marked incomplete for a truncated patch) and runs only after **Confirm apply**. **Branch** commits the patch on a new `osa/<sandbox>-<timestamp>` branch. **Drop** needs the sandbox name typed |
+| `parked` | On the row | **Rescue** copies the sandbox workspace into a `rescue-<timestamp>/` folder; the row stays `parked`. **Discard** needs the sandbox name typed |
+
+Orphans and rows with nothing pending have no action. While the last quick
+status says a session or resolve holds the sandbox (`busy`), the actions are
+disabled and the row says "a session is running"; that result can be up to
+60 seconds old, and `osa`'s own lock refuses a resolve that races a session.
+
+After an action, the row (and the patch view, when it ran there) shows what
+changed (files, branch, rescue folder), "nothing changed" with `osa`'s message
+when it refused, or the error text when it failed. The project's rows are
+re-read at once, so a cleared `retained` or `parked` badge disappears without
+waiting for the next poll. In read-only mode none of these controls exist.
 
 ## Scripts
 
@@ -85,7 +106,7 @@ Priority: flag > environment variable > default.
 | `--token T` | `DASHBOARD_TOKEN` | random per start | Session token embedded in the served page and required by every mutating route |
 | `--read-only` | `DASHBOARD_READ_ONLY` | off | Rejects every mutating route with 403 and hides the controls (`1`, `true`, `yes`, `on`) |
 | — | `DASHBOARD_OPENSHELL_BIN` | `openshell` | CLI binary to invoke (tests point this at the stub) |
-| — | `DASHBOARD_OSA_BIN` | `../bin/osa`, else `osa` | `osa` binary for host-change and full status checks: this variable, else the repository's `bin/osa` next to the dashboard, else `osa` on `PATH` |
+| — | `DASHBOARD_OSA_BIN` | `../bin/osa`, else `osa` | `osa` binary for host-change and full status checks and resolve actions: this variable, else the repository's `bin/osa` next to the dashboard, else `osa` on `PATH` |
 | — | `XDG_STATE_HOME` | `$HOME/.local/state` | Base of the osa state root (`$XDG_STATE_HOME/osa`) the Projects view reads |
 | `-h`, `--help` | — | — | Print usage |
 
@@ -121,11 +142,12 @@ Read routes (no token required on loopback):
 | `GET /api/sandboxes/:name/policy?view=base\|full` | Base or effective policy |
 | `GET /api/sandboxes/:name/rules?status=pending` | Rule proposals parsed from `rule get` |
 | `GET /events/logs?name=:name&token=:token` | SSE log stream (ring-buffer replay, heartbeat comments). Requires the page's session token |
-| `GET /api/projects[?refresh=1]` | Registry entries with `pending`, `orphan`, `note`, `fingerprintResult`, `checkedAt`, and per-row `osaError`; `refresh=1` drops the host-change cache |
+| `GET /api/projects[?refresh=1][&path=P]` | Registry entries with `pending`, `orphan`, `note`, `fingerprintResult`, `checkedAt`, `busy`, and per-row `osaError`; `refresh=1` drops the host-change cache. With `path`, only the rows registered at host path `P`, and only that path is checked or dropped |
 | `GET /api/projects/:sandbox/status` | `osa status <host_path> --json`, narrowed to that sandbox; 404 for a sandbox not in the registry |
 | `GET /api/projects/:sandbox/patch` | The retained patch `{name, size, truncated, text}`. Requires `X-Dashboard-Token`, in read-only mode too |
 
-Project routes accept GET only; any other method returns 405 and runs nothing.
+Project routes accept GET only, except the resolve route below, which accepts
+POST only; any other method returns 405 and runs nothing.
 
 Mutating routes require the `X-Dashboard-Token` header and fail with 403 in
 read-only mode:
@@ -136,6 +158,7 @@ read-only mode:
 | `POST /api/sandboxes/:name/start` \| `/stop` \| `/delete` | Lifecycle |
 | `POST /api/sandboxes/:name/rules/:chunkId/approve` | Approve a pending proposal |
 | `POST /api/sandboxes/:name/rules/:chunkId/reject` | Reject with required `{reason}` |
+| `POST /api/projects/:sandbox/resolve` | `{action}`, one of `apply`, `branch`, `drop`, `rescue`, `discard`: runs `osa resolve <sandbox> <action> --json`, with `--yes` added by the server for `drop` and `discard`. Returns `osa`'s `{sandbox, action, ok, changed, message}` plus `exitCode`: 200 for exit 0, 409 for exit 2 (refused, nothing changed). 400 for an unknown action, 404 for a sandbox not in the registry, 409 while a resolve for that sandbox runs, 502 for exit 3 or unparsable output (stderr in `error.detail`), 504 after 60 s (120 s for `rescue`) |
 
 CLI failures return a structured body
 (`{"error":{"kind":"missing_cli|exit|invalid_json|timeout|...","message":"..."}}`)
@@ -169,23 +192,61 @@ The dashboard is a local operator tool, not a hardened service. What it does:
   values, and it adds no `--env` values; provider credentials stay with the
   CLI and OpenShell's provider profiles. The API responses contain gateway
   metadata only.
-- **No host bind mounts, no sandbox changes.** The dashboard only shells out to
-  `openshell` and `osa`, and only with argv arrays (never through a shell). The
-  only `osa` commands it can run are `status PATH --json` and
-  `status PATH --quick --json`.
-- **Project data stays read-only.** The Projects view reads the osa state root
-  and never creates, modifies, or deletes a file there or in a registered
-  host project; no project route accepts a method other than GET.
+- **No host bind mounts.** The dashboard only shells out to `openshell` and
+  `osa`, and only with argv arrays (never through a shell). The only `osa`
+  commands it can run are `status PATH --json`, `status PATH --quick --json`,
+  and `resolve SANDBOX ACTION --json` with `--yes` for `drop` and `discard`
+  only; one allowlist check in `src/projects.ts` refuses every other argv.
+- **Project writes go through `osa resolve` only.** The dashboard itself never
+  creates, modifies, or deletes a file in the osa state root or a registered
+  host project. The resolve route is the only project route that is not GET.
 
-Threat model: the assets are the gateway (mutating sandboxes, approving rules)
-and the metadata the API exposes. The main risks are (1) another local process
-reaching the loopback port and (2) a browser tricking the operator's session
-into mutations. The token gate addresses both, and read-only mode removes the
-mutation surface entirely. Anyone with local access to the host can already run
-the authenticated `openshell` CLI, so the dashboard does not add a new trust
-boundary; it just makes the same capabilities reachable from a browser tab.
-The dashboard itself holds no credentials, so compromising it does not leak
-gateway secrets directly.
+Threat model. The dashboard guards three assets:
+
+1. **The gateway**: mutating sandboxes and approving rules. Unchanged from v1.
+2. **Host project trees and git refs**, newly writable: **Apply** writes the
+   patch's files into the working tree, and **Branch** creates an
+   `osa/<sandbox>-<timestamp>` ref.
+3. **The osa state root**, newly writable: **Drop** clears the marker and moves
+   the patch into `dropped/`, **Rescue** adds a `rescue-<timestamp>/` folder,
+   and **Discard** replaces the sandbox workspace and clears the marker.
+
+The main risks are (1) another local process reaching the loopback port and
+(2) a browser tricking the operator's session into requests. The host writes
+sit behind the same guards as every other mutation, plus their own:
+
+- the session token in `X-Dashboard-Token`, which a cross-site form post or a
+  DNS-rebound page cannot set, and the token never leaves the page;
+- read-only mode, which refuses the resolve route with 403 before any argv is
+  built;
+- a fixed argv: the client sends only an action name from a set of five, the
+  server adds `--yes` itself, and the sandbox must be a registry entry (no
+  path, no other `osa` command, no extra flags);
+- `osa`'s own checks: a dry run before Apply, a temporary worktree for Branch,
+  refusal of the wrong pending kind, and a lock that refuses a resolve while a
+  session runs (and a session while a resolve runs);
+- in the UI, typed sandbox names for Drop and Discard and the touched-file list
+  before Apply. These guard against slips, not attackers; the token is the
+  security guard.
+
+**What read-only mode guarantees**: no host writes at all. Every project route
+is GET, the resolve route answers 403, and the page shows no resolve control.
+`DASHBOARD_READ_ONLY=1` (or `--read-only`) is the setting for any shared or
+non-loopback use.
+
+**What a holder of the token can now do**, beyond the gateway mutations: the
+five resolve actions, for registered sandboxes, and nothing else on the host.
+Drop and Rescue are recoverable (the dropped patch stays on disk; Rescue only
+adds a folder); Apply and Branch are undone with git; Discard keeps every
+patch file but replaces the sandbox workspace. A leaked token is therefore
+more serious than in v1, which is another reason to keep the dashboard on
+loopback and use read-only mode wherever the token may travel.
+
+Anyone with local access to the host can already run `osa resolve`, the
+front-ends, and the authenticated `openshell` CLI, so the dashboard adds no
+new trust boundary; it makes those capabilities reachable from a browser tab.
+It holds no credentials, so compromising it does not leak gateway secrets
+directly.
 
 Patches are host source code, which is more sensitive than gateway metadata.
 The patch route therefore requires the session token as `X-Dashboard-Token`
@@ -194,8 +255,8 @@ example through DNS rebinding) cannot read it. It serves a patch only when
 the sandbox is in the registry and the marker's `patch` path resolves, after
 following symbolic links, to a regular file directly inside that sandbox's
 `sessions/<sandbox>/` directory, reads at most 2 MiB, and returns it as JSON
-text that the page renders as text nodes. It serves host code read-only; no
-project route writes anything.
+text that the page renders as text nodes. Outcome messages from `osa resolve`
+are rendered the same way.
 
 ## Known limitations
 
@@ -220,8 +281,10 @@ Tests put `test/stub` first on `PATH` (or set `DASHBOARD_OPENSHELL_BIN`) and
 never touch a real gateway; the browser check uses the same stubs and a
 throwaway Chrome profile. `test/stub/openshell` records argv, returns pinned
 v0.1.2 JSON shapes, simulates lifecycle state, and can emit timed log lines.
-`test/stub/osa` answers `status PATH [--quick] --json` from a JSON fixture,
-logs argv, and can fail, hang, or print invalid JSON. `test/state-fixture.ts`
+`test/stub/osa` answers `status PATH [--quick] --json` (with `busy` when the
+fixture says so) and `resolve SANDBOX ACTION --json [--yes]` from a JSON
+fixture, logs argv, and can succeed, refuse (exit 2), fail (exit 3), answer
+slowly, hang, or print invalid JSON. `test/state-fixture.ts`
 builds a throwaway state root with every registry and marker shape the
 Projects view handles, and a conformance test checks the dashboard's reader
 against the real `bin/osa projects --json` over it.

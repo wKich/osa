@@ -1123,6 +1123,10 @@ archive_state_dir() { # STATE_DIR REASON
         warn "archived the previous state to $archive_dest but cannot recreate $archive_dir"
         return 1
     fi
+    # The live session and resolve locks stay with the sandbox, not the archive.
+    if [ -d "$archive_dest/locks" ]; then
+        mv -- "$archive_dest/locks" "$archive_dir/locks" 2>/dev/null || true
+    fi
     note "Archived the previous sandbox state to $archive_dest ($archive_reason)."
     return 0
 }
@@ -1711,7 +1715,40 @@ sync_exit_hook() {
         session_armed=0
         sync_project_back
     fi
+    session_lock_release
     exit "$sync_hook_rc"
+}
+
+# The session side of the session/resolve exclusion (lib/osa-state.sh). The
+# file is written before the ensure step and removed after the exit sync, so a
+# resolve never runs while this session can still change the workspace.
+session_lock_file=
+
+session_lock_take() { # NAME
+    slt_dir=$(session_state_dir "$1")/locks
+    if ! (umask 077 && mkdir -p "$slt_dir") 2>/dev/null; then
+        warn "cannot create the lock directory $slt_dir; osa resolve cannot see this session"
+        return 0
+    fi
+    session_lock_file=$slt_dir/session.$$
+    if ! (umask 077 && : >"$session_lock_file") 2>/dev/null; then
+        warn "cannot write the session lock $session_lock_file"
+        session_lock_file=
+        return 0
+    fi
+    if slt_pid=$(lock_resolve_pid "$slt_dir" 1); then
+        session_lock_release
+        err "osa resolve is running for sandbox '$1' (PID $slt_pid); start the session when it finishes"
+        err "  lock: $slt_dir/resolve.d (remove it only if no resolve is running)"
+        exit "$EX_USAGE"
+    fi
+}
+
+session_lock_release() {
+    if [ -n "$session_lock_file" ]; then
+        rm -f "$session_lock_file"
+        session_lock_file=
+    fi
 }
 
 # shellcheck disable=SC2329  # reached through the sync exit path
@@ -1759,6 +1796,9 @@ recovery_block() { # KIND [PATCH]
             note "  patch:     $recovery_patch"
             note "  review:    git apply --3way '$recovery_patch'"
         fi
+        note "  apply:     osa resolve $recovery_name apply      (to the working tree, no commit)"
+        note "  branch:    osa resolve $recovery_name branch     (commit on a new branch)"
+        note "  drop:      osa resolve $recovery_name drop --yes (keep the patch aside)"
         note "  next:      $PROGRAM (the next session refreshes from the host)"
         return 0
     fi
@@ -1771,7 +1811,8 @@ recovery_block() { # KIND [PATCH]
     if [ -n "$recovery_patch" ] && [ -f "$recovery_patch" ]; then
         err "  patch:     $recovery_patch"
     fi
-    err "  discard:   $PROGRAM upload --discard   (or $PROGRAM rm --discard)"
+    err "  rescue:    osa resolve $recovery_name rescue   (copy the workspace into the state directory)"
+    err "  discard:   osa resolve $recovery_name discard --yes   (or $PROGRAM upload --discard, $PROGRAM rm --discard)"
     err "  pending:   ${sync_state_dir:-state}/pending"
 }
 
@@ -1971,53 +2012,70 @@ worktree_apply() { # PATCH
     return 0
 }
 
-# Applies the patch in place after `git apply --check`, or with `patch` when
-# the host has no git. A failed check leaves every file untouched.
+# Checks the whole patch against the current directory and then applies it
+# all at once: `git apply --check` and `git apply` (which work outside a
+# repository), or `patch` with a dry run first when the host has no git. Never
+# stages, commits, or writes state. Returns 0 when applied, 2 when the check
+# failed (nothing changed), 3 for a binary patch without git, 4 when neither
+# tool exists, and 1 when the apply failed after a clean check. Shared by the
+# exit sync and `__resolve apply`.
+patch_check_apply() { # PATCH
+    pca_patch=$1
+    if command -v git >/dev/null 2>&1; then
+        git apply --check "$pca_patch" >&2 || return 2
+        git apply "$pca_patch" >&2 || return 1
+        return 0
+    fi
+    if grep -Eq '^(GIT binary patch|Binary files .* differ)$' "$pca_patch"; then
+        return 3
+    fi
+    command -v patch >/dev/null 2>&1 || return 4
+    # --batch: never ask on the terminal; --forward: a reversed or applied
+    # hunk fails the check instead of being undone.
+    patch -p1 --batch --dry-run --forward <"$pca_patch" >&2 || return 2
+    patch -p1 --batch --forward <"$pca_patch" >&2 || return 1
+    return 0
+}
+
+# Applies the patch in place after the check, and keeps it for review when the
+# check fails. A failed check leaves every file untouched.
 # shellcheck disable=SC2329  # reached through the sync exit path
 plain_apply() { # PATCH
     plain_patch=$1
-    if command -v git >/dev/null 2>&1; then
-        if ! git apply --check "$plain_patch" >&2; then
+    plain_rc=0
+    patch_check_apply "$plain_patch" || plain_rc=$?
+    case $plain_rc in
+        0)
+            advance_sandbox_baseline
+            refresh_synced_marker
+            rm -f "$sync_state_dir/pending"
+            note "Applied sandbox changes to $PWD."
+            return 0
+            ;;
+        2)
             note "The sandbox patch does not apply cleanly; $PWD was left unchanged."
             note "  patch:  $plain_patch"
-            note "  review: git apply --3way '$plain_patch'"
+            if command -v git >/dev/null 2>&1; then
+                note "  review: git apply --3way '$plain_patch'"
+            else
+                note "  review: patch -p1 < '$plain_patch'"
+            fi
             write_pending "$plain_patch" "conflict" "retained" "$sync_result_tree"
             return 2
-        fi
-        if ! git apply "$plain_patch" >&2; then
+            ;;
+        3)
+            export_review_files "$plain_patch"
+            return $?
+            ;;
+        4)
+            warn "neither git nor patch is available on the host; keeping the patch"
+            return 1
+            ;;
+        *)
             warn "applying the sandbox patch failed; $PWD was left unchanged"
             return 1
-        fi
-        advance_sandbox_baseline
-        refresh_synced_marker
-        rm -f "$sync_state_dir/pending"
-        note "Applied sandbox changes to $PWD."
-        return 0
-    fi
-    if grep -Eq '^(GIT binary patch|Binary files .* differ)$' "$plain_patch"; then
-        export_review_files "$plain_patch"
-        return $?
-    fi
-    if ! command -v patch >/dev/null 2>&1; then
-        warn "neither git nor patch is available on the host; keeping the patch"
-        return 1
-    fi
-    if ! patch -p1 --dry-run --forward <"$plain_patch" >&2; then
-        note "The sandbox patch does not apply cleanly; $PWD was left unchanged."
-        note "  patch:  $plain_patch"
-        note "  review: patch -p1 < '$plain_patch'"
-        write_pending "$plain_patch" "conflict" "retained" "$sync_result_tree"
-        return 2
-    fi
-    if ! patch -p1 --forward <"$plain_patch" >&2; then
-        warn "applying the sandbox patch failed; $PWD was left unchanged"
-        return 1
-    fi
-    advance_sandbox_baseline
-    refresh_synced_marker
-    rm -f "$sync_state_dir/pending"
-    note "Applied sandbox changes to $PWD."
-    return 0
+            ;;
+    esac
 }
 
 # No-git binary fallback: the sandbox reports changed paths and hashes, and
@@ -2393,6 +2451,8 @@ cmd_session() {
     session_idle_stop=$(resolved_idle_stop)
     agent_check_session_flags interactive
     require_openshell
+    session_lock_name=$(resolved_name)
+    session_lock_take "$session_lock_name"
     arm_idle_stop "$session_idle_stop"
     ensure_project_sandbox
     name=$(resolved_name)
@@ -2457,6 +2517,8 @@ cmd_run() {
     session_idle_stop=$(resolved_idle_stop)
     agent_check_session_flags headless
     require_openshell
+    session_lock_name=$(resolved_name)
+    session_lock_take "$session_lock_name"
     arm_idle_stop "$session_idle_stop"
     # Ensure messages go to stderr so stdout carries only the agent's output.
     ensure_project_sandbox >&2
@@ -2589,6 +2651,428 @@ cmd_download() {
     fi
     run_gateway sandbox download "$name" "$spath" "$dest"
     say "Downloaded '$name:$spath' to '$dest'."
+}
+
+# ---------------------------------------------------------------------------
+# Resolve: `osa resolve SANDBOX ACTION` runs `__resolve ACTION` here, in the
+# registered project folder with --name. Retained patch: apply, branch, drop.
+# Parked workspace: rescue, discard. Never prompts. Exit codes: 0 done, 1
+# usage error, 2 refused before any change, 3 failed during the action (after
+# cleanup). Every output of the action goes to stderr; the result (one JSON
+# object under --json) is the only thing on stdout.
+# ---------------------------------------------------------------------------
+
+EX_REFUSED=2
+EX_FAILED=3
+
+resolve_action=
+resolve_name=
+resolve_state=
+resolve_patch=
+resolve_result_tree=
+resolve_changed=
+resolve_finished=0
+resolve_lock_dir=
+resolve_lock_held=0
+resolve_wt=
+resolve_new_branch=
+
+resolve_add_changed() { # PATH
+    resolve_changed=$(append_list "$resolve_changed" "$1")
+}
+
+resolve_changed_json() {
+    rcj_sep=
+    printf '['
+    while IFS= read -r rcj_item; do
+        [ -n "$rcj_item" ] || continue
+        printf '%s%s' "$rcj_sep" "$(json_str "$rcj_item")"
+        rcj_sep=,
+    done <<EOF
+$resolve_changed
+EOF
+    printf ']'
+}
+
+# Prints the result on the saved stdout (fd 3) and exits with RC; the exit
+# hook then releases the lock.
+resolve_finish() { # RC MESSAGE
+    resolve_finished=1
+    if [ "$opt_json" -eq 1 ]; then
+        rf_ok=false
+        if [ "$1" -eq 0 ]; then
+            rf_ok=true
+        fi
+        printf '{"sandbox":%s,"action":%s,"ok":%s,"changed":%s,"message":%s}\n' \
+            "$(json_str "$resolve_name")" "$(json_str "$resolve_action")" "$rf_ok" \
+            "$(resolve_changed_json)" "$(json_str "$2")" >&3
+        if [ "$1" -ne 0 ]; then
+            err "$2"
+        fi
+    elif [ "$1" -eq 0 ]; then
+        printf '%s\n' "$2" >&3
+    else
+        err "$2"
+    fi
+    exit "$1"
+}
+
+# Removes what a failed action left behind (temporary worktree, new branch)
+# and releases the lock. An exit that did not report a result reports one.
+# shellcheck disable=SC2329  # invoked via trap
+resolve_exit_hook() {
+    reh_rc=$?
+    trap - EXIT
+    if [ -n "$resolve_wt" ]; then
+        git worktree remove --force "$resolve_wt" >/dev/null 2>&1 || rm -rf "$resolve_wt"
+        git worktree prune >/dev/null 2>&1 || true
+        resolve_wt=
+    fi
+    if [ -n "$resolve_new_branch" ]; then
+        git branch -D "$resolve_new_branch" >/dev/null 2>&1 || true
+        resolve_new_branch=
+    fi
+    if [ "$resolve_lock_held" -eq 1 ]; then
+        rm -rf "$resolve_lock_dir/resolve.d"
+        resolve_lock_held=0
+    fi
+    setup_cleanup
+    if [ "$resolve_finished" -eq 0 ]; then
+        if [ "$reh_rc" -eq 0 ]; then
+            reh_rc=$EX_FAILED
+        fi
+        resolve_finished=1
+        if [ "$opt_json" -eq 1 ]; then
+            printf '{"sandbox":%s,"action":%s,"ok":false,"changed":%s,"message":%s}\n' \
+                "$(json_str "$resolve_name")" "$(json_str "$resolve_action")" \
+                "$(resolve_changed_json)" \
+                "$(json_str "$resolve_action failed (exit status $reh_rc); see stderr")" >&3
+        fi
+    fi
+    exit "$reh_rc"
+}
+
+# Takes the resolve side of the session/resolve lock (lib/osa-state.sh):
+# announce with mkdir, then refuse while a live session holds the sandbox.
+resolve_lock_take() {
+    resolve_lock_dir=$resolve_state/locks
+    if ! (umask 077 && mkdir -p "$resolve_lock_dir") 2>/dev/null; then
+        resolve_finish "$EX_FAILED" "cannot create the lock directory $resolve_lock_dir"
+    fi
+    if ! mkdir "$resolve_lock_dir/resolve.d" 2>/dev/null; then
+        if rlt_pid=$(lock_resolve_pid "$resolve_lock_dir" 1); then
+            resolve_finish "$EX_REFUSED" "another osa resolve is running for sandbox '$resolve_name' (PID $rlt_pid); nothing changed"
+        fi
+        if ! mkdir "$resolve_lock_dir/resolve.d" 2>/dev/null; then
+            resolve_finish "$EX_REFUSED" "another osa resolve is starting for sandbox '$resolve_name'; nothing changed"
+        fi
+    fi
+    resolve_lock_held=1
+    printf '%s\n' "$$" >"$resolve_lock_dir/resolve.d/pid"
+    if rlt_pid=$(lock_session_pid "$resolve_lock_dir" 1); then
+        resolve_finish "$EX_REFUSED" "a session is running for sandbox '$resolve_name' (PID $rlt_pid); resolve after it exits (lock: $resolve_lock_dir; remove session.$rlt_pid only if no such session runs)"
+    fi
+}
+
+# After a retained patch is resolved the sandbox still holds the patch's
+# result. Recording that result tree with a host tree that never matches makes
+# the next session classify the workspace `behind` and refresh it from the
+# host, as it would have done with the marker, instead of parking it. Writes
+# only internal files and never contacts the gateway.
+resolve_mark_refresh() {
+    if [ -z "$resolve_result_tree" ]; then
+        warn "the marker recorded no result tree; if the next session reports the workspace parked, run '$PROGRAM upload --discard'"
+        return 0
+    fi
+    rmr_id=$(read_baseline "$resolve_state/synced" sandbox_id)
+    if [ -z "$rmr_id" ]; then
+        rmr_id=$(flat_value "$resolve_state/pending.resolved" sandbox_id)
+    fi
+    rmr_tmp=$resolve_state/synced.$$
+    if (
+        umask 077
+        {
+            printf 'host_tree=resolved\n'
+            printf 'sandbox_tree=%s\n' "$resolve_result_tree"
+            printf 'sandbox_id=%s\n' "$rmr_id"
+        } >"$rmr_tmp"
+    ) && mv -- "$rmr_tmp" "$resolve_state/synced" 2>/dev/null; then
+        :
+    else
+        rm -f "$rmr_tmp"
+        warn "cannot record the resolved state; if the next session reports the workspace parked, run '$PROGRAM upload --discard'"
+    fi
+    if [ -f "$resolve_state/baseline" ]; then
+        rmr_tmp=$resolve_state/baseline.$$
+        if (umask 077 && sed 's/^state=.*/state=behind/' "$resolve_state/baseline" >"$rmr_tmp"); then
+            mv -- "$rmr_tmp" "$resolve_state/baseline" 2>/dev/null || rm -f "$rmr_tmp"
+        else
+            rm -f "$rmr_tmp"
+        fi
+    fi
+    rm -f "$resolve_state/pending.resolved"
+}
+
+# Removes the retained marker after a successful apply, branch, or drop. The
+# marker's sandbox ID is read once more by resolve_mark_refresh.
+resolve_clear_marker() {
+    if ! mv -- "$resolve_state/pending" "$resolve_state/pending.resolved" 2>/dev/null; then
+        resolve_finish "$EX_FAILED" "cannot remove the marker $resolve_state/pending"
+    fi
+    resolve_mark_refresh
+}
+
+# Prints the project paths a git patch touches, one per line.
+resolve_patch_paths() { # PATCH
+    sed -n 's|^diff --git a/.* b/||p' "$1"
+}
+
+# A retained patch whose reverse applies is already in the host tree.
+resolve_patch_present() { # PATCH
+    if command -v git >/dev/null 2>&1; then
+        git apply --reverse --check "$1" >/dev/null 2>&1
+        return $?
+    fi
+    command -v patch >/dev/null 2>&1 || return 1
+    if grep -Eq '^(GIT binary patch|Binary files .* differ)$' "$1"; then
+        return 1
+    fi
+    # --force: never treat the reverse as reversed, so only a patch that is
+    # really in the tree passes.
+    patch -p1 --force --reverse --dry-run --silent <"$1" >/dev/null 2>&1
+}
+
+resolve_apply() {
+    if resolve_patch_present "$resolve_patch"; then
+        resolve_clear_marker
+        resolve_finish 0 "The retained patch is already in $project_path; no file changed and the marker is cleared. Patch kept: $resolve_patch"
+    fi
+    ra_paths=$(resolve_patch_paths "$resolve_patch")
+    ra_rc=0
+    patch_check_apply "$resolve_patch" || ra_rc=$?
+    case $ra_rc in
+        0)
+            while IFS= read -r ra_path; do
+                [ -n "$ra_path" ] || continue
+                resolve_add_changed "$project_path/$ra_path"
+            done <<EOF
+$ra_paths
+EOF
+            resolve_clear_marker
+            resolve_finish 0 "Applied the retained patch to $project_path (not staged or committed). Patch kept: $resolve_patch"
+            ;;
+        2)
+            resolve_finish "$EX_REFUSED" "the retained patch does not apply cleanly to $project_path; nothing changed. Commit it on a branch instead: osa resolve $resolve_name branch"
+            ;;
+        3)
+            resolve_finish "$EX_REFUSED" "the retained patch has binary changes and this host has no git; nothing changed. Run 'osa resolve $resolve_name branch' on a host with git, or copy files with '$PROGRAM download'"
+            ;;
+        4)
+            resolve_finish "$EX_REFUSED" "neither git nor patch is available on this host; nothing changed"
+            ;;
+        *)
+            resolve_finish "$EX_FAILED" "applying the retained patch failed after a clean check; review $project_path and $resolve_patch"
+            ;;
+    esac
+}
+
+resolve_branch() {
+    rb_apply="Apply the patch to the working tree instead: osa resolve $resolve_name apply"
+    if ! command -v git >/dev/null 2>&1; then
+        resolve_finish "$EX_REFUSED" "branch needs git on this host; nothing changed. $rb_apply"
+    fi
+    rb_top=$(git rev-parse --show-toplevel 2>/dev/null) || rb_top=
+    if [ "$rb_top" != "$project_path" ]; then
+        resolve_finish "$EX_REFUSED" "$project_path is not the root of a git repository; nothing changed. $rb_apply"
+    fi
+    rb_base=$(read_baseline "$resolve_state/baseline" base)
+    if [ -z "$rb_base" ]; then
+        resolve_finish "$EX_REFUSED" "the session recorded no base commit; nothing changed. $rb_apply"
+    fi
+    if ! git cat-file -e "$rb_base^{commit}" 2>/dev/null; then
+        resolve_finish "$EX_REFUSED" "the recorded base commit $rb_base is no longer in the repository; nothing changed. $rb_apply"
+    fi
+    rb_stamp=$(date +%Y%m%d%H%M%S)
+    rb_branch=osa/$resolve_name-$rb_stamp
+    if git show-ref --verify --quiet "refs/heads/$rb_branch"; then
+        rb_branch=$rb_branch-$$
+    fi
+    if ! git check-ref-format --branch "$rb_branch" >/dev/null 2>&1; then
+        resolve_finish "$EX_REFUSED" "'$rb_branch' is not a valid branch name; nothing changed"
+    fi
+    if ! (umask 077 && mkdir -p "$resolve_state/worktrees"); then
+        resolve_finish "$EX_FAILED" "cannot create the worktree directory under $resolve_state"
+    fi
+    rb_wt=$resolve_state/worktrees/resolve-$rb_stamp-$$
+    git worktree prune >/dev/null 2>&1 || true
+    resolve_wt=$rb_wt
+    if ! git worktree add --detach "$rb_wt" "$rb_base"; then
+        resolve_finish "$EX_FAILED" "cannot create a temporary worktree at $rb_wt; nothing changed"
+    fi
+    rb_applied=0
+    if git -C "$rb_wt" apply --check "$resolve_patch" 2>/dev/null; then
+        git -C "$rb_wt" apply "$resolve_patch" && rb_applied=1
+    elif git -C "$rb_wt" apply --3way "$resolve_patch"; then
+        rb_applied=1
+    fi
+    if [ "$rb_applied" -eq 0 ]; then
+        resolve_finish "$EX_REFUSED" "the retained patch conflicts with the recorded base $rb_base; no branch was created and nothing changed. Review the patch by hand: $resolve_patch"
+    fi
+    if ! git -C "$rb_wt" add -A \
+        || ! rb_tree=$(git -C "$rb_wt" write-tree) \
+        || ! rb_commit=$(GIT_AUTHOR_NAME=$PROGRAM GIT_AUTHOR_EMAIL=$PROGRAM@localhost \
+            GIT_COMMITTER_NAME=$PROGRAM GIT_COMMITTER_EMAIL=$PROGRAM@localhost \
+            git -C "$rb_wt" commit-tree "$rb_tree" -p "$rb_base" \
+            -m "$PROGRAM: sandbox changes from $resolve_name"); then
+        resolve_finish "$EX_FAILED" "cannot commit the patch in the temporary worktree; no branch was created"
+    fi
+    if ! git branch "$rb_branch" "$rb_commit"; then
+        resolve_finish "$EX_FAILED" "cannot create branch '$rb_branch'; nothing changed"
+    fi
+    resolve_new_branch=$rb_branch
+    if ! git worktree remove --force "$rb_wt"; then
+        resolve_finish "$EX_FAILED" "cannot remove the temporary worktree $rb_wt; branch '$rb_branch' was not kept"
+    fi
+    resolve_wt=
+    resolve_clear_marker
+    resolve_new_branch=
+    resolve_add_changed "refs/heads/$rb_branch"
+    rb_message="Committed the retained patch on branch '$rb_branch' at the recorded base $rb_base. The working tree, index, and HEAD are unchanged. Take the change with: git cherry-pick $rb_branch"
+    if [ "$(read_baseline "$resolve_state/baseline" dirty)" = 1 ]; then
+        rb_message="$rb_message (the base is a snapshot of the uncommitted work at upload, so cherry-pick takes only the agent's change)"
+    fi
+    resolve_finish 0 "$rb_message"
+}
+
+resolve_drop() {
+    if [ "$opt_yes" -eq 0 ]; then
+        resolve_finish "$EX_REFUSED" "drop needs --yes: it clears the marker and moves the patch into $resolve_state/dropped/; nothing changed"
+    fi
+    rd_dir=$resolve_state/dropped
+    if ! (umask 077 && mkdir -p "$rd_dir"); then
+        resolve_finish "$EX_FAILED" "cannot create $rd_dir; nothing changed"
+    fi
+    rd_dest=$rd_dir/$(basename -- "$resolve_patch")
+    if [ -e "$rd_dest" ]; then
+        rd_dest=$rd_dest.$$
+    fi
+    if ! mv -- "$resolve_patch" "$rd_dest"; then
+        resolve_finish "$EX_FAILED" "cannot move the patch into $rd_dir; nothing changed"
+    fi
+    resolve_add_changed "$rd_dest"
+    resolve_clear_marker
+    resolve_finish 0 "Dropped the retained patch; it is kept at $rd_dest (recover it with: git apply '$rd_dest')"
+}
+
+# Brings the sandbox to Ready for a parked action. Only rescue (START=1) may
+# start a stopped sandbox; discard refuses one.
+resolve_ready_sandbox() { # START
+    require_openshell
+    rrs_phase=$(sandbox_phase "$resolve_name")
+    case $rrs_phase in
+        '')
+            resolve_finish "$EX_REFUSED" "sandbox '$resolve_name' is not on the gateway; nothing changed"
+            ;;
+        Ready) ;;
+        Stopped|Completed|Error)
+            if [ "$1" -eq 0 ]; then
+                resolve_finish "$EX_REFUSED" "sandbox '$resolve_name' is $rrs_phase; nothing changed. Start it with '$PROGRAM start', then discard again"
+            fi
+            note "Starting sandbox '$resolve_name' (phase: $rrs_phase)..."
+            run_gateway sandbox start "$resolve_name"
+            wait_for_sandbox_ready "$resolve_name"
+            resolve_started="Started sandbox '$resolve_name' (it was $rrs_phase). "
+            ;;
+        *)
+            wait_for_sandbox_ready "$resolve_name"
+            ;;
+    esac
+}
+
+resolve_rescue() {
+    resolve_started=
+    resolve_ready_sandbox 1
+    rr_dest=$resolve_state/rescue-$(date +%Y%m%d%H%M%S)
+    if [ -e "$rr_dest" ]; then
+        rr_dest=$rr_dest-$$
+    fi
+    rr_workdir=$(resolved_workdir)
+    if ! os sandbox download "$resolve_name" "$rr_workdir" "$rr_dest/"; then
+        rm -rf "$rr_dest"
+        resolve_finish "$EX_FAILED" "${resolve_started}downloading $resolve_name:$rr_workdir failed; nothing was kept"
+    fi
+    chmod 700 "$rr_dest" 2>/dev/null || true
+    resolve_add_changed "$rr_dest"
+    resolve_finish 0 "${resolve_started}Rescued the parked workspace into $rr_dest. The workspace stays parked; when done, replace it with: osa resolve $resolve_name discard --yes"
+}
+
+resolve_discard() {
+    if [ "$opt_yes" -eq 0 ]; then
+        resolve_finish "$EX_REFUSED" "discard needs --yes: it replaces the sandbox workspace with $project_path; nothing changed. Keep a copy first with: osa resolve $resolve_name rescue"
+    fi
+    resolve_ready_sandbox 0
+    opt_discard=1
+    cmd_upload
+    if [ -f "$resolve_state/pending" ]; then
+        resolve_finish "$EX_FAILED" "the upload finished but the marker is still present: $resolve_state/pending"
+    fi
+    resolve_add_changed "$resolve_name:$(resolved_workdir)"
+    resolve_finish 0 "Replaced the parked workspace of '$resolve_name' with $project_path and cleared the marker. Existing patch files were kept."
+}
+
+cmd_resolve() {
+    [ "$#" -eq 1 ] || die_usage "usage: $PROGRAM --name SANDBOX __resolve apply|branch|drop|rescue|discard [--yes] [--json]"
+    resolve_action=$1
+    case $resolve_action in
+        apply|branch|drop|rescue|discard) ;;
+        *) die_usage "unknown resolve action: $resolve_action (actions: apply, branch, drop, rescue, discard)" ;;
+    esac
+    resolve_name=$(resolved_name)
+    resolve_state=$(session_state_dir "$resolve_name")
+    exec 3>&1 1>&2
+    trap 'resolve_exit_hook' EXIT
+    rr_owner=$(flat_value "$(registry_file "$resolve_name")" host_path)
+    if [ "$rr_owner" != "$project_path" ]; then
+        resolve_finish "$EX_REFUSED" "sandbox '$resolve_name' is not registered to $project_path${rr_owner:+ (it belongs to $rr_owner)}; nothing changed"
+    fi
+    resolve_lock_take
+    resolve_kind=$(pending_kind "$resolve_state")
+    case $resolve_action in
+        apply|branch|drop)
+            case $resolve_kind in
+                retained) ;;
+                parked)
+                    resolve_finish "$EX_REFUSED" "the workspace of '$resolve_name' is parked, not retained: it holds changes with no durable patch; nothing changed. Resolve it with 'osa resolve $resolve_name rescue' or 'osa resolve $resolve_name discard --yes'"
+                    ;;
+                *)
+                    resolve_finish "$EX_REFUSED" "nothing is pending for sandbox '$resolve_name'; nothing changed"
+                    ;;
+            esac
+            resolve_patch=$(flat_value "$resolve_state/pending" patch)
+            resolve_result_tree=$(flat_value "$resolve_state/pending" result_tree)
+            if [ -z "$resolve_patch" ] || [ ! -s "$resolve_patch" ]; then
+                resolve_finish "$EX_REFUSED" "the retained patch file is missing or empty: ${resolve_patch:-none recorded}; nothing changed"
+            fi
+            ;;
+        rescue|discard)
+            case $resolve_kind in
+                parked) ;;
+                retained)
+                    resolve_finish "$EX_REFUSED" "sandbox '$resolve_name' has a retained patch, not a parked workspace; nothing changed. Resolve it with 'osa resolve $resolve_name apply', 'osa resolve $resolve_name branch', or 'osa resolve $resolve_name drop --yes'"
+                    ;;
+                *)
+                    resolve_finish "$EX_REFUSED" "nothing is pending for sandbox '$resolve_name'; nothing changed"
+                    ;;
+            esac
+            ;;
+    esac
+    case $resolve_action in
+        apply) resolve_apply ;;
+        branch) resolve_branch ;;
+        drop) resolve_drop ;;
+        rescue) resolve_rescue ;;
+        discard) resolve_discard ;;
+    esac
 }
 
 # Prints a status line, except for `__status-json`, which prints one JSON
@@ -3214,6 +3698,7 @@ setup_cleanup() {
     if [ -n "$setup_tmp" ] && [ -d "$setup_tmp" ]; then
         rm -rf "$setup_tmp"
     fi
+    session_lock_release
 }
 
 # Interactive when stdin is a terminal. <PREFIX>_INTERACTIVE=1 treats piped
@@ -4120,6 +4605,7 @@ opt_global_profile=0
 opt_no_git_ignore=0
 opt_no_sync=0
 opt_discard=0
+opt_json=0
 opt_from=
 opt_file=
 opt_field=
@@ -4427,6 +4913,7 @@ oss_main() {
             --no-git-ignore) opt_no_git_ignore=1 ;;
             --no-sync) opt_no_sync=1 ;;
             --discard) opt_discard=1 ;;
+            --json) opt_json=1 ;;
             -h|--help) opt_help=1 ;;
             --)
                 unprocessed=$((OPT_ARGC - OPT_I))
@@ -4506,6 +4993,10 @@ oss_main() {
             # osa's full status: the same classification as `status`, as JSON.
             status_json=1
             cmd_status "$@"
+            ;;
+        __resolve)
+            # osa resolve: resolve the pending work of the --name sandbox.
+            cmd_resolve "$@"
             ;;
         list)
             cmd_list "$@"

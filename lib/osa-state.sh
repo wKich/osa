@@ -158,3 +158,58 @@ pending_kind() { # SESSION_DIR
 json_str() { # S
     printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g')"
 }
+
+# Session and resolve exclusion. Files under sessions/<sandbox>/locks/ are
+# internal, not contract: a session writes `session.<pid>`, a resolve creates
+# `resolve.d/` (mkdir is atomic) holding `pid`. Each side announces itself
+# before it checks the other, so of two concurrent starters at least one sees
+# the other. Sessions never check each other. A holder is live while
+# `kill -0 <pid>` succeeds.
+
+lock_pid_live() { # PID
+    case $1 in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    kill -0 "$1" 2>/dev/null
+}
+
+# Prints the PID of a live session in LOCK_DIR. With CLEAN=1 the files of
+# dead sessions are removed on the way.
+lock_session_pid() { # LOCK_DIR [CLEAN]
+    for lsp_file in "$1"/session.*; do
+        [ -f "$lsp_file" ] || continue
+        lsp_pid=${lsp_file##*/session.}
+        if lock_pid_live "$lsp_pid"; then
+            printf '%s' "$lsp_pid"
+            return 0
+        fi
+        if [ "${2:-0}" -eq 1 ]; then
+            rm -f "$lsp_file"
+        fi
+    done
+    return 1
+}
+
+# Prints the PID of a live resolve in LOCK_DIR, or `unknown` while its PID is
+# not written yet. With CLEAN=1 a dead resolve's directory is removed.
+lock_resolve_pid() { # LOCK_DIR [CLEAN]
+    [ -d "$1/resolve.d" ] || return 1
+    if [ ! -f "$1/resolve.d/pid" ]; then
+        printf 'unknown'
+        return 0
+    fi
+    lrp_pid=$(cat "$1/resolve.d/pid" 2>/dev/null) || lrp_pid=
+    if lock_pid_live "$lrp_pid"; then
+        printf '%s' "$lrp_pid"
+        return 0
+    fi
+    if [ "${2:-0}" -eq 1 ]; then
+        rm -rf "$1/resolve.d"
+    fi
+    return 1
+}
+
+# Succeeds while a live session or resolve holds LOCK_DIR. Read-only.
+lock_busy() { # LOCK_DIR
+    lock_session_pid "$1" >/dev/null || lock_resolve_pid "$1" >/dev/null
+}

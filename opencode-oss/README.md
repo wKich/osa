@@ -64,8 +64,10 @@ The first session creates the project's sandbox (`oc-<directory>`),
 uploads the project, and attaches the remembered provider. On exit, the
 helper collects the sandbox changes as a patch. It applies the patch only
 when the sandbox baseline still matches the host, as `maki-oss` does. See
-[docs/opencode-oss.md](../docs/opencode-oss.md) for the command reference
-and the differences from `maki-oss`.
+[docs/ai/reference/opencode.md](../docs/ai/reference/opencode.md) for the
+command reference and the differences from `maki-oss`, and
+[docs/ai/playbooks/opencode.md](../docs/ai/playbooks/opencode.md) for the
+ordered sandbox path.
 
 ## Without the helper
 
@@ -220,8 +222,8 @@ Notes for 2.1.4:
 Personal additions (MCP servers, plugins, skills, a default model, UI
 preferences) belong in an image built `FROM opencode-agent:local` or in the
 project's own `opencode.json`, not in this base. See
-[Personal environment](../docs/opencode-oss.md#personal-environment) for the
-store shape and the provider naming that `mcp status` checks.
+[Personal environment](../docs/ai/reference/opencode.md#personal-environment) for
+the store shape and the provider naming that `mcp status` checks.
 
 ## Known behavior
 

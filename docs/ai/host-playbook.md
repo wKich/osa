@@ -217,7 +217,10 @@ steps from this file.
   continuing P0-P8.
 - [`docs/ai/reference/maki.md`](reference/maki.md) — Maki configuration,
   profiles, MCP, and store shape.
-- [`docs/opencode-oss.md`](../opencode-oss.md) — the OpenCode path.
+- [`docs/ai/playbooks/opencode.md`](playbooks/opencode.md) — the OpenCode
+  path, continuing P3-P8.
+- [`docs/ai/reference/opencode.md`](reference/opencode.md) — OpenCode
+  configuration, profiles, sessions, MCP, and store shape.
 - [`docs/claude-oss.md`](../claude-oss.md) — the Claude Code path.
 - [`docs/helper.md`](../helper.md) — shared helper commands and sync states.
 - [`docs/providers.md`](../providers.md) — provider profiles and setup.

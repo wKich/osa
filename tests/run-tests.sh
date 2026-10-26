@@ -4343,7 +4343,7 @@ test_oc_mcp_status_missing_in_sandbox() {
     run_oc mcp status
     assert_rc 3
     assert_out_has "context7: sandbox=missing"
-    assert_out_has "fix: build and select an environment image built FROM opencode-agent:local that declares 'context7' (see docs/opencode-oss.md)"
+    assert_out_has "fix: build and select an environment image built FROM opencode-agent:local that declares 'context7' (see docs/ai/reference/opencode.md)"
     assert_out_has "fix: opencode-oss provider attach opencode-mcp-context7"
     assert_out_missing "off:"
     assert_log_line "/sandbox/.config/opencode/opencode.json"

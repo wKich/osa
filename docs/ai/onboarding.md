@@ -81,34 +81,34 @@ agent columns name the command or page for that front-end.
 
 | Phase | Gate | Maki (`maki-oss`) | OpenCode (`opencode-oss`) | Claude (`claude-oss`) |
 |---|---|---|---|---|
-| P0 Preflight / audit | Every required host tool is present and reports a usable version. | Read the host and config; shared preflight from [host playbook](host-playbook.md) Phase 1; `maki --version` from [agent playbook](playbooks/maki.md) Phase 0. | Read the host and config; `openshell status`; [OpenCode page](../opencode-oss.md#install). | Read the host and config; `openshell status`; [Claude page](../claude-oss.md#credentials). |
-| P1 Host tools | The engine, OpenShell CLI and gateway, and agent CLI are installed. | Install engine and OpenShell from [host playbook](host-playbook.md) Phase 2; install the pinned Maki CLI from [agent playbook](playbooks/maki.md) Phase 0. | Install engine, OpenShell, and the helper; the OpenCode CLI comes from the image at P3; [OpenCode page](../opencode-oss.md#install). | Install engine, OpenShell, and the helper; create a subscription token on the host only when needed; [Claude page](../claude-oss.md#credentials). |
-| P2 Repository + helper | The repository, helper preflight, image, and provider profile exist. | Clone the repo and put `bin/` on `PATH` from [host playbook](host-playbook.md) Phase 3; run `maki-oss doctor`, `maki-oss image build`, and `maki-oss provider setup` from [agent playbook](playbooks/maki.md) Phases 1-2 and Shell preparation. | Clone the repo, put `bin/` on `PATH`, run `opencode-oss doctor`; [OpenCode page](../opencode-oss.md#install). | Clone the repo, put `bin/` on `PATH`, run `claude-oss doctor`; [Claude page](../claude-oss.md#install). |
-| P3 Image | The agent image builds and reports the pinned agent version. | `maki-oss image build` (`maki-agent:local`); verify with `maki --version`; [agent playbook](playbooks/maki.md) Phase 1. | `opencode-oss image build` (`opencode-agent:local`); verify with `opencode --version`; [OpenCode page](../opencode-oss.md#install). | `claude-oss image build` (`claude-agent:local`); verify with `claude --version`; [Claude page](../claude-oss.md#install). |
-| P4 Provider | The provider profile is imported and the provider is created. | `maki-oss provider setup`; [agent playbook](playbooks/maki.md) Phase 2. | `opencode-oss provider setup`; [OpenCode page](../opencode-oss.md#provider-setup). | `claude-oss provider setup`; [Claude page](../claude-oss.md#credentials). |
-| P5 Sandbox | The sandbox reaches `Ready` with the chosen policy and provider. | `maki-oss up`; [agent playbook](playbooks/maki.md) Phases 3-4. | `opencode-oss up`; [OpenCode page](../opencode-oss.md#sessions). | `claude-oss up`; [Claude page](../claude-oss.md#sessions). |
-| P6 Verify | Every isolation check reports its expected result. | `maki-oss mcp status` and [verification](../verification.md); [agent playbook](playbooks/maki.md) Phase 5. | `opencode-oss mcp status` and [verification](../verification.md); [OpenCode page](../opencode-oss.md#mcp-status). | `claude-oss mcp status` and [verification](../verification.md); [Claude page](../claude-oss.md#mcp-status). |
-| P7 Run | The smoke test and the real task complete through the sandbox. | `maki-oss` or `maki-oss run "<task>"`; [agent playbook](playbooks/maki.md) Phase 6. | `opencode-oss` or `opencode-oss run "<task>"`; [OpenCode page](../opencode-oss.md#sessions). | `claude-oss` or `claude-oss run "<task>"`; [Claude page](../claude-oss.md#sessions). |
-| P8 Report | Results are collected, the sandbox is cleaned up, and the user has a summary. | Collect the patch, then `maki-oss status`; [agent playbook](playbooks/maki.md) Phase 7. | Collect the patch, then `opencode-oss status`; [OpenCode page](../opencode-oss.md#sessions). | Collect the patch, then `claude-oss status`; [Claude page](../claude-oss.md#sessions). |
+| P0 Preflight / audit | Every required host tool is present and reports a usable version. | Read the host and config; shared preflight from [host playbook](host-playbook.md) Phase 1; `maki --version` from [agent playbook](playbooks/maki.md) Phase 0. | Read the host and config; shared preflight from [host playbook](host-playbook.md) Phase 1; no host OpenCode CLI is needed ([OpenCode playbook](playbooks/opencode.md) Inputs). | Read the host and config; `openshell status`; [Claude page](../claude-oss.md#credentials). |
+| P1 Host tools | The engine, OpenShell CLI and gateway, and agent CLI are installed. | Install engine and OpenShell from [host playbook](host-playbook.md) Phase 2; install the pinned Maki CLI from [agent playbook](playbooks/maki.md) Phase 0. | Install engine and OpenShell from [host playbook](host-playbook.md) Phase 2; the OpenCode CLI comes from the image at P3; [OpenCode playbook](playbooks/opencode.md) Phase 1. | Install engine, OpenShell, and the helper; create a subscription token on the host only when needed; [Claude page](../claude-oss.md#credentials). |
+| P2 Repository + helper | The repository, helper preflight, image, and provider profile exist. | Clone the repo and put `bin/` on `PATH` from [host playbook](host-playbook.md) Phase 3; run `maki-oss doctor`, `maki-oss image build`, and `maki-oss provider setup` from [agent playbook](playbooks/maki.md) Phases 1-2 and Shell preparation. | Clone the repo, put `bin/` on `PATH`, run `opencode-oss doctor`; [OpenCode playbook](playbooks/opencode.md) Phases 1-2. | Clone the repo, put `bin/` on `PATH`, run `claude-oss doctor`; [Claude page](../claude-oss.md#install). |
+| P3 Image | The agent image builds and reports the pinned agent version. | `maki-oss image build` (`maki-agent:local`); verify with `maki --version`; [agent playbook](playbooks/maki.md) Phase 1. | `opencode-oss image build` (`opencode-agent:local`); verify with `opencode --version`; [OpenCode playbook](playbooks/opencode.md) Phase 1. | `claude-oss image build` (`claude-agent:local`); verify with `claude --version`; [Claude page](../claude-oss.md#install). |
+| P4 Provider | The provider profile is imported and the provider is created. | `maki-oss provider setup`; [agent playbook](playbooks/maki.md) Phase 2. | `opencode-oss provider setup`; [OpenCode playbook](playbooks/opencode.md) Phase 2. | `claude-oss provider setup`; [Claude page](../claude-oss.md#credentials). |
+| P5 Sandbox | The sandbox reaches `Ready` with the chosen policy and provider. | `maki-oss up`; [agent playbook](playbooks/maki.md) Phases 3-4. | `opencode-oss up`; [OpenCode playbook](playbooks/opencode.md) Phases 3-4. | `claude-oss up`; [Claude page](../claude-oss.md#sessions). |
+| P6 Verify | Every isolation check reports its expected result. | `maki-oss mcp status` and [verification](../verification.md); [agent playbook](playbooks/maki.md) Phase 5. | `opencode-oss mcp status` and [verification](../verification.md); [OpenCode playbook](playbooks/opencode.md) Phase 5; [verification record](../../opencode-oss/README.md#verification-record). | `claude-oss mcp status` and [verification](../verification.md); [Claude page](../claude-oss.md#mcp-status). |
+| P7 Run | The smoke test and the real task complete through the sandbox. | `maki-oss` or `maki-oss run "<task>"`; [agent playbook](playbooks/maki.md) Phase 6. | `opencode-oss` or `opencode-oss run "<task>"`; [OpenCode playbook](playbooks/opencode.md) Phase 6. | `claude-oss` or `claude-oss run "<task>"`; [Claude page](../claude-oss.md#sessions). |
+| P8 Report | Results are collected, the sandbox is cleaned up, and the user has a summary. | Collect the patch, then `maki-oss status`; [agent playbook](playbooks/maki.md) Phase 7. | Collect the patch, then `opencode-oss status`; [OpenCode playbook](playbooks/opencode.md) Phase 7. | Collect the patch, then `claude-oss status`; [Claude page](../claude-oss.md#sessions). |
 
 For OpenCode and Claude Code the agent CLI is baked into the image; the P1
 agent-CLI gate is satisfied by the P3 build, not by a host install.
 
 Local numbering stays where it is. This table maps the shared host playbook and
-the Maki agent playbook to the canonical IDs; the OpenCode and Claude pages are
-unnumbered references.
+the Maki and OpenCode agent playbooks to the canonical IDs; the Claude page is
+still an unnumbered reference.
 
-| Canonical | Shared host playbook | Maki agent playbook |
-|---|---|---|
-| P0 | Phase 1 | Phase 0 |
-| P1 | Phase 2 | Phase 0 |
-| P2 | Phase 3 | Shell preparation, Phases 1-2 |
-| P3 | - | Phase 1 |
-| P4 | - | Phase 2 |
-| P5 | - | Phases 3-4 |
-| P6 | - | Phase 5 |
-| P7 | - | Phase 6 |
-| P8 | - | Phase 7 |
+| Canonical | Shared host playbook | Maki agent playbook | OpenCode agent playbook |
+|---|---|---|---|
+| P0 | Phase 1 | Phase 0 | - |
+| P1 | Phase 2 | Phase 0 | - |
+| P2 | Phase 3 | Shell preparation, Phases 1-2 | Phases 1-2 |
+| P3 | - | Phase 1 | Phase 1 |
+| P4 | - | Phase 2 | Phase 2 |
+| P5 | - | Phases 3-4 | Phases 3-4 |
+| P6 | - | Phase 5 | Phase 5 |
+| P7 | - | Phase 6 | Phase 6 |
+| P8 | - | Phase 7 | Phase 7 |
 
 ## Same-agent migration matrix
 
@@ -279,7 +279,10 @@ These are the same rules as `AGENTS.md`; restate them, never relax them.
   P0-P8.
 - [`docs/ai/environment-playbook.md`](environment-playbook.md) — compose a
   same-agent environment store.
-- [`docs/opencode-oss.md`](../opencode-oss.md) — the OpenCode path.
+- [`docs/ai/playbooks/opencode.md`](playbooks/opencode.md) — the OpenCode
+  agent path, P3-P8.
+- [`docs/ai/reference/opencode.md`](reference/opencode.md) — OpenCode
+  configuration, profiles, sessions, MCP, and store shape.
 - [`docs/claude-oss.md`](../claude-oss.md) — the Claude path.
 - [`docs/verification.md`](../verification.md) — the isolation checklist.
 - [`docs/helper.md`](../helper.md) — shared helper commands and sync states.

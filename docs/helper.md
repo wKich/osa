@@ -4,7 +4,9 @@
 OpenShell CLI. They create one sandbox per project, move files in and out
 without bind mounts, run the agent headless or interactively, and encode the
 safety rules from the [setup guide](setup-guide.md) so they are not retyped per
-project. The OpenCode differences are in [opencode-oss.md](opencode-oss.md).
+project. The OpenCode path is in
+[the OpenCode playbook](ai/playbooks/opencode.md) and its differences in
+[the OpenCode reference](ai/reference/opencode.md).
 
 Bare `maki-oss` (no subcommand) is the one-command session: it ensures the
 project sandbox, makes the workspace match the host, launches Maki, and on

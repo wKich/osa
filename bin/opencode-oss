@@ -14,8 +14,8 @@
 #     service runs in the sandbox;
 #   - asks for confirmation before deleting a sandbox.
 #
-# POSIX sh. See docs/opencode-oss.md for the differences from maki-oss and
-# docs/helper.md for the shared behavior.
+# POSIX sh. See docs/ai/reference/opencode.md for the differences from
+# maki-oss and docs/helper.md for the shared behavior.
 
 set -eu
 
@@ -112,7 +112,7 @@ variables, then the config file below, then built-in defaults:
 
   ${XDG_CONFIG_HOME:-$HOME/.config}/opencode-oss/config.toml
 
-See opencode-oss/README.md and docs/opencode-oss.md.
+See opencode-oss/README.md and docs/ai/reference/opencode.md.
 EOF
 }
 
@@ -139,7 +139,7 @@ OSS_ENV_PREFIX=OPENCODE_OSS              # OPENCODE_OSS_<KEY> environment settin
 OSS_CONFIG_NAME=opencode-oss             # XDG config and state directory name
 OSS_STATE_NAME=.opencode-oss             # in-sandbox sync state directory
 OSS_TMP_PREFIX=opencode-oss              # /tmp/opencode-oss-stop, temp file names
-OSS_CONFIG_EXAMPLE=docs/opencode-oss.md  # named in a generated config header
+OSS_CONFIG_EXAMPLE=docs/ai/reference/opencode.md  # named in a generated config header
 OSS_PROFILES_DIR=$repo_root/opencode-oss/providers
 OSS_CATALOG_FILE=$OSS_PROFILES_DIR/stores.tsv
 OSS_CUSTOM_PROFILE_PREFIX=opencode-      # default id for a custom profile
@@ -150,7 +150,7 @@ OSS_HOST_MCP_CONFIG=${HOME:-/tmp}/.config/opencode/opencode.json
 OSS_SANDBOX_MCP_CONFIG=/sandbox/.config/opencode/opencode.json
 OSS_MCP_PROVIDER_PREFIX=opencode-mcp-  # provider name for server <name>
 OSS_MCP_FIX_IMAGE='an environment image built FROM opencode-agent:local'
-OSS_MCP_FIX_DOC=docs/opencode-oss.md
+OSS_MCP_FIX_DOC=docs/ai/reference/opencode.md
 
 DEFAULT_IMAGE=opencode-agent:local
 DEFAULT_POLICY=$repo_root/opencode-oss/policies/minimal.yaml

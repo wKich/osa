@@ -187,7 +187,6 @@ Without them, the build fails rather than skipping the check.
 
 - The `tui = "opencode"` bridge mode, which is a Maki feature that drives
   the OpenCode TUI against Maki.
-- `fish install`. The fish plugin wraps `maki-oss` only.
 - OAuth logins (ChatGPT, Claude Pro/Max, Copilot), which need in-sandbox
   auth. Use API keys.
 - The dashboard and oskhs.

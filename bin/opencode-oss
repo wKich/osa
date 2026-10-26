@@ -51,6 +51,7 @@ Commands:
   provider add|attach|list      Work with provider credentials
   provider setup                Set up a provider from a stored or generic key
   mcp status                    Report MCP server readiness in the sandbox
+  fish install|uninstall        Install or remove the fish plugin
   help                          Show this help
 
 Common options:
@@ -266,6 +267,18 @@ agent_dispatch() { # CMD ARGS...
                 *) die_usage "unknown mcp subcommand: $sub" ;;
             esac
             ;;
+        fish)
+            if [ "$#" -eq 0 ]; then
+                die_usage "fish requires a subcommand: install, uninstall"
+            fi
+            sub=$1
+            shift
+            case $sub in
+                install) cmd_fish_install "$@" ;;
+                uninstall) cmd_fish_uninstall "$@" ;;
+                *) die_usage "unknown fish subcommand: $sub" ;;
+            esac
+            ;;
         *)
             die_usage "unknown command: $ag_cmd"
             ;;
@@ -373,6 +386,73 @@ cmd_image_build() {
         die_dep "image build failed (exit status $image_build_rc)"
     fi
     say "Built image '$image'."
+}
+
+cmd_fish_install() {
+    [ "$#" -eq 0 ] || die_usage "fish install takes no arguments"
+    fish_home=${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/fish
+    failed=0
+    for entry in functions/opencode-oss.fish completions/opencode-oss.fish; do
+        src=$repo_root/fish/$entry
+        dest=$fish_home/$entry
+        if [ ! -e "$src" ]; then
+            err "missing plugin file: $src"
+            failed=1
+            continue
+        fi
+        if [ -L "$dest" ]; then
+            target=$(readlink "$dest")
+            if [ "$target" = "$src" ]; then
+                say "already installed: $dest"
+            else
+                case $target in
+                    "$repo_root"/*)
+                        ln -sfn "$src" "$dest"
+                        say "relinked: $dest"
+                        ;;
+                    *)
+                        err "skipped $dest: existing symlink points outside this repository"
+                        failed=1
+                        ;;
+                esac
+            fi
+        elif [ -e "$dest" ]; then
+            err "skipped $dest: file exists and was not installed by $PROGRAM"
+            failed=1
+        else
+            mkdir -p -- "$(dirname -- "$dest")"
+            ln -s "$src" "$dest"
+            say "linked: $dest -> $src"
+        fi
+    done
+    if [ "$failed" -ne 0 ]; then
+        exit "$EX_USAGE"
+    fi
+    say "Fish plugin installed; open a new fish session to use it."
+}
+
+cmd_fish_uninstall() {
+    [ "$#" -eq 0 ] || die_usage "fish uninstall takes no arguments"
+    fish_home=${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/fish
+    for entry in functions/opencode-oss.fish completions/opencode-oss.fish; do
+        dest=$fish_home/$entry
+        if [ -L "$dest" ]; then
+            target=$(readlink "$dest")
+            case $target in
+                "$repo_root"/*)
+                    rm -f "$dest"
+                    say "removed: $dest"
+                    ;;
+                *)
+                    say "skipped (not installed by $PROGRAM): $dest"
+                    ;;
+            esac
+        elif [ -e "$dest" ]; then
+            say "skipped (not a symlink from this repository): $dest"
+        else
+            say "not installed: $dest"
+        fi
+    done
 }
 
 # shellcheck source=../lib/oss-core.sh

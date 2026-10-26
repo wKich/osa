@@ -63,8 +63,9 @@ The helper is two files:
 - `bin/maki-oss` is the Maki front-end. It sets the identity and defaults
   (the `MAKI_OSS_` prefix, config and state paths, image, policy, sandbox
   name), defines the agent hooks (session argv, doctor's MCP section, the
-  provider-setup hint), and keeps the Maki-only commands: `maki`, the
-  OpenCode TUI mode, `mcp status`, `image build`, and `fish`.
+  provider-setup hint), and keeps the Maki-only commands: `maki` and the
+  OpenCode TUI mode. Each front-end defines its own `mcp status`,
+  `image build`, and `fish install`/`uninstall`.
 - `lib/oss-core.sh` is the agent-neutral core: config, OpenShell wrappers,
   safety checks, the session ensure and patch sync, idle stop, policy and
   provider commands, and argument parsing. The front-end sources it and
@@ -685,6 +686,9 @@ maki-oss fish install
 maki-oss fish uninstall
 ```
 
+`opencode-oss` has the same subcommand, symlinking its own
+`fish/functions/opencode-oss.fish` and `fish/completions/opencode-oss.fish`.
+
 ### help
 
 ```sh
@@ -734,6 +738,7 @@ completions (no plugin manager needed):
 
 ```sh
 ./bin/maki-oss fish install
+./bin/opencode-oss fish install
 ```
 
 With fisher (the fish plugin manager) the same plugin installs by copy:
@@ -746,7 +751,8 @@ Both install the `maki-oss` function plus completions. The wrapper locates the
 helper via `$MAKI_OSS_BIN`, then the source repository (symlink install), then
 `maki-oss` on `PATH`. Fisher copies plugin files into the fish config
 directory, so with fisher put the repository's `bin/` on `PATH` or set
-`MAKI_OSS_BIN=/path/to/repo/bin/maki-oss`.
+`MAKI_OSS_BIN=/path/to/repo/bin/maki-oss`. The `opencode-oss` wrapper behaves
+the same with `OPENCODE_OSS_BIN`.
 
 ## Troubleshooting
 

@@ -3969,12 +3969,12 @@ test_oc_help() {
     for oc_cmd in doctor 'image build' 'init, up' opencode 'run "<prompt>"' upload download \
         status list logs 'start, stop' rm 'policy show|edit|apply' 'policy review' \
         'policy approve' 'policy reject' 'provider add|attach|list' 'provider setup' \
-        'mcp status' help; do
+        'mcp status' 'fish install|uninstall' help; do
         if ! grep -Eq "^  $(printf '%s' "$oc_cmd" | sed 's/[|.]/\\&/g')( |$)" "$OUT"; then
             bad "help does not list: $oc_cmd"
         fi
     done
-    if grep -Eq '^  (maki|fish)( |$)' "$OUT"; then
+    if grep -Eq '^  maki( |$)' "$OUT"; then
         bad "help lists a Maki-only command"
     fi
     assert_out_has "OPENCODE_OSS_<KEY>"
@@ -3983,9 +3983,6 @@ test_oc_help() {
     run_oc maki
     assert_rc 1
     assert_err_has "unknown command: maki"
-    run_oc fish install
-    assert_rc 1
-    assert_err_has "unknown command: fish"
 }
 
 test_oc_run_argv() {

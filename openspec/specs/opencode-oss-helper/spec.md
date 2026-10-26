@@ -26,8 +26,8 @@ substitutions, and SHALL NOT satisfy the requirements that are Maki-only:
 | `maki-oss maki` and bare `maki-oss` | `opencode-oss opencode` and bare `opencode-oss` |
 | "Maki" as the launched agent | OpenCode |
 
-The Maki-only requirements are the `tui = "opencode"` bridge mode and the
-`fish install`/`uninstall` commands. The parity covers:
+The Maki-only requirement is the `tui = "opencode"` bridge mode. The parity
+covers:
 
 - settings resolution
 - up/status/start/stop/rm
@@ -46,7 +46,7 @@ The Maki-only requirements are the `tui = "opencode"` bridge mode and the
 
 #### Scenario: Same command surface
 - **WHEN** a user runs `opencode-oss help`
-- **THEN** it lists `doctor`, `image build`, `init`/`up`, `opencode`, `run`, `upload`, `download`, `status`, `list`, `logs`, `start`/`stop`, `rm`, `policy show|edit|apply|review|approve|reject`, `provider add|attach|list|setup`, `mcp status`, and `help`, and it does not list `maki` or `fish`
+- **THEN** it lists `doctor`, `image build`, `init`/`up`, `opencode`, `run`, `upload`, `download`, `status`, `list`, `logs`, `start`/`stop`, `rm`, `policy show|edit|apply|review|approve|reject`, `provider add|attach|list|setup`, `mcp status`, `fish install`/`uninstall`, and `help`, and it does not list `maki`
 
 #### Scenario: Settings resolve with the OpenCode prefix
 - **WHEN** `OPENCODE_OSS_IMAGE=custom:tag` is exported and `opencode-oss up` creates a sandbox

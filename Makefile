@@ -105,6 +105,8 @@ lint:
 	fish -n fish/functions/maki-oss.fish
 	fish -n fish/conf.d/maki-oss.fish
 	fish -n fish/completions/maki-oss.fish
+	fish -n fish/functions/opencode-oss.fish
+	fish -n fish/completions/opencode-oss.fish
 
 # Lints the shipped provider profiles against the real openshell CLI. Skips
 # with a clear message when the CLI is absent; not part of `make test`.

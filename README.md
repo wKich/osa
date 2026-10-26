@@ -9,12 +9,17 @@ projects they register. Earlier
 releases used the names `maki-openshell` and `maki-oss`, and historical
 records keep them.
 
-Run [Maki](https://maki.sh) coding agents inside NVIDIA OpenShell sandboxes —
+Run [Maki](https://maki.sh), [OpenCode](https://opencode.ai), or
+[Claude Code](https://code.claude.com) inside NVIDIA OpenShell sandboxes —
 fully isolated from your machine. The agent gets a real shell, your project
 files, and nothing else: filesystem access is confined with Landlock, egress is
 deny-by-default, and your model credentials never enter the sandbox. The agent
 sees opaque placeholders that OpenShell's proxy resolves only at approved
 endpoints.
+
+The commands below show the Maki path. `opencode-oss` and `claude-oss` follow
+the same helper pattern; choose your path in the
+[onboarding guide](docs/ai/onboarding.md).
 
 ## Install
 
@@ -118,6 +123,8 @@ sandboxes by hand is a chore. osa gives you:
 
 ## Guides
 
+- [`docs/ai/onboarding.md`](docs/ai/onboarding.md) — keep your coding agent
+  (Maki, OpenCode, or Claude Code) and move it into an OpenShell sandbox.
 - [`docs/ai/host-playbook.md`](docs/ai/host-playbook.md) — provision a bare
   macOS or Linux host (engine, OpenShell, Maki, shell) before running Maki.
 - [`docs/ai/environment-playbook.md`](docs/ai/environment-playbook.md) — compose

@@ -12,6 +12,9 @@
 | Reference | `docs/helper.md` |
 | Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
 
+> **Maki path; return to onboarding for OpenCode or Claude** — [open the
+> onboarding guide](onboarding.md).
+
 ## Scope
 
 Ordered, executable steps for a coding agent. Run every command from the

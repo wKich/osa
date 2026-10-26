@@ -12,6 +12,9 @@
 | Reference | `docs/helper.md` |
 | Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
 
+> **Maki path; return to onboarding for OpenCode or Claude** — [open the
+> onboarding guide](onboarding.md).
+
 > **Verified against OpenShell v0.1.5 and Maki v0.6.5 on 2026-10-25.** The Maki
 > version below is the one pinned by `examples/maki-image/Dockerfile`, and the
 > OpenShell install command below pins the version `docs/ai/references.md`

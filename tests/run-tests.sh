@@ -3161,6 +3161,31 @@ test_example_config() {
     assert_log_has "maki-minimal.yaml"
 }
 
+test_asset_agent_onboarding() {
+    begin "assets: onboarding router covers all agents and config classes"
+    new_case assets-onboarding
+    guide=$ROOT/docs/ai/onboarding.md
+    if [ ! -f "$guide" ]; then
+        bad "missing docs/ai/onboarding.md"
+        return
+    fi
+    grep -Fq 'same coding agent' "$guide" || bad "onboarding guide lacks the same-agent rule"
+    grep -q '^## Copy this prompt' "$guide" || bad "onboarding guide lacks the copy-paste prompt"
+    for agent in Maki OpenCode Claude; do
+        grep -Fq "$agent" "$guide" || bad "onboarding guide does not name $agent"
+    done
+    for item in Credentials MCP Settings Skills Commands Plugins 'Project-local configuration'; do
+        grep -Fq "| $item |" "$guide" || bad "onboarding matrix lacks the $item row"
+    done
+    for phase in P0 P1 P2 P3 P4 P5 P6 P7 P8; do
+        grep -Fq "| $phase " "$guide" || bad "onboarding phase map lacks $phase"
+    done
+    grep -Fq 'docs/ai/onboarding.md' "$ROOT/AGENTS.md" \
+        || bad "AGENTS.md does not link docs/ai/onboarding.md"
+    grep -Fq 'docs/ai/onboarding.md' "$ROOT/README.md" \
+        || bad "README.md does not link docs/ai/onboarding.md"
+}
+
 # The placeholder prefix is never written in this repository. OpenShell's proxy
 # answers 403 to any request body containing it, and Maki sends loaded context
 # in every request body, so one literal spelling in a file the agent reads
@@ -6298,6 +6323,7 @@ run_test test_fish_plugin
 run_test test_fish_fisher_layout
 run_test test_fish_completions
 run_test test_example_config
+run_test test_asset_agent_onboarding
 run_test test_idle_stop_setting
 run_test test_idle_stop_after_idle
 run_test test_idle_stop_after_sighup

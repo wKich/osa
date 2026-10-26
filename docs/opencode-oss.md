@@ -7,6 +7,9 @@ lifecycle, safe patch sync, policy review, provider setup, idle stop, and
 the safety rules behave identically. [docs/helper.md](helper.md) is the
 reference for that shared behavior. This page covers only what differs.
 
+> **OpenCode path; return to onboarding for Maki or Claude** — [open the
+> onboarding guide](ai/onboarding.md).
+
 The security model is unchanged:
 
 - the sandbox is the boundary, and nothing is bind-mounted;

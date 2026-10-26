@@ -1,13 +1,16 @@
 # osa agent instructions
 
-This repository (`osa`) documents and automates running Maki coding agents
-inside NVIDIA OpenShell sandboxes. The agent front-ends are `maki-oss` (Maki),
-`opencode-oss` (OpenCode), and `claude-oss` (Claude Code); their command names,
-environment prefixes, and config paths are unchanged by the repository rename. The sandbox is the
-security boundary; all work in this repository must preserve it.
+This repository (`osa`) documents and automates running your coding agent:
+Maki, OpenCode, or Claude Code, inside NVIDIA OpenShell sandboxes. The agent
+front-ends are `maki-oss` (Maki), `opencode-oss` (OpenCode), and `claude-oss`
+(Claude Code); their command names, environment prefixes, and config paths are
+unchanged by the repository rename. The sandbox is the security boundary; all
+work in this repository must preserve it.
 
 Start here:
 
+- `docs/ai/onboarding.md` — choose the agent you already run, then follow the
+  same-agent path for Maki, OpenCode, or Claude Code.
 - `docs/ai/host-playbook.md` — provision a bare macOS or Linux host (engine,
   OpenShell, Maki, shell) before running Maki; hands off to the agent
   playbook for the sandbox phases.

@@ -1,4 +1,4 @@
-# Host playbook: provision a bare host for maki-oss
+# Host playbook: provision a bare host for osa
 
 Ordered, executable steps for a coding agent that starts from a bare macOS
 (Apple Silicon) or Linux machine. Work from the repository root once the
@@ -131,8 +131,8 @@ mismatch.
 Clone this repository and work from its root:
 
 ```sh
-git clone <repository-url> maki-oss
-cd maki-oss
+git clone <repository-url> osa
+cd osa
 ```
 
 Run the executable preflight. On a fresh machine the image check fails until
@@ -203,7 +203,7 @@ Choose exactly one primary path per shell; verify it before moving on.
 (for example in `~/.zshrc`):
 
 ```sh
-export PATH="/absolute/path/to/maki-oss/bin:$PATH"
+export PATH="/absolute/path/to/osa/bin:$PATH"
 ```
 
 **fish** — from the repository root, let the helper symlink its own function

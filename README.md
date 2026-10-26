@@ -1,6 +1,12 @@
-# maki-oss
+# osa
 
 **Your AI coding agent, locked in a sandbox.**
+
+`osa` is the project and repository. Its two agent front-ends keep their
+command names: `maki-oss` runs Maki and `opencode-oss` runs OpenCode; the
+read-only `osa` command reports on the projects they register. Earlier
+releases used the names `maki-openshell` and `maki-oss`, and historical
+records keep them.
 
 Run [Maki](https://maki.sh) coding agents inside NVIDIA OpenShell sandboxes —
 fully isolated from your machine. The agent gets a real shell, your project
@@ -15,8 +21,8 @@ Prerequisites: OpenShell CLI with a running gateway (`openshell status`),
 Docker Engine 28+ (or Podman), and optionally `jq` and `fish`.
 
 ```sh
-git clone https://github.com/wKich/maki-oss.git
-cd maki-oss
+git clone https://github.com/wKich/osa.git
+cd osa
 ./bin/maki-oss doctor       # verify prerequisites
 ./bin/maki-oss image build  # build the sandbox image
 export PATH="$PWD/bin:$PATH"
@@ -90,7 +96,7 @@ your work intact (`idle_stop = "0"` turns this off). Full command reference:
 ## Why?
 
 Because giving an AI agent full run of your laptop is a bad idea, and running
-sandboxes by hand is a chore. maki-oss gives you:
+sandboxes by hand is a chore. osa gives you:
 
 - 🔒 **Real isolation** — Landlock-confined filesystem, non-root sandbox user,
   deny-by-default egress. Break-ins stay inside the box.

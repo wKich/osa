@@ -1,4 +1,4 @@
-# maki-oss development tasks.
+# osa development tasks.
 #
 #   make test          stub-backed suite (no Docker, no gateway, no network)
 #   make test-oskhs    oskhs round library suite (bun, no gateway)

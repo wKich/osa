@@ -1,8 +1,10 @@
-# maki-oss agent instructions
+# osa agent instructions
 
-This repository documents and automates running Maki coding agents inside
-NVIDIA OpenShell sandboxes. The sandbox is the security boundary; all work in
-this repository must preserve it.
+This repository (`osa`) documents and automates running Maki coding agents
+inside NVIDIA OpenShell sandboxes. The agent front-ends are `maki-oss` (Maki)
+and `opencode-oss` (OpenCode); their command names, environment prefixes, and
+config paths are unchanged by the repository rename. The sandbox is the
+security boundary; all work in this repository must preserve it.
 
 Start here:
 

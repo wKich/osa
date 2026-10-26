@@ -3,6 +3,10 @@
 Recorded dry runs for this repository. Actual outputs are trimmed to the
 relevant lines.
 
+**Historical record.** Paths, sandbox names, and repository names below reflect
+the state at the time of each run; the project and repository were later
+renamed to `osa` from `maki-openshell`/`maki-oss`.
+
 ## Maki v0.6.5 and OpenCode v2.1.4 rebaseline — 2026-10-25
 
 Pin move for `update-maki-and-opencode-pins` on macOS 26.5 (Apple Silicon,

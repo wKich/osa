@@ -1,7 +1,7 @@
 # Environment playbook: compose a personal agent environment
 
 An ordered, agent-agnostic procedure for moving a host agent's personal
-configuration onto the maki-oss base image. Any host coding agent — or a human
+configuration onto the osa base image. Any host coding agent — or a human
 — can follow it: the steps name commands and expected output, never a required
 vendor.
 
@@ -223,7 +223,7 @@ Known limits: <for example host-oracle false positives, or "none">
 ## Paste-able prompt for a host coding agent
 
 ```text
-Follow docs/ai/environment-playbook.md in the maki-oss repository and build me
+Follow docs/ai/environment-playbook.md in the osa repository and build me
 a personal environment store outside the repository.
 
 1. Audit my host agent config (Maki and/or OpenCode, plus any project-local

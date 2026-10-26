@@ -1,9 +1,10 @@
-# maki-oss: the sandbox helper
+# osa: the sandbox helper
 
-`bin/maki-oss` is a POSIX sh workflow layer over the OpenShell CLI. It
-creates one sandbox per project, moves files in and out without bind mounts,
-runs Maki headless or interactively, and encodes the safety rules from the
-[setup guide](setup-guide.md) so they are not retyped per project.
+`bin/maki-oss` and `bin/opencode-oss` are POSIX sh workflow layers over the
+OpenShell CLI. They create one sandbox per project, move files in and out
+without bind mounts, run the agent headless or interactively, and encode the
+safety rules from the [setup guide](setup-guide.md) so they are not retyped per
+project. The OpenCode differences are in [opencode-oss.md](opencode-oss.md).
 
 Bare `maki-oss` (no subcommand) is the one-command session: it ensures the
 project sandbox, makes the workspace match the host, launches Maki, and on
@@ -128,8 +129,8 @@ hyphens. The default is `mk-{project}-{hash}`:
   full project name instead, so long names that share a prefix do not
   collide.
 
-For example, this repository (`origin` is `wKich/maki-oss`) becomes
-`mk-maki-oss-` plus four hex characters.
+For example, this repository (`origin` is `wKich/osa`) becomes
+`mk-osa-` plus four hex characters.
 
 Once a project has a [registry](#shared-state-and-the-project-registry)
 entry, its recorded sandbox name is used instead of the default, so a

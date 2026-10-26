@@ -1,9 +1,15 @@
 # Glossary
 
-Shared vocabulary for the maki-oss docs. Each term has one definition;
+Shared vocabulary for the osa docs. Each term has one definition;
 the same words are used consistently in `docs/`, `examples/`, and the AI
 reference pack.
 
+- **osa** — the project and repository. It hosts the agent front-ends and the
+  read-only `osa` reporter.
+- **maki-oss** — the Maki front-end command (`bin/maki-oss`). Its command,
+  environment prefix, and config path are unchanged by the repository rename.
+- **opencode-oss** — the OpenCode front-end command (`bin/opencode-oss`),
+  likewise unchanged.
 - **Gateway** — the OpenShell control plane that runs on a host or cluster and
   manages sandboxes, policies, providers, and access.
 - **Sandbox** — the isolated workload environment (Docker container or MicroVM)

@@ -1,0 +1,11 @@
+# Codex command rules for codex-agent:local, installed root-owned under
+# /etc/codex/rules/. Privilege escalation, remote shells, and login state
+# changes are forbidden. The OpenShell sandbox policy (non-root user,
+# deny-by-default egress) stays the boundary when a rule does not apply.
+
+prefix_rule(pattern = ["sudo"], decision = "forbidden")
+prefix_rule(pattern = ["su"], decision = "forbidden")
+prefix_rule(pattern = ["ssh"], decision = "forbidden")
+prefix_rule(pattern = ["scp"], decision = "forbidden")
+prefix_rule(pattern = ["codex", "login"], decision = "forbidden")
+prefix_rule(pattern = ["codex", "logout"], decision = "forbidden")

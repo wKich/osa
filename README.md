@@ -143,6 +143,9 @@ sandboxes by hand is a chore. osa gives you:
 - [`claude-oss/README.md`](claude-oss/README.md) — run Claude Code natively in
   a sandbox with an API key or a Claude subscription token (image, managed
   settings, profiles, verification record).
+- [`codex-oss/README.md`](codex-oss/README.md) — run OpenAI's Codex CLI
+  natively in a sandbox with a ChatGPT plan login refreshed by the gateway
+  (image, managed config, profile, verification record).
 
 ## Security invariants
 

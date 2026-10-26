@@ -1,0 +1,11 @@
+# OpenShell profile to credential mapping for codex-oss.
+#
+# Columns, tab-separated:
+#   profile-id     file in this directory (<profile-id>.yaml)
+#   env-var        credential env var the profile binds
+#   example-model  a model the ChatGPT Codex backend accepts for -m
+#   note           short note
+#
+# The ChatGPT backend rejects API-only models (for example gpt-5.5) for
+# ChatGPT accounts.
+codex-chatgpt	CODEX_CHATGPT_TOKEN	gpt-6-astra	ChatGPT plan login, refreshed by the gateway

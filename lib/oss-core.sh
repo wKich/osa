@@ -73,7 +73,16 @@ CONFIG_KEYS='image policy providers cpu memory sandbox_name engine gateway workd
 
 
 parse_config_file() { # FILE
-    parse_flat_file "$1" "$CONFIG_KEYS"
+    parse_flat_file "$1" "$CONFIG_KEYS${OSS_AGENT_CONFIG_KEYS:+ $OSS_AGENT_CONFIG_KEYS}"
+}
+
+# True when KEY is one of the front-end's own config keys
+# (OSS_AGENT_CONFIG_KEYS), loaded into config_agent_<KEY>.
+agent_config_key() { # KEY
+    case " ${OSS_AGENT_CONFIG_KEYS:-} " in
+        *" $1 "*) return 0 ;;
+    esac
+    return 1
 }
 
 # Read the config file into the config_* variables.
@@ -91,6 +100,9 @@ load_config() {
     config_model=
     config_tui=
     config_idle_stop=
+    for config_agent_name in ${OSS_AGENT_CONFIG_KEYS:-}; do
+        eval "config_agent_$config_agent_name="
+    done
     if [ ! -f "$config_file" ]; then
         return 0
     fi
@@ -118,6 +130,12 @@ load_config() {
             idle_stop)    config_idle_stop=$value ;;
             '') ;;
             *)
+                # parse_flat_file allows only [a-z][a-z0-9_]* keys, so the
+                # eval only ever names a fixed-pattern variable.
+                if agent_config_key "$key"; then
+                    eval "config_agent_$key=\$value"
+                    continue
+                fi
                 config_unknown=$key
                 break
                 ;;
@@ -3755,6 +3773,12 @@ run_credential_env() { # VAR VALUE COMMAND...
 
 cmd_provider_setup() {
     [ "$#" -eq 0 ] || die_usage "provider setup takes no arguments"
+    # A front-end whose credential is not a single stored value (a login that
+    # yields several tokens and a refresh configuration) runs its own setup.
+    if command -v agent_provider_setup >/dev/null 2>&1; then
+        agent_provider_setup
+        return
+    fi
     if [ "$have_jq" -eq 0 ]; then
         warn "jq not found; JSON stores are read with a limited fallback"
     fi

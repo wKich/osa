@@ -1,8 +1,8 @@
 #!/bin/sh
 # Stub-backed test suite for bin/maki-oss, bin/opencode-oss, bin/claude-oss,
-# the fish plugin, and the safety rules in specs/helper-cli,
-# specs/opencode-oss-helper, specs/claude-oss-helper, and
-# specs/fish-integration.
+# bin/codex-oss, the fish plugin, and the safety rules in specs/helper-cli,
+# specs/opencode-oss-helper, specs/claude-oss-helper, specs/codex-oss-helper,
+# and specs/fish-integration.
 #
 # Runs with only a POSIX shell and the stubs under tests/stub: no Docker, no
 # gateway, no network. Run it with `make test` or directly:
@@ -5230,6 +5230,829 @@ test_cc_sync_no_git() {
     [ "$(cat "$RUN_DIR/file.txt")" = v2 ] || bad "text patch did not apply without git"
 }
 
+# ---------------------------------------------------------------------------
+# codex-oss: the Codex front-end over the same core and stubs
+# (specs/codex-oss-helper). Same runner pattern as claude-oss: the
+# CODEX_OSS_* settings are exported, and the MAKI_OSS_* values the shared
+# runner always passes must have no effect.
+# ---------------------------------------------------------------------------
+
+CX=$ROOT/bin/codex-oss
+CX_ACCOUNT=acct-fixture-4417
+CX_THREAD=0199aa00-0000-7000-8000-000000000001
+
+cx_case() { # NAME
+    new_case "$1"
+    ENV_CX_MODEL=
+    ENV_CX_IMAGE=
+    ENV_CX_ACCOUNT=
+    EXEC_STDIN_LOG=
+    ENGINE_EXIT=
+    CX_SEED_FILES=
+    CX_LOGIN=
+    CX_CODEX_LOG=$CASE/codex.log
+    REFRESH_STATUS=
+    CX_HOME_ENV=
+    CX_NAME_PIN='cx-{project}'
+}
+
+run_cx_with_input() { # STDIN_FILE ARGS...
+    cx_rc=0
+    (
+        MAKI=$CX
+        CODEX_OSS_SANDBOX_NAME=${ENV_NAME:-$CX_NAME_PIN}
+        CODEX_OSS_TIMEOUT=${ENV_TIMEOUT:-}
+        CODEX_OSS_IDLE_STOP=${ENV_IDLE_STOP-0}
+        CODEX_OSS_RUN_TAG=${ENV_RUN_TAG:-}
+        CODEX_OSS_WORKDIR=$CASE/sandbox/project
+        CODEX_OSS_IMAGE=${ENV_CX_IMAGE:-}
+        CODEX_OSS_MODEL=${ENV_CX_MODEL:-}
+        CODEX_OSS_ACCOUNT_ID=${ENV_CX_ACCOUNT:-}
+        CODEX_OSS_INTERACTIVE=${INTERACTIVE:-}
+        STUB_EXEC_STDIN_LOG=${EXEC_STDIN_LOG:-}
+        STUB_ENGINE_EXIT=${ENGINE_EXIT:-0}
+        STUB_CODEX_LOG=$CX_CODEX_LOG
+        STUB_CODEX_LOGIN=${CX_LOGIN:-ok}
+        STUB_REFRESH_STATUS=${REFRESH_STATUS:-}
+        export CODEX_OSS_SANDBOX_NAME CODEX_OSS_TIMEOUT CODEX_OSS_IDLE_STOP \
+            CODEX_OSS_RUN_TAG CODEX_OSS_WORKDIR CODEX_OSS_IMAGE \
+            CODEX_OSS_MODEL CODEX_OSS_ACCOUNT_ID CODEX_OSS_INTERACTIVE \
+            STUB_EXEC_STDIN_LOG STUB_ENGINE_EXIT STUB_CODEX_LOG \
+            STUB_CODEX_LOGIN STUB_REFRESH_STATUS
+        unset CODEX_HOME CODEX_CHATGPT_TOKEN CODEX_CHATGPT_ACCOUNT_ID
+        if [ -n "${CX_HOME_ENV:-}" ]; then
+            CODEX_HOME=$CX_HOME_ENV
+            export CODEX_HOME
+        fi
+        run_maki_with_input "$@"
+        exit "$RC"
+    ) || cx_rc=$?
+    RC=$cx_rc
+}
+
+run_cx() {
+    run_cx_with_input /dev/null "$@"
+}
+
+cx_config() { # LINE
+    mkdir -p "$XDG_CONFIG_HOME/codex-oss"
+    printf '%s\n' "$1" >>"$XDG_CONFIG_HOME/codex-oss/config.toml"
+}
+
+seed_cx_provider() { # NAME
+    cx_config "providers = \"$1\""
+    mkdir -p "$STUB_STATE_DIR"
+    printf '%s\n' "$1" >>"$STUB_STATE_DIR/providers.list"
+}
+
+cx_session_dir() { # SANDBOX
+    printf '%s/.local/state/osa/sessions/%s' "$HOME" "$1"
+}
+
+# A project directory with its Ready sandbox, a remembered and attached
+# codex-chatgpt provider, and the account ID provider setup would store.
+cx_ready_project() { # [DIR-NAME]
+    RUN_DIR=$CASE/project/${1:-myproject}
+    mkdir -p "$RUN_DIR"
+    while IFS= read -r cx_seed; do
+        [ -n "$cx_seed" ] || continue
+        printf '%s\n' "${cx_seed#*=}" >"$RUN_DIR/${cx_seed%%=*}"
+    done <<CX_SEED
+${CX_SEED_FILES:-}
+CX_SEED
+    seed_sandbox "cx-${1:-myproject}" Ready
+    seed_cx_provider codex-chatgpt
+    cx_config "account_id = \"$CX_ACCOUNT\""
+    attach_stub_provider "cx-${1:-myproject}" codex-chatgpt
+}
+
+test_cx_help() {
+    begin "codex-oss help lists the shared commands and no Maki, OpenCode, Claude, or fish ones"
+    cx_case cx-help
+    run_cx help
+    assert_rc 0
+    for cx_cmd in doctor 'image build' 'init, up' codex 'run "<prompt>"' upload download \
+        status list logs 'start, stop' rm 'policy show|edit|apply' 'policy review' \
+        'policy approve' 'policy reject' 'provider add|attach|list' 'provider setup' \
+        'mcp status' help; do
+        if ! grep -Eq "^  $(printf '%s' "$cx_cmd" | sed 's/[|.]/\\&/g')( |$)" "$OUT"; then
+            bad "help does not list: $cx_cmd"
+        fi
+    done
+    for cx_cmd in maki opencode claude fish; do
+        if grep -Eq "^  $cx_cmd( |$)" "$OUT"; then
+            bad "help lists $cx_cmd"
+        fi
+    done
+    assert_out_has "CODEX_OSS_<KEY>"
+    assert_out_has "codex-oss/config.toml"
+
+    for cx_cmd in maki opencode claude fish; do
+        run_cx "$cx_cmd"
+        assert_rc 1
+        assert_err_has "unknown command: $cx_cmd"
+    done
+}
+
+test_cx_run_argv() {
+    begin "codex-oss run launches codex exec --json with bypass, the account ID, and stdin closed"
+    cx_case cx-run
+    cx_ready_project
+    EXEC_STDOUT='{"type":"turn.completed"}'
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    printf 'LEAKED-STDIN\n' >"$CASE/stdin.txt"
+
+    run_cx_with_input "$CASE/stdin.txt" run "reply OK"
+    assert_rc 0
+    assert_out_has '{"type":"turn.completed"}'
+    assert_stdin_closed
+    for cx_word in codex exec --json --skip-git-repo-check \
+        --dangerously-bypass-approvals-and-sandbox "reply OK" \
+        "CODEX_CHATGPT_ACCOUNT_ID=$CX_ACCOUNT"; do
+        assert_log_line "$cx_word"
+    done
+    assert_log_before "exec" "--json"
+    assert_log_before "--dangerously-bypass-approvals-and-sandbox" "reply OK"
+    # (-c and exec also name the core's own sh -c and sandbox exec calls.)
+    for cx_word in -m resume --config --profile --ignore-rules --dangerously-bypass-hook-trust --oss; do
+        assert_log_line_missing "$cx_word"
+    done
+
+    reset_log
+    ENV_CX_MODEL=gpt-5.6-terra
+    run_cx run "reply OK"
+    assert_rc 0
+    assert_log_line "-m"
+    assert_log_line "gpt-5.6-terra"
+    assert_log_before "-m" "reply OK"
+
+    reset_log
+    EXEC_EXIT=3
+    EXEC_STDOUT='partial'
+    run_cx run "fail please"
+    assert_rc 3
+    assert_out_has "partial"
+}
+
+test_cx_tui_argv() {
+    begin "bare codex-oss attaches codex with bypass and the configured model"
+    cx_case cx-tui
+    cx_ready_project
+    cx_config 'model = "gpt-6-astra"'
+
+    run_cx
+    assert_rc 0
+    assert_log_line "--tty"
+    assert_log_line "codex"
+    assert_log_line "--dangerously-bypass-approvals-and-sandbox"
+    assert_log_line "-m"
+    assert_log_line "gpt-6-astra"
+    assert_log_line "CODEX_CHATGPT_ACCOUNT_ID=$CX_ACCOUNT"
+    assert_log_line_missing "--json"
+    assert_log_line_missing "--skip-git-repo-check"
+    # The helper writes the model nowhere.
+    if grep -rqs 'gpt-6-astra' "$RUN_DIR" "$SANDBOX_WORKDIR"; then
+        bad "the helper wrote the model into the project"
+    fi
+
+    reset_log
+    run_cx codex
+    assert_rc 0
+    assert_log_line "--tty"
+    run_cx codex extra
+    assert_rc 1
+    assert_err_has "codex takes no arguments"
+}
+
+test_cx_session_flags() {
+    begin "codex-oss maps --continue and --resume to codex resume and refuses --session-id"
+    cx_case cx-session
+    cx_ready_project
+
+    run_cx run --continue "next"
+    assert_rc 0
+    assert_log_line "resume"
+    assert_log_line "--last"
+    assert_log_before "exec" "resume"
+    assert_log_before "--last" "--json"
+    assert_log_before "--json" "next"
+    assert_log_line_missing "--include-non-interactive"
+
+    reset_log
+    run_cx --continue
+    assert_rc 0
+    assert_log_line "--tty"
+    assert_log_line "resume"
+    assert_log_line "--last"
+    assert_log_line "--include-non-interactive"
+
+    reset_log
+    run_cx run --resume "$CX_THREAD" "next"
+    assert_rc 0
+    assert_log_line "resume"
+    assert_log_line "$CX_THREAD"
+    assert_log_before "--dangerously-bypass-approvals-and-sandbox" "$CX_THREAD"
+    assert_log_before "$CX_THREAD" "next"
+    assert_log_line_missing "--last"
+
+    reset_log
+    run_cx -r "$CX_THREAD"
+    assert_rc 0
+    assert_log_line "--tty"
+    assert_log_line "$CX_THREAD"
+
+    for cx_flags in "--session-id abc" "--continue --resume x"; do
+        reset_log
+        # shellcheck disable=SC2086  # the flag list splits on purpose
+        run_cx run $cx_flags "x"
+        assert_rc 1
+        if [ -s "$LOG" ]; then
+            bad "gateway was contacted for '$cx_flags'"
+        fi
+        reset_log
+        # shellcheck disable=SC2086
+        run_cx $cx_flags
+        assert_rc 1
+        if [ -s "$LOG" ]; then
+            bad "gateway was contacted for the session with '$cx_flags'"
+        fi
+    done
+    run_cx run --session-id abc "x"
+    assert_err_has "--session-id is not supported"
+    assert_err_has "--resume"
+
+    # No account ID configured: refused before any sandbox work.
+    cx_case cx-session-noaccount
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox cx-myproject Ready
+    seed_cx_provider codex-chatgpt
+    attach_stub_provider cx-myproject codex-chatgpt
+    run_cx run "hi"
+    assert_rc 1
+    assert_err_has "codex-oss provider setup"
+    if [ -s "$LOG" ]; then
+        bad "gateway was contacted without an account ID"
+    fi
+    reset_log
+    ENV_CX_ACCOUNT=acct-from-env
+    run_cx run "hi"
+    assert_rc 0
+    assert_log_line "CODEX_CHATGPT_ACCOUNT_ID=acct-from-env"
+}
+
+test_cx_image_build() {
+    begin "codex-oss image build builds codex-oss/image as codex-agent:local"
+    cx_case cx-image
+    cx_config 'image = "my-env:latest"'
+    run_cx image build
+    assert_rc 0
+    assert_log_line "build"
+    assert_log_line "codex-agent:local"
+    assert_log_line "$ROOT/codex-oss/image"
+    assert_log_line_missing "--build-arg"
+    assert_log_line_missing "my-env:latest"
+
+    reset_log
+    run_cx image build --codex-version 9.9.9
+    assert_rc 0
+    assert_log_line "--build-arg"
+    assert_log_line "CODEX_VERSION=9.9.9"
+
+    reset_log
+    ENGINE_EXIT=1
+    run_cx image build --codex-version 9.9.9
+    assert_rc 2
+    assert_err_has "CODEX_SHA256_ARM64/AMD64"
+    assert_err_has "CODEX_HOST_SHA256_ARM64/AMD64"
+    assert_err_has "image build failed"
+
+    run_cx image build --claude-version 1
+    assert_rc 1
+    assert_err_has "unknown option: --claude-version"
+}
+
+test_cx_profiles_and_catalogs() {
+    begin "codex-oss profiles bind codex, refresh on the gateway, and the catalogs match"
+    cx_case cx-catalogs
+    cx_dir=$ROOT/codex-oss/providers
+    for cx_profile in "$cx_dir"/codex-*.yaml "$cx_dir/template.yaml"; do
+        cx_bins=$(awk '/^binaries:/{b=1;next} b&&/^  - /{print $2;next} {b=0}' "$cx_profile")
+        [ "$cx_bins" = /usr/local/bin/codex ] || bad "$(basename -- "$cx_profile") binds: $cx_bins"
+    done
+    cx_p=$cx_dir/codex-chatgpt.yaml
+    grep -q 'env_vars: \[CODEX_CHATGPT_TOKEN\]' "$cx_p" || bad "the profile does not bind CODEX_CHATGPT_TOKEN"
+    grep -q 'auth_style: bearer' "$cx_p" || bad "the profile is not bearer"
+    grep -q 'strategy: oauth2_refresh_token' "$cx_p" || bad "the profile has no gateway refresh"
+    grep -q 'token_url: https://auth.openai.com/oauth/token' "$cx_p" || bad "the refresh token_url is wrong"
+    grep -q 'max_lifetime: "864000s"' "$cx_p" || bad "the refresh has no 240 h max_lifetime"
+    grep -q 'path: /backend-api/codex/\*\*' "$cx_p" || bad "the endpoint is not scoped to the Codex backend"
+    grep -q 'host: chatgpt.com' "$cx_p" || bad "the endpoint host is not chatgpt.com"
+    while IFS=$(printf '\t') read -r cx_store _ cx_id _; do
+        case $cx_store in ''|'#'*) continue ;; esac
+        bad "stores.tsv has a row ($cx_id): no store holds a ChatGPT login"
+    done <"$cx_dir/stores.tsv"
+    for cx_profile in "$cx_dir"/codex-*.yaml; do
+        cx_id=$(basename -- "$cx_profile" .yaml)
+        grep -q "^$cx_id	" "$cx_dir/catalog.tsv" || bad "catalog.tsv has no row for $cx_id"
+    done
+    while IFS=$(printf '\t') read -r cx_id _; do
+        case $cx_id in ''|'#'*) continue ;; esac
+        [ -f "$cx_dir/$cx_id.yaml" ] || bad "catalog.tsv names a missing profile: $cx_id"
+    done <"$cx_dir/catalog.tsv"
+    # The image carries no credential, account ID, or login state.
+    if grep -vE '^[[:space:]]*#' "$ROOT/codex-oss/image/managed_config.toml" \
+        | grep -qE '^[[:space:]]*(account_id|access_token|refresh_token|api_key)[[:space:]]*=|acct-|eyJ'; then
+        bad "managed_config.toml names a credential or login state"
+    fi
+    # No file under codex-oss/ or its docs spells the placeholder prefix.
+    cx_needle=$(printf 'openshell:resolve'':env:')
+    if cx_hits=$(grep -rlF -- "$cx_needle" "$ROOT/codex-oss" "$ROOT/docs/codex-oss.md" 2>/dev/null); then
+        bad "placeholder prefix spelled in: $cx_hits"
+    fi
+}
+
+test_cx_codex_stub() {
+    begin "the codex login stub writes a ChatGPT login, fails, or interrupts its caller"
+    cx_case cx-codex-stub
+    cx_stub_home=$CASE/stub-home
+    mkdir -p "$cx_stub_home"
+    CODEX_HOME=$cx_stub_home STUB_CODEX_LOG=$CX_CODEX_LOG "$STUB_DIR/codex" login >/dev/null 2>&1 \
+        || bad "the ok mode failed"
+    [ "$(jq -r .tokens.refresh_token "$cx_stub_home/auth.json")" = fixture-codex-refresh-7c1d ] \
+        || bad "the ok mode wrote no refresh token"
+    grep -Fqx "CODEX_HOME=$cx_stub_home" "$CX_CODEX_LOG" || bad "the stub did not log CODEX_HOME"
+    rm -f "$cx_stub_home/auth.json"
+    if CODEX_HOME=$cx_stub_home STUB_CODEX_LOGIN=fail "$STUB_DIR/codex" login >/dev/null 2>&1; then
+        bad "the fail mode succeeded"
+    fi
+    [ ! -e "$cx_stub_home/auth.json" ] || bad "the fail mode wrote auth.json"
+    if CODEX_HOME=$CASE/missing "$STUB_DIR/codex" login >/dev/null 2>&1; then
+        bad "the stub accepted a missing CODEX_HOME"
+    fi
+    cx_int_rc=0
+    sh -c 'trap "exit 130" INT; CODEX_HOME=$1 STUB_CODEX_LOGIN=interrupt "$2/codex" login >/dev/null 2>&1; exit 0' \
+        sh "$cx_stub_home" "$STUB_DIR" || cx_int_rc=$?
+    [ "$cx_int_rc" = 130 ] || bad "the interrupt mode did not interrupt its caller (rc $cx_int_rc)"
+}
+
+test_cx_provider_setup() {
+    begin "codex-oss provider setup logs in on the host and configures gateway refresh"
+    cx_case cx-setup
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    # A host Codex login that must never be read or changed.
+    mkdir -p "$HOME/.codex"
+    printf '{"tokens":{"access_token":"fixture-host-codex-access","refresh_token":"fixture-host-codex-refresh"}}\n' \
+        >"$HOME/.codex/auth.json"
+    cx_host_sum=$(cksum <"$HOME/.codex/auth.json")
+    CREDENTIAL_ENV='CODEX_CHATGPT_TOKEN CODEX_OSS_REFRESH_TOKEN'
+    CREDENTIAL_LOG=$CASE/credential-env.log
+
+    run_cx provider setup --yes
+    assert_rc 0
+    assert_log_line "$ROOT/codex-oss/providers/codex-chatgpt.yaml"
+    assert_log_line "create"
+    assert_log_line "codex-chatgpt"
+    assert_log_line "--credential"
+    assert_log_line "CODEX_CHATGPT_TOKEN"
+    assert_log_line "refresh"
+    assert_log_line "configure"
+    assert_log_line "client_id=app_fixtureclient"
+    assert_log_line "1793885131000"
+    assert_log_line "refresh_token=CODEX_OSS_REFRESH_TOKEN"
+    assert_log_before "create" "configure"
+    grep -Fxq "account_id = \"$CX_ACCOUNT\"" "$XDG_CONFIG_HOME/codex-oss/config.toml" 2>/dev/null \
+        || bad "account_id was not written to the codex-oss config"
+    grep -Fxq 'providers = "codex-chatgpt"' "$XDG_CONFIG_HOME/codex-oss/config.toml" 2>/dev/null \
+        || bad "the provider was not recorded in the codex-oss config"
+    assert_out_has "example model: gpt-6-astra"
+    # The login ran in a throwaway home that is gone now.
+    cx_login_home=$(sed -n 's/^CODEX_HOME=//p' "$CX_CODEX_LOG" | head -n 1)
+    case $cx_login_home in
+        ''|"$HOME/.codex") bad "the login did not use a throwaway CODEX_HOME ($cx_login_home)" ;;
+    esac
+    [ ! -e "$cx_login_home" ] || bad "the throwaway CODEX_HOME was not removed"
+    grep -Fqx 'cli_auth_credentials_store="file"' "$CX_CODEX_LOG" || bad "the login did not use file storage"
+    # Token values travel only in the child environment.
+    grep -Fq 'fixture-codex-refresh-7c1d' "$CREDENTIAL_LOG" 2>/dev/null \
+        || bad "the refresh token did not reach refresh configure"
+    cx_access=$(grep -vx 'fixture-codex-refresh-7c1d' "$CREDENTIAL_LOG" 2>/dev/null | head -n 1)
+    case $cx_access in
+        *.*.*) ;;
+        *) bad "the access token did not reach provider create"; cx_access=fixture-codex-refresh-7c1d ;;
+    esac
+    assert_secret_absent fixture-codex-refresh-7c1d
+    assert_secret_absent "$cx_access"
+    if grep -rqsF -e fixture-codex-refresh-7c1d -e "$cx_access" "$XDG_CONFIG_HOME" "$RUN_DIR"; then
+        bad "a token was written to a file"
+    fi
+    # The host login was neither read nor changed.
+    for cx_host in fixture-host-codex-access fixture-host-codex-refresh; do
+        assert_secret_absent "$cx_host"
+        if grep -Fq -- "$cx_host" "$CREDENTIAL_LOG" 2>/dev/null; then
+            bad "the host Codex login reached the provider flow"
+        fi
+    done
+    [ "$(cksum <"$HOME/.codex/auth.json")" = "$cx_host_sum" ] || bad "the host ~/.codex/auth.json changed"
+}
+
+test_cx_provider_setup_rerun_and_errors() {
+    begin "codex-oss provider setup re-runs, device auth, interrupts, and refuses other sources"
+    cx_case cx-setup-rerun
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_cx provider setup --yes
+    assert_rc 0
+
+    # A second run replaces the login: update, then a fresh refresh configure.
+    reset_log
+    : >"$CX_CODEX_LOG"
+    run_cx provider setup --yes --device-auth
+    assert_rc 0
+    assert_log_line "update"
+    assert_log_line_missing "create"
+    assert_log_before "delete" "configure"
+    assert_out_has "ChatGPT > Settings > Security"
+    grep -Fqx -- '--device-auth' "$CX_CODEX_LOG" || bad "--device-auth did not reach codex login"
+    if [ "$(grep -c '^account_id' "$XDG_CONFIG_HOME/codex-oss/config.toml")" -ne 1 ]; then
+        bad "account_id was written more than once"
+    fi
+
+    # Without --yes and without a terminal, an existing provider is kept.
+    reset_log
+    run_cx provider setup
+    assert_rc 1
+    assert_err_has "pass --yes"
+
+    # An interrupted login leaves no throwaway home and no provider change.
+    cx_case cx-setup-interrupt
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    CX_LOGIN=interrupt
+    run_cx provider setup --yes
+    [ "$RC" = 130 ] || bad "an interrupted login exited $RC, not 130"
+    cx_login_home=$(sed -n 's/^CODEX_HOME=//p' "$CX_CODEX_LOG" | head -n 1)
+    [ -n "$cx_login_home" ] && [ ! -e "$cx_login_home" ] || bad "the throwaway CODEX_HOME was left behind"
+    assert_log_missing "create"
+    assert_log_missing "configure"
+
+    # A failed login changes nothing.
+    reset_log
+    CX_LOGIN=fail
+    run_cx provider setup --yes
+    assert_rc 2
+    assert_err_has "codex login failed"
+    assert_log_missing "create"
+
+    # An API-key login has no ChatGPT tokens.
+    reset_log
+    CX_LOGIN=apikey
+    run_cx provider setup --yes
+    assert_rc 2
+    assert_err_has "no ChatGPT tokens"
+    assert_log_missing "create"
+    assert_secret_absent fixture-codex-apikey
+
+    # Credential sources of the other front-ends are refused.
+    CX_LOGIN=
+    for cx_source in "--from maki --credential openai" "--file $CASE/x.json" "--env OPENAI_API_KEY"; do
+        reset_log
+        # shellcheck disable=SC2086  # the source splits on purpose
+        run_cx provider setup $cx_source --yes
+        assert_rc 1
+        assert_err_has "logs in to ChatGPT on the host"
+        assert_log_missing "create"
+    done
+
+    # No host codex binary.
+    reset_log
+    cx_bin=$CASE/no-codex-bin
+    mkdir -p "$cx_bin"
+    for cx_tool in openshell jq; do
+        ln -sf "$(PATH=$STUB_DIR:$PATH command -v "$cx_tool")" "$cx_bin/$cx_tool"
+    done
+    PATH_OVERRIDE=$cx_bin:/usr/bin:/bin
+    run_cx provider setup --yes
+    assert_rc 2
+    assert_err_has "codex not found on PATH"
+}
+
+test_cx_doctor() {
+    begin "codex-oss doctor reports the model, the account, and the gateway refresh health"
+    cx_case cx-doctor
+    cx_ready_project
+    printf 'codex-chatgpt\n' >>"$STUB_STATE_DIR/providers.list"
+    cx_head='PROVIDER                  CREDENTIAL_KEY                STRATEGY                      STATUS                    RECOVERY            EXPIRES_AT            NEXT_REFRESH          LAST_REFRESH          FAILURE_CODE                                  LAST_ERROR'
+    cx_row() { # STATUS EXPIRES LAST FAILURE
+        printf '%s\ncodex-chatgpt             CODEX_CHATGPT_TOKEN           oauth2_refresh_token          %s                 -                   %s   2099-01-01 00:00:00   %s   %s                                   -' \
+            "$cx_head" "$1" "$2" "$3" "$4"
+    }
+
+    REFRESH_STATUS=$(cx_row refreshed '2099-01-10 00:00:00' '2099-01-01 00:00:00' -)
+    run_cx doctor
+    assert_out_has "ok    model: Codex's default"
+    assert_out_has "ok    account: ChatGPT account ID configured"
+    assert_out_has "ok    refresh: codex-chatgpt refreshed, expires 2099-01-10 00:00:00 UTC"
+    cx_doctor_rc=$RC
+
+    # The gateway's 1 h assumption with a 300 s lead time: hourly, healthy.
+    REFRESH_STATUS=$(cx_row refreshed '2099-01-01 01:00:00' '2099-01-01 00:00:00' -)
+    run_cx doctor
+    assert_out_has "ok    refresh: codex-chatgpt refreshed"
+    assert_out_missing "refreshes continuously"
+    REFRESH_STATUS=$(cx_row refreshed '2099-01-01 00:04:00' '2099-01-01 00:00:00' -)
+    run_cx doctor
+    assert_out_has "refreshes continuously"
+    [ "$RC" = "$cx_doctor_rc" ] || bad "the warning changed the doctor exit code ($cx_doctor_rc -> $RC)"
+
+    REFRESH_STATUS=$(cx_row failed '2099-01-10 00:00:00' '2099-01-01 00:00:00' invalid_grant)
+    run_cx doctor
+    assert_out_has "warn  refresh: codex-chatgpt last refresh failed"
+
+    cx_soon=$(date -u -d '@'"$(( $(date -u +%s) + 3600 ))" '+%Y-%m-%d %H:%M:%S' 2>/dev/null \
+        || date -u -r "$(( $(date -u +%s) + 3600 ))" '+%Y-%m-%d %H:%M:%S')
+    REFRESH_STATUS=$(cx_row configured "$cx_soon" - -)
+    run_cx doctor
+    assert_out_has "in under 24 hours"
+
+    REFRESH_STATUS="No refresh configurations found for provider 'codex-chatgpt'."
+    run_cx doctor
+    assert_out_has "warn  refresh: codex-chatgpt has no gateway refresh"
+    [ "$RC" = "$cx_doctor_rc" ] || bad "the warning changed the doctor exit code ($cx_doctor_rc -> $RC)"
+
+    cx_config 'model = "gpt-6-astra"'
+    run_cx doctor
+    assert_out_has "ok    model: gpt-6-astra"
+
+    # Without the provider, the refresh check is skipped.
+    cx_case cx-doctor-noprovider
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_cx doctor
+    assert_out_missing "refresh:"
+    assert_out_has "warn  account: no ChatGPT account ID"
+}
+
+seed_cx_host_mcp() { # TOML [DIR]
+    cx_mcp_dir=${2:-$HOME/.codex}
+    mkdir -p "$cx_mcp_dir"
+    printf '%s\n' "$1" >"$cx_mcp_dir/config.toml"
+}
+
+CX_HOST_MCP='model = "gpt-6-astra"
+
+[mcp_servers.context7]
+url = "https://mcp.context7.com/mcp"
+
+[mcp_servers.local]
+command = "/usr/local/bin/local-mcp"
+args = []
+
+[mcp_servers."off"]
+command = "off-mcp"
+enabled = false'
+
+test_cx_mcp_status() {
+    begin "codex-oss mcp status compares [mcp_servers.<name>] in the host and sandbox config.toml"
+    cx_case cx-mcp
+    cx_ready_project
+    seed_cx_host_mcp "$CX_HOST_MCP"
+    EXEC_STDOUT='model = "x"'
+
+    run_cx mcp status
+    assert_rc 3
+    assert_out_has "context7: sandbox=missing"
+    assert_out_has "fix: codex-oss provider attach codex-mcp-context7"
+    assert_out_has "an environment image built FROM codex-agent:local"
+    assert_out_has "local: sandbox=missing"
+    assert_out_missing "off: sandbox=missing"
+    assert_log_line "/sandbox/.codex/config.toml"
+
+    reset_log
+    attach_stub_provider cx-myproject codex-mcp-context7
+    EXEC_STDOUT='[mcp_servers.context7]
+url = "https://mcp.context7.com/mcp"'
+    seed_cx_host_mcp "$EXEC_STDOUT"
+    POLICY_FULL='host: mcp.context7.com'
+    run_cx mcp status
+    assert_rc 0
+    assert_out_has "context7: sandbox=ok provider=ok endpoint=ok transport=http"
+
+    # CODEX_HOME selects the host file.
+    seed_cx_host_mcp '[mcp_servers.other]
+url = "https://other.test/mcp"' "$CASE/codexhome"
+    CX_HOME_ENV=$CASE/codexhome
+    run_cx mcp status
+    assert_out_has "other: sandbox=missing"
+    CX_HOME_ENV=
+
+    # Inline tables are not read: the file is reported as unreadable.
+    seed_cx_host_mcp 'mcp_servers = { docs = { url = "https://docs.test/mcp" } }'
+    run_cx mcp status
+    assert_rc 3
+    assert_out_has "unreadable: host config $HOME/.codex/config.toml"
+}
+
+test_cx_isolation_and_registry() {
+    begin "codex-oss keeps its own sandbox, config, and state, and registers as cx"
+    cx_case cx-isolation
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    ENV_IMAGE=maki-only:tag
+
+    run_cx up
+    assert_rc 0
+    assert_log_line "cx-myproject"
+    assert_log_line "codex-agent:local"
+    assert_log_line "$ROOT/codex-oss/policies/minimal.yaml"
+    assert_log_line_missing "maki-only:tag"
+    [ "$(registry_value cx-myproject agent)" = cx ] || bad "the registry entry is not agent cx"
+
+    reset_log
+    reset_state
+    ENV_CX_IMAGE=custom:tag
+    run_cx up
+    assert_rc 0
+    assert_log_line "custom:tag"
+
+    reset_state
+    cx_ready_project
+    run_cx run "touch nothing"
+    assert_rc 0
+    [ -d "$(cx_session_dir cx-myproject)" ] || bad "no codex-oss session state"
+    [ ! -e "$HOME/.local/state/codex-oss" ] || bad "codex-oss wrote a per-tool state root"
+    [ ! -e "$HOME/.local/state/maki-oss" ] || bad "codex-oss wrote a maki-oss state root"
+    [ -d "$CASE/sandbox/.codex-oss/git" ] || bad "the sandbox baseline is not under .codex-oss"
+    for cx_other in maki-oss opencode-oss claude-oss; do
+        [ ! -e "$XDG_CONFIG_HOME/$cx_other" ] || bad "codex-oss wrote the $cx_other config"
+    done
+
+    run_osa projects --json
+    assert_rc 0
+    assert_out_has '"agent":"cx"'
+    run_cx status
+    cx_sync=$(sed -n 's/^Sync: *//p' "$OUT" | awk '{print $1}')
+    (
+        CODEX_OSS_WORKDIR=$CASE/sandbox/project
+        export CODEX_OSS_WORKDIR
+        run_osa status --json
+        exit "$RC"
+    ) || RC=$?
+    assert_rc 0
+    assert_out_has "\"sync\":\"$cx_sync\""
+}
+
+test_cx_lifecycle_and_guard() {
+    begin "codex-oss up/status/rm, the --env guard, and the no-provider refusal"
+    cx_case cx-lifecycle
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+
+    run_cx up --env CODEX_CHATGPT_TOKEN=x
+    assert_rc 1
+    assert_err_has "CODEX_CHATGPT_TOKEN"
+    assert_log_missing "create"
+    run_cx up --env CODEX_CHATGPT_TOKEN=x --allow-env CODEX_CHATGPT_TOKEN
+    assert_rc 0
+    assert_log_line "CODEX_CHATGPT_TOKEN=x"
+
+    run_cx status
+    assert_rc 0
+    assert_out_has "Exists:    yes"
+    assert_out_has "codex-agent:local (configured)"
+
+    reset_log
+    run_cx rm
+    assert_rc 1
+    assert_log_missing "delete"
+    run_cx rm --yes
+    assert_rc 0
+    assert_log_line "delete"
+
+    reset_log
+    cx_config "account_id = \"$CX_ACCOUNT\""
+    run_cx
+    assert_rc 1
+    assert_err_has "codex-oss provider setup"
+    if [ -s "$LOG" ]; then
+        bad "gateway was contacted without a provider"
+    fi
+}
+
+test_cx_timeout_proposals_idle() {
+    begin "codex-oss run --timeout wraps codex; proposals surface; idle stop waits on codex"
+    cx_case cx-timeout
+    cx_ready_project
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    printf 'LEAKED-STDIN\n' >"$CASE/stdin.txt"
+
+    run_cx_with_input "$CASE/stdin.txt" run --timeout 30 "check"
+    assert_rc 0
+    assert_log_line "codex-oss-run"
+    assert_log_has "/tmp/codex-oss-stop/"
+    assert_log_before "codex-oss-run" "--dangerously-bypass-approvals-and-sandbox"
+    assert_stdin_closed
+
+    reset_log
+    RULE_PENDING='Network Rules:  (version 3, 1 chunks)
+
+  Chunk: 2258b82a-8253-4094-bf5f-3e309b2b9c11
+  Status: pending'
+    run_cx run "check"
+    assert_rc 0
+    assert_log_line "agent_policy_proposals_enabled"
+    assert_err_has "1 pending network-rule proposal(s) for 'cx-myproject'. Review: codex-oss policy review"
+
+    reset_log
+    RULE_PENDING=
+    printf 'idle\n' >"$CASE/scan-answer"
+    printf 'codex-oss-idle|0|%s\n' "$CASE/scan-answer" >"$CASE/exec-cases"
+    EXEC_CASES=$CASE/exec-cases
+    ENV_IDLE_STOP=2s
+    run_cx run "check"
+    assert_rc 0
+    if ! wait_for_match "$LOG" '^stop$' 15; then
+        bad "no sandbox stop after the idle period"
+    fi
+    assert_log_has '= codex ]'
+    sed -n 's/.*watcher=\([0-9][0-9]*\).*/\1/p' "$(cx_session_dir cx-myproject)/idle.log" 2>/dev/null |
+        while read -r cx_pid; do
+            pkill -P "$cx_pid" 2>/dev/null || true
+            kill "$cx_pid" 2>/dev/null || true
+        done
+}
+
+test_cx_sync_clean_git() {
+    begin "codex-oss applies a clean git session by fast-forward"
+    cx_case cx-sync-git
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_sandbox cx-repo Ready
+    seed_cx_provider codex-chatgpt
+    cx_config "account_id = \"$CX_ACCOUNT\""
+    attach_stub_provider cx-repo codex-chatgpt
+    run_cx upload .
+    commit_before=$(git -C "$RUN_DIR" rev-parse HEAD)
+    STUB_MAKI_SCRIPT='printf "agent\n" > agent.txt; printf "modified\n" > tracked.txt'
+
+    run_cx run "edit"
+    assert_rc 0
+    [ "$(cat "$RUN_DIR/tracked.txt")" = modified ] || bad "agent change is not on the host"
+    [ "$(cat "$RUN_DIR/agent.txt" 2>/dev/null)" = agent ] || bad "agent file is not on the host"
+    [ "$(git -C "$RUN_DIR" rev-parse HEAD^)" = "$commit_before" ] || bad "result commit parent is not the baseline"
+    [ "$(git -C "$RUN_DIR" log -1 --format=%s)" = "codex-oss: apply sandbox changes" ] \
+        || bad "result commit has the wrong subject"
+}
+
+test_cx_sync_dirty_host() {
+    begin "codex-oss keeps a dirty host and commits the result on a review branch"
+    cx_case cx-sync-dirty
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    printf 'local edit\n' >>"$RUN_DIR/tracked.txt"
+    seed_sandbox cx-repo Ready
+    seed_cx_provider codex-chatgpt
+    cx_config "account_id = \"$CX_ACCOUNT\""
+    attach_stub_provider cx-repo codex-chatgpt
+    STUB_MAKI_SCRIPT='printf "agent edited\n" > tracked.txt'
+
+    run_cx run "edit"
+    assert_rc 0
+    assert_err_has "Uncommitted host work was not committed"
+    cx_branch=$(git -C "$RUN_DIR" for-each-ref --format='%(refname:short)' 'refs/heads/codex-oss/*' | head -n 1)
+    [ -n "$cx_branch" ] || bad "result branch was not kept"
+    grep -Fq 'local edit' "$RUN_DIR/tracked.txt" || bad "local edit was lost"
+    [ -f "$(cx_session_dir cx-repo)/pending" ] || bad "no pending marker for the dirty host"
+}
+
+test_cx_sync_plain_directory() {
+    begin "codex-oss applies a clean patch to a plain directory"
+    cx_case cx-sync-plain
+    CX_SEED_FILES='readme.txt=host-version
+hostonly.txt=host-only'
+    cx_ready_project
+    STUB_MAKI_SCRIPT='printf "sandbox-version\n" > readme.txt'
+
+    run_cx run "edit"
+    assert_rc 0
+    grep -Fq 'sandbox-version' "$RUN_DIR/readme.txt" || bad "the patch did not update the file"
+    grep -Fq 'host-only' "$RUN_DIR/hostonly.txt" || bad "a host-only file was removed"
+}
+
+test_cx_sync_no_git() {
+    begin "codex-oss applies a text patch with patch when the host has no git"
+    cx_case cx-sync-nogit
+    CX_SEED_FILES='file.txt=v1'
+    cx_ready_project
+    PATH_OVERRIDE=$(no_git_path with_patch)
+    STUB_MAKI_SCRIPT='printf "v2\n" > file.txt'
+
+    run_cx run "edit"
+    assert_rc 0
+    [ "$(cat "$RUN_DIR/file.txt")" = v2 ] || bad "text patch did not apply without git"
+}
+
 test_sandbox_id_recorded() {
     begin "a session records the sandbox ID and status reads it back"
     new_case sandbox-id
@@ -6368,6 +7191,24 @@ run_test test_cc_sync_clean_git
 run_test test_cc_sync_dirty_host
 run_test test_cc_sync_plain_directory
 run_test test_cc_sync_no_git
+run_test test_cx_help
+run_test test_cx_run_argv
+run_test test_cx_tui_argv
+run_test test_cx_session_flags
+run_test test_cx_image_build
+run_test test_cx_profiles_and_catalogs
+run_test test_cx_codex_stub
+run_test test_cx_provider_setup
+run_test test_cx_provider_setup_rerun_and_errors
+run_test test_cx_doctor
+run_test test_cx_mcp_status
+run_test test_cx_isolation_and_registry
+run_test test_cx_lifecycle_and_guard
+run_test test_cx_timeout_proposals_idle
+run_test test_cx_sync_clean_git
+run_test test_cx_sync_dirty_host
+run_test test_cx_sync_plain_directory
+run_test test_cx_sync_no_git
 
 printf '\n%d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"
 if [ "$FAIL" -ne 0 ]; then

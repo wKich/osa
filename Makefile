@@ -104,7 +104,7 @@ lint-docs:
 	scripts/check-playbooks.sh
 
 lint: lint-docs
-	shellcheck -x bin/maki-oss bin/opencode-oss bin/claude-oss bin/osa lib/oss-core.sh lib/osa-state.sh tests/run-tests.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode
+	shellcheck -x bin/maki-oss bin/opencode-oss bin/claude-oss bin/codex-oss bin/osa lib/oss-core.sh lib/osa-state.sh tests/run-tests.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode tests/stub/codex
 	fish -n fish/functions/maki-oss.fish
 	fish -n fish/conf.d/maki-oss.fish
 	fish -n fish/completions/maki-oss.fish

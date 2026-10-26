@@ -1,5 +1,8 @@
 # Roadmap: Conveyor as the sandboxed orchestration layer
 
+**Naming:** the project and repository are now `osa`; this document keeps
+`maki-oss` where it names the Maki front-end or its commands.
+
 Planning document. Conveyor-side work happens in the Conveyor repository
 (`/Users/ki/Projects/kontur/conveyor.ai`); this document is the cross-repo
 plan. Paths under `src/Conveyor.*` and `web/` refer to that repository.

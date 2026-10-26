@@ -1,5 +1,8 @@
 # Roadmap: portable sandboxed agent sessions and kiss orchestration
 
+**Naming:** the project and repository are now `osa`; this document keeps
+`maki-oss` where it names the Maki front-end or its commands.
+
 Planning document. Implementation goes through OpenSpec changes, one per
 roadmap item; nothing here ships without its spec delta. Item IDs (`G`, `A`,
 `B`, `P`) are stable references for discussion.

@@ -10,9 +10,9 @@ reference pack.
   that OpenShell creates to run an agent such as Maki.
 - **Base image** — `maki-agent:local`, built by `maki-oss image build`: the
   pinned Maki runtime, non-root sandbox identity, filesystem/Landlock settings,
-  folder trust, and the deny rules that protect the baked configuration. It
-  declares no MCP servers, installs no MCP-specific runtime, and sets no
-  personal UI or YOLO preference.
+  folder trust, YOLO mode, and the deny rules that protect the baked
+  configuration. It declares no MCP servers, installs no MCP-specific runtime,
+  and sets no personal UI preference.
 - **Environment store** — a user-owned Docker build context, outside this
   repository, whose `Dockerfile` builds `FROM` the base image. It carries the
   user's MCP configuration, runtime and package installs, skills, plugins, and

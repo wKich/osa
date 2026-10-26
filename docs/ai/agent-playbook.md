@@ -61,9 +61,10 @@ IMAGE=maki-agent:local
 Verify: the build succeeds and prints `maki 0.6.5`.
 
 The base image is agent-only: no MCP servers, no MCP-specific runtime, and no
-personal UI/YOLO preferences. If the task needs a server, runtime, or personal
-preference, build an environment image on top and use its tag instead of the
-base:
+personal UI preferences. It starts every Maki session in YOLO mode because
+OpenShell, not Maki, is the permission boundary; the baked deny rules still
+apply. If the task needs a server, runtime, or UI preference, build an
+environment image on top and use its tag instead of the base:
 
 ```sh
 docker build -t maki-agent:reference examples/environments/reference

@@ -7,7 +7,8 @@ vendor.
 
 The **base image** (`maki-agent:local`, built by `maki-oss image build`) is the
 agent runtime plus the safety baseline. It declares no MCP servers, installs no
-MCP-specific runtime, and sets no personal UI or YOLO preference. The
+MCP-specific runtime, sets no personal UI preference, and starts every session
+in YOLO mode because the sandbox is the permission boundary. The
 **environment store** is a Docker build context you own, outside this
 repository, whose `Dockerfile` builds `FROM` the base. You select the resulting
 **derived image** through the helper's existing `image` setting.
@@ -78,10 +79,12 @@ Classification rules:
   name in the final summary; the helper never installs a package into a running
   sandbox. `maki-oss mcp status` reports the runtime gate for the servers it
   checks.
-- **Personal preferences are opt-in.** `always_yolo`, compact-UI settings, and
-  similar behavior belong in the store's `init.lua`; the base keeps only the
-  folder-trust block. The base's `permissions.toml` deny rules are inherited and
-  are not relaxed by YOLO.
+- **Personal preferences are opt-in.** Compact-UI settings and similar behavior
+  belong in the store's `init.lua`. The base already sets `always_yolo = true`
+  and keeps the folder-trust block; a store's `init.lua` replaces the base file,
+  so repeat those settings when you add preferences (the reference store does).
+  The base's `permissions.toml` deny rules are inherited and are not relaxed by
+  YOLO.
 
 **Verify:** every audited item has a bucket, every credential has a named
 provider path, and no literal credential appears in the draft store.
@@ -117,8 +120,10 @@ Then edit only your copy:
 - **`config/mcp.toml`** — only servers you classified as portable config. Use
   `${VAR}` for every header/environment value and leave `permissions.toml` to
   the base.
-- **`config/init.lua`** — the trust block plus the preferences you want. Keep
-  the trust block intact; headless runs need it.
+- **`config/init.lua`** — the trust block, `always_yolo = true`, and the
+  preferences you want. The file replaces the base's `init.lua`, so repeat both
+  shared settings: headless runs need the trust block, and without
+  `always_yolo` the store reverts to in-sandbox permission prompts.
 - **`config/providers.toml`** — optional host-only Maki provider settings:
   custom OpenAI-compatible providers, plan selection (for example Z.AI
   `coding`), or explicit model rows. The base seeds the models.dev catalog, so

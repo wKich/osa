@@ -89,17 +89,18 @@ docker run --rm maki-agent:local ls /sandbox/.config/maki
 
 Expected: `maki 0.6.5`, and `init.lua`, `mcp.toml`, and `permissions.toml` in
 the config directory. This is the **base image**: the agent runtime and safety
-baseline only. `init.lua` pre-answers folder trust for `/sandbox/**` and sets no
-YOLO or UI preference; `mcp.toml` declares zero MCP servers (it is
-comments-only); and `permissions.toml` keeps the deny rules (no `sudo`, no
-`maki auth`, no writes to the baked config). The image installs no
-MCP-specific runtime. See
+baseline only. `init.lua` pre-answers folder trust for `/sandbox/**` and starts
+every session in YOLO mode, because the sandbox is the permission boundary
+(the `permissions.toml` deny rules still apply); it sets no personal UI
+preference. `mcp.toml` declares zero MCP servers (it is comments-only), and
+`permissions.toml` keeps the deny rules (no `sudo`, no `maki auth`, no writes
+to the baked config). The image installs no MCP-specific runtime. See
 [`examples/maki-image/config/`](../examples/maki-image/config/).
 
-Personal MCP servers, runtimes they need, and UI/YOLO preferences belong in an
-**environment image** built on top of the base. The repository ships a
+Personal MCP servers, runtimes they need, and personal UI preferences belong in
+an **environment image** built on top of the base. The repository ships a
 reference store for the previous behavior — the `context7` and `synthetic`
-servers, Bun, and the YOLO/compact-UI preferences:
+servers, Bun, and the compact-UI preferences:
 
 ```sh
 docker build -t maki-agent:reference examples/environments/reference

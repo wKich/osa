@@ -1,9 +1,9 @@
 # Reference environment store
 
 A worked example of the environment layer: a Docker build context that adds
-this user's MCP servers, the Bun runtime they need, and YOLO/compact-UI
-preferences on top of the generic `maki-agent:local` base. It is opt-in — the
-repository never selects it by default.
+this user's MCP servers, the Bun runtime they need, and compact-UI preferences
+on top of the generic `maki-agent:local` base. It is opt-in — the repository
+never selects it by default.
 
 Copy this directory outside the repository to make it your own. Do not edit
 `examples/maki-image/` for a personal choice; the base is shared and stays

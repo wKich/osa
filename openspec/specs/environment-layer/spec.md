@@ -10,11 +10,12 @@ Defines the boundary between the generic maki-oss base image and a user-owned en
 
 The base image SHALL contain the agent runtime and the security baseline
 only: the pinned Maki binary, the non-root sandbox identity, the
-filesystem/Landlock policy settings, folder trust, and the deny rules that
-protect the baked configuration. It MUST NOT contain any MCP server
-definition, any MCP-specific runtime or package, or any personal UI or
-permission-mode preference. It MAY contain an MCP configuration file that
-declares zero servers.
+filesystem/Landlock policy settings, folder trust, YOLO mode, and the deny
+rules that protect the baked configuration. It MUST NOT contain any MCP
+server definition, any MCP-specific runtime or package, or any personal UI
+preference. It MAY contain an MCP configuration file that declares zero
+servers. YOLO belongs to the base because OpenShell, not Maki, is the
+permission boundary; explicit deny rules still apply.
 
 #### Scenario: Base has no MCP servers
 - **WHEN** the base image is built and its MCP configuration is inspected
@@ -26,11 +27,11 @@ declares zero servers.
 
 #### Scenario: Base keeps the safety baseline
 - **WHEN** the base image is built
-- **THEN** it runs as uid/gid 1500, keeps the minimal filesystem policy, pre-answers folder trust for `/sandbox`, and keeps the deny rules that block `sudo`, `su`, `maki auth`, `ssh`, `scp`, and writes to `/sandbox/.config`
+- **THEN** it runs as uid/gid 1500, keeps the minimal filesystem policy, pre-answers folder trust for `/sandbox`, starts sessions in YOLO mode, and keeps the deny rules that block `sudo`, `su`, `maki auth`, `ssh`, `scp`, and writes to `/sandbox/.config`
 
-#### Scenario: Base contains no personal UI or YOLO preference
+#### Scenario: Base starts sessions in YOLO mode
 - **WHEN** the base image's Maki `init.lua` is inspected
-- **THEN** it does not set `always_yolo` or compact-UI preferences; those belong to the environment layer
+- **THEN** it sets `always_yolo = true` and does not set compact-UI preferences; UI preferences belong to the environment layer
 
 ### Requirement: Environment store is a user-owned Docker build context
 
@@ -68,7 +69,7 @@ SHALL remain the base image. The reference store SHALL be opt-in.
 
 #### Scenario: Reference store demonstrates the relocated behavior
 - **WHEN** the reference store is built and selected
-- **THEN** it provides the MCP servers, MCP runtime, and UI/YOLO preferences that the base no longer contains
+- **THEN** it provides the MCP servers, MCP runtime, and personal UI preferences that the base does not contain
 
 #### Scenario: Reference store is not built by the base command
 - **WHEN** `maki-oss image build` runs with no environment argument

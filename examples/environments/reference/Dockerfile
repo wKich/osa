@@ -4,9 +4,9 @@
 #   docker build -t maki-agent:reference examples/environments/reference
 #
 # This store demonstrates the environment layer: the MCP servers, the Bun
-# runtime they need, and the YOLO/compact-UI preferences that the base no
-# longer contains. Copy this directory outside the repository to make it your
-# own; never edit examples/maki-image/ for a personal choice.
+# runtime they need, and the compact-UI preferences that the base does not
+# contain. Copy this directory outside the repository to make it your own;
+# never edit examples/maki-image/ for a personal choice.
 #
 # The image contains no credentials. Every MCP header or environment value is
 # a ${VAR} name that an attached OpenShell provider profile resolves; never

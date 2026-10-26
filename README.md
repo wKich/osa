@@ -23,8 +23,10 @@ export PATH="$PWD/bin:$PATH"
 ```
 
 `image build` builds the generic base: the agent runtime and safety baseline,
-with no MCP servers and no personal UI preferences. To add MCP servers or a
-runtime they need, compose an environment image on top of it — see
+with no MCP servers and no personal UI preferences. Maki starts every session
+in YOLO mode because the sandbox is the permission boundary; the baked deny
+rules still apply. To add MCP servers or a runtime they need, compose an
+environment image on top of it — see
 [`docs/ai/environment-playbook.md`](docs/ai/environment-playbook.md) and the
 [reference store](examples/environments/reference/README.md).
 

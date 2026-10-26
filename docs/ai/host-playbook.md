@@ -151,9 +151,10 @@ Build the sandbox image (bakes the pinned Maki release) and verify it:
 docker run --rm maki-agent:local maki --version
 ```
 
-The base is agent-only: it declares no MCP servers and sets no personal UI or
-YOLO preference. If you want the reference environment (the `context7` and
-`synthetic` MCP servers, Bun, and the YOLO/compact-UI preferences), build it on
+The base is agent-only: it declares no MCP servers and sets no personal UI
+preference. It starts every Maki session in YOLO mode because the sandbox is
+the permission boundary. If you want the reference environment (the `context7`
+and `synthetic` MCP servers, Bun, and the compact-UI preferences), build it on
 top of the base and select it through the helper's `image` setting; otherwise
 skip this optional step:
 

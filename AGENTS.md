@@ -1,9 +1,9 @@
 # osa agent instructions
 
 This repository (`osa`) documents and automates running Maki coding agents
-inside NVIDIA OpenShell sandboxes. The agent front-ends are `maki-oss` (Maki)
-and `opencode-oss` (OpenCode); their command names, environment prefixes, and
-config paths are unchanged by the repository rename. The sandbox is the
+inside NVIDIA OpenShell sandboxes. The agent front-ends are `maki-oss` (Maki),
+`opencode-oss` (OpenCode), and `claude-oss` (Claude Code); their command names,
+environment prefixes, and config paths are unchanged by the repository rename. The sandbox is the
 security boundary; all work in this repository must preserve it.
 
 Start here:
@@ -51,3 +51,8 @@ Never violate these, even to make a command succeed:
 - **Maki never authenticates inside the sandbox.** Do not run
   `maki auth login`, and do not set `ANTHROPIC_BASE_URL` /
   `OPENROUTER_BASE_URL` there: it would leave the credential unbound.
+- **Claude Code never authenticates inside the sandbox either.** Do not run
+  `/login`, `claude auth`, or `claude setup-token` there (create the
+  subscription token on the host), do not set `ANTHROPIC_BASE_URL` or an
+  `apiKeyHelper`, and never mount or upload the host's `~/.claude`,
+  `~/.claude.json`, or `~/.config/anthropic`.

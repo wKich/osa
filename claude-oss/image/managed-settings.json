@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(sudo)",
+      "Bash(sudo:*)",
+      "Bash(su)",
+      "Bash(su:*)",
+      "Bash(ssh:*)",
+      "Bash(scp:*)",
+      "Bash(claude setup-token:*)",
+      "Bash(claude auth:*)",
+      "Bash(claude login:*)",
+      "Edit(//sandbox/.claude/**)",
+      "Edit(//sandbox/.claude.json)",
+      "Edit(//etc/claude-code/**)",
+      "Edit(//usr/local/libexec/claude-oss/**)"
+    ]
+  },
+  "env": {
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL": "1",
+    "DISABLE_UPDATES": "1",
+    "DISABLE_TELEMETRY": "1",
+    "DISABLE_ERROR_REPORTING": "1",
+    "ENABLE_CLAUDEAI_MCP_SERVERS": "false"
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "skipWebFetchPreflight": true
+}

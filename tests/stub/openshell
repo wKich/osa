@@ -314,7 +314,7 @@ case $command_name in
                     cat >"$STUB_EXEC_STDIN_LOG"
                 fi
                 case ${1:-} in
-                    maki|opencode)
+                    maki|opencode|claude)
                         if [ -n "${STUB_MAKI_SCRIPT:-}" ] && [ -n "$stub_workdir" ]; then
                             ( cd "$stub_workdir" && sh -c "$STUB_MAKI_SCRIPT" )
                         fi

@@ -299,8 +299,9 @@ directory; to copy results out, keep them under `/sandbox`.
 
 Run the checklist in [`docs/ai/verification/maki.md`](ai/verification/maki.md):
 denied egress, placeholder-only credentials, invisible host paths, effective
-policy review, attached provider list, and denial logs — each with its exact
-command and expected output.
+policy review, attached provider list, denial logs, workspace refresh and
+sync-back, and the HTTP and stdio MCP smoke tests — each with its exact command
+and expected output.
 
 ## 8. Troubleshooting
 

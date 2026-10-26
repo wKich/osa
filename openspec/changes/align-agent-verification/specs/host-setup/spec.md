@@ -13,10 +13,10 @@ than restate external documentation links.
 
 The OpenShell version a document claims to be verified against SHALL match
 `docs/ai/references.md` on every page that states one, and a page claiming an
-older verified version than the canonical one SHALL be treated as stale rather
-than as a second opinion. Bumping the canonical version SHALL be accompanied by
-a re-verification run recorded in `docs/verification-log.md`, so the claim is a
-measurement rather than an edited string.
+older verified OpenShell version than the canonical one SHALL be treated as
+stale rather than as a second opinion. Bumping the canonical version SHALL be
+accompanied by a re-verification run recorded in `docs/verification-log.md`, so
+the claim is a measurement rather than an edited string.
 
 #### Scenario: Maki version consistency
 

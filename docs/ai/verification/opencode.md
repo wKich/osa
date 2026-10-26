@@ -170,14 +170,15 @@ Expected: the recorded observations below.
 
 | Check | Observed |
 |---|---|
-| TUI attaches | renders; with the project `model` set, the prompt is answered (with the default free model: `ECONNREFUSED` retries, see §4) |
+| TUI attaches | renders; with the project `model` set, the prompt is answered (with the default free model: `ECONNREFUSED` retries; see the [playbook Phase 6](../playbooks/opencode.md#phase-6--run-opencode)) |
 | Explicit download | `Download complete`; sha256 matches the sandbox copy |
 
 ### Stop if
 
-The TUI does not render or answer, or the downloaded file is missing or differs
-from the sandbox copy. Report the terminal output and both hashes; do not add a
-bind mount or a fallback copy path.
+The TUI does not render, with a configured project model the prompt is not
+answered, or the downloaded file is missing or differs from the sandbox copy.
+Report the terminal output and both hashes; do not add a bind mount or a
+fallback copy path.
 
 ## Check 6 — Helper path
 

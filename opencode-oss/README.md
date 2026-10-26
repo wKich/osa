@@ -239,7 +239,7 @@ the store shape and the provider naming that `mcp status` checks.
   `service.json` with that service's password under `/sandbox`. Prefer
   `--standalone` everywhere, and never run such a command in the image build.
 
-## Verification record
+## Verification summary
 
 The canonical record is
 [`docs/ai/verification/opencode.md`](../docs/ai/verification/opencode.md). The

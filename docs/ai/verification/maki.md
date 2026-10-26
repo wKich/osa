@@ -5,7 +5,7 @@
 | Agent | `Maki` |
 | Covers | `P6` |
 | Reference | `docs/ai/playbooks/maki.md` |
-| Verified | OpenShell v0.1.5, Maki v0.6.4, 2026-10-22; Maki v0.6.5 sync matrix, 2026-10-26 |
+| Verified | OpenShell v0.1.5, Maki v0.6.4, 2026-10-22; sync matrix, 2026-10-26 |
 
 # Verification: Maki
 
@@ -28,8 +28,8 @@ disposable-workspace change on 2026-10-26; see
 This page is a reorganization of those recorded runs, not a new run. Checks 1-6
 record the 2026-10-22 OpenShell v0.1.5 run, whose image pinned Maki 0.6.4;
 checks 8-9 record the MCP smoke tests added before that run; check 7 records the
-2026-10-26 re-run after the Maki 0.6.5 rebaseline. No result below is carried
-forward from a later version.
+2026-10-26 sync pass, which used `maki-agent:personal`; its Maki version is not
+recorded. No result below is carried forward from a later version.
 
 ## Check 1 — Denied egress
 
@@ -555,9 +555,11 @@ Never relax these to make a check pass:
 
 - The OpenShell sandbox is the security boundary. No host bind mounts; project
   files move in and out through `openshell sandbox upload` / `download`.
-- No secrets through `--env` or `--env-from`. Model and service credentials go
-  through OpenShell provider profiles; the sandbox sees only an opaque stand-in
-  and the proxy substitutes the real value at approved endpoints.
+- No secrets through `openshell sandbox create --env`/`--env-from` or `sandbox
+  exec --env`/`--env-from`. Model and service credentials go through OpenShell
+  provider profiles; the helper's `provider setup --env` is host-side migration
+  input, and the sandbox sees only an opaque stand-in while the proxy
+  substitutes the real value at approved endpoints.
 - Never spell the literal provider-placeholder prefix in a file the agent can
   read. Describe it in prose instead.
 - Egress stays deny-by-default. Every endpoint is an explicit policy or

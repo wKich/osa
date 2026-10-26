@@ -15,7 +15,7 @@
 ## 3. Create the Maki verification page
 
 - [x] 3.1 Move `docs/verification.md` to `docs/ai/verification/maki.md` with `git mv`, so no redirect stub remains. Verify `test ! -e docs/verification.md` and `test -f docs/ai/verification/maki.md`.
-- [x] 3.2 Add the metadata (`Doc: verification-maki`, `Kind: verification`, `Agent: Maki`, `Covers: P6`, `Reference: docs/ai/playbooks/maki.md`, `Verified: OpenShell v0.1.5, Maki v0.6.4, 2026-10-22; Maki v0.6.5 sync matrix, 2026-10-26`), `# Verification: Maki`, `## Scope`, `## Invariants`, and `## See also`.
+- [x] 3.2 Add the metadata (`Doc: verification-maki`, `Kind: verification`, `Agent: Maki`, `Covers: P6`, `Reference: docs/ai/playbooks/maki.md`, `Verified: OpenShell v0.1.5, Maki v0.6.4, 2026-10-22; sync matrix, 2026-10-26`), `# Verification: Maki`, `## Scope`, `## Invariants`, and `## See also`.
 - [x] 3.3 Convert sections 1-6 into one `## Check` block each with `### Run`, `### Verify` containing `Expected:`, and `### Stop if`; preserve every command, expected result, and link.
 - [x] 3.4 Convert section 7 into one `## Check` with `#### 7.1`-`#### 7.8` under `### Run`, then one `### Verify` and one `### Stop if`; preserve every case command and expected result.
 - [x] 3.5 Convert sections 8 and 9 into one `## Check` each with `#### 8a`-`#### 8e` and `#### 9a`-`#### 9d` under `### Run`, then one `### Verify` and one `### Stop if` per check; preserve every case command and expected result.

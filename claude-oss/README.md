@@ -182,7 +182,7 @@ openshell sandbox download claude /sandbox/project/my-project/<file-or-dir> ./ou
 openshell sandbox delete claude
 ```
 
-## Verification record
+## Verification summary
 
 The canonical record is
 [`docs/ai/verification/claude.md`](../docs/ai/verification/claude.md), run on

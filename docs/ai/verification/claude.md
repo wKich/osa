@@ -113,11 +113,14 @@ Expected: the recorded observations below.
 ### Stop if
 
 A system path accepts a write, a denied command or edit succeeds even under
-`--dangerously-skip-permissions`, a resumed session loses its history, the TUI
-shows an onboarding, trust, bypass, or API-key prompt, or the logs show egress
-to any endpoint except `api.anthropic.com:443`. Report the JSON events, the
-session ID, and the log window; do not set `ANTHROPIC_BASE_URL`, an
-`apiKeyHelper`, or a broader policy.
+`--dangerously-skip-permissions`, a resumed session loses its history, a
+seeded TUI shows an onboarding, trust, bypass, or API-key prompt, the no-seed
+TUI does not fail closed after the denied `platform.claude.com` probe, or
+allowed egress includes any endpoint except `api.anthropic.com:443`. The
+denied `platform.claude.com` probe in the no-seed case is the expected negative
+control, not an egress failure. Report the JSON events, the session ID, and the
+log window; do not set `ANTHROPIC_BASE_URL`, an `apiKeyHelper`, or a broader
+policy.
 
 ## Check 4 — Helper path, sync, MCP, and teardown
 

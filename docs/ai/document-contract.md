@@ -74,9 +74,10 @@ Kind-specific rows:
 
 A value is a path or an ID, not a Markdown link, so moving a file does not
 change the table shape. `Agent` is the agent name, or `shared` for a page that
-serves all agents. `Verified` records the versions and date of the last real
-run; a page that has not been run says `not yet verified` and explains the gap
-in `Scope`.
+serves all agents. `Verified` records the versions and dates of the real runs
+the page covers; a page may list more than one run, separated by semicolons. A
+page that has not been run says `not yet verified` and explains the gap in
+`Scope`.
 
 ## Required sections
 
@@ -200,8 +201,8 @@ The host playbook, references, verification page, and helper reference.
 | Kind | `verification` |
 | Agent | `Maki` |
 | Covers | `P6` |
-| Reference | `docs/helper.md` |
-| Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
+| Reference | `docs/ai/playbooks/maki.md` |
+| Verified | OpenShell v0.1.5, Maki v0.6.4, 2026-10-22; sync matrix, 2026-10-26 |
 
 # Verification: Maki
 

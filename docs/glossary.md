@@ -88,6 +88,24 @@ reference pack.
     failed, `--no-sync`, or a manual edit); the helper refuses to upload over
     it or launch Maki until the output is downloaded or discarded with
     `--discard`.
+- **Project layer** — the agent-neutral part of the helpers (in
+  `lib/oss-core.sh` and `lib/osa-state.sh`) that binds host project folders
+  to sandboxes and syncs them, between the agent front-ends (`maki-oss`,
+  `opencode-oss`) and the `openshell` CLI. `osa` reports on it.
+- **State root** — `~/.local/state/osa/`, where every front-end keeps its
+  registry entries and session state.
+- **Project registry** — one entry per project folder and agent,
+  `projects/<sandbox>.toml` under the state root, recording the folder, the
+  sandbox name and ID, and the host fingerprint. An entry whose folder is
+  gone is an **orphan**.
+- **Agent tag** — the two-letter agent code in registry entries and default
+  sandbox names: `mk` (Maki) and `oc` (OpenCode).
+- **State contract** — the registry entries and `pending` markers, published
+  as versioned flat TOML for other tools to read without writing.
+- **Host fingerprint** — a cheap marker of a git project's host state
+  (`HEAD` plus a checksum of `git status` and the diff), recorded at each
+  sync point so `osa status --quick` can tell whether the host changed since
+  without hashing the tree.
 - **Template** — a reusable sandbox workload definition (image, resources,
   settings) that `openshell sandbox create --template` can instantiate.
 - **MCP config** — Maki's table of MCP servers: `~/.config/maki/mcp.toml` on the

@@ -58,7 +58,7 @@ make lint     # shellcheck + fish -n
 
 ### Code layout
 
-The helper is two files:
+The helper is four files:
 
 - `bin/maki-oss` is the Maki front-end. It sets the identity and defaults
   (the `MAKI_OSS_` prefix, config and state paths, image, policy, sandbox
@@ -68,8 +68,13 @@ The helper is two files:
   `image build`, and `fish install`/`uninstall`.
 - `lib/oss-core.sh` is the agent-neutral core: config, OpenShell wrappers,
   safety checks, the session ensure and patch sync, idle stop, policy and
-  provider commands, and argument parsing. The front-end sources it and
-  calls `oss_main`.
+  provider commands, the project registry, and argument parsing. The
+  front-end sources it and calls `oss_main`.
+- `lib/osa-state.sh` holds the shared state root and the published state
+  contract (flat TOML reading and writing, the host fingerprint). The core
+  and `bin/osa` both load it.
+- `bin/osa` is the agent-neutral, read-only reporter over every front-end's
+  projects. See [osa](#osa).
 
 Keep `lib/` next to `bin/`. The helper loads it from the repository root,
 just as it loads `examples/` and `bridge/`, so a copy of `bin/maki-oss`
@@ -97,7 +102,7 @@ strings; `providers` is a comma-separated list.
 | `providers` | `MAKI_OSS_PROVIDERS` | empty | Comma-separated provider names attached at creation |
 | `cpu` | `MAKI_OSS_CPU` | empty | CPU limit passed to `sandbox create` |
 | `memory` | `MAKI_OSS_MEMORY` | empty | Memory limit passed to `sandbox create` |
-| `sandbox_name` | `MAKI_OSS_SANDBOX_NAME` | `maki-{project}` | Name pattern; `{project}` is the sanitized current directory name (lowercase letters, digits, and hyphens), shortened with a stable hash when the expanded name would exceed OpenShell's 19-character limit |
+| `sandbox_name` | `MAKI_OSS_SANDBOX_NAME` | `mk-{project}-{hash}` | Name pattern; `{project}` is the sanitized project name and `{hash}` a 4-character hash of the project folder's path. See [Sandbox names](#sandbox-names) |
 | `engine` | `MAKI_OSS_ENGINE` | `docker` | `docker` or `podman` |
 | `gateway` | `MAKI_OSS_GATEWAY` | empty | OpenShell gateway name (`-g`) |
 | `workdir` | `MAKI_OSS_WORKDIR` | `/sandbox/project` | In-sandbox project directory used by `upload`, `download`, `maki`, and `run` |
@@ -105,12 +110,35 @@ strings; `providers` is a comma-separated list.
 | `tui` | `MAKI_OSS_TUI` | empty | Interactive TUI for bare `maki-oss` and `maki-oss maki`: empty keeps Maki's own TUI, `opencode` runs the OpenCode TUI against the local bridge; any other value is a usage error. `run` ignores it |
 | `idle_stop` | `MAKI_OSS_IDLE_STOP` | `1h` | Stop the sandbox this long after the last session closes (seconds, or with an `s`, `m`, or `h` suffix); `0` disables it. `--idle-stop` overrides it. See [Idle stop](#idle-stop) |
 
+### Sandbox names
+
 OpenShell accepts sandbox names of at most 19 lowercase letters, digits, and
-hyphens. The helper lowercases and sanitizes `{project}` to that alphabet;
-when the expanded name is too long, it shortens the project part and appends a
-stable four-character hash so long project names that share a prefix do not
-collide. An explicit `--name` or `sandbox_name` that breaks the rule fails
-before any gateway call.
+hyphens. The default is `mk-{project}-{hash}`:
+
+- `{project}` is the repository name of the project's `origin` remote (the
+  last path segment, without `.git`), or the folder name when there is no git,
+  no repository, or no `origin`. It is lowercased and sanitized to that
+  alphabet.
+- `{hash}` is a stable four-character hex hash of the project folder's
+  absolute physical path, so two git worktrees of one repository, or two
+  folders with the same name, get separate sandboxes and separate sync state.
+- When the expanded name is too long, `{project}` is shortened (to 11
+  characters for the default) and loses any trailing hyphen. A pattern
+  without `{hash}` that has to be shortened gets a four-character hash of the
+  full project name instead, so long names that share a prefix do not
+  collide.
+
+For example, this repository (`origin` is `wKich/maki-oss`) becomes
+`mk-maki-oss-` plus four hex characters.
+
+Once a project has a [registry](#shared-state-and-the-project-registry)
+entry, its recorded sandbox name is used instead of the default, so a
+sandbox keeps its name when the default rule or the remote changes. An
+explicit `--name`, `MAKI_OSS_SANDBOX_NAME`, or `sandbox_name` still wins.
+`up` and every session refuse, before any gateway call, a name that is
+registered to a different project folder, and suggest `--name`. An explicit
+name that breaks the length or character rules also fails before any gateway
+call.
 
 `MAKI_VERSION` (or `--maki-version`) sets the Maki release version passed to
 `image build`; when unset, the Dockerfile default applies.
@@ -213,7 +241,9 @@ Sessions live in the sandbox's container filesystem, not on the host: they
 survive `stop` and `start`, but are lost when the sandbox is deleted and
 recreated (`maki-oss rm`). The helper's sync state (baseline, synced pair,
 patches, worktrees, pending marker) lives on the host under
-`${XDG_STATE_HOME:-$HOME/.local/state}/maki-oss/sessions/<sandbox>/`.
+`${XDG_STATE_HOME:-$HOME/.local/state}/osa/sessions/<sandbox>/`, in the state
+root every front-end shares (see
+[Shared state and the project registry](#shared-state-and-the-project-registry)).
 
 The sandbox **workspace** is disposable; the container is not. Maki sessions,
 installed dependencies, and caches survive `stop`/`start`, but the tracked
@@ -313,10 +343,13 @@ in a patch. Use `maki-oss download` when you need a full copy.
 
 #### Migration, rollback, and concurrency
 
-State written by versions before the disposable-workspace change had no
-`sandbox_id`, `kind`, or `result_tree`. The helper reads such a marker as
-`retained` when its patch file is present and non-empty, and as `parked`
-otherwise, so an upgrade does not strand old state.
+State moved from the per-tool roots `~/.local/state/maki-oss/` and
+`~/.local/state/opencode-oss/` to the shared `~/.local/state/osa/`, and the
+`pending` marker became flat TOML. The helper does not read the old roots or
+the old `key=value` marker; move the session directories and rewrite each
+`pending` by hand when upgrading an installation. A marker with no `kind`
+reads as `retained` when its patch file is present and non-empty, and as
+`parked` otherwise.
 
 To roll back, install the previous helper. It treats any `pending` file as a
 blocking marker, which is exactly the old fail-closed behavior; remove
@@ -366,7 +399,7 @@ MAKI_OSS_IDLE_STOP=0 maki-oss      # never stop automatically
 - The watcher writes nothing to your terminal. A failed stop is not retried.
   Each decision (`armed`, `closed`, `superseded`, `busy`, `stopped`,
   `stop-failed`, `scan-failed`) is appended to
-  `${XDG_STATE_HOME:-~/.local/state}/maki-oss/sessions/<sandbox>/idle.log`.
+  `${XDG_STATE_HOME:-~/.local/state}/osa/sessions/<sandbox>/idle.log`.
 
 #### OpenCode TUI mode (`tui = "opencode"`)
 
@@ -501,7 +534,8 @@ name and asks for confirmation; when stdin is not a terminal it refuses
 unless `--yes` is passed, and it never sends a delete request otherwise. A
 parked workspace is refused unless `--discard` is passed, so uncollected
 sandbox output cannot be deleted by accident. After a successful delete the
-instance state directory is archived (retained patch files move with it).
+instance state directory is archived (retained patch files move with it) and
+the project's registry entry is removed.
 
 ```sh
 maki-oss stop
@@ -688,12 +722,95 @@ maki-oss fish uninstall
 
 `opencode-oss` has the same subcommand, symlinking its own
 `fish/functions/opencode-oss.fish` and `fish/completions/opencode-oss.fish`.
+Neither installs `fish/completions/osa.fish`; fisher picks it up with the
+rest of `fish/completions/`, or link it by hand.
 
 ### help
 
 ```sh
 maki-oss help
 ```
+
+## Shared state and the project registry
+
+Every front-end (`maki-oss`, `opencode-oss`) keeps its state under one root,
+`${XDG_STATE_HOME:-$HOME/.local/state}/osa/`:
+
+```
+osa/
+  projects/<sandbox>.toml     registry entry (published contract)
+  sessions/<sandbox>/
+    pending                   unresolved sync output (published contract)
+    baseline, synced, patches, archives, idle.log   (internal)
+```
+
+Configuration stays per front-end (`~/.config/maki-oss/config.toml`,
+`~/.config/opencode-oss/config.toml`).
+
+The helper writes a registry entry when it creates a project's sandbox (or
+first meets an existing one through `up` or a session), updates it on every
+session, and removes it on `rm`. One entry exists per project folder and
+agent. An entry whose folder no longer exists is an orphan: tools report it
+and nothing deletes it automatically. The registry holds paths, names, and
+IDs only, never credentials or `--env` values.
+
+### State contract (version 1)
+
+Registry entries and `pending` markers are a contract that other tools, such
+as `osa` and the dashboard, may read directly, without writing them. Both are
+flat TOML: one `key = "value"` line per key, every value a double-quoted
+string (`\"` and `\\` escaped), and a `version = "1"` line. A standard TOML
+parser reads them.
+
+| File | Keys |
+|---|---|
+| `projects/<sandbox>.toml` | `version`, `agent` (`mk` or `oc`), `host_path` (absolute physical path), `project` (full sanitized name), `sandbox_name`, `sandbox_id`, `created`, `last_session`, `fingerprint` (git projects only) |
+| `sessions/<sandbox>/pending` | `version`, `kind` (`retained` or `parked`), `patch`, `sandbox`, `sandbox_id`, `created`, `reason`, `result_tree` |
+
+Within a version, keys may be added but never removed, renamed, or given a
+new meaning; such a change bumps `version`. Readers ignore keys they do not
+know. Every other file under the root is internal and may change at any
+time. The dashboard (from roadmap milestone M1) relies on this contract.
+
+### Host fingerprint
+
+At each sync point (the first upload, each refresh, each clean apply) a git
+project records `fingerprint`: `HEAD` plus a checksum of `git status
+--porcelain` and the diff against `HEAD`. It changes with commits and with
+tracked, staged, unstaged, and untracked non-ignored changes, without hashing
+the tree, and it never takes git's optional locks. Editing the content of an
+untracked file that was already untracked at the last sync does not change
+it. A plain folder, or a host without git, records none.
+
+## osa
+
+`osa` reports on the projects every front-end has registered. It is
+read-only: it never creates, starts, stops, deletes, uploads to, or
+downloads from a sandbox, never launches an agent, and never writes the
+state root.
+
+```sh
+osa projects                 # every project, with its pending kind
+osa projects --json          # one JSON array, nothing else on stdout
+osa status                   # this folder, one entry per agent
+osa status ~/code/app --json
+osa status --quick --json    # no gateway, no tree hash
+```
+
+`osa projects` lists each entry's agent, sandbox, pending kind (`retained`,
+`parked`, or none), project, and folder, and marks orphans. `--json` prints
+the registry fields plus `pending` and `orphan` for each entry.
+
+`osa status [PATH]` reports every agent registered for the folder (default:
+the current directory). The full mode asks the owning front-end, so it shows
+the same phase, providers, sync state (`clean`, `behind`, `retained`, or
+`parked`), patch, and next command as `maki-oss status` or
+`opencode-oss status`, and may run the same read-only workspace probe. With
+`--json` each entry carries that report under `status`. `--quick` skips the
+gateway and the tree hash: it reports the pending kind and
+`fingerprint_result`, which is `changed`, `unchanged`, or `unknown` (no
+recorded fingerprint, a plain folder, or a missing folder), and never
+`clean` or `behind`. A path with no entry prints `[]` with `--json`.
 
 ## Cookbook: two commands per project
 

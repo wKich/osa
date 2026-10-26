@@ -21,13 +21,15 @@ substitutions, and SHALL NOT satisfy the requirements that are Maki-only:
 | `${XDG_CONFIG_HOME:-$HOME/.config}/maki-oss/config.toml` | `…/opencode-oss/config.toml` |
 | default image `maki-agent:local` | `opencode-agent:local` |
 | default policy `examples/policies/maki-minimal.yaml` | `opencode-oss/policies/minimal.yaml` |
-| default sandbox name `maki-{project}` | `oc-{project}` |
+| default sandbox name `mk-{project}-{hash}` | `oc-{project}-{hash}` |
+| registry agent tag `mk` | `oc` |
 | curated profiles `examples/providers/` and its catalog | `opencode-oss/providers/` and `stores.tsv` |
 | `maki-oss maki` and bare `maki-oss` | `opencode-oss opencode` and bare `opencode-oss` |
 | "Maki" as the launched agent | OpenCode |
 
-The Maki-only requirement is the `tui = "opencode"` bridge mode. The parity
-covers:
+The state root `${XDG_STATE_HOME:-$HOME/.local/state}/osa/` is shared and is
+not substituted. The Maki-only requirement is the `tui = "opencode"` bridge
+mode. The parity covers:
 
 - settings resolution
 - up/status/start/stop/rm
@@ -62,7 +64,7 @@ covers:
 
 #### Scenario: Products do not share state
 - **WHEN** `maki-oss` and `opencode-oss` run in the same project directory
-- **THEN** they use different sandboxes (`maki-<project>` and `oc-<project>`), different config files, and different sync-state directories
+- **THEN** they use different sandboxes (`mk-<project>-<hash>` and `oc-<project>-<hash>` with the same hash), different config files, and different session directories, and both register under the one `osa` state root
 
 ### Requirement: OpenCode launch contract
 

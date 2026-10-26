@@ -17,6 +17,10 @@ EX_GATEWAY=3  # gateway or sandbox operation failed
 NL='
 '
 
+# The shared state root and its published contract, also read by bin/osa.
+# shellcheck source-path=SCRIPTDIR source=osa-state.sh disable=SC2154  # repo_root comes from the front-end
+. "$repo_root/lib/osa-state.sh"
+
 # ---------------------------------------------------------------------------
 # Output helpers
 # ---------------------------------------------------------------------------
@@ -65,57 +69,11 @@ config_model=
 config_tui=
 config_idle_stop=
 
-# Parse the config file as data and print `key<TAB>value` lines. The parser
-# accepts `key = "value"`, comments, and blank lines, and reports unknown
-# keys; the file is never sourced, so it cannot execute code.
+CONFIG_KEYS='image policy providers cpu memory sandbox_name engine gateway workdir model tui idle_stop'
+
+
 parse_config_file() { # FILE
-    awk '
-        BEGIN {
-            known["image"] = 1
-            known["policy"] = 1
-            known["providers"] = 1
-            known["cpu"] = 1
-            known["memory"] = 1
-            known["sandbox_name"] = 1
-            known["engine"] = 1
-            known["gateway"] = 1
-            known["workdir"] = 1
-            known["model"] = 1
-            known["tui"] = 1
-            known["idle_stop"] = 1
-            errors = 0
-        }
-        function problem(message) {
-            printf "%s:%d: %s\n", FILENAME, NR, message > "/dev/stderr"
-            errors++
-        }
-        {
-            line = $0
-            sub(/[[:space:]]+$/, "", line)
-            if (line == "" || line ~ /^[[:space:]]*#/) next
-            eq = index(line, "=")
-            if (eq == 0) { problem("expected: key = \"value\""); next }
-            key = substr(line, 1, eq - 1)
-            value = substr(line, eq + 1)
-            gsub(/^[[:space:]]+/, "", key)
-            gsub(/[[:space:]]+$/, "", key)
-            gsub(/^[[:space:]]+/, "", value)
-            if (key !~ /^[a-z][a-z0-9_]*$/) { problem("invalid key <" key ">"); next }
-            if (!(key in known)) { problem("unknown key <" key ">"); next }
-            if (value !~ /^"/) { problem("value for <" key "> must be a quoted string"); next }
-            if (value !~ /^"([^"\\]|\\.)*"/) { problem("unterminated value for <" key ">"); next }
-            match(value, /^"([^"\\]|\\.)*"/)
-            quoted = substr(value, RSTART + 1, RLENGTH - 2)
-            rest = substr(value, RLENGTH + 1)
-            gsub(/^[[:space:]]+/, "", rest)
-            if (rest != "" && rest !~ /^#/) { problem("unexpected text after value for <" key ">"); next }
-            if (quoted ~ /\t/) { problem("tab characters are not supported in values"); next }
-            gsub(/\\"/, "\"", quoted)
-            gsub(/\\\\/, "\\", quoted)
-            print key "\t" quoted
-        }
-        END { exit (errors > 0 ? 1 : 0) }
-    ' "$1"
+    parse_flat_file "$1" "$CONFIG_KEYS"
 }
 
 # Read the config file into the config_* variables.
@@ -274,9 +232,25 @@ resolved_idle_stop() {
     printf '%s' "$((ris_number * ris_scale))"
 }
 
+# Precedence: flag > environment > config > the name registered for this
+# project folder > the default pattern. {hash} expands first; a pattern that
+# carries it needs no second hash when {project} is shortened.
 resolved_name() {
     rn_template=$(resolve_setting \
-        "$opt_name" "$(env_setting SANDBOX_NAME)" "$config_sandbox_name" "$DEFAULT_NAME")
+        "$opt_name" "$(env_setting SANDBOX_NAME)" "$config_sandbox_name" "")
+    if [ -z "$rn_template" ]; then
+        rn_template=$(registry_lookup_name)
+    fi
+    if [ -z "$rn_template" ]; then
+        rn_template=$DEFAULT_NAME
+    fi
+    rn_hashed=0
+    case $rn_template in
+        *'{hash}'*)
+            rn_hashed=1
+            rn_template=$(printf '%s' "$rn_template" | sed "s/{hash}/$project_hash/g")
+            ;;
+    esac
     rn_name=$rn_template
     case $rn_template in
         *'{project}'*)
@@ -290,7 +264,9 @@ resolved_name() {
                 die_usage "sandbox name pattern '$rn_template' is longer than $SANDBOX_NAME_MAX characters; shorten sandbox_name/--name"
             fi
             rn_project=$project_name
-            if [ "${#rn_project}" -gt "$rn_budget" ]; then
+            if [ "$rn_hashed" -eq 1 ] && [ "${#rn_project}" -gt "$rn_budget" ]; then
+                rn_project=$(printf '%s' "$rn_project" | cut -c1-"$rn_budget" | sed 's/-*$//')
+            elif [ "${#rn_project}" -gt "$rn_budget" ]; then
                 if [ "$rn_budget" -lt 6 ]; then
                     die_usage "sandbox name pattern '$rn_template' leaves only $rn_budget character(s) for {project}; shorten sandbox_name/--name"
                 fi
@@ -791,6 +767,7 @@ cmd_up() {
     fi
     check_env_hygiene
     name=$(resolved_name)
+    registry_guard "$name"
     phase=$(sandbox_phase "$name")
     if [ -n "$phase" ]; then
         case $phase in
@@ -806,6 +783,7 @@ cmd_up() {
         say "Creating sandbox '$name' from $image..."
         run_sandbox_create "$name"
     fi
+    registry_update "$name" "$(sandbox_id "$name")" 0 0
     say "Sandbox '$name' is ready. Next: $PROGRAM (the session refreshes the workspace)."
 }
 
@@ -884,7 +862,7 @@ sandbox_git_dir() { # WORKDIR
 }
 
 session_state_dir() { # NAME
-    printf '%s/%s/sessions/%s' "$state_base" "$OSS_CONFIG_NAME" "$1"
+    printf '%s/sessions/%s' "$state_root" "$1"
 }
 
 # Sandbox-side scripts. Values arrive as positional arguments, so paths with
@@ -1033,6 +1011,86 @@ read_baseline() { # FILE KEY
     sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n 1
 }
 
+# ---------------------------------------------------------------------------
+# Project registry (the contract and its helpers are in lib/osa-state.sh)
+# ---------------------------------------------------------------------------
+
+registry_file() { # NAME
+    printf '%s/%s.toml' "$registry_dir" "$1"
+}
+
+# Prints the sandbox name registered for this project folder and agent.
+registry_lookup_name() {
+    [ -d "$registry_dir" ] || return 0
+    for rl_file in "$registry_dir"/*.toml; do
+        [ -f "$rl_file" ] || continue
+        [ "$(flat_value "$rl_file" agent)" = "$OSS_AGENT_TAG" ] || continue
+        [ "$(flat_value "$rl_file" host_path)" = "$project_path" ] || continue
+        flat_value "$rl_file" sandbox_name
+        return 0
+    done
+}
+
+# Refuses, before any gateway call, a sandbox name that another project folder
+# already owns: sharing it would mix two projects' sync state.
+registry_guard() { # NAME
+    rg_path=$(flat_value "$(registry_file "$1")" host_path)
+    if [ -n "$rg_path" ] && [ "$rg_path" != "$project_path" ]; then
+        die_usage "sandbox name '$1' is registered to $rg_path; choose another name with --name"
+    fi
+}
+
+# Creates or updates this project's registry entry for NAME. SANDBOX_ID
+# replaces the recorded ID when given; SESSION=1 stamps last_session;
+# FINGERPRINT=1 records the current host fingerprint (omitted for a plain
+# folder). An entry owned by another folder is never rewritten. Failures warn
+# and never stop the caller.
+registry_update() { # NAME SANDBOX_ID SESSION FINGERPRINT
+    ru_file=$(registry_file "$1")
+    ru_id=$2
+    ru_created=
+    ru_last=
+    ru_fp=
+    if [ -f "$ru_file" ]; then
+        ru_owner=$(flat_value "$ru_file" host_path)
+        if [ -n "$ru_owner" ] && [ "$ru_owner" != "$project_path" ]; then
+            return 0
+        fi
+        ru_created=$(flat_value "$ru_file" created)
+        ru_last=$(flat_value "$ru_file" last_session)
+        ru_fp=$(flat_value "$ru_file" fingerprint)
+        if [ -z "$ru_id" ]; then
+            ru_id=$(flat_value "$ru_file" sandbox_id)
+        fi
+    fi
+    ru_now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+    if [ -z "$ru_created" ]; then
+        ru_created=$ru_now
+    fi
+    if [ "$3" -eq 1 ]; then
+        ru_last=$ru_now
+    fi
+    if [ "$4" -eq 1 ]; then
+        ru_fp=$(project_fingerprint "$project_path")
+    fi
+    if ! (umask 077 && mkdir -p "$registry_dir"); then
+        warn "cannot create the project registry in $registry_dir"
+        return 0
+    fi
+    set -- "$ru_file" version "$STATE_VERSION" agent "$OSS_AGENT_TAG" \
+        host_path "$project_path" project "$project_name" sandbox_name "$1" \
+        sandbox_id "$ru_id" created "$ru_created" last_session "$ru_last"
+    if [ -n "$ru_fp" ]; then
+        set -- "$@" fingerprint "$ru_fp"
+    fi
+    flat_write "$@" || warn "cannot write the registry entry $ru_file"
+}
+
+registry_remove() { # NAME
+    rm -f "$(registry_file "$1")"
+}
+
+
 archive_state_dir() { # STATE_DIR REASON
     archive_dir=$1
     archive_reason=$2
@@ -1069,7 +1127,9 @@ write_synced_marker() { # STATE_DIR HOST_TREE SANDBOX_TREE [SANDBOX_ID]
         rm -f "$synced_tmp"
         return 0
     fi
-    mv -- "$synced_tmp" "$1/synced" 2>/dev/null || rm -f "$synced_tmp"
+    mv -- "$synced_tmp" "$1/synced" 2>/dev/null || { rm -f "$synced_tmp"; return 0; }
+    # A recorded pair is a sync point: the host fingerprint moves with it.
+    registry_update "$(basename -- "$1")" "${4:-}" 0 1
 }
 
 # Writes the path list of TREE to STATE_DIR/host_manifest. The list travels
@@ -1492,10 +1552,10 @@ prepare_session_sync() { # NAME CREATED
         synced_sandbox_id=
     fi
     if [ -f "$sync_state_dir/pending" ]; then
-        sync_pending_patch=$(read_baseline "$sync_state_dir/pending" patch)
-        sync_pending_kind=$(read_baseline "$sync_state_dir/pending" kind)
-        sync_pending_result_tree=$(read_baseline "$sync_state_dir/pending" result_tree)
-        sync_pending_id=$(read_baseline "$sync_state_dir/pending" sandbox_id)
+        sync_pending_patch=$(flat_value "$sync_state_dir/pending" patch)
+        sync_pending_kind=$(flat_value "$sync_state_dir/pending" kind)
+        sync_pending_result_tree=$(flat_value "$sync_state_dir/pending" result_tree)
+        sync_pending_id=$(flat_value "$sync_state_dir/pending" sandbox_id)
         if [ -z "$sync_pending_kind" ]; then
             if [ -n "$sync_pending_patch" ] && [ -s "$sync_pending_patch" ]; then
                 sync_pending_kind=retained
@@ -1653,13 +1713,11 @@ write_pending() { # PATCH REASON [KIND] [RESULT_TREE]
             fi
             ;;
     esac
-    (
-        umask 077
-        printf 'patch=%s\nsandbox=%s\nsandbox_id=%s\ncreated=%s\nreason=%s\nkind=%s\nresult_tree=%s\n' \
-            "$wp_patch" "${sync_name:-}" "${sync_sandbox_id:-}" \
-            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wp_reason" "$wp_kind" \
-            "$wp_result_tree" >"$sync_state_dir/pending"
-    ) || warn "cannot write the pending marker in $sync_state_dir"
+    flat_write "$sync_state_dir/pending" version "$STATE_VERSION" kind "$wp_kind" \
+        patch "$wp_patch" sandbox "${sync_name:-}" sandbox_id "${sync_sandbox_id:-}" \
+        created "$(date -u +%Y-%m-%dT%H:%M:%SZ)" reason "$wp_reason" \
+        result_tree "$wp_result_tree" \
+        || warn "cannot write the pending marker in $sync_state_dir"
     sync_pending_patch=$wp_patch
     sync_pending_kind=$wp_kind
     sync_pending_result_tree=$wp_result_tree
@@ -2102,6 +2160,7 @@ announce_sandbox_reuse() { # NAME
 ensure_project_sandbox() {
     ensure_provider_list
     name=$(resolved_name)
+    registry_guard "$name"
     phase=$(sandbox_phase "$name")
     if [ -n "$phase" ]; then
         announce_sandbox_reuse "$name"
@@ -2148,7 +2207,12 @@ ensure_project_sandbox() {
     # network-rule proposal and wait for a human decision. Covers both the
     # created and reused paths; `up` never reaches this function.
     enable_policy_advisor "$name" || true
+    # Register before the sync so a first upload can record its fingerprint.
+    registry_update "$name" "" 1 0
     prepare_session_sync "$name" "$ensure_sandbox_created"
+    if [ -n "${sync_sandbox_id:-}" ]; then
+        registry_update "$name" "$sync_sandbox_id" 0 0
+    fi
     if [ "${sync_blocked:-0}" -eq 1 ]; then
         exit "$EX_USAGE"
     fi
@@ -2436,8 +2500,8 @@ cmd_upload() {
     upload_patch=
     upload_kind=
     if [ -f "$upload_state/pending" ]; then
-        upload_patch=$(read_baseline "$upload_state/pending" patch)
-        upload_kind=$(read_baseline "$upload_state/pending" kind)
+        upload_patch=$(flat_value "$upload_state/pending" patch)
+        upload_kind=$(flat_value "$upload_state/pending" kind)
         if [ -z "$upload_kind" ]; then
             if [ -n "$upload_patch" ] && [ -s "$upload_patch" ]; then
                 upload_kind=retained
@@ -2460,7 +2524,7 @@ cmd_upload() {
     sync_probe_ok=0
     sync_pending_patch=$upload_patch
     sync_pending_kind=$upload_kind
-    sync_pending_result_tree=$(read_baseline "$upload_state/pending" result_tree)
+    sync_pending_result_tree=$(flat_value "$upload_state/pending" result_tree)
     synced_host_tree=$(read_baseline "$upload_state/synced" host_tree)
     synced_sandbox_tree=$(read_baseline "$upload_state/synced" sandbox_tree)
     capture_host_baseline "$upload_state"
@@ -2509,12 +2573,22 @@ cmd_download() {
     say "Downloaded '$name:$spath' to '$dest'."
 }
 
+# Prints a status line, except for `__status-json`, which prints one JSON
+# object at the end instead.
+status_say() {
+    [ "${status_json:-0}" -eq 1 ] || say "$@"
+}
+
 cmd_status() {
     [ "$#" -eq 0 ] || die_usage "status takes no arguments"
     require_openshell
     name=$(resolved_name)
     phase=$(sandbox_phase "$name")
     if [ -z "$phase" ]; then
+        if [ "${status_json:-0}" -eq 1 ]; then
+            printf '{"sandbox":%s,"exists":false}\n' "$(json_str "$name")"
+            return 0
+        fi
         say "Sandbox:   $name"
         say "Exists:    no"
         exit "$EX_USAGE"
@@ -2522,11 +2596,11 @@ cmd_status() {
     image=$(resolved_image)
     providers=$(attached_providers "$name")
     providers=$(printf '%s' "$providers" | paste -sd',' -)
-    say "Sandbox:   $name"
-    say "Exists:    yes"
-    say "Phase:     $phase"
-    say "Image:     $image (configured)"
-    say "Providers: ${providers:-none}"
+    status_say "Sandbox:   $name"
+    status_say "Exists:    yes"
+    status_say "Phase:     $phase"
+    status_say "Image:     $image (configured)"
+    status_say "Providers: ${providers:-none}"
 
     status_dir=$(session_state_dir "$name")
     status_tmp=${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-status.$$
@@ -2538,9 +2612,9 @@ cmd_status() {
     synced_host_tree=$(read_baseline "$status_dir/synced" host_tree)
     synced_sandbox_tree=$(read_baseline "$status_dir/synced" sandbox_tree)
     status_synced_id=$(read_baseline "$status_dir/synced" sandbox_id)
-    sync_pending_patch=$(read_baseline "$status_dir/pending" patch)
-    sync_pending_kind=$(read_baseline "$status_dir/pending" kind)
-    sync_pending_result_tree=$(read_baseline "$status_dir/pending" result_tree)
+    sync_pending_patch=$(flat_value "$status_dir/pending" patch)
+    sync_pending_kind=$(flat_value "$status_dir/pending" kind)
+    sync_pending_result_tree=$(flat_value "$status_dir/pending" result_tree)
     if [ -z "$sync_pending_kind" ] && [ -f "$status_dir/pending" ]; then
         if [ -n "$sync_pending_patch" ] && [ -s "$sync_pending_patch" ]; then
             sync_pending_kind=retained
@@ -2615,29 +2689,37 @@ cmd_status() {
             status_state=parked
         fi
     fi
-    say "Sync:      $status_state"
+    status_say "Sync:      $status_state"
+    status_next=$PROGRAM
+    status_patch=
     case $status_state in
         parked)
-            say "Next:      $PROGRAM download $(resolved_workdir) ./DEST"
-            say "Discard:   $PROGRAM upload --discard (or $PROGRAM rm --discard)"
-            if [ -n "$sync_pending_patch" ]; then
-                say "Patch:     $sync_pending_patch"
-            fi
+            status_next="$PROGRAM download $(resolved_workdir) ./DEST"
+            status_say "Next:      $status_next"
+            status_say "Discard:   $PROGRAM upload --discard (or $PROGRAM rm --discard)"
+            status_patch=$sync_pending_patch
             ;;
         retained)
-            say "Next:      $PROGRAM (refreshes before the next session)"
-            if [ -n "$sync_pending_patch" ]; then
-                say "Patch:     $sync_pending_patch"
-            fi
+            status_say "Next:      $PROGRAM (refreshes before the next session)"
+            status_patch=$sync_pending_patch
             ;;
         behind)
-            say "Next:      $PROGRAM (refreshes the workspace)"
+            status_say "Next:      $PROGRAM (refreshes the workspace)"
             ;;
         *)
-            say "Next:      $PROGRAM"
+            status_say "Next:      $PROGRAM"
             ;;
     esac
+    if [ -n "$status_patch" ]; then
+        status_say "Patch:     $status_patch"
+    fi
     rm -rf "$status_tmp"
+    if [ "${status_json:-0}" -eq 1 ]; then
+        printf '{"sandbox":%s,"exists":true,"phase":%s,"image":%s,"providers":%s,"sync":%s,"patch":%s,"next":%s}\n' \
+            "$(json_str "$name")" "$(json_str "$phase")" "$(json_str "$image")" \
+            "$(json_str "$providers")" "$(json_str "$status_state")" \
+            "$(json_str "$status_patch")" "$(json_str "$status_next")"
+    fi
 }
 
 cmd_list() {
@@ -2695,8 +2777,8 @@ cmd_rm() {
         exit "$EX_USAGE"
     fi
     rm_state=$(session_state_dir "$name")
-    rm_patch=$(read_baseline "$rm_state/pending" patch)
-    rm_kind=$(read_baseline "$rm_state/pending" kind)
+    rm_patch=$(flat_value "$rm_state/pending" patch)
+    rm_kind=$(flat_value "$rm_state/pending" kind)
     if [ -z "$rm_kind" ] && [ -f "$rm_state/pending" ]; then
         if [ -n "$rm_patch" ] && [ -s "$rm_patch" ]; then
             rm_kind=retained
@@ -2731,6 +2813,7 @@ cmd_rm() {
     if [ -d "$rm_state" ]; then
         archive_state_dir "$rm_state" "sandbox deleted" || true
     fi
+    registry_remove "$name"
 }
 
 cmd_policy_show() {
@@ -4037,9 +4120,25 @@ oss_init() {
     config_file=$config_home/$OSS_CONFIG_NAME/config.toml
 
     project_basename=$(basename -- "$PWD")
+    # The project folder's physical path keys the registry, and its hash
+    # ({hash}) keeps worktrees and same-named folders on separate sandboxes.
+    project_path=$(pwd -P)
+    project_hash=$(printf '%s' "$project_path" | cksum | awk '{ printf "%04x", $1 % 65536 }')
+    # {project} is the origin remote's repository name, else the folder name.
+    project_source=$project_basename
+    if command -v git >/dev/null 2>&1; then
+        project_remote=$(GIT_OPTIONAL_LOCKS=0 git remote get-url origin 2>/dev/null) || project_remote=
+        project_remote=${project_remote%/}
+        project_remote=${project_remote%.git}
+        project_remote=${project_remote##*/}
+        project_remote=${project_remote##*:}
+        if [ -n "$project_remote" ]; then
+            project_source=$project_remote
+        fi
+    fi
     # OpenShell accepts only DNS-1123 labels: lowercase letters, digits, and
     # hyphens. {project} is expanded into sandbox names, so sanitize it once.
-    project_name=$(printf '%s' "$project_basename" | LC_ALL=C tr '[:upper:]' '[:lower:]')
+    project_name=$(printf '%s' "$project_source" | LC_ALL=C tr '[:upper:]' '[:lower:]')
     project_name=$(printf '%s' "$project_name" | LC_ALL=C tr -c 'a-z0-9-' '-')
     project_name=$(printf '%s' "$project_name" | sed 's/--*/-/g; s/^-//; s/-$//')
     if [ -z "$project_name" ]; then
@@ -4051,7 +4150,7 @@ oss_init() {
         have_jq=1
     fi
 
-    state_base=${XDG_STATE_HOME:-${HOME:-/tmp}/.local/state}
+    osa_state_paths
 
     profiles_dir=$OSS_PROFILES_DIR
     helper_profiles_dir=${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/$OSS_CONFIG_NAME/profiles
@@ -4353,6 +4452,11 @@ oss_main() {
             cmd_download "$@"
             ;;
         status)
+            cmd_status "$@"
+            ;;
+        __status-json)
+            # osa's full status: the same classification as `status`, as JSON.
+            status_json=1
             cmd_status "$@"
             ;;
         list)

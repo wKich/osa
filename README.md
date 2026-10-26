@@ -51,6 +51,13 @@ next session; a parked workspace (collection failed or `--no-sync`) refuses it
 until you download or discard the changes. After the one-time `provider
 setup`, a project needs no further setup.
 
+Each project folder gets its own sandbox, named `mk-<project>-<hash>` (the
+`origin` repository name, or the folder name, plus a short hash of the
+folder's path), so git worktrees never share one. Host state for every
+project lives in `~/.local/state/osa/`; `osa projects` lists them all, and
+`osa status --json` reports one project for scripts and the dashboard. See
+[Shared state and the project registry](docs/helper.md#shared-state-and-the-project-registry).
+
 ## What do I send the agent?
 
 Anything you'd ask a coding agent — `maki-oss` just makes sure it runs inside

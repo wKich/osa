@@ -101,12 +101,13 @@ maki-drift:
 	fi
 
 lint:
-	shellcheck -x bin/maki-oss bin/opencode-oss lib/oss-core.sh tests/run-tests.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode
+	shellcheck -x bin/maki-oss bin/opencode-oss bin/osa lib/oss-core.sh lib/osa-state.sh tests/run-tests.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode
 	fish -n fish/functions/maki-oss.fish
 	fish -n fish/conf.d/maki-oss.fish
 	fish -n fish/completions/maki-oss.fish
 	fish -n fish/functions/opencode-oss.fish
 	fish -n fish/completions/opencode-oss.fish
+	fish -n fish/completions/osa.fish
 
 # Lints the shipped provider profiles against the real openshell CLI. Skips
 # with a clear message when the CLI is absent; not part of `make test`.

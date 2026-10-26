@@ -1,0 +1,265 @@
+#!/bin/sh
+# shellcheck shell=sh source-path=SCRIPTDIR
+#
+# osa: report on every project the agent front-ends (maki-oss, opencode-oss)
+# have registered in the shared state root.
+#
+# osa is read-only: it never creates, starts, stops, deletes, uploads to,
+# downloads from, or runs anything in a sandbox, and it never writes the state
+# root. It reads the published contract files (registry entries and pending
+# markers) and, for a full status, asks the owning front-end.
+#
+# POSIX sh. See docs/helper.md for the full reference.
+
+set -eu
+
+PROGRAM=osa
+EX_USAGE=1
+
+script=$0
+case $script in
+    */*) ;;
+    *) script=$(command -v -- "$script" 2>/dev/null || printf '%s' "$script") ;;
+esac
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$script")" && pwd -P)
+repo_root=$(CDPATH='' cd -- "$script_dir/.." && pwd -P)
+
+# shellcheck source=../lib/osa-state.sh
+. "$repo_root/lib/osa-state.sh"
+
+usage() {
+    cat <<'EOF'
+osa: report on the projects the agent front-ends have registered.
+
+Usage:
+  osa <command> [options]
+
+Commands:
+  projects [--json]                 List every registered project
+  status [PATH] [--json] [--quick]  Report the project at PATH (default: .)
+                                    for each agent registered there
+  help                              Show this help
+
+Options:
+  --json    Print one JSON array on stdout and nothing else
+  --quick   Skip the gateway and the tree hash: report the pending kind and
+            whether the host changed since the last sync (changed,
+            unchanged, or unknown)
+
+osa never changes a sandbox or the state root. Run maki-oss or opencode-oss
+in the project to act on it.
+EOF
+}
+
+die_usage() {
+    printf '%s: %s\n' "$PROGRAM" "$*" >&2
+    printf "Run '%s help' for usage.\n" "$PROGRAM" >&2
+    exit "$EX_USAGE"
+}
+
+# Prints the front-end that owns an agent tag.
+front_end() { # TAG
+    case $1 in
+        mk) printf '%s/bin/maki-oss' "$repo_root" ;;
+        oc) printf '%s/bin/opencode-oss' "$repo_root" ;;
+    esac
+}
+
+# Prints PATH as an absolute physical path, or as an absolute literal path
+# when it no longer exists (an orphan's folder).
+absolute_path() { # PATH
+    if ap_dir=$(CDPATH='' cd -- "$1" 2>/dev/null && pwd -P); then
+        printf '%s' "$ap_dir"
+        return 0
+    fi
+    case $1 in
+        /*) printf '%s' "$1" ;;
+        *) printf '%s/%s' "$(pwd -P)" "$1" ;;
+    esac
+}
+
+# Prints the registry entries, one file path per line.
+registry_entries() {
+    [ -d "$registry_dir" ] || return 0
+    for re_file in "$registry_dir"/*.toml; do
+        [ -f "$re_file" ] && printf '%s\n' "$re_file"
+    done
+    return 0
+}
+
+# Loads one registry entry into the e_* variables.
+load_entry() { # FILE
+    e_agent=$(flat_value "$1" agent)
+    e_host_path=$(flat_value "$1" host_path)
+    e_project=$(flat_value "$1" project)
+    e_sandbox_name=$(flat_value "$1" sandbox_name)
+    e_sandbox_id=$(flat_value "$1" sandbox_id)
+    e_created=$(flat_value "$1" created)
+    e_last_session=$(flat_value "$1" last_session)
+    e_fingerprint=$(flat_value "$1" fingerprint)
+    e_version=$(flat_value "$1" version)
+    e_pending=$(pending_kind "$state_root/sessions/$e_sandbox_name")
+    e_orphan=false
+    if [ ! -d "$e_host_path" ]; then
+        e_orphan=true
+    fi
+}
+
+entry_json_fields() {
+    printf '"version":%s,"agent":%s,"host_path":%s,"project":%s,"sandbox_name":%s,"sandbox_id":%s,"created":%s,"last_session":%s,"fingerprint":%s,"pending":%s,"orphan":%s' \
+        "$(json_str "$e_version")" "$(json_str "$e_agent")" "$(json_str "$e_host_path")" \
+        "$(json_str "$e_project")" "$(json_str "$e_sandbox_name")" "$(json_str "$e_sandbox_id")" \
+        "$(json_str "$e_created")" "$(json_str "$e_last_session")" "$(json_str "$e_fingerprint")" \
+        "$(json_str "$e_pending")" "$e_orphan"
+}
+
+cmd_projects() {
+    if [ "$opt_json" -eq 1 ]; then
+        cp_sep=
+        printf '['
+        while IFS= read -r cp_file; do
+            [ -n "$cp_file" ] || continue
+            load_entry "$cp_file"
+            printf '%s{' "$cp_sep"
+            entry_json_fields
+            printf '}'
+            cp_sep=,
+        done <<ENTRIES
+$(registry_entries)
+ENTRIES
+        printf ']\n'
+        return 0
+    fi
+    cp_count=0
+    while IFS= read -r cp_file; do
+        [ -n "$cp_file" ] || continue
+        load_entry "$cp_file"
+        if [ "$cp_count" -eq 0 ]; then
+            printf '%-5s %-19s %-8s %-12s %s\n' AGENT SANDBOX PENDING PROJECT PATH
+        fi
+        cp_path=$e_host_path
+        if [ "$e_orphan" = true ]; then
+            cp_path="$cp_path (orphan: folder missing)"
+        fi
+        printf '%-5s %-19s %-8s %-12s %s\n' "$e_agent" "$e_sandbox_name" \
+            "${e_pending:--}" "$e_project" "$cp_path"
+        cp_count=$((cp_count + 1))
+    done <<ENTRIES
+$(registry_entries)
+ENTRIES
+    if [ "$cp_count" -eq 0 ]; then
+        printf 'No registered projects. Run maki-oss or opencode-oss in a project.\n'
+    fi
+}
+
+# Prints `changed`, `unchanged`, or `unknown` for the loaded entry.
+fingerprint_result() {
+    if [ -z "$e_fingerprint" ] || [ "$e_orphan" = true ]; then
+        printf 'unknown'
+        return 0
+    fi
+    fr_now=$(project_fingerprint "$e_host_path")
+    if [ -z "$fr_now" ]; then
+        printf 'unknown'
+    elif [ "$fr_now" = "$e_fingerprint" ]; then
+        printf 'unchanged'
+    else
+        printf 'changed'
+    fi
+}
+
+cmd_status() {
+    cs_path=$(absolute_path "${opt_path:-.}")
+    cs_sep=
+    cs_count=0
+    if [ "$opt_json" -eq 1 ]; then
+        printf '['
+    fi
+    while IFS= read -r cs_file; do
+        [ -n "$cs_file" ] || continue
+        [ "$(flat_value "$cs_file" host_path)" = "$cs_path" ] || continue
+        load_entry "$cs_file"
+        cs_count=$((cs_count + 1))
+        if [ "$opt_quick" -eq 1 ]; then
+            cs_fp=$(fingerprint_result)
+            if [ "$opt_json" -eq 1 ]; then
+                printf '%s{' "$cs_sep"
+                entry_json_fields
+                printf ',"fingerprint_result":%s}' "$(json_str "$cs_fp")"
+            else
+                printf 'Sandbox:   %s (%s)\n' "$e_sandbox_name" "$e_agent"
+                printf 'Pending:   %s\n' "${e_pending:-none}"
+                printf 'Host:      %s since the last sync\n' "$cs_fp"
+            fi
+        else
+            cs_front=$(front_end "$e_agent")
+            [ -n "$cs_front" ] || continue
+            if [ "$e_orphan" = true ]; then
+                if [ "$opt_json" -eq 1 ]; then
+                    printf '%s{' "$cs_sep"
+                    entry_json_fields
+                    printf '}'
+                else
+                    printf 'Sandbox:   %s (%s): folder missing\n' "$e_sandbox_name" "$e_agent"
+                fi
+            elif [ "$opt_json" -eq 1 ]; then
+                printf '%s{' "$cs_sep"
+                entry_json_fields
+                cs_full=$(cd "$e_host_path" && "$cs_front" --name "$e_sandbox_name" __status-json) \
+                    || cs_full='{}'
+                printf ',"status":%s}' "$cs_full"
+            else
+                (cd "$e_host_path" && "$cs_front" --name "$e_sandbox_name" status) || :
+            fi
+        fi
+        cs_sep=,
+    done <<ENTRIES
+$(registry_entries)
+ENTRIES
+    if [ "$opt_json" -eq 1 ]; then
+        printf ']\n'
+    elif [ "$cs_count" -eq 0 ]; then
+        printf 'No project is registered at %s.\n' "$cs_path"
+    fi
+}
+
+osa_state_paths
+
+opt_json=0
+opt_quick=0
+opt_path=
+
+[ "$#" -gt 0 ] || { usage; exit 0; }
+cmd=$1
+shift
+case $cmd in
+    help|-h|--help)
+        usage
+        exit 0
+        ;;
+    projects|status) ;;
+    *)
+        die_usage "unknown command: $cmd (commands: projects, status, help)"
+        ;;
+esac
+while [ "$#" -gt 0 ]; do
+    case $1 in
+        --json) opt_json=1 ;;
+        --quick)
+            [ "$cmd" = status ] || die_usage "--quick applies to status only"
+            opt_quick=1
+            ;;
+        -*) die_usage "unknown option: $1" ;;
+        *)
+            [ "$cmd" = status ] || die_usage "projects takes no arguments"
+            [ -z "$opt_path" ] || die_usage "status takes at most one PATH"
+            opt_path=$1
+            ;;
+    esac
+    shift
+done
+
+case $cmd in
+    projects) cmd_projects ;;
+    status) cmd_status ;;
+esac

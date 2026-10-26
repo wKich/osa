@@ -1330,3 +1330,76 @@ Sync:      clean
 No sandbox created for the pass remained afterwards. The old-state migration
 and the no-git/no-patch retained path were exercised by the stub suite
 (`make test`), not repeated against the gateway.
+
+## osa project layer — 2026-10-26
+
+Live pass for `add-oss-project-layer` against the real gateway (OpenShell
+0.1.5, `maki-agent:personal`, macOS host).
+
+### Host migration
+
+The state roots `~/.local/state/maki-oss/` (17 session directories) and
+`~/.local/state/opencode-oss/` (3) were copied into `~/.local/state/osa/`
+(65 files, none missing, no name clashes with the `oc-kiss-5390` and
+`maki-kiss` directories already there). The five `pending` markers were
+rewritten as flat TOML with `version = "1"` and `patch` paths under the new
+root; every remaining `patch` path exists. One archived marker
+(`maki-sync-live-ret.archive-…`) already pointed at the pre-archive patch
+path; it now points at the copy inside its archive.
+
+Registry entries were written for the live helper sandboxes, keeping their
+names: `maki-maki-openshell` (mk) and `oc-maki-openshell` (oc) for this
+repository, and `maki-kiss` (mk) for `~/Projects/yourpapai/kiss-playwright`.
+The unowned `maki-oss-core-smoke` sandbox was deleted instead.
+
+```text
+# before, with the previous helper reading the old roots
+$ maki-oss --name maki-maki-openshell status   → Sync: parked
+$ opencode-oss --name oc-maki-openshell status → Sync: behind
+
+# after, with no --name (the registry supplies it)
+$ maki-oss status       → Sandbox: maki-maki-openshell, Sync: parked
+$ opencode-oss status   → Sandbox: oc-maki-openshell, Sync: behind
+
+$ osa projects
+AGENT SANDBOX             PENDING  PROJECT      PATH
+mk    maki-kiss           -        kiss         /Users/ki/Projects/yourpapai/kiss-playwright
+mk    maki-maki-openshell -        maki-oss     /Users/ki/Projects/experiments/maki-openshell
+oc    oc-kiss-5390        -        kiss         /Users/ki/Projects/yourpapai/kiss-playwright
+oc    oc-maki-openshell   -        maki-oss     /Users/ki/Projects/experiments/maki-openshell
+```
+
+The old roots were then removed.
+
+### Default name, registry, and osa
+
+Scratch git repository `osa-live` with `origin`
+`git@github.com:example/osa-live.git`:
+
+```text
+$ maki-oss up
+Sandbox 'mk-osa-live-6eee' is ready.
+# projects/mk-osa-live-6eee.toml: agent "mk", host_path, project "osa-live",
+# sandbox_id b9c1877b-…, created; no last_session yet
+
+# untracked host file (dirty baseline), agent overwrote base.txt
+$ maki-oss run --model kontur/code-ultra "Overwrite base.txt with exactly the word agent..."
+The sandbox patch is retained for review; the workspace can be refreshed.
+# pending: version "1", kind "retained", patch …/patch-20261026105609-57768.patch,
+#          reason "dirty baseline", result_tree 9596ad5e…
+# registry: last_session and fingerprint recorded
+
+$ osa status --json
+{"agent":"mk","sandbox_name":"mk-osa-live-6eee","pending":"retained",
+ "status":{"phase":"Ready","sync":"retained","patch":"…/patch-20261026105609-57768.patch","next":"maki-oss"}}
+$ maki-oss status → Sync: retained (same patch)
+
+$ osa status --quick --json   → pending "retained", fingerprint_result "unchanged"
+# after editing the untracked notes.txt: still "unchanged" (documented limit)
+# after editing the tracked base.txt:
+$ osa status --quick --json   → fingerprint_result "changed"
+
+$ maki-oss rm --yes
+✓ Sandbox mk-osa-live-6eee deletion accepted; cleanup is pending
+# projects/mk-osa-live-6eee.toml removed; osa status --json → []
+```

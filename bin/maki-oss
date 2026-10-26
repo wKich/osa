@@ -143,6 +143,7 @@ OSS_CATALOG_FILE=$OSS_PROFILES_DIR/catalog.tsv
 OSS_CUSTOM_PROFILE_PREFIX=maki-          # default id for a custom profile
 OSS_AGENT_NAME=Maki                      # named in generated profiles
 OSS_AGENT_PROCESS=maki                   # in-sandbox process the idle stop waits on
+OSS_AGENT_TAG=mk                         # registry agent tag and default name prefix
 OSS_HOST_MCP_CONFIG=${HOME:-/tmp}/.config/maki/mcp.toml
 OSS_SANDBOX_MCP_CONFIG=/sandbox/.config/maki/mcp.toml
 OSS_MCP_PROVIDER_PREFIX=mcp-            # provider name for server <name>
@@ -151,7 +152,7 @@ OSS_MCP_FIX_DOC=docs/ai/environment-playbook.md
 
 DEFAULT_IMAGE=maki-agent:local
 DEFAULT_POLICY=$repo_root/examples/policies/maki-minimal.yaml
-DEFAULT_NAME='maki-{project}'
+DEFAULT_NAME='mk-{project}-{hash}'
 
 # The interactive TUI (no flag: config/env only). Unset keeps Maki's own TTY
 # session; "opencode" runs the OpenCode TUI against the local bridge. Anything

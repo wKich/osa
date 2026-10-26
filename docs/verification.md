@@ -248,7 +248,7 @@ workspace and clears the marker while keeping any earlier patch files.
 ```sh
 maki-oss rm --name maki-sync-plain --yes --discard
 maki-oss run --name maki-sync-plain --provider <provider> --model nope/nope "noop"
-find "$HOME/.local/state/maki-oss/sessions" -maxdepth 1 -name 'maki-sync-plain.archive-*'
+find "$HOME/.local/state/osa/sessions" -maxdepth 1 -name 'maki-sync-plain.archive-*'
 ```
 
 **Expected:** `rm` deletes the sandbox and archives the old state directory

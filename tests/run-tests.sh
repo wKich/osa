@@ -16,6 +16,8 @@ STUB_DIR=$ROOT/tests/stub
 # Session commands arm an idle-stop watcher by default; only the idle cases
 # turn it on (run_maki passes ENV_IDLE_STOP, unset means 0).
 export MAKI_OSS_IDLE_STOP=0
+# State lives under each case's $HOME/.local/state, never the caller's.
+unset XDG_STATE_HOME
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/maki-oss-tests.XXXXXX")
 cleanup() {
@@ -81,6 +83,10 @@ new_case() {
     ERR=$CASE/err
     RUN_DIR=
     ENV_NAME=
+    # Existing cases keep the pre-hash names (maki-<dir>, oc-<dir>) through an
+    # explicit template; the naming cases clear these to test the defaults.
+    NAME_PIN='maki-{project}'
+    OC_NAME_PIN='oc-{project}'
     ENV_TIMEOUT=
     unset ENV_IDLE_STOP
     ENV_RUN_TAG=
@@ -147,7 +153,7 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         STUB_POLICY_FULL="${POLICY_FULL:-}" \
         STUB_JSON_COMPACT="${JSON_COMPACT:-0}" \
         STUB_CREATE_RACE="${CREATE_RACE:-0}" \
-        MAKI_OSS_SANDBOX_NAME="${ENV_NAME:-}" \
+        MAKI_OSS_SANDBOX_NAME="${ENV_NAME:-$NAME_PIN}" \
         MAKI_OSS_TUI="${ENV_TUI:-}" \
         MAKI_OSS_TIMEOUT="${ENV_TIMEOUT:-}" \
         MAKI_OSS_IDLE_STOP="${ENV_IDLE_STOP-0}" \
@@ -292,7 +298,7 @@ EOF
 no_jq_path() {
     no_jq_dir=$CASE/no-jq-bin
     mkdir -p "$no_jq_dir"
-    for no_jq_tool in awk basename cat cut dirname grep head mkdir mktemp mv paste printenv rm sed tr; do
+    for no_jq_tool in awk basename cat cksum cut date dirname grep head mkdir mktemp mv paste printenv rm sed tr; do
         no_jq_tool_path=$(command -v "$no_jq_tool" 2>/dev/null) || continue
         if [ ! -e "$no_jq_dir/$no_jq_tool" ]; then
             ln -s "$no_jq_tool_path" "$no_jq_dir/$no_jq_tool"
@@ -306,7 +312,7 @@ no_jq_path() {
 no_tui_path() {
     no_tui_dir=$CASE/no-tui-bin
     mkdir -p "$no_tui_dir"
-    for no_tui_tool in awk basename cat cut dirname grep head mkdir mktemp mv paste printenv rm sed sleep tr; do
+    for no_tui_tool in awk basename cat cksum cut date dirname grep head mkdir mktemp mv paste printenv rm sed sleep tr; do
         no_tui_tool_path=$(command -v "$no_tui_tool" 2>/dev/null) || continue
         if [ ! -e "$no_tui_dir/$no_tui_tool" ]; then
             ln -s "$no_tui_tool_path" "$no_tui_dir/$no_tui_tool"
@@ -326,7 +332,7 @@ no_tui_path() {
 no_git_path() { # [with_patch]
     no_git_dir=$CASE/no-git-bin
     mkdir -p "$no_git_dir"
-    for no_git_tool in awk basename cat chmod cp cut date dirname grep head mkdir mktemp mv paste printenv rm sed sh sleep tr; do
+    for no_git_tool in awk basename cat chmod cksum cp cut date dirname grep head mkdir mktemp mv paste printenv rm sed sh sleep tr; do
         no_git_tool_path=$(command -v "$no_git_tool" 2>/dev/null) || continue
         if [ ! -e "$no_git_dir/$no_git_tool" ]; then
             ln -s "$no_git_tool_path" "$no_git_dir/$no_git_tool"
@@ -451,7 +457,7 @@ assert_log_line_before() { # FIRST SECOND
 }
 
 session_dir() { # SANDBOX
-    printf '%s/.local/state/maki-oss/sessions/%s' "$HOME" "$1"
+    printf '%s/.local/state/osa/sessions/%s' "$HOME" "$1"
 }
 
 baseline_value() { # SANDBOX KEY
@@ -459,12 +465,52 @@ baseline_value() { # SANDBOX KEY
 }
 
 pending_value() { # SANDBOX KEY
-    sed -n "s/^$2=//p" "$(session_dir "$1")/pending" 2>/dev/null | head -n 1
+    flat_get "$(session_dir "$1")/pending" "$2"
 }
 
 synced_value() { # SANDBOX KEY
     sed -n "s/^$2=//p" "$(session_dir "$1")/synced" 2>/dev/null | head -n 1
 }
+
+# The shared osa state root and its published contract files (flat TOML).
+state_root() { printf '%s/.local/state/osa' "$HOME"; }
+
+registry_entry() { # SANDBOX
+    printf '%s/projects/%s.toml' "$(state_root)" "$1"
+}
+
+# Reads one `key = "value"` line of a flat TOML file as data, undoing the
+# \" and \\ escapes. Prints nothing when the file or key is absent.
+flat_get() { # FILE KEY
+    [ -f "$1" ] || return 0
+    awk -v k="$2" '
+        {
+            eq = index($0, "=")
+            if (eq == 0) next
+            key = substr($0, 1, eq - 1)
+            gsub(/^[ \t]+|[ \t]+$/, "", key)
+            if (key != k) next
+            v = substr($0, eq + 1)
+            sub(/^[ \t]+/, "", v)
+            sub(/^"/, "", v)
+            sub(/"[ \t]*$/, "", v)
+            out = ""
+            for (i = 1; i <= length(v); i++) {
+                c = substr(v, i, 1)
+                if (c == "\\") { i++; c = substr(v, i, 1) }
+                out = out c
+            }
+            print out
+            exit
+        }' "$1"
+}
+
+registry_value() { # SANDBOX KEY
+    flat_get "$(registry_entry "$1")" "$2"
+}
+
+# A project folder whose path needs quoting in every format.
+odd_project_dir() { printf '%s/project/my "app" dir' "$CASE"; }
 
 assert_file_mode() { # FILE MODE
     if [ ! -e "$1" ]; then
@@ -592,6 +638,7 @@ test_usage_errors() {
 test_config_precedence() {
     begin "configuration precedence: flag > env > config > default"
     new_case precedence
+    NAME_PIN=
     mkdir -p "$XDG_CONFIG_HOME/maki-oss"
     printf 'sandbox_name = "a"\n' >"$XDG_CONFIG_HOME/maki-oss/config.toml"
 
@@ -2357,7 +2404,7 @@ test_session_sync_failure_preserves_code() {
     assert_err_has "could not collect sandbox changes"
     assert_err_has "sandbox:   maki-myproject"
     assert_log_missing "download"
-    if [ ! -f "$HOME/.local/state/maki-oss/sessions/maki-myproject/pending" ]; then
+    if [ ! -f "$HOME/.local/state/osa/sessions/maki-myproject/pending" ]; then
         bad "collection failure did not write the pending marker"
     fi
     [ "$(pending_value maki-myproject kind)" = parked ] \
@@ -2419,11 +2466,11 @@ printf "changed-during-session\n" > "'"$RUN_DIR"'/readme.txt"'
         bad "the conflict changed the host file"
     fi
     assert_err_has "does not apply cleanly"
-    patch_file=$(find "$HOME/.local/state/maki-oss/sessions/maki-myproject" -maxdepth 1 -name 'patch-*.patch' -type f 2>/dev/null | head -n 1)
+    patch_file=$(find "$HOME/.local/state/osa/sessions/maki-myproject" -maxdepth 1 -name 'patch-*.patch' -type f 2>/dev/null | head -n 1)
     if [ -z "$patch_file" ] || [ ! -s "$patch_file" ]; then
         bad "the conflicting patch was not retained"
     fi
-    if [ ! -f "$HOME/.local/state/maki-oss/sessions/maki-myproject/pending" ]; then
+    if [ ! -f "$HOME/.local/state/osa/sessions/maki-myproject/pending" ]; then
         bad "the conflict did not write the pending marker"
     fi
 }
@@ -2899,7 +2946,7 @@ test_fish_completions() {
 # ---------------------------------------------------------------------------
 
 idle_dir() {
-    printf '%s' "$HOME/.local/state/maki-oss/sessions/maki-myproject"
+    printf '%s' "$HOME/.local/state/osa/sessions/maki-myproject"
 }
 
 # Succeeds once FILE has a line matching PATTERN (grep), within SECS seconds.
@@ -3827,8 +3874,8 @@ test_retained_patch_does_not_block_second_session() {
         || bad "the retained marker has no matching sandbox ID"
     [ -n "$(pending_value maki-myproject result_tree)" ] \
         || bad "the retained marker has no result tree"
-    grep -Fq "patch=$first_patch" "$(session_dir maki-myproject)/pending" \
-        || bad "the marker is not readable by the previous helper"
+    [ "$(pending_value maki-myproject version)" = 1 ] \
+        || bad "the marker is not versioned flat TOML"
     [ "$(cat "$RUN_DIR/file.txt")" = base ] \
         || bad "the host was changed despite the retained patch"
 
@@ -3888,7 +3935,7 @@ run_oc_with_input() { # STDIN_FILE ARGS...
     oc_rc=0
     (
         MAKI=$OC
-        OPENCODE_OSS_SANDBOX_NAME=${ENV_NAME:-}
+        OPENCODE_OSS_SANDBOX_NAME=${ENV_NAME:-$OC_NAME_PIN}
         OPENCODE_OSS_TIMEOUT=${ENV_TIMEOUT:-}
         OPENCODE_OSS_IDLE_STOP=${ENV_IDLE_STOP-0}
         OPENCODE_OSS_RUN_TAG=${ENV_RUN_TAG:-}
@@ -3932,7 +3979,7 @@ seed_oc_provider() { # NAME
 }
 
 oc_session_dir() { # SANDBOX
-    printf '%s/.local/state/opencode-oss/sessions/%s' "$HOME" "$1"
+    printf '%s/.local/state/osa/sessions/%s' "$HOME" "$1"
 }
 
 # A project directory with its Ready sandbox and a remembered, attached
@@ -4362,13 +4409,16 @@ test_oc_isolation() {
     run_oc status
     assert_out_has "Sandbox:   oc-myproject"
 
-    # A session keeps its sync state under the opencode-oss names only.
+    # A session keeps its sync state in its own session directory under the
+    # shared osa root, never in a per-tool root.
     reset_state
     oc_ready_project
     run_oc run "touch nothing"
     assert_rc 0
     [ -d "$(oc_session_dir oc-myproject)" ] || bad "no opencode-oss session state"
-    [ ! -e "$HOME/.local/state/maki-oss" ] || bad "opencode-oss wrote maki-oss state"
+    [ ! -e "$(session_dir maki-myproject)" ] || bad "opencode-oss wrote the Maki session state"
+    [ ! -e "$HOME/.local/state/maki-oss" ] || bad "opencode-oss wrote a maki-oss state root"
+    [ ! -e "$HOME/.local/state/opencode-oss" ] || bad "opencode-oss wrote a per-tool state root"
     [ -d "$CASE/sandbox/.opencode-oss/git" ] || bad "the sandbox baseline is not under .opencode-oss"
     [ ! -e "$CASE/sandbox/.maki-oss" ] || bad "the sandbox has .maki-oss state"
     assert_log_has "refs/opencode-oss/base"
@@ -4537,7 +4587,7 @@ test_sandbox_id_recorded() {
 }
 
 test_legacy_retained_marker() {
-    begin "an old pending marker with a patch becomes retained and non-blocking"
+    begin "a pending marker with a patch and no kind becomes retained and non-blocking"
     new_case legacy-retained
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
@@ -4550,7 +4600,7 @@ test_legacy_retained_marker() {
     state=$(session_dir maki-myproject)
     legacy_patch=$state/patch-legacy.patch
     printf 'legacy patch\n' >"$legacy_patch"
-    printf 'patch=%s\nsandbox=maki-myproject\ncreated=2026-01-01T00:00:00Z\nreason=apply failed\n' \
+    printf 'version = "1"\npatch = "%s"\nsandbox = "maki-myproject"\ncreated = "2026-01-01T00:00:00Z"\nreason = "apply failed"\n' \
         "$legacy_patch" >"$state/pending"
 
     reset_log
@@ -4564,7 +4614,7 @@ test_legacy_retained_marker() {
 }
 
 test_legacy_parked_marker() {
-    begin "an old pending marker without a patch stays parked"
+    begin "a pending marker without a patch or kind stays parked"
     new_case legacy-parked
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
@@ -4575,7 +4625,7 @@ test_legacy_parked_marker() {
     run_maki upload .
     assert_rc 0
     state=$(session_dir maki-myproject)
-    printf 'patch=\nsandbox=maki-myproject\ncreated=2026-01-01T00:00:00Z\nreason=collection failed\n' \
+    printf 'version = "1"\npatch = ""\nsandbox = "maki-myproject"\ncreated = "2026-01-01T00:00:00Z"\nreason = "collection failed"\n' \
         >"$state/pending"
 
     reset_log
@@ -4927,6 +4977,539 @@ test_stale_retained_notice_is_advisory() {
     [ -f "$retained_patch" ] || bad "the advisory patch file was deleted"
 }
 
+test_flat_get_helper() {
+    begin "test helper reads flat TOML values with quotes and spaces"
+    new_case flat-get
+    flat_file=$CASE/flat.toml
+    printf '%s\n' 'version = "1"' 'host_path = "/a/my \"app\" dir"' 'back = "c:\\x"' >"$flat_file"
+    [ "$(flat_get "$flat_file" version)" = 1 ] || bad "version: $(flat_get "$flat_file" version)"
+    [ "$(flat_get "$flat_file" host_path)" = '/a/my "app" dir' ] \
+        || bad "host_path: $(flat_get "$flat_file" host_path)"
+    [ "$(flat_get "$flat_file" back)" = 'c:\x' ] || bad "back: $(flat_get "$flat_file" back)"
+    [ -z "$(flat_get "$flat_file" missing)" ] || bad "a missing key printed a value"
+    [ -z "$(flat_get "$CASE/none.toml" version)" ] || bad "a missing file printed a value"
+}
+
+# ---------------------------------------------------------------------------
+# osa project layer (specs/osa-project-layer): shared state root, registry,
+# naming, the flat TOML contract, and the host fingerprint.
+# ---------------------------------------------------------------------------
+
+# Prints the physical path of DIR, the form the registry records.
+physical_dir() { (cd "$1" && pwd -P); }
+
+is_hashed_name() { # NAME PREFIX
+    case $1 in
+        "$2"[0-9a-f][0-9a-f][0-9a-f][0-9a-f]) return 0 ;;
+    esac
+    return 1
+}
+
+test_shared_state_root() {
+    begin "both front-ends register under the one osa state root"
+    new_case shared-root
+    NAME_PIN=
+    OC_NAME_PIN=
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    mk_name=$(sandbox_name_from_log)
+    reset_log
+    run_oc up
+    assert_rc 0
+    oc_name=$(sandbox_name_from_log)
+    is_hashed_name "$mk_name" mk-myproject- || bad "unexpected Maki name: $mk_name"
+    is_hashed_name "$oc_name" oc-myproject- || bad "unexpected OpenCode name: $oc_name"
+    [ "${mk_name#mk-}" = "${oc_name#oc-}" ] || bad "the two agents hashed one folder differently"
+    [ "$(registry_value "$mk_name" agent)" = mk ] || bad "no Maki registry entry for $mk_name"
+    [ "$(registry_value "$oc_name" agent)" = oc ] || bad "no OpenCode registry entry for $oc_name"
+    [ ! -e "$HOME/.local/state/maki-oss" ] || bad "a maki-oss state root was written"
+    [ ! -e "$HOME/.local/state/opencode-oss" ] || bad "an opencode-oss state root was written"
+}
+
+test_old_state_root_ignored() {
+    begin "a marker under the former per-tool root is neither read nor changed"
+    new_case old-root
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    old_state=$HOME/.local/state/maki-oss/sessions/maki-myproject
+    mkdir -p "$old_state"
+    printf 'patch=\nsandbox=maki-myproject\nreason=collection failed\n' >"$old_state/pending"
+    cp "$old_state/pending" "$CASE/old-pending.copy"
+    run_maki maki
+    assert_rc 0
+    assert_err_missing "is parked"
+    assert_log_line "maki"
+    cmp -s "$old_state/pending" "$CASE/old-pending.copy" || bad "the former marker was changed"
+}
+
+test_state_toml_round_trip() {
+    begin "registry values with quotes and spaces round-trip as flat TOML"
+    new_case toml-round-trip
+    RUN_DIR=$(odd_project_dir)
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    odd_name=$(sandbox_name_from_log)
+    odd_path=$(physical_dir "$RUN_DIR")
+    [ "$(registry_value "$odd_name" host_path)" = "$odd_path" ] \
+        || bad "host_path did not round-trip: $(registry_value "$odd_name" host_path)"
+    [ "$(registry_value "$odd_name" version)" = 1 ] || bad "the entry has no version 1"
+    assert_file_mode "$(registry_entry "$odd_name")" 600
+    # The helper reads the same value back: a second up is not refused as
+    # another folder's name.
+    reset_log
+    run_maki up
+    assert_rc 0
+    assert_err_missing "registered to"
+    if command -v bun >/dev/null 2>&1; then
+        bun_path=$(F=$(registry_entry "$odd_name") bun -e \
+            'console.log(Bun.TOML.parse(await Bun.file(process.env.F).text()).host_path)' 2>&1) \
+            || bad "bun could not parse the entry: $bun_path"
+        [ "$bun_path" = "$odd_path" ] || bad "bun read host_path as: $bun_path"
+    fi
+}
+
+test_project_name_sources() {
+    begin "{project} comes from the origin remote, else the folder name"
+    new_case name-sources
+    NAME_PIN=
+    RUN_DIR=$CASE/project/checkout
+    seed_git_project "$RUN_DIR"
+    git -C "$RUN_DIR" remote add origin git@github.com:acme/app.git
+    run_maki up
+    assert_rc 0
+    is_hashed_name "$(sandbox_name_from_log)" mk-app- \
+        || bad "SSH remote name not used: $(sandbox_name_from_log)"
+
+    reset_log
+    RUN_DIR=$CASE/project/web
+    seed_git_project "$RUN_DIR"
+    git -C "$RUN_DIR" remote add origin https://example.com/acme/Web.Site.git
+    run_maki up
+    assert_rc 0
+    is_hashed_name "$(sandbox_name_from_log)" mk-web-site- \
+        || bad "HTTPS remote name not used: $(sandbox_name_from_log)"
+
+    reset_log
+    RUN_DIR=$CASE/project/noorigin
+    seed_git_project "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    is_hashed_name "$(sandbox_name_from_log)" mk-noorigin- \
+        || bad "a repository without origin did not use its folder: $(sandbox_name_from_log)"
+
+    reset_log
+    RUN_DIR="$CASE/project/My App"
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    is_hashed_name "$(sandbox_name_from_log)" mk-my-app- \
+        || bad "a plain folder did not use its name: $(sandbox_name_from_log)"
+}
+
+test_default_name_hash() {
+    begin "default names carry a path hash and fit 19 characters"
+    new_case name-hash
+    NAME_PIN=
+    OC_NAME_PIN=
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    git -C "$RUN_DIR" remote add origin git@github.com:acme/app.git
+    git -C "$RUN_DIR" worktree add -q "$CASE/project/repo-wt" -b wt 2>/dev/null
+    run_maki up
+    assert_rc 0
+    main_name=$(sandbox_name_from_log)
+    reset_log
+    RUN_DIR=$CASE/project/repo-wt
+    run_maki up
+    assert_rc 0
+    wt_name=$(sandbox_name_from_log)
+    is_hashed_name "$main_name" mk-app- || bad "unexpected main worktree name: $main_name"
+    is_hashed_name "$wt_name" mk-app- || bad "unexpected linked worktree name: $wt_name"
+    [ "$main_name" != "$wt_name" ] || bad "two worktrees shared the sandbox $wt_name"
+
+    reset_log
+    RUN_DIR=$CASE/project/long
+    seed_git_project "$RUN_DIR"
+    git -C "$RUN_DIR" remote add origin git@github.com:acme/this-project-name-is-way-too-long.git
+    run_maki up
+    assert_rc 0
+    long_name=$(sandbox_name_from_log)
+    [ "${#long_name}" -le 19 ] || bad "sandbox name is ${#long_name} characters: $long_name"
+    is_hashed_name "$long_name" mk-this-projec- || bad "the long name was not cut to 11: $long_name"
+
+    reset_log
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_oc up
+    assert_rc 0
+    is_hashed_name "$(sandbox_name_from_log)" oc-myproject- \
+        || bad "unexpected OpenCode default: $(sandbox_name_from_log)"
+}
+
+# Writes a registry entry by hand, the way a migrated or earlier project has one.
+seed_registry_entry() { # SANDBOX AGENT HOST_PATH
+    mkdir -p "$(state_root)/projects"
+    printf 'version = "1"\nagent = "%s"\nhost_path = "%s"\nproject = "myproject"\nsandbox_name = "%s"\n' \
+        "$2" "$3" "$1" >"$(registry_entry "$1")"
+}
+
+test_registered_name_and_binding() {
+    begin "a registered name wins and a name bound to another folder is refused"
+    new_case registry-binding
+    NAME_PIN=
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_registry_entry maki-myproject mk "$(physical_dir "$RUN_DIR")"
+    run_maki up
+    assert_rc 0
+    [ "$(sandbox_name_from_log)" = maki-myproject ] \
+        || bad "the registered name was not used: $(sandbox_name_from_log)"
+
+    reset_log
+    RUN_DIR=$CASE/project/other
+    mkdir -p "$RUN_DIR"
+    run_maki up --name maki-myproject
+    assert_rc 1
+    assert_err_has "--name"
+    assert_err_has "registered to"
+    if [ -s "$LOG" ]; then
+        bad "the gateway was contacted for a name bound to another folder"
+    fi
+}
+
+test_registry_entry_lifecycle() {
+    begin "create, session, and rm keep the registry entry current"
+    new_case registry-lifecycle
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_remembered_provider maki-stub
+    run_maki up --env APP_MODE=registry-probe-value
+    assert_rc 0
+    [ "$(registry_value maki-myproject agent)" = mk ] || bad "agent is not mk"
+    [ "$(registry_value maki-myproject host_path)" = "$(physical_dir "$RUN_DIR")" ] \
+        || bad "host_path: $(registry_value maki-myproject host_path)"
+    [ "$(registry_value maki-myproject project)" = myproject ] || bad "project is not myproject"
+    [ "$(registry_value maki-myproject sandbox_name)" = maki-myproject ] || bad "sandbox_name is wrong"
+    [ "$(registry_value maki-myproject sandbox_id)" = "$(cat "$STUB_STATE_DIR/ids/maki-myproject")" ] \
+        || bad "sandbox_id: $(registry_value maki-myproject sandbox_id)"
+    [ -n "$(registry_value maki-myproject created)" ] || bad "created is empty"
+    [ -z "$(registry_value maki-myproject last_session)" ] || bad "up stamped a session"
+    if grep -q 'registry-probe-value\|APP_MODE' "$(registry_entry maki-myproject)"; then
+        bad "an --env value reached the registry"
+    fi
+
+    attach_stub_provider maki-myproject maki-stub
+    run_maki maki
+    assert_rc 0
+    [ -n "$(registry_value maki-myproject last_session)" ] || bad "the session did not stamp last_session"
+
+    run_maki rm --yes
+    assert_rc 0
+    [ ! -e "$(registry_entry maki-myproject)" ] || bad "rm left the registry entry"
+
+    begin "rm refused for a parked workspace keeps the registry entry"
+    new_case registry-parked-rm
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    mkdir -p "$(session_dir maki-myproject)"
+    printf 'version = "1"\nkind = "parked"\npatch = ""\n' >"$(session_dir maki-myproject)/pending"
+    run_maki rm --yes
+    assert_rc 1
+    [ -f "$(registry_entry maki-myproject)" ] || bad "a refused rm removed the registry entry"
+}
+
+test_registry_fingerprint() {
+    begin "sync points record a host fingerprint for git projects only"
+    new_case fingerprint
+    RUN_DIR=$CASE/project/myproject
+    seed_git_project "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    run_maki maki
+    assert_rc 0
+    fp_first=$(registry_value maki-myproject fingerprint)
+    [ -n "$fp_first" ] || bad "the first sync recorded no fingerprint"
+
+    run_maki maki
+    assert_rc 0
+    [ "$(registry_value maki-myproject fingerprint)" = "$fp_first" ] \
+        || bad "an unchanged project changed its fingerprint"
+
+    printf 'edited\n' >>"$RUN_DIR/tracked.txt"
+    run_maki maki
+    assert_rc 0
+    fp_edit=$(registry_value maki-myproject fingerprint)
+    [ -n "$fp_edit" ] && [ "$fp_edit" != "$fp_first" ] \
+        || bad "an unstaged edit did not change the fingerprint"
+
+    printf 'committed\n' >>"$RUN_DIR/tracked.txt"
+    git -C "$RUN_DIR" commit -qam edit
+    run_maki maki
+    assert_rc 0
+    fp_commit=$(registry_value maki-myproject fingerprint)
+    [ -n "$fp_commit" ] && [ "$fp_commit" != "$fp_edit" ] \
+        || bad "a commit did not change the fingerprint"
+
+    begin "a plain folder records no fingerprint"
+    new_case fingerprint-plain
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    run_maki maki
+    assert_rc 0
+    [ -f "$(registry_entry maki-myproject)" ] || bad "the session did not register the project"
+    if grep -q '^fingerprint' "$(registry_entry maki-myproject)" 2>/dev/null; then
+        bad "a plain folder recorded a fingerprint"
+    fi
+}
+
+OSA=$ROOT/bin/osa
+
+# Runs osa with the same stub environment as the front-ends, which its full
+# status calls.
+run_osa() { # ARGS...
+    osa_rc=0
+    (
+        MAKI=$OSA
+        run_maki_with_input /dev/null "$@"
+        exit "$RC"
+    ) || osa_rc=$?
+    RC=$osa_rc
+}
+
+# Checks that stdout is one JSON array (with jq when present) of COUNT items.
+assert_json_array() { # COUNT
+    if command -v jq >/dev/null 2>&1; then
+        jq -e "type == \"array\" and length == $1" "$OUT" >/dev/null 2>&1 \
+            || bad "stdout is not a JSON array of $1: $(cat "$OUT")"
+    else
+        case $(cat "$OUT") in
+            '['*']') ;;
+            *) bad "stdout is not a JSON array: $(cat "$OUT")" ;;
+        esac
+    fi
+}
+
+test_osa_usage() {
+    begin "osa offers projects, status, and help, and rejects anything else"
+    new_case osa-usage
+    run_osa help
+    assert_rc 0
+    assert_out_has "projects"
+    assert_out_has "status"
+    run_osa up
+    assert_rc 1
+    assert_err_has "projects, status, help"
+    run_osa projects --quick
+    assert_rc 1
+}
+
+test_osa_projects() {
+    begin "osa projects lists every agent's projects with pending and orphan"
+    new_case osa-projects
+    mkdir -p "$CASE/project"
+    run_osa projects --json
+    assert_rc 0
+    [ "$(cat "$OUT")" = '[]' ] || bad "an empty registry printed: $(cat "$OUT")"
+
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    run_oc up
+    assert_rc 0
+    mkdir -p "$(session_dir maki-myproject)"
+    printf 'retained patch\n' >"$CASE/retained.patch"
+    printf 'version = "1"\nkind = "retained"\npatch = "%s"\n' "$CASE/retained.patch" \
+        >"$(session_dir maki-myproject)/pending"
+    seed_registry_entry mk-ghost-0000 mk "$CASE/project/gone"
+
+    run_osa projects --json
+    assert_rc 0
+    assert_json_array 3
+    if command -v jq >/dev/null 2>&1; then
+        [ "$(jq -r '[.[].agent] | sort | join(",")' "$OUT")" = mk,mk,oc ] \
+            || bad "agents: $(jq -r '[.[].agent] | join(",")' "$OUT")"
+        [ "$(jq -r '.[] | select(.sandbox_name == "maki-myproject") | .pending' "$OUT")" = retained ] \
+            || bad "the retained patch is not listed as pending"
+        [ "$(jq -r '.[] | select(.sandbox_name == "mk-ghost-0000") | .orphan' "$OUT")" = true ] \
+            || bad "the missing folder is not an orphan"
+        [ "$(jq -r '.[] | select(.sandbox_name == "oc-myproject") | .orphan' "$OUT")" = false ] \
+            || bad "a present folder is an orphan"
+    fi
+    [ -f "$(registry_entry mk-ghost-0000)" ] || bad "osa removed the orphan's entry"
+
+    run_osa projects
+    assert_rc 0
+    assert_out_has "maki-myproject"
+    assert_out_has "oc-myproject"
+    assert_out_has "orphan"
+}
+
+test_osa_status_quick() {
+    begin "osa status --quick reports the host fingerprint without the gateway"
+    new_case osa-quick
+    RUN_DIR=$CASE/project/myproject
+    seed_git_project "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    run_maki maki
+    assert_rc 0
+
+    reset_log
+    run_osa status --quick --json
+    assert_rc 0
+    assert_json_array 1
+    assert_out_has '"fingerprint_result":"unchanged"'
+    assert_out_missing '"clean"'
+    assert_out_missing '"behind"'
+
+    printf 'committed\n' >>"$RUN_DIR/tracked.txt"
+    git -C "$RUN_DIR" commit -qam change
+    run_osa status --quick --json
+    assert_rc 0
+    assert_out_has '"fingerprint_result":"changed"'
+    if [ -s "$LOG" ]; then
+        bad "--quick contacted the gateway: $(tr '\n' ' ' <"$LOG")"
+    fi
+
+    run_osa status --quick --json "$CASE/project/elsewhere"
+    assert_rc 0
+    [ "$(cat "$OUT")" = '[]' ] || bad "an unregistered path printed: $(cat "$OUT")"
+
+    begin "osa status --quick reports unknown for a plain folder"
+    new_case osa-quick-plain
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    run_osa status --quick --json
+    assert_rc 0
+    assert_out_has '"fingerprint_result":"unknown"'
+}
+
+# Asserts that `osa status --json` and the front-end's text status agree.
+assert_osa_matches_status() { # STATE
+    run_maki status
+    assert_out_has "Sync:      $1"
+    run_osa status --json
+    assert_rc 0
+    assert_json_array 1
+    assert_out_has "\"sync\":\"$1\""
+}
+
+test_osa_status_full() {
+    begin "osa status matches the front-end's clean, behind, retained, and parked"
+    new_case osa-full
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    run_maki upload .
+    assert_rc 0
+    assert_osa_matches_status clean
+    printf 'host-change\n' >>"$RUN_DIR/tracked.txt"
+    assert_osa_matches_status behind
+
+    new_case osa-full-retained
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    PATH_OVERRIDE=$(no_git_path)
+    run_maki maki
+    assert_rc 0
+    assert_osa_matches_status retained
+    PATH_OVERRIDE=
+
+    new_case osa-full-parked
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    STUB_MAKI_SCRIPT='printf "agent\n" > new.txt'
+    run_maki maki --no-sync
+    assert_rc 0
+    assert_osa_matches_status parked
+
+    run_osa status --json "$CASE/project/elsewhere"
+    assert_rc 0
+    [ "$(cat "$OUT")" = '[]' ] || bad "an unregistered path printed: $(cat "$OUT")"
+}
+
+# Prints a listing of every file under the state root with its checksum.
+state_snapshot() {
+    (cd "$(state_root)" && find . -type f | sort | while IFS= read -r f; do
+        printf '%s %s\n' "$f" "$(cksum <"$f")"
+    done)
+}
+
+test_osa_read_only() {
+    begin "osa changes no sandbox and no state file"
+    new_case osa-read-only
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    run_maki maki
+    assert_rc 0
+    state_snapshot >"$CASE/before.txt"
+
+    reset_log
+    run_osa projects
+    assert_rc 0
+    run_osa projects --json
+    assert_rc 0
+    run_osa status --quick
+    assert_rc 0
+    if [ -s "$LOG" ]; then
+        bad "projects or --quick contacted the gateway: $(tr '\n' ' ' <"$LOG")"
+    fi
+    run_osa status
+    assert_rc 0
+    run_osa status --json
+    assert_rc 0
+    for osa_verb in create start stop delete upload download maki; do
+        assert_log_line_missing "$osa_verb"
+    done
+    state_snapshot >"$CASE/after.txt"
+    cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "osa changed a file under the state root"
+}
+
+run_test test_flat_get_helper
+run_test test_shared_state_root
+run_test test_old_state_root_ignored
+run_test test_state_toml_round_trip
+run_test test_project_name_sources
+run_test test_default_name_hash
+run_test test_registered_name_and_binding
+run_test test_registry_entry_lifecycle
+run_test test_registry_fingerprint
+run_test test_osa_usage
+run_test test_osa_projects
+run_test test_osa_status_quick
+run_test test_osa_status_full
+run_test test_osa_read_only
 run_test test_help
 run_test test_usage_errors
 run_test test_config_precedence

@@ -145,6 +145,7 @@ OSS_CATALOG_FILE=$OSS_PROFILES_DIR/stores.tsv
 OSS_CUSTOM_PROFILE_PREFIX=opencode-      # default id for a custom profile
 OSS_AGENT_NAME=OpenCode                  # named in generated profiles
 OSS_AGENT_PROCESS=opencode               # in-sandbox process the idle stop waits on
+OSS_AGENT_TAG=oc                         # registry agent tag and default name prefix
 OSS_HOST_MCP_CONFIG=${HOME:-/tmp}/.config/opencode/opencode.json
 OSS_SANDBOX_MCP_CONFIG=/sandbox/.config/opencode/opencode.json
 OSS_MCP_PROVIDER_PREFIX=opencode-mcp-  # provider name for server <name>
@@ -153,7 +154,7 @@ OSS_MCP_FIX_DOC=docs/opencode-oss.md
 
 DEFAULT_IMAGE=opencode-agent:local
 DEFAULT_POLICY=$repo_root/opencode-oss/policies/minimal.yaml
-DEFAULT_NAME='oc-{project}'
+DEFAULT_NAME='oc-{project}-{hash}'
 
 # profile-id -> example model, read for the post-setup hint.
 OC_MODEL_CATALOG=$OSS_PROFILES_DIR/catalog.tsv

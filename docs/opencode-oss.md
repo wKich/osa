@@ -44,17 +44,23 @@ defaults differ:
 | Config file | `…/maki-oss/config.toml` | `…/opencode-oss/config.toml` |
 | `image` default | `maki-agent:local` | `opencode-agent:local` |
 | `policy` default | `examples/policies/maki-minimal.yaml` | `opencode-oss/policies/minimal.yaml` |
-| `sandbox_name` default | `maki-{project}` | `oc-{project}` |
-| Session state | `~/.local/state/maki-oss/`, `/sandbox/.maki-oss/` | `~/.local/state/opencode-oss/`, `/sandbox/.opencode-oss/` |
+| `sandbox_name` default | `mk-{project}-{hash}` | `oc-{project}-{hash}` |
+| Registry agent tag | `mk` | `oc` |
+| In-sandbox sync state | `/sandbox/.maki-oss/` | `/sandbox/.opencode-oss/` |
 | Curated profiles | `examples/providers/` | `opencode-oss/providers/` |
 
-The two helpers share no state. In the same project directory they use
-different sandboxes, config files, and sync state, and a `MAKI_OSS_*`
-variable has no effect on `opencode-oss`. The default sandbox name is
-`oc-{project}` rather than `opencode-{project}`, so ordinary project
-directories fit OpenShell's 19-character sandbox-name limit. A sandbox
-created with the old `opencode-{project}` default is not found automatically;
-set `sandbox_name` to its name or recreate it. The `tui` key is accepted but
+Both helpers keep their host state under the one shared root,
+`~/.local/state/osa/` (see
+[Shared state and the project registry](helper.md#shared-state-and-the-project-registry)),
+so `osa projects` lists Maki and OpenCode projects together. In the same
+project directory they still use different sandboxes (`mk-…` and `oc-…`
+with the same path hash), config files, and session directories, and a
+`MAKI_OSS_*` variable has no effect on `opencode-oss`. The default sandbox
+name `oc-{project}-{hash}` follows the
+[sandbox name rules](helper.md#sandbox-names) and fits OpenShell's
+19-character limit. A sandbox created under an older default keeps working
+once it has a registry entry; otherwise set `sandbox_name` to its name or
+recreate it. The `tui` key is accepted but
 ignored, because the OpenCode TUI mode is a `maki-oss` feature.
 
 A minimal config:

@@ -35,6 +35,12 @@ export const state = {
   projectsLoaded: false,
   /** Full status per sandbox name: { loading, value, error }. */
   projectStatus: {},
+  /** Last resolve outcome per sandbox: { running, action, kind, changed, message, detail }. */
+  resolveOutcome: {},
+  /** The open confirmation per sandbox: an action name, or null. */
+  resolveConfirm: {},
+  /** Typed confirmation text per `sandbox:action`. */
+  resolveTyped: {},
   patchSandbox: null,
   patch: null,
   patchError: null,
@@ -58,4 +64,5 @@ export const actions = {
   render: () => {},
   loadInventory: async () => {},
   openDetail: async (_name) => {},
+  refreshProject: async (_hostPath) => {},
 };

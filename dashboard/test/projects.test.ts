@@ -12,8 +12,10 @@ import {
   listProjects,
   OsaRunner,
   ProjectService,
+  resolveArgv,
   resolveOsaBinary,
   resolveStateRoot,
+  RESOLVE_ACTIONS,
   type ProjectEntry,
 } from "../src/projects.ts";
 import {
@@ -289,6 +291,70 @@ describe("stub osa", () => {
       ["status", fixture.quotedPath, "--json"],
     ]);
   });
+
+  test("answers resolve from the fixture: success, refusal, failure, invalid JSON, slow", async () => {
+    const marker = join(fixture.sessionsDir, SANDBOX.retained, "pending");
+    const setup = stubSetup({
+      [fixture.appPath]: { quick: [{ sandbox_name: SANDBOX.retained, busy: true }] },
+      resolve: {
+        [SANDBOX.retained]: {
+          apply: { changed: ["base.txt"], message: "applied", remove: [marker] },
+          branch: { exit: 2, message: "refused" },
+          drop: { exit: 3, message: "failed", stderr: "stub osa: drop failed" },
+        },
+        [SANDBOX.parked]: {
+          rescue: { raw: "not json", delay: 0.2 },
+        },
+      },
+    });
+    const run = (args: string[]) =>
+      Bun.spawn({ cmd: [osaStub, ...args], env: { ...process.env, ...setup.env }, stdout: "pipe", stderr: "pipe" });
+    const answer = async (args: string[]) => {
+      const proc = run(args);
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      return { stdout, stderr, code };
+    };
+
+    const apply = await answer(["resolve", SANDBOX.retained, "apply", "--json"]);
+    expect(apply.code).toBe(0);
+    expect(JSON.parse(apply.stdout)).toEqual({
+      sandbox: SANDBOX.retained,
+      action: "apply",
+      ok: true,
+      changed: ["base.txt"],
+      message: "applied",
+    });
+    expect(existsSync(marker)).toBe(false);
+
+    const branch = await answer(["resolve", SANDBOX.retained, "branch", "--json"]);
+    expect(branch.code).toBe(2);
+    expect(JSON.parse(branch.stdout)).toMatchObject({ ok: false, changed: [], message: "refused" });
+
+    const drop = await answer(["resolve", SANDBOX.retained, "drop", "--json", "--yes"]);
+    expect(drop.code).toBe(3);
+    expect(drop.stderr).toContain("drop failed");
+
+    const started = Date.now();
+    const rescue = await answer(["resolve", SANDBOX.parked, "rescue", "--json"]);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(200);
+    expect(rescue).toMatchObject({ code: 0, stdout: "not json" });
+
+    const unanswered = await answer(["resolve", SANDBOX.parked, "discard", "--json", "--yes"]);
+    expect(unanswered.code).toBe(2);
+
+    const extra = await answer(["resolve", SANDBOX.parked, "discard", "--json", "--yes", "x"]);
+    expect(extra.code).toBe(1);
+
+    const quick = await answer(["status", fixture.appPath, "--quick", "--json"]);
+    expect(JSON.parse(quick.stdout)).toEqual([{ sandbox_name: SANDBOX.retained, busy: true }]);
+
+    expect(loggedCalls(setup.logPath)).toHaveLength(7);
+    expect(loggedCalls(setup.logPath)[2]).toEqual(["resolve", SANDBOX.retained, "drop", "--json", "--yes"]);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -311,6 +377,7 @@ describe("osa runner", () => {
     expect(isAllowedOsaArgv(["status", "--json", "/p"])).toBe(false);
     expect(isAllowedOsaArgv(["status", "relative", "--json"])).toBe(false);
     expect(isAllowedOsaArgv(["status", "/p", "--json", "--quick"])).toBe(false);
+    expect(isAllowedOsaArgv(["status", "/p", "--json", "--yes"])).toBe(false);
 
     const setup = stubSetup({});
     const runner = new OsaRunner({ binary: osaStub, env: setup.env });
@@ -320,6 +387,38 @@ describe("osa runner", () => {
       if (!result.ok) expect(result.error.kind).toBe("invalid_request");
     }
     expect(loggedCalls(setup.logPath)).toEqual([]);
+  });
+
+  test("resolve may run only the five fixed shapes", () => {
+    expect(RESOLVE_ACTIONS.map((action) => resolveArgv("mk-app-1", action))).toEqual([
+      ["resolve", "mk-app-1", "apply", "--json"],
+      ["resolve", "mk-app-1", "branch", "--json"],
+      ["resolve", "mk-app-1", "drop", "--json", "--yes"],
+      ["resolve", "mk-app-1", "rescue", "--json"],
+      ["resolve", "mk-app-1", "discard", "--json", "--yes"],
+    ]);
+    for (const action of RESOLVE_ACTIONS) {
+      expect(isAllowedOsaArgv(resolveArgv("mk-app-1", action))).toBe(true);
+    }
+    for (const args of [
+      ["resolve", "x", "rm", "--json"],
+      ["resolve", "x", "apply", "--json", "--yes"],
+      ["resolve", "x", "branch", "--json", "--yes"],
+      ["resolve", "x", "rescue", "--json", "--yes"],
+      ["resolve", "x", "drop", "--json"],
+      ["resolve", "x", "discard", "--json"],
+      ["resolve", "-x", "apply", "--json"],
+      ["resolve", "--yes", "apply", "--json"],
+      ["resolve", "../x", "apply", "--json"],
+      ["resolve", "", "apply", "--json"],
+      ["resolve", "x", "apply"],
+      ["resolve", "x", "apply", "--json", "extra"],
+      ["resolve", "x", "drop", "--json", "--yes", "extra"],
+      ["resolve", "x", "drop", "--yes", "--json"],
+      ["resolve", "x", "--json", "apply"],
+    ]) {
+      expect({ args, allowed: isAllowedOsaArgv(args) }).toEqual({ args, allowed: false });
+    }
   });
 
   test("a missing binary is missing_cli", async () => {
@@ -482,5 +581,189 @@ describe("host-change cache", () => {
     const orphan = rows.find((row) => row.sandbox_name === SANDBOX.orphan)!;
     expect(orphan.orphan).toBe(true);
     expect(orphan.osaError).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resolve
+// ---------------------------------------------------------------------------
+
+describe("resolve", () => {
+  function resolveAnswers(answers: Record<string, unknown>): Record<string, unknown> {
+    return { ...defaultAnswers(), resolve: answers };
+  }
+
+  function service(setup: StubSetup, options: { resolveTimeoutMs?: number; rescueTimeoutMs?: number } = {}) {
+    return new ProjectService({
+      stateRoot: fixture.stateRoot,
+      runnerOptions: { binary: osaStub, env: setup.env },
+      ...options,
+    });
+  }
+
+  function resolveCalls(setup: StubSetup): string[][] {
+    return loggedCalls(setup.logPath).filter((argv) => argv[0] === "resolve");
+  }
+
+  test("an unknown action is 400 and an unregistered sandbox 404; neither runs osa", async () => {
+    const setup = stubSetup(defaultAnswers());
+    const projects = service(setup);
+    for (const action of ["rm", "", undefined, 3, "APPLY"]) {
+      const reply = await projects.resolve(SANDBOX.retained, action);
+      expect(reply.status).toBe(400);
+      expect(reply.body.error?.kind).toBe("invalid_request");
+    }
+    for (const sandbox of ["not-registered", SANDBOX.future, "../projects", "-x"]) {
+      const reply = await projects.resolve(sandbox, "apply");
+      expect(reply.status).toBe(404);
+    }
+    expect(loggedCalls(setup.logPath)).toEqual([]);
+  });
+
+  test("exit 0 is 200 with osa's object; drop and discard get --yes", async () => {
+    const setup = stubSetup(
+      resolveAnswers({
+        [SANDBOX.retained]: {
+          apply: { changed: ["base.txt"], message: "Applied the retained patch" },
+          drop: { changed: ["/state/dropped/p.patch"], message: "Dropped" },
+        },
+        [SANDBOX.parked]: {
+          rescue: { changed: ["/state/rescue-1"], message: "Rescued" },
+          discard: { changed: [`${SANDBOX.parked}:/sandbox/work`], message: "Discarded" },
+        },
+      }),
+    );
+    const projects = service(setup);
+    const apply = await projects.resolve(SANDBOX.retained, "apply");
+    expect(apply).toEqual({
+      status: 200,
+      body: {
+        sandbox: SANDBOX.retained,
+        action: "apply",
+        ok: true,
+        changed: ["base.txt"],
+        message: "Applied the retained patch",
+        exitCode: 0,
+      },
+    });
+    expect((await projects.resolve(SANDBOX.retained, "drop")).status).toBe(200);
+    expect((await projects.resolve(SANDBOX.parked, "rescue")).body.changed).toEqual(["/state/rescue-1"]);
+    expect((await projects.resolve(SANDBOX.parked, "discard")).status).toBe(200);
+    expect(resolveCalls(setup)).toEqual([
+      ["resolve", SANDBOX.retained, "apply", "--json"],
+      ["resolve", SANDBOX.retained, "drop", "--json", "--yes"],
+      ["resolve", SANDBOX.parked, "rescue", "--json"],
+      ["resolve", SANDBOX.parked, "discard", "--json", "--yes"],
+    ]);
+  });
+
+  test("exit 2 is 409 refused, with osa's message and nothing changed", async () => {
+    const setup = stubSetup(
+      resolveAnswers({
+        [SANDBOX.retained]: { apply: { exit: 2, message: "The dry run failed; try branch" } },
+      }),
+    );
+    const reply = await service(setup).resolve(SANDBOX.retained, "apply");
+    expect(reply.status).toBe(409);
+    expect(reply.body).toMatchObject({
+      ok: false,
+      changed: [],
+      exitCode: 2,
+      message: "The dry run failed; try branch",
+      error: { kind: "refused", message: "The dry run failed; try branch" },
+    });
+  });
+
+  test("exit 3 and unparsable output are 502 with stderr in detail", async () => {
+    const setup = stubSetup(
+      resolveAnswers({
+        [SANDBOX.parked]: {
+          rescue: { exit: 3, message: "download failed", stderr: "openshell: connection reset" },
+          discard: { raw: "garbage", stderr: "osa: something odd" },
+        },
+      }),
+    );
+    const projects = service(setup);
+    const failed = await projects.resolve(SANDBOX.parked, "rescue");
+    expect(failed.status).toBe(502);
+    expect(failed.body).toMatchObject({
+      exitCode: 3,
+      error: { kind: "exit", message: "download failed", detail: "openshell: connection reset" },
+    });
+    const garbled = await projects.resolve(SANDBOX.parked, "discard");
+    expect(garbled.status).toBe(502);
+    expect(garbled.body.error).toMatchObject({ kind: "invalid_json", detail: "osa: something odd" });
+  });
+
+  test("a slow resolve times out; rescue has its own timeout", async () => {
+    const setup = stubSetup(
+      resolveAnswers({
+        [SANDBOX.retained]: { apply: { delay: 5 } },
+        [SANDBOX.parked]: { rescue: { delay: 0.5, changed: ["/r"] } },
+      }),
+    );
+    const projects = service(setup, { resolveTimeoutMs: 300, rescueTimeoutMs: 3000 });
+    const apply = await projects.resolve(SANDBOX.retained, "apply");
+    expect(apply.status).toBeUndefined();
+    expect(apply.body.error?.kind).toBe("timeout");
+    expect((await projects.resolve(SANDBOX.parked, "rescue")).status).toBe(200);
+  });
+
+  test("a second resolve for the same sandbox while one runs is 409 and spawns nothing", async () => {
+    const setup = stubSetup(
+      resolveAnswers({
+        [SANDBOX.retained]: { apply: { delay: 0.4, changed: ["base.txt"] } },
+        [SANDBOX.parked]: { rescue: { changed: ["/r"] } },
+      }),
+    );
+    const projects = service(setup);
+    const first = projects.resolve(SANDBOX.retained, "apply");
+    await Bun.sleep(50);
+    const second = await projects.resolve(SANDBOX.retained, "drop");
+    expect(second.status).toBe(409);
+    expect(second.body.error?.kind).toBe("busy");
+    // Another sandbox is not blocked.
+    expect((await projects.resolve(SANDBOX.parked, "rescue")).status).toBe(200);
+    expect((await first).status).toBe(200);
+    expect(resolveCalls(setup).map((argv) => argv[2])).toEqual(["apply", "rescue"]);
+    // Done: the sandbox takes a resolve again.
+    expect((await projects.resolve(SANDBOX.retained, "apply")).status).toBe(200);
+  });
+
+  test("a resolve drops the cached quick status, so the next list checks that path again", async () => {
+    const setup = stubSetup(
+      resolveAnswers({ [SANDBOX.retained]: { apply: { exit: 2, message: "refused" } } }),
+    );
+    const projects = service(setup);
+    projects.list();
+    await projects.cache.idle();
+    projects.list();
+    await projects.cache.idle();
+    const quickFor = (path: string) =>
+      loggedCalls(setup.logPath).filter((argv) => argv.includes("--quick") && argv[1] === path).length;
+    expect(quickFor(fixture.appPath)).toBe(1);
+    await projects.resolve(SANDBOX.retained, "apply");
+    expect(projects.cache.get(fixture.appPath)).toBeNull();
+    expect(projects.cache.get(fixture.quotedPath)).not.toBeNull();
+    projects.list();
+    await projects.cache.idle();
+    expect(quickFor(fixture.appPath)).toBe(2);
+    expect(quickFor(fixture.quotedPath)).toBe(1);
+  });
+
+  test("busy from quick status reaches the row", async () => {
+    const answers = defaultAnswers();
+    (answers[fixture.appPath] as { quick: unknown[] }).quick = [
+      { sandbox_name: SANDBOX.retained, fingerprint_result: "changed", busy: true },
+      { sandbox_name: SANDBOX.parked, fingerprint_result: "unknown", busy: false },
+    ];
+    const projects = service(stubSetup(answers));
+    projects.list();
+    await projects.cache.idle();
+    const rows = projects.list();
+    const row = (sandbox: string) => rows.find((candidate) => candidate.sandbox_name === sandbox)!;
+    expect(row(SANDBOX.retained).busy).toBe(true);
+    expect(row(SANDBOX.parked).busy).toBe(false);
+    expect(row(SANDBOX.noKind).busy).toBe(false);
   });
 });

@@ -633,6 +633,12 @@ describe("project routes", () => {
     rmSync(fixture.dir, { recursive: true, force: true });
   });
 
+  /** Adds `resolve` answers to the stub fixture. */
+  function setResolveAnswers(answers: Record<string, unknown>): void {
+    const current = JSON.parse(readFileSync(osaAnswers, "utf8")) as Record<string, unknown>;
+    writeFileSync(osaAnswers, JSON.stringify({ ...current, resolve: answers }));
+  }
+
   function projectService(
     env: Record<string, string> = {},
     options: { binary?: string; fullTimeoutMs?: number; stateRoot?: string } = {},
@@ -728,6 +734,156 @@ describe("project routes", () => {
     await listRows(handle, "?refresh=1");
     await projects.cache.idle();
     expect(quickFor()).toBe(2);
+  });
+
+  test("path= restricts the list, and refresh=1&path= checks only that path", async () => {
+    const projects = projectService();
+    const handle = start({ projects });
+    await listRows(handle);
+    await projects.cache.idle();
+    const quickFor = (path: string) =>
+      osaCalls().filter((argv) => argv[1] === path && argv.includes("--quick")).length;
+    expect(quickFor(fixture.appPath)).toBe(1);
+    expect(quickFor(fixture.quotedPath)).toBe(1);
+
+    const rows = await listRows(handle, `?refresh=1&path=${encodeURIComponent(fixture.appPath)}`);
+    expect(rows.map((entry) => entry.sandbox_name).sort()).toEqual([SANDBOX.retained, SANDBOX.parked].sort());
+    await projects.cache.idle();
+    expect(quickFor(fixture.appPath)).toBe(2);
+    expect(quickFor(fixture.quotedPath)).toBe(1);
+    expect(quickFor(fixture.toolPath)).toBe(1);
+
+    const quoted = await listRows(handle, `?path=${encodeURIComponent(fixture.quotedPath)}`);
+    expect(quoted.map((entry) => entry.sandbox_name)).toEqual([SANDBOX.noKind]);
+    expect(await listRows(handle, "?path=%2Fnot%2Fregistered")).toEqual([]);
+  });
+
+  describe("resolve route", () => {
+    function resolveUrl(handle: DashboardHandle, sandbox: string = SANDBOX.retained): string {
+      return `${base(handle)}/api/projects/${sandbox}/resolve`;
+    }
+
+    async function post(
+      handle: DashboardHandle,
+      body: unknown,
+      options: { sandbox?: string; headers?: Record<string, string> } = {},
+    ): Promise<{ status: number; body: Record<string, any> }> {
+      const response = await fetch(resolveUrl(handle, options.sandbox), {
+        method: "POST",
+        headers: options.headers ?? authHeaders(handle),
+        body: typeof body === "string" ? body : JSON.stringify(body),
+      });
+      return { status: response.status, body: (await response.json()) as Record<string, any> };
+    }
+
+    function resolveCalls(): string[][] {
+      return osaCalls().filter((argv) => argv[0] === "resolve");
+    }
+
+    beforeEach(() => {
+      setResolveAnswers({
+        [SANDBOX.retained]: {
+          apply: { changed: ["base.txt"], message: "Applied the retained patch" },
+          branch: { exit: 2, message: "The dry run failed; try branch" },
+          drop: { changed: ["/state/dropped/p.patch"], message: "Dropped" },
+        },
+        [SANDBOX.parked]: {
+          rescue: { exit: 3, message: "download failed", stderr: "openshell: connection reset" },
+          discard: { changed: [`${SANDBOX.parked}:/sandbox`], message: "Discarded" },
+        },
+      });
+    });
+
+    test("no token, a wrong token, or read-only mode is 403 and runs nothing", async () => {
+      const handle = start({ projects: projectService() });
+      const json = { "content-type": "application/json" };
+      expect((await post(handle, { action: "apply" }, { headers: json })).status).toBe(403);
+      expect(
+        (await post(handle, { action: "apply" }, { headers: { ...json, "x-dashboard-token": "wrong" } }))
+          .status,
+      ).toBe(403);
+      const readOnly = start({ projects: projectService(), readOnly: true });
+      const refused = await post(readOnly, { action: "apply" });
+      expect(refused.status).toBe(403);
+      expect(refused.body.error.kind).toBe("read_only");
+      expect(resolveCalls()).toEqual([]);
+      expect(osaCalls()).toEqual([]);
+    });
+
+    test("bad bodies and unknown actions are 400; an unregistered sandbox is 404", async () => {
+      const handle = start({ projects: projectService() });
+      for (const body of ["not json", { action: "rm" }, {}, { action: ["apply"] }, "null"]) {
+        expect({ body, status: (await post(handle, body)).status }).toEqual({ body, status: 400 });
+      }
+      for (const sandbox of ["not-registered", SANDBOX.future]) {
+        expect((await post(handle, { action: "apply" }, { sandbox })).status).toBe(404);
+      }
+      expect(osaCalls()).toEqual([]);
+    });
+
+    test("success is 200 with changed; drop gets --yes", async () => {
+      const handle = start({ projects: projectService() });
+      const apply = await post(handle, { action: "apply" });
+      expect(apply).toEqual({
+        status: 200,
+        body: {
+          sandbox: SANDBOX.retained,
+          action: "apply",
+          ok: true,
+          changed: ["base.txt"],
+          message: "Applied the retained patch",
+          exitCode: 0,
+        },
+      });
+      expect((await post(handle, { action: "drop" })).status).toBe(200);
+      expect((await post(handle, { action: "discard" }, { sandbox: SANDBOX.parked })).status).toBe(200);
+      expect(resolveCalls()).toEqual([
+        ["resolve", SANDBOX.retained, "apply", "--json"],
+        ["resolve", SANDBOX.retained, "drop", "--json", "--yes"],
+        ["resolve", SANDBOX.parked, "discard", "--json", "--yes"],
+      ]);
+    });
+
+    test("a refusal is 409 and a failure is 502 with detail", async () => {
+      const handle = start({ projects: projectService() });
+      const refused = await post(handle, { action: "branch" });
+      expect(refused.status).toBe(409);
+      expect(refused.body).toMatchObject({
+        ok: false,
+        changed: [],
+        exitCode: 2,
+        message: "The dry run failed; try branch",
+        error: { kind: "refused" },
+      });
+      const failed = await post(handle, { action: "rescue" }, { sandbox: SANDBOX.parked });
+      expect(failed.status).toBe(502);
+      expect(failed.body).toMatchObject({
+        exitCode: 3,
+        error: { kind: "exit", message: "download failed", detail: "openshell: connection reset" },
+      });
+    });
+
+    test("a second request while one runs is 409 and runs nothing", async () => {
+      setResolveAnswers({ [SANDBOX.retained]: { apply: { delay: 0.4, changed: ["base.txt"] } } });
+      const handle = start({ projects: projectService() });
+      const first = post(handle, { action: "apply" });
+      await Bun.sleep(100);
+      const second = await post(handle, { action: "apply" });
+      expect(second.status).toBe(409);
+      expect(second.body.error.kind).toBe("busy");
+      expect((await first).status).toBe(200);
+      expect(resolveCalls()).toHaveLength(1);
+    });
+
+    test("GET or PUT on the resolve route is 405", async () => {
+      const handle = start({ projects: projectService() });
+      for (const method of ["GET", "PUT", "DELETE"]) {
+        const response = await fetch(resolveUrl(handle), { method, headers: authHeaders(handle) });
+        expect(response.status).toBe(405);
+        expect(response.headers.get("allow")).toBe("POST");
+      }
+      expect(osaCalls()).toEqual([]);
+    });
   });
 
   test("full status returns the sandbox's own entry", async () => {
@@ -923,5 +1079,25 @@ describe("project routes", () => {
     }
 
     expect(roots.map(snapshot)).toEqual(before);
+
+    // A resolve changes only what osa reports: here the stub clears the marker.
+    const marker = join(fixture.sessionsDir, SANDBOX.retained, "pending");
+    setResolveAnswers({
+      [SANDBOX.retained]: { apply: { changed: ["base.txt"], remove: [marker] } },
+    });
+    const handle = start({ projects: projectService() });
+    const response = await fetch(`${base(handle)}/api/projects/${SANDBOX.retained}/resolve`, {
+      method: "POST",
+      headers: authHeaders(handle),
+      body: JSON.stringify({ action: "apply" }),
+    });
+    expect(response.status).toBe(200);
+    const after = roots.map(snapshot);
+    const changed = (index: number) =>
+      [...new Set([...Object.keys(before[index]!), ...Object.keys(after[index]!)])].filter(
+        (path) => before[index]![path] !== after[index]![path],
+      );
+    expect(changed(0).sort()).toEqual([join(fixture.sessionsDir, SANDBOX.retained), marker].sort());
+    expect(changed(1)).toEqual([]);
   });
 });

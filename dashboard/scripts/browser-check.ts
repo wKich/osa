@@ -7,8 +7,9 @@
 // lifecycle actions with typed delete confirmation, read-only controls, log
 // streaming with filters/pause/reconnect and disconnect cleanup, policy tabs,
 // rule approve/reject, and the Projects view (registry list, attention
-// counter, read-only patch viewer, full status) over a state-root fixture and
-// the stub osa.
+// counter, patch viewer, full status) and its resolve actions (Apply with the
+// touched-file list, refusal, typed Drop, Rescue, busy rows, read-only) over a
+// state-root fixture and the stub osa.
 //
 // No npm dependencies. Skips (exit 0) when no Chrome/Chromium binary is found.
 //
@@ -25,6 +26,7 @@ import {
   buildStateFixture,
   SANDBOX,
   writeEntry,
+  writeMarker,
   XSS_PATCH_LINE,
 } from "../test/state-fixture.ts";
 
@@ -650,6 +652,7 @@ async function runChecks(): Promise<void> {
   await closePage(viewPage.id, views);
 
   await projectsJourney();
+  await resolveJourney();
 
   check(pageErrors.length === 0, `no page exceptions or console errors (${pageErrors.join("; ")})`);
 }
@@ -716,7 +719,7 @@ async function projectsJourney(): Promise<void> {
   await waitFor(cdp, `${attention}.textContent === "3 need attention"`, "counter after resolution", 7000);
   check(true, "counter drops when a pending marker is removed");
 
-  await clickButton(cdp, "View patch");
+  await clickButton(cdp, "Review patch");
   await waitFor(cdp, `document.querySelectorAll("#patch-view .patch-line").length > 0`, "patch lines");
   check(
     (await cdp.evaluate(`(() => {
@@ -729,8 +732,8 @@ async function projectsJourney(): Promise<void> {
   );
   check(
     (await cdp.evaluate(`[...document.querySelectorAll("#app button")].map((b) => b.textContent).join(",")`)) ===
-      "← Projects",
-    "the patch view has no apply, branch, or drop control",
+      "← Projects,Apply,Branch,Drop",
+    "the patch view offers Apply, Branch, and Drop under the diff",
   );
   check(
     (await cdp.evaluate(`document.getElementById("patch-view").textContent.includes(${JSON.stringify(XSS_PATCH_LINE)})`)) ===
@@ -756,7 +759,7 @@ async function projectsJourney(): Promise<void> {
   const readOnlyPage = await openPage(readOnlyUrl);
   const readOnly = readOnlyPage.cdp;
   await waitFor(readOnly, `document.querySelectorAll("#projects-table tbody tr").length >= 7`, "read-only projects");
-  await clickButton(readOnly, "View patch");
+  await clickButton(readOnly, "Review patch");
   await waitFor(
     readOnly,
     `document.querySelectorAll("#patch-view .patch-add").length > 0`,
@@ -769,6 +772,175 @@ async function projectsJourney(): Promise<void> {
     ? readFileSync(osaLog, "utf8").split("\n").filter((line) => line.includes("--quick"))
     : [];
   check(quick.length > 0, "the stub osa answered the quick checks");
+}
+
+// ---------------------------------------------------------------------------
+// Resolve actions: Apply with the file list, refusal, typed Drop, Rescue,
+// busy rows, read-only mode, and markup in an outcome
+// ---------------------------------------------------------------------------
+
+async function resolveJourney(): Promise<void> {
+  const retainedMarker = join(stateFixture.sessionsDir, SANDBOX.retained, "pending");
+  const rescueDir = join(stateFixture.sessionsDir, SANDBOX.parked, "rescue-20261026120000");
+  const xssMessage = "Rescued the workspace <img src=x onerror=alert(1)>";
+  // The Projects journey removed the parked marker; park the workspace again.
+  writeMarker(stateFixture, SANDBOX.parked, { kind: "parked", patch: "" });
+  const statusAnswers = JSON.parse(readFileSync(osaAnswers, "utf8")) as Record<string, unknown>;
+  const setAnswers = (resolve: Record<string, unknown>) =>
+    writeFileSync(
+      osaAnswers,
+      JSON.stringify({
+        ...statusAnswers,
+        // A session holds the cc project: its row's actions are disabled.
+        [stateFixture.quotedPath]: {
+          quick: [{ sandbox_name: SANDBOX.noKind, fingerprint_result: "unchanged", busy: true }],
+        },
+        resolve,
+      }),
+    );
+  setAnswers({
+    [SANDBOX.retained]: {
+      apply: { exit: 2, message: "The dry run failed; nothing was applied. Try branch." },
+    },
+    [SANDBOX.parked]: { rescue: { changed: [rescueDir], message: xssMessage } },
+  });
+  const resolveCalls = (): string[][] =>
+    (existsSync(osaLog) ? readFileSync(osaLog, "utf8").split("\n") : [])
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as string[])
+      .filter((args) => args[0] === "resolve");
+  const rowOf = (sandbox: string) =>
+    `[...document.querySelectorAll("#projects-table tbody tr")].find((tr) => tr.textContent.includes(${JSON.stringify(sandbox)}))`;
+  const appButtons = `[...document.querySelectorAll("#app button")].map((b) => b.textContent).join(",")`;
+  const resolveLabels = ["Rescue", "Discard", "Apply", "Branch", "Drop"];
+
+  // Read-only: no resolve control in the rows or the viewer.
+  const readOnlyPage = await openPage(readOnlyUrl);
+  const readOnly = readOnlyPage.cdp;
+  await waitFor(readOnly, `document.querySelectorAll("#projects-table tbody tr").length >= 7`, "read-only rows");
+  await waitFor(readOnly, `${rowOf(SANDBOX.parked)}.textContent.includes("parked")`, "read-only parked row");
+  check(
+    (await readOnly.evaluate(
+      `[...document.querySelectorAll("#projects-table button")].some((b) => ${JSON.stringify(resolveLabels)}.includes(b.textContent))`,
+    )) === false,
+    "read-only rows show no resolve action",
+  );
+  await clickButton(readOnly, "Review patch");
+  await waitFor(readOnly, `document.querySelectorAll("#patch-view .patch-line").length > 0`, "read-only patch");
+  check((await readOnly.evaluate(appButtons)) === "← Projects", "the read-only viewer has no Apply, Branch, or Drop");
+  await closePage(readOnlyPage.id, readOnly);
+
+  const page = await openPage(mainUrl);
+  const cdp = page.cdp;
+  await waitFor(cdp, `document.querySelectorAll("#projects-table tbody tr").length >= 7`, "rows");
+
+  // Busy: a fresh quick status reports the cc project busy.
+  await clickButton(cdp, "Check host changes");
+  await waitFor(cdp, `${rowOf(SANDBOX.noKind)}.textContent.includes("a session is running")`, "busy row", 8000);
+  check(
+    (await cdp.evaluate(`(() => {
+      const buttons = [...${rowOf(SANDBOX.noKind)}.querySelectorAll("button")].filter((b) => ["Rescue", "Discard"].includes(b.textContent));
+      return buttons.length === 2 && buttons.every((b) => b.disabled);
+    })()`)) === true,
+    "a busy row's actions are disabled and the row says a session is running",
+  );
+
+  // Rescue: the outcome names the folder, the row stays parked, markup stays text.
+  await cdp.evaluate(`[...${rowOf(SANDBOX.parked)}.querySelectorAll("button")].find((b) => b.textContent === "Rescue").click()`);
+  await waitFor(cdp, `${rowOf(SANDBOX.parked)}.textContent.includes("Rescue done.")`, "rescue outcome");
+  check(
+    (await cdp.evaluate(`(() => {
+      const row = ${rowOf(SANDBOX.parked)};
+      return row.textContent.includes(${JSON.stringify(rescueDir)}) && row.querySelector(".badge-parked") !== null;
+    })()`)) === true,
+    "Rescue shows the rescue folder and the row stays parked",
+  );
+  check(
+    (await cdp.evaluate(`${rowOf(SANDBOX.parked)}.textContent.includes(${JSON.stringify(xssMessage)})`)) === true &&
+      (await cdp.evaluate(`document.querySelectorAll("#app img").length`)) === 0,
+    "markup in an outcome message renders as text",
+  );
+  check(
+    JSON.stringify(resolveCalls()) === JSON.stringify([["resolve", SANDBOX.parked, "rescue", "--json"]]),
+    "Rescue ran exactly osa resolve <sandbox> rescue --json",
+  );
+
+  // Review patch: Drop without the typed name sends nothing.
+  await cdp.evaluate(`[...${rowOf(SANDBOX.retained)}.querySelectorAll("button")].find((b) => b.textContent === "Review patch").click()`);
+  await waitFor(cdp, `document.querySelectorAll("#patch-view .patch-line").length > 0`, "patch for resolve");
+  await clickButton(cdp, "Drop");
+  await waitFor(cdp, `document.querySelector("#patch-actions input[data-confirm-key]") !== null`, "drop confirmation");
+  await cdp.evaluate(`(() => {
+    const input = document.querySelector("#patch-actions input[data-confirm-key]");
+    input.value = "mk-app";
+    input.dispatchEvent(new Event("input"));
+    const confirm = [...document.querySelectorAll("#patch-actions button")].find((b) => b.textContent === "Confirm drop");
+    confirm.click();
+    // Even a re-enabled button checks the typed name before sending.
+    confirm.disabled = false;
+    confirm.click();
+    return true;
+  })()`);
+  await Bun.sleep(500);
+  check(
+    !resolveCalls().some((args) => args[2] === "drop"),
+    "Drop without the exact typed sandbox name sends nothing",
+  );
+  await clickButton(cdp, "Cancel");
+
+  // Apply lists the touched files; a refusing Apply shows nothing changed.
+  await clickButton(cdp, "Apply");
+  await waitFor(cdp, `document.getElementById("apply-files") !== null`, "apply file list");
+  check(
+    (await cdp.evaluate(`[...document.querySelectorAll("#apply-files li")].map((li) => li.textContent).join(",")`)) ===
+      "base.txt",
+    "Apply lists the files the patch touches before it runs",
+  );
+  check(!resolveCalls().some((args) => args[2] === "apply"), "opening Apply sends nothing");
+  await clickButton(cdp, "Confirm apply");
+  await waitFor(cdp, `document.getElementById("patch-actions").textContent.includes("nothing changed")`, "refusal");
+  check(
+    (await cdp.evaluate(`document.getElementById("patch-actions").textContent.includes("Try branch")`)) === true &&
+      (await cdp.evaluate(appButtons)).toString().includes("Apply"),
+    "a refused Apply says nothing changed, shows osa's message, and keeps the actions",
+  );
+
+  // A successful Apply shows the files and clears the retained badge.
+  setAnswers({
+    [SANDBOX.retained]: {
+      apply: {
+        changed: ["base.txt"],
+        message: "Applied the retained patch to the working tree.",
+        remove: [retainedMarker],
+      },
+    },
+  });
+  await clickButton(cdp, "Apply");
+  await waitFor(cdp, `document.getElementById("apply-files") !== null`, "apply file list again");
+  await clickButton(cdp, "Confirm apply");
+  await waitFor(cdp, `document.getElementById("patch-actions").textContent.includes("Apply done.")`, "apply outcome");
+  check(
+    (await cdp.evaluate(`[...document.querySelectorAll("#patch-actions .resolve-outcome li")].map((li) => li.textContent).join(",")`)) ===
+      "base.txt",
+    "the Apply outcome lists the changed files",
+  );
+  await waitFor(cdp, `${appButtons} === "← Projects"`, "actions gone after apply", 3000);
+  check(true, "the viewer drops its actions once the patch is resolved");
+  await clickButton(cdp, "← Projects");
+  await waitFor(cdp, `${rowOf(SANDBOX.retained)} !== undefined`, "projects after apply");
+  check(
+    (await cdp.evaluate(`${rowOf(SANDBOX.retained)}.querySelector(".badge-retained") === null`)) === true,
+    "the retained badge clears without waiting for the poll",
+  );
+  check(
+    JSON.stringify(resolveCalls().filter((args) => args[2] === "apply")) ===
+      JSON.stringify([
+        ["resolve", SANDBOX.retained, "apply", "--json"],
+        ["resolve", SANDBOX.retained, "apply", "--json"],
+      ]),
+    "each Apply ran exactly osa resolve <sandbox> apply --json",
+  );
+  await closePage(page.id, cdp);
 }
 
 try {

@@ -54,7 +54,8 @@ introduced.
 - `agent-onboarding`: the "Agent page names its path" scenario names the
   OpenCode playbook and reference instead of the flat page.
 - `host-setup`: the per-agent host-steps requirement names the OpenCode
-  playbook and reference as the pages that own OpenCode-specific steps.
+  playbook as the page that owns OpenCode-specific steps; the reference is not
+  a step owner.
 
 ## Impact
 

@@ -104,10 +104,10 @@ Agent-specific host steps SHALL live in the page for that agent.
 `docs/ai/host-playbook.md` MUST NOT contain an agent CLI install or version
 check, an agent image build, a provider wizard or profile command, an
 agent-specific shell integration command, or a daily-driver loop for any agent.
-`docs/ai/playbooks/maki.md`, `docs/ai/playbooks/opencode.md`,
-`docs/ai/reference/opencode.md`, and `docs/claude-oss.md` SHALL own those steps
-for Maki, OpenCode, and Claude Code respectively, and MAY link
-`docs/helper.md` for behavior shared by the helpers.
+`docs/ai/playbooks/maki.md`, `docs/ai/playbooks/opencode.md`, and
+`docs/claude-oss.md` SHALL own those steps for Maki, OpenCode, and Claude Code
+respectively, and MAY link `docs/helper.md` for behavior shared by the
+helpers.
 
 #### Scenario: Maki CLI install and version are in the Maki playbook
 

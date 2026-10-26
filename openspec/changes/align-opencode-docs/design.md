@@ -142,8 +142,9 @@ index, not a separate procedure.
 
 The change modifies the `opencode-oss` allowlist and cross-subproject
 scenario, the `agent-onboarding` agent-page scenario, and the `host-setup`
-per-agent page list. The `host-setup` delta is only a path correction: its
-requirement currently names `docs/opencode-oss.md` as an agent page.
+per-agent page list. The `host-setup` delta is a path-and-ownership
+correction: it names `docs/ai/playbooks/opencode.md` as the OpenCode owner and
+removes the reference from the owner list.
 
 - **Why:** a current spec that names a removed path is stale even if the docs
   are right; the acceptance grep includes `openspec/specs`.

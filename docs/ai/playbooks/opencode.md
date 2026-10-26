@@ -238,8 +238,10 @@ openshell sandbox create --name "$SANDBOX" \
 Without a project, omit `--upload` and set `WORKDIR=/sandbox/project`.
 
 The helper names its sandbox `oc-<project>-<hash>`; the raw example uses
-`opencode`. A provider must be attached when the sandbox is created; a
-missing provider rule later means the attachment failed.
+`opencode`. A provider is normally attached at creation; if it is missing,
+`opencode-oss provider attach` can attach it later. A missing provider rule in
+the effective policy means the attachment failed; the command is in
+[`docs/helper.md`](../../helper.md#provider-add--attach--list).
 
 ### Verify
 

@@ -9,11 +9,15 @@ export interface SandboxSpec {
   providers: string[];
 }
 
+// Every maki-oss call: oskhs owns the workspace (no session sync, registry,
+// or parking in the helper core) and the warm sandbox's lifecycle (B2).
+export const CALLER_ENV: Readonly<Record<string, string>> = { MAKI_OSS_WORKSPACE: "caller", MAKI_OSS_IDLE_STOP: "0" };
+
 export async function ensureSandbox(ctx: Ctx, spec: SandboxSpec, waitMs = 120_000): Promise<void> {
   let phase = await sandboxPhase(ctx, spec.sandbox);
   if (phase !== "Ready") {
     ctx.log(phase ? `starting sandbox ${spec.sandbox} (phase ${phase})` : `creating sandbox ${spec.sandbox}`);
-    const env: Record<string, string> = { MAKI_OSS_SANDBOX_NAME: spec.sandbox };
+    const env: Record<string, string> = { ...CALLER_ENV, MAKI_OSS_SANDBOX_NAME: spec.sandbox };
     if (spec.providers.length) env.MAKI_OSS_PROVIDERS = spec.providers.join(",");
     if (ctx.gateway) env.MAKI_OSS_GATEWAY = ctx.gateway;
     // `up` never uploads a project directory (explore finding 1)

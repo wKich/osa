@@ -42,7 +42,13 @@ ERR=
 
 begin() { CURRENT=$1; }
 
+# RUN_ONLY=<glob> runs only the test functions whose name matches it.
 run_test() {
+    # shellcheck disable=SC2254  # RUN_ONLY is a glob on purpose
+    case $1 in
+        ${RUN_ONLY:-*}) ;;
+        *) return 0 ;;
+    esac
     before_fail=$FAIL
     before_skip=$SKIP
     "$1"
@@ -90,6 +96,10 @@ new_case() {
     OC_NAME_PIN='oc-{project}'
     ENV_TIMEOUT=
     unset ENV_IDLE_STOP
+    # Caller-owned workspace cases set these; unset ENV_WORKDIR keeps the
+    # case's sandbox/project, an empty one passes no workdir.
+    ENV_WORKSPACE=
+    unset ENV_WORKDIR
     ENV_RUN_TAG=
     ENV_IMAGE=
     ENV_POLICY=
@@ -159,7 +169,8 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         MAKI_OSS_TIMEOUT="${ENV_TIMEOUT:-}" \
         MAKI_OSS_IDLE_STOP="${ENV_IDLE_STOP-0}" \
         MAKI_OSS_RUN_TAG="${ENV_RUN_TAG:-}" \
-        MAKI_OSS_WORKDIR="$CASE/sandbox/project" \
+        MAKI_OSS_WORKDIR="${ENV_WORKDIR-$CASE/sandbox/project}" \
+        MAKI_OSS_WORKSPACE="${ENV_WORKSPACE:-}" \
         STUB_SANDBOX_ROOT="$CASE/sandbox" \
         STUB_MAKI_SCRIPT="${STUB_MAKI_SCRIPT:-}" \
         STUB_EXEC_SCRIPT_FAIL="${STUB_EXEC_SCRIPT_FAIL:-}" \
@@ -7605,6 +7616,151 @@ test_resolve_recovery_text() {
     done
 }
 
+# ---------------------------------------------------------------------------
+# Caller-owned workspace mode (MAKI_OSS_WORKSPACE=caller): oskhs drives the
+# helper from a fresh directory per round against a workspace it owns.
+# ---------------------------------------------------------------------------
+
+# A caller-mode case: sandbox repo-app, one task workspace per run, each run
+# from its own empty directory.
+caller_case() { # NAME
+    new_case "$1"
+    ENV_WORKSPACE=caller
+    ENV_NAME=repo-app
+    NAME_PIN=
+    # oskhs always names its providers.
+    ENV_PROVIDERS=maki-stub
+    PROVIDER_NAMES=maki-stub
+    mkdir -p "$CASE/sandbox/tasks/t1" "$CASE/sandbox/tasks/t2" "$CASE/cwd1" "$CASE/cwd2" "$CASE/cwd3"
+}
+
+assert_no_session_state() { # SANDBOX
+    for anss_file in pending synced baseline; do
+        if [ -e "$(session_dir "$1")/$anss_file" ]; then
+            bad "session state '$anss_file' written for $1"
+        fi
+    done
+    if [ -e "$(registry_entry "$1")" ]; then
+        bad "registry entry written for $1: $(cat "$(registry_entry "$1")")"
+    fi
+}
+
+test_caller_consecutive_runs() {
+    begin "caller mode: up and two runs from different directories all reach the agent"
+    caller_case caller-runs
+    RUN_DIR=$CASE/cwd1
+    run_maki up
+    assert_rc 0
+    RUN_DIR=$CASE/cwd2
+    ENV_WORKDIR=$CASE/sandbox/tasks/t1
+    run_maki run "q1"
+    assert_rc 0
+    assert_out_has "stub-exec-output"
+    RUN_DIR=$CASE/cwd3
+    ENV_WORKDIR=$CASE/sandbox/tasks/t2
+    run_maki run --no-sync "q2"
+    assert_rc 0
+    assert_out_has "stub-exec-output"
+    assert_log_missing "maki-oss-git"
+    assert_log_missing "upload"
+    assert_no_session_state repo-app
+}
+
+test_caller_parked_marker_ignored() {
+    begin "caller mode: a parked marker neither blocks the run nor changes"
+    caller_case caller-parked
+    seed_sandbox repo-app Ready
+    attach_stub_provider repo-app maki-stub
+    mkdir -p "$(session_dir repo-app)"
+    printf 'kind = "parked"\nsandbox = "repo-app"\nsandbox_id = "id-repo-app"\nreason = "no-sync"\n' \
+        >"$(session_dir repo-app)/pending"
+    cp "$(session_dir repo-app)/pending" "$CASE/pending.before"
+    RUN_DIR=$CASE/cwd1
+    ENV_WORKDIR=$CASE/sandbox/tasks/t1
+    run_maki run "q"
+    assert_rc 0
+    assert_out_has "stub-exec-output"
+    cmp -s "$CASE/pending.before" "$(session_dir repo-app)/pending" \
+        || bad "the parked marker changed"
+}
+
+test_caller_up_no_upload() {
+    begin "caller mode: creating the sandbox uploads nothing"
+    caller_case caller-up
+    RUN_DIR=$CASE/cwd1
+    printf 'not for the sandbox\n' >"$RUN_DIR/file.txt"
+    run_maki up
+    assert_rc 0
+    assert_log_has "create"
+    assert_log_missing "upload"
+    assert_no_session_state repo-app
+}
+
+test_caller_requires_name_and_workdir() {
+    begin "caller mode: a missing name, a name pattern, or a missing workdir is a usage error"
+    caller_case caller-explicit
+    RUN_DIR=$CASE/cwd1
+    ENV_NAME=
+    run_maki run "q"
+    assert_rc 1
+    assert_err_has "MAKI_OSS_SANDBOX_NAME"
+    [ -s "$LOG" ] && bad "gateway was contacted: $(cat "$LOG")"
+    ENV_NAME='repo-{project}'
+    run_maki up
+    assert_rc 1
+    assert_err_has "MAKI_OSS_SANDBOX_NAME"
+    [ -s "$LOG" ] && bad "gateway was contacted: $(cat "$LOG")"
+    ENV_NAME=repo-app
+    ENV_WORKDIR=
+    run_maki run "q"
+    assert_rc 1
+    assert_err_has "MAKI_OSS_WORKDIR"
+    [ -s "$LOG" ] && bad "gateway was contacted: $(cat "$LOG")"
+    return 0
+}
+
+test_caller_no_policy_advisor() {
+    begin "caller mode: the policy advisor stays off"
+    caller_case caller-advisor
+    seed_sandbox repo-app Ready
+    attach_stub_provider repo-app maki-stub
+    RUN_DIR=$CASE/cwd1
+    ENV_WORKDIR=$CASE/sandbox/tasks/t1
+    run_maki run "q"
+    assert_rc 0
+    assert_log_missing "agent_policy_proposals_enabled"
+}
+
+test_caller_run_wrapper() {
+    begin "caller mode: the timeout wrapper and caller run tag are unchanged"
+    caller_case caller-wrapper
+    seed_sandbox repo-app Ready
+    attach_stub_provider repo-app maki-stub
+    RUN_DIR=$CASE/cwd1
+    ENV_WORKDIR=$CASE/sandbox/tasks/t1
+    ENV_TIMEOUT=30
+    ENV_RUN_TAG=oskhs-t1
+    run_maki run "q"
+    assert_rc 0
+    assert_log_has "maki-oss-run"
+    assert_log_has "oskhs-t1"
+    assert_log_has "$CASE/sandbox/tasks/t1"
+}
+
+test_caller_invalid_mode() {
+    begin "an unknown workspace mode is a usage error before any gateway call"
+    caller_case caller-invalid
+    ENV_WORKSPACE=shared
+    RUN_DIR=$CASE/cwd1
+    ENV_WORKDIR=$CASE/sandbox/tasks/t1
+    run_maki run "q"
+    assert_rc 1
+    assert_err_has "managed"
+    assert_err_has "caller"
+    [ -s "$LOG" ] && bad "gateway was contacted: $(cat "$LOG")"
+    return 0
+}
+
 run_test test_flat_get_helper
 run_test test_shared_state_root
 run_test test_old_state_root_ignored
@@ -7717,6 +7873,13 @@ run_test test_session_unknown_gateway_provider
 run_test test_run_bootstraps_from_scratch
 run_test test_session_model_precedence
 run_test test_session_no_sync
+run_test test_caller_consecutive_runs
+run_test test_caller_parked_marker_ignored
+run_test test_caller_up_no_upload
+run_test test_caller_requires_name_and_workdir
+run_test test_caller_no_policy_advisor
+run_test test_caller_run_wrapper
+run_test test_caller_invalid_mode
 run_test test_session_sync_failure_preserves_code
 run_test test_session_plain_apply
 run_test test_session_plain_conflict_keeps_project

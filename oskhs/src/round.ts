@@ -10,7 +10,7 @@ import { tail } from "./exec.ts";
 import { repoDir, workspacePath, worktreePath } from "./names.ts";
 import { sandboxSh, type Ctx } from "./openshell.ts";
 import { interpretRun, StageError, type RoundResult } from "./result.ts";
-import { ensureSandbox } from "./sandbox.ts";
+import { CALLER_ENV, ensureSandbox } from "./sandbox.ts";
 import { syncRefs, type SyncStats } from "./sync.ts";
 import { collectChanges, type Changes } from "./collect.ts";
 
@@ -100,16 +100,15 @@ export async function removeWorkspace(ctx: Ctx, sandbox: string, taskId: string,
 }
 
 export async function runMaki(ctx: Ctx, spec: RoundSpec, workdir: string): Promise<RoundResult> {
-  const argv = [ctx.makiOss, "run", "--no-sync", "--timeout", String(spec.timeoutSec)];
+  const argv = [ctx.makiOss, "run", "--timeout", String(spec.timeoutSec)];
   if (spec.model) argv.push("--model", spec.model);
   argv.push("--", spec.prompt);
   const tag = runTag(spec.taskId);
-  const env: Record<string, string> = { MAKI_OSS_SANDBOX_NAME: spec.sandbox, MAKI_OSS_WORKDIR: workdir, MAKI_OSS_RUN_TAG: tag };
+  const env: Record<string, string> = { ...CALLER_ENV, MAKI_OSS_SANDBOX_NAME: spec.sandbox, MAKI_OSS_WORKDIR: workdir, MAKI_OSS_RUN_TAG: tag };
   if (spec.providers.length) env.MAKI_OSS_PROVIDERS = spec.providers.join(",");
   if (ctx.gateway) env.MAKI_OSS_GATEWAY = ctx.gateway;
-  // An empty cwd: if the sandbox vanished mid-round, maki-oss would recreate
-  // it and upload its cwd — an empty directory fails that upload instead of
-  // shipping whatever directory oskhs happens to run in.
+  // An empty cwd: caller mode never uploads it, and if that ever regressed,
+  // an empty directory would ship nothing instead of oskhs's own cwd.
   const cwd = await mkdtemp(join(tmpdir(), "oskhs-run-"));
   // Killing the exec client leaves Maki running in the sandbox (OpenShell
   // 0.1.5), so an abort asks the wrapper to stop it; the client then returns.

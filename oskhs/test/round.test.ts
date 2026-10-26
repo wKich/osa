@@ -24,6 +24,22 @@ describe("names", () => {
     expect(projectName("/x/fx/")).toBe("fx");
     expect(sandboxName("fx")).toBe("repo-fx");
   });
+  test("sandbox names fit OpenShell's 19 characters", () => {
+    expect(sandboxName("kiss-agent")).toBe("repo-kiss-agent");
+    expect(sandboxName("abcdefghijklmn")).toBe("repo-abcdefghijklmn");
+    const fitted = sandboxName("ascii-minecraft");
+    expect(fitted).toMatch(/^repo-ascii-min-[0-9a-f]{4}$/);
+    expect(fitted.length).toBe(19);
+    expect(sandboxName("ascii-minecraft")).toBe(fitted); // stable
+    const back = sandboxName(projectName("/x/Kontur Conveyor Backend"));
+    const front = sandboxName(projectName("/x/Kontur Conveyor Frontend"));
+    for (const name of [back, front]) {
+      expect(name.length).toBeLessThanOrEqual(19);
+      expect(name).toMatch(/^repo-kontur-co[a-z0-9-]*[a-z0-9]$/);
+    }
+    expect(back).not.toBe(front);
+    expect(sandboxName("abcd-----efghijklmnop")).toMatch(/^repo-abcd-[0-9a-f]{4}$/); // no doubled hyphen
+  });
   test("task ids are path-safe", () => {
     expect(newTaskId(1700000000000)).toMatch(/^t1700000000000-[0-9a-f]{4}$/);
     expect(worktreePath("t1", "fx")).toBe("/sandbox/tasks/t1/fx");
@@ -43,7 +59,12 @@ describe("sandbox", () => {
     const up = index(calls, isUp);
     expect(up).toBeGreaterThanOrEqual(0);
     expect(up).toBeLessThan(index(calls, scriptHas("git init -q --bare")));
-    expect(calls[up]!.opts.env).toMatchObject({ MAKI_OSS_SANDBOX_NAME: "repo-fx", MAKI_OSS_PROVIDERS: "maki-synthetic" });
+    expect(calls[up]!.opts.env).toMatchObject({
+      MAKI_OSS_SANDBOX_NAME: "repo-fx",
+      MAKI_OSS_PROVIDERS: "maki-synthetic",
+      MAKI_OSS_WORKSPACE: "caller",
+      MAKI_OSS_IDLE_STOP: "0",
+    });
   });
 
   test("no call carries --env", async () => {
@@ -54,12 +75,17 @@ describe("sandbox", () => {
 });
 
 describe("round", () => {
-  test("maki-oss run gets the worktree, sandbox, timeout, and no-sync", async () => {
+  test("maki-oss run gets the worktree, sandbox, timeout, and caller mode", async () => {
     const { ctx, calls } = fakeCtx({ phase: "Ready" });
     await runRound(ctx, spec({ model: "synthetic/m" }));
     const run = calls[index(calls, isRun)]!;
-    expect(run.argv).toEqual(["maki-oss", "run", "--no-sync", "--timeout", "60", "--model", "synthetic/m", "--", "What is the secret word?"]);
-    expect(run.opts.env).toMatchObject({ MAKI_OSS_SANDBOX_NAME: "repo-fx", MAKI_OSS_WORKDIR: "/sandbox/tasks/t1" });
+    expect(run.argv).toEqual(["maki-oss", "run", "--timeout", "60", "--model", "synthetic/m", "--", "What is the secret word?"]);
+    expect(run.opts.env).toMatchObject({
+      MAKI_OSS_SANDBOX_NAME: "repo-fx",
+      MAKI_OSS_WORKDIR: "/sandbox/tasks/t1",
+      MAKI_OSS_WORKSPACE: "caller",
+      MAKI_OSS_IDLE_STOP: "0",
+    });
     expect(run.opts.timeoutMs).toBe(90_000);
     const add = calls[index(calls, scriptHas("worktree add"))]!.argv;
     expect(add.slice(-4)).toEqual(["/sandbox/repos/fx", "/sandbox/tasks/t1/fx", "main", "t1"]);

@@ -15,7 +15,16 @@ sandbox.
 
 Each project gets one long-lived sandbox, `repo-<project>` (project = the
 kiss project title, or for `run-round` the repo directory's basename,
-lowercased, `[a-z0-9-]` only). A repository's `<subdir>` follows kiss:
+lowercased, `[a-z0-9-]` only). OpenShell allows 19 characters, so a project
+longer than 14 keeps its first 9 characters plus `-` and four hex
+characters of a hash of the whole name (`ascii-minecraft` →
+`repo-ascii-min-xxxx`); the project's provider, `oskhs-<project>`, uses the
+same fitted part. oskhs drives `maki-oss` in caller-owned workspace mode
+(`MAKI_OSS_WORKSPACE=caller`, [helper reference](helper.md#caller-owned-workspace-maki_oss_workspacecaller))
+with the idle stop off (`MAKI_OSS_IDLE_STOP=0`): the helper keeps no
+session sync, registry entry, or parked marker for these sandboxes, and
+does not stop them when idle — their lifecycle is oskhs's (B2). A
+repository's `<subdir>` follows kiss:
 `worktreeSubdir`, else the project path with `/` → `_`. Inside it:
 
 | Path | What |
@@ -108,8 +117,8 @@ worktree's changes), `--provider NAME` (repeatable; replaces `OSKHS_PROVIDERS`),
 `--task-id ID`. `OPENSHELL_BIN` and `MAKI_OSS_BIN` override the CLIs used.
 
 A round syncs, adds `/sandbox/tasks/<task-id>` from `origin/<base>`, runs
-`maki-oss run --no-sync --timeout SECS` with `MAKI_OSS_SANDBOX_NAME` and
-`MAKI_OSS_WORKDIR` pointing at the sandbox and worktree, and removes the
+`maki-oss run --timeout SECS` in caller mode with `MAKI_OSS_SANDBOX_NAME` and
+`MAKI_OSS_WORKDIR` pointing at the sandbox and workspace, and removes the
 worktree afterwards, also after a failure. The time limit is enforced inside
 the sandbox ([helper reference](helper.md#run)): Maki and every tool process
 it started end there.
@@ -301,7 +310,9 @@ cancel and kill checks).
 argv shape, and a local-sandbox runner that executes the in-sandbox git
 scripts with real git against a temp directory, so sync semantics (deltas,
 prunes, rewinds, untrusted tips, the full-bundle fallback) are tested
-without a gateway. `oskhs/test/make-fixture.sh DIR` builds the two-branch fixture the
+without a gateway. `core.test.ts` runs oskhs's `up` and `run` calls through
+the real `bin/maki-oss` against the stub `openshell`, so a helper-core change
+that would block a later round fails here. `oskhs/test/make-fixture.sh DIR` builds the two-branch fixture the
 live checks use, and `oskhs/test/live/devstand.ts` writes kiss-shaped tasks,
 cancels, and follow-ups into the kiss local stack. `kiss-contract.test.ts`
 validates every document the worker writes against kiss's own mongoose

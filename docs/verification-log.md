@@ -308,7 +308,8 @@ no parser change was needed.
 
 ### Isolation checklist against v0.1.5
 
-Run with a sandbox created as `docs/verification.md` describes, substituting the
+Run with a sandbox created as the isolation checklist (now
+`docs/ai/verification/maki.md`) describes, substituting the
 curated DeepSeek profile for the Anthropic example (`maki-deepseek` is the
 provider available on this gateway; the policy shape is identical):
 
@@ -680,8 +681,9 @@ client-authentication mismatch recorded above.
 
 ## Setup-guide dry run
 
-Run of [`docs/setup-guide.md`](setup-guide.md) and
-[`docs/verification.md`](verification.md), recorded on 2026-10-05.
+Run of [`docs/setup-guide.md`](setup-guide.md) and the isolation checklist now
+at [`docs/ai/verification/maki.md`](ai/verification/maki.md), recorded on
+2026-10-05.
 
 ### Environment
 

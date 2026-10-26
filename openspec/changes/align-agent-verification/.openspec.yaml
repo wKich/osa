@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-26
+goal: Extract per-agent verification records into contract-shaped pages and fix
+  every current reference to docs/verification.md

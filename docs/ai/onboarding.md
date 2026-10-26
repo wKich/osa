@@ -87,7 +87,7 @@ agent columns name the command or page for that front-end.
 | P3 Image | The agent image builds and reports the pinned agent version. | `maki-oss image build` (`maki-agent:local`); verify with `maki --version`; [agent playbook](playbooks/maki.md) Phase 1. | `opencode-oss image build` (`opencode-agent:local`); verify with `opencode --version`; [OpenCode playbook](playbooks/opencode.md) Phase 1. | `claude-oss image build` (`claude-agent:local`); verify with `claude --version`; [Claude playbook](playbooks/claude.md) Phase 1. |
 | P4 Provider | The provider profile is imported and the provider is created. | `maki-oss provider setup`; [agent playbook](playbooks/maki.md) Phase 2. | `opencode-oss provider setup`; [OpenCode playbook](playbooks/opencode.md) Phase 2. | `claude-oss provider setup`; create a subscription token on the host only when needed; [Claude playbook](playbooks/claude.md) Phase 2. |
 | P5 Sandbox | The sandbox reaches `Ready` with the chosen policy and provider. | `maki-oss up`; [agent playbook](playbooks/maki.md) Phases 3-4. | `opencode-oss up`; [OpenCode playbook](playbooks/opencode.md) Phases 3-4. | `claude-oss up`; [Claude playbook](playbooks/claude.md) Phases 3-4. |
-| P6 Verify | Every isolation check reports its expected result. | `maki-oss mcp status` and [verification](../verification.md); [agent playbook](playbooks/maki.md) Phase 5. | `opencode-oss mcp status` and [verification](../verification.md); [OpenCode playbook](playbooks/opencode.md) Phase 5; [verification record](../../opencode-oss/README.md#verification-record). | `claude-oss mcp status` and [verification](../verification.md); [Claude playbook](playbooks/claude.md) Phase 5; [verification record](../../claude-oss/README.md#verification-record). |
+| P6 Verify | Every isolation check reports its expected result. | `maki-oss mcp status` and [verification](verification/maki.md); [agent playbook](playbooks/maki.md) Phase 5. | `opencode-oss mcp status` and [verification](verification/opencode.md); [OpenCode playbook](playbooks/opencode.md) Phase 5. | `claude-oss mcp status` and [verification](verification/claude.md); [Claude playbook](playbooks/claude.md) Phase 5. |
 | P7 Run | The smoke test and the real task complete through the sandbox. | `maki-oss` or `maki-oss run "<task>"`; [agent playbook](playbooks/maki.md) Phase 6. | `opencode-oss` or `opencode-oss run "<task>"`; [OpenCode playbook](playbooks/opencode.md) Phase 6. | `claude-oss` or `claude-oss run "<task>"`; [Claude playbook](playbooks/claude.md) Phase 6. |
 | P8 Report | Results are collected, the sandbox is cleaned up, and the user has a summary. | Collect the patch, then `maki-oss status`; [agent playbook](playbooks/maki.md) Phase 7. | Collect the patch, then `opencode-oss status`; [OpenCode playbook](playbooks/opencode.md) Phase 7. | Collect the patch, then `claude-oss status`; [Claude playbook](playbooks/claude.md) Phase 7. |
 
@@ -286,7 +286,12 @@ These are the same rules as `AGENTS.md`; restate them, never relax them.
   path, P3-P8.
 - [`docs/ai/reference/claude.md`](reference/claude.md) — Claude Code
   configuration, credentials, profiles, sessions, MCP, and store shape.
-- [`docs/verification.md`](../verification.md) — the isolation checklist.
+- [`docs/ai/verification/maki.md`](verification/maki.md) — the Maki isolation
+  checklist.
+- [`docs/ai/verification/opencode.md`](verification/opencode.md) — the OpenCode
+  verification record.
+- [`docs/ai/verification/claude.md`](verification/claude.md) — the Claude Code
+  verification record.
 - [`docs/helper.md`](../helper.md) — shared helper commands and sync states.
 - [`docs/providers.md`](../providers.md) — provider profiles and setup.
 - [`docs/migrating-providers.md`](../migrating-providers.md) — provider

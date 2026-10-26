@@ -7,8 +7,8 @@
 | Agent | `Maki` |
 | Covers | `P0-P8` |
 | Preconditions | `docs/ai/host-playbook.md` `P0-P2` |
-| Handoff | `docs/verification.md` |
-| Verification | `docs/verification.md` |
+| Handoff | `docs/ai/verification/maki.md` |
+| Verification | `docs/ai/verification/maki.md` |
 | Reference | `docs/ai/reference/maki.md` |
 | Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
 
@@ -323,12 +323,14 @@ rule. Report both outputs; do not attach a broader policy to fix it.
 
 ### Run
 
-Execute every check in `docs/verification.md` and record each command and
-output.
+Execute every check in [`docs/ai/verification/maki.md`](../verification/maki.md)
+and record each command and output.
 
 ### Verify
 
-Expected: every check in `docs/verification.md` reports its stated result.
+Expected: every check in
+[`docs/ai/verification/maki.md`](../verification/maki.md) reports its stated
+result.
 
 ### Stop if
 
@@ -504,8 +506,8 @@ action; do not start a new sandbox to fix a report.
   profiles, MCP, and store shape.
 - [`docs/ai/environment-playbook.md`](../environment-playbook.md) — personal
   runtimes, MCP servers, and preferences on top of the base image.
-- [`docs/verification.md`](../../verification.md) — isolation checklist used by
-  Phase 5.
+- [`docs/ai/verification/maki.md`](../verification/maki.md) — isolation
+  checklist used by Phase 5.
 - [`docs/helper.md`](../../helper.md) — `maki-oss` command reference and the
   helper shortcut.
 - [`docs/ai/references.md`](../references.md) — upstream documentation index.

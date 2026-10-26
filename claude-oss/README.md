@@ -184,33 +184,11 @@ openshell sandbox delete claude
 
 ## Verification record
 
-Claude Code 2.1.308, OpenShell 0.1.5, Docker 29.4.0 on arm64 (macOS host),
-2026-10-26.
+The canonical record is
+[`docs/ai/verification/claude.md`](../docs/ai/verification/claude.md), run on
+2026-10-26 with Claude Code 2.1.308, OpenShell 0.1.5, and Docker 29.4.0 on
+arm64 (macOS host).
 
-| Check | Command | Observed |
-|---|---|---|
-| Version pinned | `docker run --rm claude-agent:local claude --version` | `2.1.308 (Claude Code)` |
-| Checksum enforced | `docker build --build-arg CLAUDE_VERSION=2.1.307 claude-oss/image` | fails at `sha256sum -c`; no image tagged |
-| Sandbox user | `id` in the image | `uid=1500(sandbox) gid=1500(sandbox)` |
-| Agent-only | `command -v node bun rg` in the image | nothing found |
-| Guardrails immutable | `touch /etc/claude-code/managed-settings.json` as uid 1500 | `Permission denied` |
-| Profiles lint | `openshell profile lint --from claude-oss/providers` | `Provider profile lint passed.` |
-| Filesystem floor | writes to `/sandbox/x`, `/tmp/x`, `/etc/x` in a sandbox | ok, ok, fails |
-| Opaque stand-in | `printenv ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN \| cut -c1-9` | `openshell` (a placeholder, not the value) |
-| API key end to end | headless `reply OK` with only `claude-anthropic` | `"result":"OK"`, exit 0 |
-| Token end to end | headless `reply OK` with only `claude-anthropic-oauth` | `"result":"OK"`, exit 0 |
-| Deny under bypass | headless, asked to run `sudo -n true` and Write `/sandbox/.claude/spike.txt` | both in `permission_denials`; file not created |
-| Resume | `--resume <id>` after "Remember the word PELICAN" | `"result":"PELICAN"` |
-| TUI, token | `claude-oss` on a TTY | opens on the prompt (`Sonnet 5.5 · Claude API`), no onboarding, trust, or bypass screen |
-| TUI, API key | `claude-oss` on a TTY with `claude-anthropic` | opens on the prompt (`Sonnet 5.5 · API Usage Billing`), no API key prompt |
-| Without the seed | TUI in a sandbox with no `.claude.json` seed | onboarding probes `platform.claude.com`, is denied, exits "Unable to connect to Anthropic services" (why the seed exists) |
-| Egress | `openshell logs <sandbox>` after headless and TUI sessions | only `ALLOWED /usr/local/bin/claude -> api.anthropic.com:443` |
-| Helper run | `claude-oss run "reply OK"` | `"result":"OK"`, exit 0 |
-| Helper resume | `claude-oss run --resume <id> "What did you reply last time?"` | `"result":"OK"` |
-| Patch sync | `claude-oss run` editing `a.txt` and creating `b.txt` in a git project | `Applied sandbox changes to branch 'main'.`; commit `claude-oss: apply sandbox changes` |
-| Download | `claude-oss download /sandbox/project/b.txt ./dl/` | `new file` |
-| Precedence warning | `claude-oss doctor` with both providers attached | `warn  credentials: claude-anthropic and claude-anthropic-oauth are both attached …` |
-| MCP status | `claude-oss mcp status` with a host stdio server | `sandbox=missing … provider=missing`, fix lines name `claude-mcp-<name>` |
-| Registry | `osa projects` | `cc    cc-ccdemo-d443 …` |
-| Teardown | `claude-oss rm --yes` | sandbox deleted, state archived |
-| Search tools | init event `tools` | no Grep/Glob tool in 2.1.308; searches run through Bash `grep`, so the image needs no ripgrep |
+The page records the commands and observed results for the image, guardrails,
+both credential kinds, session isolation, the TUI, egress, the helper path,
+MCP status, and teardown.

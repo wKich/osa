@@ -75,4 +75,5 @@ are in `docs/ai/environment-playbook.md`; the worked example is
 - [`docs/providers.md`](../../providers.md) — the `maki-*` profile catalog.
 - [`docs/mcp-migration.md`](../../mcp-migration.md) — MCP definitions and status.
 - [`docs/ai/environment-playbook.md`](../environment-playbook.md) — the store.
-- [`docs/verification.md`](../../verification.md) — isolation checklist.
+- [`docs/ai/verification/maki.md`](../verification/maki.md) — isolation
+  checklist.

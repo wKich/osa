@@ -241,63 +241,13 @@ the store shape and the provider naming that `mcp status` checks.
 
 ## Verification record
 
-Run on 2026-10-25 with OpenCode 2.1.4, OpenShell 0.1.5, Docker 29.4.0
-(OrbStack), and an arm64 macOS host. The live checks used the
-`opencode-synthetic` profile and model `synthetic/hf:zai-org/GLM-5.3` in
-sandbox `opencode-verify`.
+The canonical record is
+[`docs/ai/verification/opencode.md`](../docs/ai/verification/opencode.md). The
+live checks ran on 2026-10-25 with OpenCode 2.1.4, OpenShell 0.1.5, Docker
+29.4.0 (OrbStack), and an arm64 macOS host; the helper checks ran on 2026-10-26
+with the same versions.
 
-| Check | Command (abridged) | Observed |
-|---|---|---|
-| Version pinned | `docker run --rm opencode-agent:local opencode --version` | `opencode v2.1.4` |
-| Integrity fails closed | `docker build --build-arg OPENCODE_SHA512_ARM64=abab… opencode-oss/image` | `/tmp/opencode.tgz: FAILED`, no image |
-| Sandbox user | `docker run --rm opencode-agent:local id` | `uid=1500(sandbox) gid=1500(sandbox)` |
-| Agent-only | `command -v node bun`; config `mcp`/`plugin` keys | none; config has neither |
-| No credential baked | `find /sandbox -type f` in the image | only `opencode.json` and shell dotfiles (no `auth.json`, no `service.json`) |
-| Offline catalog | `docker run --rm --network none -e <11 env vars>=dummy … opencode models --standalone` | exit 0 in ~1s; all 11 catalog providers listed; every `example-model` present |
-| Config accepted | `opencode models --standalone --print-logs --log-level debug` | no WARN/ERROR lines (an invalid test entry does produce a warning) |
-| Profiles lint | `openshell profile lint --from opencode-oss/providers` | `Provider profile lint passed.` (12 profiles) |
-| Profiles bind OpenCode only | `binaries` of all 12 profiles | exactly `/usr/local/bin/opencode` |
-| Profiles match Maki originals | YAML compare ignoring id/display_name/description/binaries | 12 same, 0 differ |
-| Catalog ↔ profiles | rows vs files; env var in profile; model in offline list | 12 rows, 12 profiles, OK |
-| Policy floor | `read_write`, Landlock, process fields | `/sandbox`, `/tmp`, `/dev/null`; `hard_requirement`; 1500/1500; no `network_policies` |
-| Sandbox Ready + effective policy | `openshell sandbox list`; `openshell policy get … --full` | Ready; one network policy: `api.synthetic.new:443` for `/usr/local/bin/opencode` |
-| Filesystem floor | `id`; write `/sandbox/project`, `/tmp`, `/usr`, `/etc` | uid 1500; ok, ok, denied, denied |
-| Credential stand-in | env var set and length only; hash compared with host key | set, length 60 (host key 36); hashes differ |
-| Egress denied | `curl -sS -m 10 https://example.com` | `Couldn't connect to server`; OCSF `DENIED /usr/bin/curl -> example.com:443` |
-| Headless run | `opencode run --standalone --auto --format json … "reply OK" </dev/null` | exit 0; JSON `text` event `OK`, about 11s |
-| Session continues | same with `--continue` | same `sessionID`; reply `AGAIN` |
-| Denies hold under `--auto` | prompt asking for `sudo -n true`, `opencode auth list`, an edit and a write under `/sandbox/.config/opencode/` | all four `Permission denied: shell`/`edit`; config sha256 unchanged |
-| Allowed tools still run | prompt asking to write `hello.txt` and `ls` | `write` and `shell` completed |
-| TUI attaches | `openshell sandbox exec --tty … opencode --standalone --auto`, driven through a PTY | renders; with the project `model` set, the prompt is answered (with the default free model: `ECONNREFUSED` retries, see §4) |
-| Explicit download | `openshell sandbox download opencode-verify /sandbox/project/hello.txt …` | `Download complete`; sha256 matches the sandbox copy |
-| Denied internal egress | `openshell logs … \| grep DENIED` during a run | only `models.opencode.ai:443` from `/usr/local/bin/opencode`; run not delayed |
-| No placeholder spelling | `grep -rF` for the prefix (built from fragments) over `opencode-oss/` | no matches |
-
-Profiles other than `opencode-synthetic` were linted and compared but not
-run live.
-
-### Helper (`bin/opencode-oss`)
-
-Run on 2026-10-26 with the same versions (OpenCode 2.1.4, OpenShell 0.1.5,
-Docker 29.4.0, arm64 macOS). The project was a scratch git repository
-`oc-live` with sandbox `opencode-oc-live`, using the existing
-`opencode-synthetic` provider and model `synthetic/hf:zai-org/GLM-5.3`.
-
-| Check | Command | Observed |
-|---|---|---|
-| Overlay merges with the baked config | `sandbox exec --env OPENCODE_CONFIG_CONTENT={"model":…} -- opencode debug config` (throwaway sandbox) | baked `/sandbox/.config/opencode/opencode.json` and the inline document listed as separate sources |
-| Denies hold under the overlay | `opencode run --standalone --auto` with only the overlay model, prompt asking for `sudo -n true` and a write to `/sandbox/.config/spike.txt` | `Permission denied: shell`, `Permission denied: edit`; file not created |
-| Fetch switch per exec | runs with and without `--env OPENCODE_DISABLE_MODELS_FETCH=1` | without: `DENIED /usr/local/bin/opencode -> models.opencode.ai:443`; with: no event |
-| `--session` semantics | `opencode run … --session ses_spike12a`, twice | first creates `ses_spike12a`, second resumes it (recalls the earlier word); a non-`ses` id exits 1 with a JSON `error` event |
-| Image build | `opencode-oss image build`; `docker run --rm opencode-agent:local opencode --version` | `Built image 'opencode-agent:local'.`; `opencode v2.1.4` |
-| Provider setup | `printf 'n\nsynthetic/hf:zai-org/GLM-5.3\n' \| OPENCODE_OSS_INTERACTIVE=1 opencode-oss provider setup --from opencode --credential synthetic` | curated `opencode-synthetic`, lint passed, profile already imported, existing provider kept (update declined), provider and model recorded in `~/.config/opencode-oss/config.toml`, `example model: synthetic/hf:zai-org/GLM-5.3` printed |
-| First run creates and uploads | `opencode-oss run "reply OK"` | exit 0; sandbox created, project uploaded; JSON `text` event `OK` |
-| Stdin closed | `sleep 90 \| opencode-oss run "reply OK"` | helper exit 0 after 4s, with its stdin still an open pipe |
-| Continue | `opencode-oss run --continue "…"` | same `sessionID`; reply `OK AGAIN` |
-| TUI on the configured model | bare `opencode-oss`, driven through a PTY | renders; footer `Build · GLM-5.3 Synthetic`; on exit `No sandbox changes to sync.` |
-| Change synced to a git project | `opencode-oss run "Create a file named agent.txt …"` | `Applied sandbox changes to branch 'main'.`; host commit `opencode-oss: apply sandbox changes` with `agent.txt`; tree clean |
-| No project file from the helper | `ls -a /sandbox/project` | `README.md`, `agent.txt` only (no `opencode.json`); sync state under `/sandbox/.opencode-oss` |
-| No catalog fetch from sessions | `openshell logs opencode-oc-live --since 1h \| grep models.opencode` | 0 lines across all sessions |
-| MCP status | `opencode-oss mcp status` (host enables `context7`, `synthetic`) | `context7: sandbox=missing …` with the `FROM opencode-agent:local` fix; disabled `wiki`/`figma` not listed; exit 3 |
-| Doctor | `opencode-oss doctor` | all `ok`, `ok    model: synthetic/hf:zai-org/GLM-5.3`, the same MCP table; exit 0 |
-| Delete needs confirmation | `opencode-oss rm </dev/null`; `opencode-oss rm --yes`; `opencode-oss status` | refused (exit 1); deleted; `Exists: no` |
+The page records each command and observed result for the image, profiles,
+policy, sandbox boundary, headless and TUI sessions, file transfer, and the
+`bin/opencode-oss` helper path. Profiles other than `opencode-synthetic` were
+linted and compared but not run live.

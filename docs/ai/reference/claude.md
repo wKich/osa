@@ -11,8 +11,8 @@
 ## Scope
 
 The Claude Code path: Claude-specific paths and differences. The ordered path
-is [the playbook](../playbooks/claude.md), the pinned run is the
-[verification record](../../../claude-oss/README.md#verification-record);
+is [the playbook](../playbooks/claude.md), the pinned run is
+[the verification page](../verification/claude.md);
 shared behavior is in [helper](../../helper.md), [providers](../../providers.md),
 and the [environment playbook](../environment-playbook.md). This is an index,
 not a procedure, so `Verified` says `not yet verified`.
@@ -136,5 +136,5 @@ path. See the [environment playbook](../environment-playbook.md).
 
 - [`docs/ai/onboarding.md`](../onboarding.md) — choose Maki, OpenCode, or Claude Code.
 - [`docs/ai/playbooks/claude.md`](../playbooks/claude.md) — the ordered Claude path.
-- [`claude-oss/README.md`](../../../claude-oss/README.md) — raw path and verification record.
-- [`docs/verification.md`](../../verification.md) — isolation checklist.
+- [`claude-oss/README.md`](../../../claude-oss/README.md) — raw path and verification summary.
+- [`docs/ai/verification/claude.md`](../verification/claude.md) — isolation checklist.

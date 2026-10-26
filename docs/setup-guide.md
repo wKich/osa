@@ -297,10 +297,10 @@ directory; to copy results out, keep them under `/sandbox`.
 
 ## 7. Isolation verification
 
-Run the checklist in [`docs/verification.md`](verification.md): denied egress,
-placeholder-only credentials, invisible host paths, effective policy review,
-attached provider list, and denial logs — each with its exact command and
-expected output.
+Run the checklist in [`docs/ai/verification/maki.md`](ai/verification/maki.md):
+denied egress, placeholder-only credentials, invisible host paths, effective
+policy review, attached provider list, and denial logs — each with its exact
+command and expected output.
 
 ## 8. Troubleshooting
 

@@ -5,8 +5,8 @@
 | Agent | `OpenCode` |
 | Covers | `P3-P8` |
 | Preconditions | `docs/ai/host-playbook.md` `P0-P2` |
-| Handoff | `opencode-oss/README.md#verification-record` |
-| Verification | `opencode-oss/README.md#verification-record` |
+| Handoff | `docs/ai/verification/opencode.md` |
+| Verification | `docs/ai/verification/opencode.md` |
 | Reference | `docs/ai/reference/opencode.md` |
 | Verified | OpenShell v0.1.5, OpenCode v2.1.4, 2026-10-25 |
 
@@ -267,7 +267,8 @@ not attach a broader policy to fix it.
 
 ### Run
 
-Execute every check in [`docs/verification.md`](../../verification.md) with the
+Execute every check in
+[`docs/ai/verification/opencode.md`](../verification/opencode.md) with the
 OpenCode substitutions: sandbox `"$SANDBOX"` (under the helper, take the name
 from `opencode-oss status`), provider `opencode-synthetic`, the profile's
 credential variable (`SYNTHETIC_API_KEY`), and the agent binary
@@ -288,11 +289,12 @@ and [`docs/mcp-migration.md`](../../mcp-migration.md).
 
 ### Verify
 
-Expected: every check in `docs/verification.md` reports its stated result
-(uid 1500, a denied non-profile host, no host paths, the provider-only
-effective policy, and no credential value); `opencode-oss mcp status` exits 0
-when the host declares no MCP server, or reports each missing server without
-changing the sandbox.
+Expected: every check in
+[`docs/ai/verification/opencode.md`](../verification/opencode.md) reports its
+stated result (uid 1500, a denied non-profile host, no host paths, the
+provider-only effective policy, and no credential value); `opencode-oss mcp
+status` exits 0 when the host declares no MCP server, or reports each missing
+server without changing the sandbox.
 
 ### Stop if
 
@@ -419,7 +421,7 @@ state.
 
 The path ends with the sandbox deleted and results on the host. The verification
 record for the pinned OpenCode and OpenShell versions is
-[`opencode-oss/README.md#verification-record`](../../../opencode-oss/README.md#verification-record).
+[`docs/ai/verification/opencode.md`](../verification/opencode.md).
 Report the commands that ran, the verification results, any retained patch, and
 the next action; do not start a new sandbox to fix a report.
 
@@ -452,8 +454,8 @@ Never relax these to make a command work:
   configuration, profiles, sessions, MCP, and store shape.
 - [`docs/ai/environment-playbook.md`](../environment-playbook.md) — personal
   runtimes, MCP servers, and preferences on top of the base image.
-- [`docs/verification.md`](../../verification.md) — isolation checklist used by
-  Phase 5.
+- [`docs/ai/verification/opencode.md`](../verification/opencode.md) — isolation
+  checklist used by Phase 5.
 - [`docs/helper.md`](../../helper.md) — `opencode-oss` and shared helper
   command reference.
 - [`docs/providers.md`](../../providers.md) — provider profile catalog and
@@ -461,7 +463,7 @@ Never relax these to make a command work:
 - [`docs/mcp-migration.md`](../../mcp-migration.md) — MCP definitions and
   status.
 - [`opencode-oss/README.md`](../../../opencode-oss/README.md) — the
-  subproject, raw path, and verification record.
+  subproject, raw path, and verification summary.
 - [`docs/ai/references.md`](../references.md) — upstream documentation index.
 - [`docs/ai/document-contract.md`](../document-contract.md) — page shape used
   by this playbook.

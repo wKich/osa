@@ -13,7 +13,7 @@
 The OpenCode path: OpenCode-specific paths and differences for a reader who
 already has the shared procedure. This page is an index: the ordered path is
 [`docs/ai/playbooks/opencode.md`](../playbooks/opencode.md), the pinned run is
-[`opencode-oss/README.md#verification-record`](../../../opencode-oss/README.md#verification-record),
+[`docs/ai/verification/opencode.md`](../verification/opencode.md),
 and shared behavior lives in [`docs/helper.md`](../../helper.md),
 [`docs/providers.md`](../../providers.md),
 [`docs/mcp-migration.md`](../../mcp-migration.md), and
@@ -123,8 +123,9 @@ build. The full layout is in
 
 - [`docs/ai/onboarding.md`](../onboarding.md) — choose Maki, OpenCode, or Claude Code.
 - [`docs/ai/playbooks/opencode.md`](../playbooks/opencode.md) — the ordered OpenCode path.
-- [`opencode-oss/README.md`](../../../opencode-oss/README.md) — raw path and verification record.
+- [`opencode-oss/README.md`](../../../opencode-oss/README.md) — raw path and verification summary.
 - [`docs/helper.md`](../../helper.md) — shared helper commands and sync.
 - [`docs/providers.md`](../../providers.md) — shared provider forms.
 - [`docs/ai/environment-playbook.md`](../environment-playbook.md) — the store.
-- [`docs/verification.md`](../../verification.md) — isolation checklist.
+- [`docs/ai/verification/opencode.md`](../verification/opencode.md) — isolation
+  checklist.

@@ -5,8 +5,8 @@
 | Agent | `Claude` |
 | Covers | `P3-P8` |
 | Preconditions | `docs/ai/host-playbook.md` `P0-P2` |
-| Handoff | `claude-oss/README.md#verification-record` |
-| Verification | `claude-oss/README.md#verification-record` |
+| Handoff | `docs/ai/verification/claude.md` |
+| Verification | `docs/ai/verification/claude.md` |
 | Reference | `docs/ai/reference/claude.md` |
 | Verified | OpenShell v0.1.5, Claude Code v2.1.308, 2026-10-26 |
 
@@ -284,9 +284,10 @@ not attach a broader policy to fix it.
 
 ### Run
 
-Execute the boundary checks in [`docs/verification.md`](../../verification.md)
-§1-6 with the Claude substitutions: sandbox `"$SANDBOX"` (under the helper,
-take the name from `claude-oss status`), provider `claude-anthropic` or
+Execute the boundary checks in
+[`docs/ai/verification/claude.md`](../verification/claude.md) with the Claude
+substitutions: sandbox `"$SANDBOX"` (under the helper, take the name from
+`claude-oss status`), provider `claude-anthropic` or
 `claude-anthropic-oauth`, the profile's credential variable
 (`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`), and the agent binary
 `/usr/local/bin/claude`. Also run `id -u` and `id -g` in the sandbox and expect
@@ -308,10 +309,12 @@ environment-store task, not an isolation failure. Details are in
 
 ### Verify
 
-Expected: every boundary check reports its stated result (uid 1500, a denied
-non-profile host, no host paths, the provider-only effective policy, and no
-credential value); `claude-oss mcp status` exits 0 when the host declares no
-MCP server, or reports each missing server without changing the sandbox.
+Expected: every boundary check in
+[`docs/ai/verification/claude.md`](../verification/claude.md) reports its
+stated result (uid 1500, a denied non-profile host, no host paths, the
+provider-only effective policy, and no credential value); `claude-oss mcp
+status` exits 0 when the host declares no MCP server, or reports each missing
+server without changing the sandbox.
 
 ### Stop if
 
@@ -451,7 +454,7 @@ state.
 
 The path ends with the sandbox deleted and results on the host. The verification
 record for the pinned Claude Code and OpenShell versions is
-[`claude-oss/README.md#verification-record`](../../../claude-oss/README.md#verification-record).
+[`docs/ai/verification/claude.md`](../verification/claude.md).
 Report the commands that ran, the verification results, any retained patch, and
 the next action; do not start a new sandbox to fix a report.
 
@@ -488,14 +491,14 @@ Never relax these to make a command work:
   configuration, credentials, profiles, sessions, MCP, and store shape.
 - [`docs/ai/environment-playbook.md`](../environment-playbook.md) — personal
   runtimes, MCP servers, and settings on top of the base image.
-- [`docs/verification.md`](../../verification.md) — isolation checklist used by
-  Phase 5.
+- [`docs/ai/verification/claude.md`](../verification/claude.md) — isolation
+  checklist used by Phase 5.
 - [`docs/helper.md`](../../helper.md) — `claude-oss` and shared helper command
   reference.
 - [`docs/providers.md`](../../providers.md) — provider profile catalog and
   setup flags.
 - [`claude-oss/README.md`](../../../claude-oss/README.md) — the subproject, raw
-  path, and verification record.
+  path, and verification summary.
 - [`docs/ai/references.md`](../references.md) — upstream documentation index.
 - [`docs/ai/document-contract.md`](../document-contract.md) — page shape used
   by this playbook.

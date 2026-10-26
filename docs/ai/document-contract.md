@@ -57,8 +57,8 @@ kinds does not opt a page in.
 | Agent | `Maki` |
 | Covers | `P3-P8` |
 | Preconditions | `docs/ai/host-playbook.md` `P0-P2` |
-| Handoff | `docs/verification.md` |
-| Verification | `docs/verification.md` |
+| Handoff | `docs/ai/verification/maki.md` |
+| Verification | `docs/ai/verification/maki.md` |
 | Reference | `docs/helper.md` |
 | Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
 ```
@@ -149,8 +149,8 @@ The agent playbooks, references, and verification pages.
 | Agent | `Maki` |
 | Covers | `P3-P8` |
 | Preconditions | `docs/ai/host-playbook.md` `P0-P2` |
-| Handoff | `docs/verification.md` |
-| Verification | `docs/verification.md` |
+| Handoff | `docs/ai/verification/maki.md` |
+| Verification | `docs/ai/verification/maki.md` |
 | Reference | `docs/helper.md` |
 | Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
 

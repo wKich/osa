@@ -22,7 +22,8 @@ Start here:
   Maki), the only index of external documentation links in this repository.
 
 Supporting docs: `docs/setup-guide.md` (full walkthrough),
-`docs/verification.md` (isolation checklist), `docs/glossary.md` (vocabulary),
+`docs/ai/verification/maki.md` (Maki isolation checklist; the OpenCode and
+Claude pages sit beside it), `docs/glossary.md` (vocabulary),
 `docs/verification-log.md` (dry-run record), `docs/oskhs.md` (kiss
 adapter, Track B). Canonical configuration lives in
 `examples/`; docs reference those files instead of duplicating them. The base

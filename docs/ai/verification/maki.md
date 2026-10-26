@@ -1,68 +1,119 @@
-# Isolation verification
+| Field | Value |
+|---|---|
+| Doc | `verification-maki` |
+| Kind | `verification` |
+| Agent | `Maki` |
+| Covers | `P6` |
+| Reference | `docs/ai/playbooks/maki.md` |
+| Verified | OpenShell v0.1.5, Maki v0.6.4, 2026-10-22; Maki v0.6.5 sync matrix, 2026-10-26 |
 
-Run these checks after [`docs/setup-guide.md`](setup-guide.md) sections 5–6,
-with a sandbox created as shown there. The examples assume the sandbox is named
-`maki` and the provider is `maki-anthropic`; for OpenRouter, substitute
+# Verification: Maki
+
+## Scope
+
+Run these checks after [`docs/setup-guide.md`](../../setup-guide.md) sections
+5–6, with a sandbox created as shown there. The examples assume the sandbox is
+named `maki` and the provider is `maki-anthropic`; for OpenRouter, substitute
 `OPENROUTER_API_KEY` and `maki-openrouter`. Every `exec` command uses
 `--no-login-shell` so sandbox login files cannot change the result.
 
 The recorded run for this repository is in
-[`docs/verification-log.md`](verification-log.md).
+[`docs/verification-log.md`](../../verification-log.md).
 
 **Expected version: OpenShell v0.1.5.** The checklist below was last run
 against that version on 2026-10-22. Section 7 was re-run for the
 disposable-workspace change on 2026-10-26; see
-[`docs/verification-log.md`](verification-log.md).
+[`docs/verification-log.md`](../../verification-log.md).
 
-## 1. Denied egress
+This page is a reorganization of those recorded runs, not a new run. Checks 1-6
+record the 2026-10-22 OpenShell v0.1.5 run, whose image pinned Maki 0.6.4;
+checks 8-9 record the MCP smoke tests added before that run; check 7 records the
+2026-10-26 re-run after the Maki 0.6.5 rebaseline. No result below is carried
+forward from a later version.
+
+## Check 1 — Denied egress
+
+### Run
 
 ```sh
 openshell sandbox exec -n maki --no-login-shell -- \
   /usr/bin/curl -sS --max-time 15 https://example.com
 ```
 
-**Expected:** the request fails at the connection layer, for example
+### Verify
+
+Expected: the request fails at the connection layer, for example
 `curl: (7) Failed to connect to example.com port 443 ...` with exit code 7.
 `example.com` is in no policy and no provider profile, so the proxy refuses it.
 The refusal also appears in the sandbox log (check 6).
 
-## 2. Placeholder-only credential
+### Stop if
+
+The request succeeds or returns HTTP content. Report the command and output and
+the effective policy (`openshell policy get maki --full`); do not add
+`example.com` or a wildcard rule to make it pass.
+
+## Check 2 — Placeholder-only credential
+
+### Run
 
 ```sh
 openshell sandbox exec -n maki --no-login-shell -- printenv ANTHROPIC_API_KEY
 ```
 
-**Expected:** output is a gateway-issued placeholder, not a key: a
-revision-scoped token ending in `_ANTHROPIC_API_KEY` (for example
+### Verify
+
+Expected: output is a gateway-issued placeholder, not a key: a revision-scoped
+token ending in `_ANTHROPIC_API_KEY` (for example
 `v3789022262450335270_ANTHROPIC_API_KEY`). It must never start with `sk-ant-`
 or otherwise contain the real key. An empty value means the provider was
 attached after the process started; `sandbox exec` starts a new process, so
 verify the attachment with check 5 first.
 
-## 3. Host paths invisible
+### Stop if
+
+The output contains a real key or any value other than a gateway-issued
+placeholder. Report the variable name and the fact that a value leaked, but do
+not echo the value; rotate the key before continuing.
+
+## Check 3 — Host paths invisible
+
+### Run
 
 ```sh
 openshell sandbox exec -n maki --no-login-shell -- ls /Users
 ```
 
-**Expected:** `ls: cannot access '/Users': No such file or directory`, exit
-code 2. Host directories do not exist in the sandbox.
-
 ```sh
 openshell sandbox exec -n maki --no-login-shell -- touch /usr/probe
 ```
 
-**Expected:** `touch: cannot touch '/usr/probe': Permission denied`, exit code
-1. System paths are read-only; `/sandbox`, `/tmp`, and the `/dev/null` sink accept writes.
+### Verify
 
-## 4. Effective policy review
+Expected: `ls: cannot access '/Users': No such file or directory`, exit code 2.
+Host directories do not exist in the sandbox.
+
+Expected: `touch: cannot touch '/usr/probe': Permission denied`, exit code 1.
+System paths are read-only; `/sandbox`, `/tmp`, and the `/dev/null` sink accept
+writes.
+
+### Stop if
+
+`/Users` is listed or `/usr/probe` is created. Report the command and output;
+do not add a bind mount or widen the filesystem policy to make a path writable.
+
+## Check 4 — Effective policy review
+
+### Run
 
 ```sh
 openshell policy get maki --base
 openshell policy get maki --full
 ```
 
-**Expected:** `--full` contains a provider-composed rule:
+### Verify
+
+Expected: `--full` contains a provider-composed rule:
 
 ```yaml
 network_policies:
@@ -82,22 +133,42 @@ network_policies:
 (`examples/policies/maki-minimal.yaml`). If the provider rule is missing, the
 provider is not attached or its profile was not imported.
 
-## 5. Attached provider list
+### Stop if
+
+The provider rule is missing, or either policy contains an endpoint you did not
+choose. Report both outputs and the provider list; do not attach a broader
+policy to fix it.
+
+## Check 5 — Attached provider list
+
+### Run
 
 ```sh
 openshell sandbox provider list maki
 ```
 
-**Expected:** `maki-anthropic` with type `maki-anthropic` and one credential
-key. Credential key names are listed; values are never printed.
+### Verify
 
-## 6. Denial logs
+Expected: `maki-anthropic` with type `maki-anthropic` and one credential key.
+Credential key names are listed; values are never printed.
+
+### Stop if
+
+The list is empty, names a provider you did not attach, or prints a credential
+value. Report the command and output; do not retry with a key on the command
+line.
+
+## Check 6 — Denial logs
+
+### Run
 
 ```sh
 openshell logs maki --since 5m --source sandbox
 ```
 
-**Expected:** an OCSF denial for the request from check 1, resembling:
+### Verify
+
+Expected: an OCSF denial for the request from check 1, resembling:
 
 ```text
 [1791199570.521] [sandbox] [OCSF ] [ocsf] NET:REFUSE [MED] DENIED example.com [reason:policy_dns_ineligible]
@@ -108,21 +179,29 @@ Do not add `--level warn`: policy events are info-level and would be filtered
 out. The logged binary path is how OpenShell identifies the caller; use it to
 fix a rule that lists the wrong path.
 
-## 7. Workspace refresh and sync-back
+### Stop if
 
-The sandbox workspace is disposable; the collected patch is the durable
-output. At session start the helper classifies the workspace as `clean`,
-`behind`, `retained`, or `parked`, refreshes it before Maki when safe, and
-refuses to overwrite output that no patch covers. The session itself no longer
-downloads the workdir over the project: it collects a patch against the
-sandbox baseline and applies it only when the safety check for the project's
-mode passes. The stub suite covers the matrix offline (`make test`); use these
-real-gateway checks for each state.
+No denial appears for the check-1 request, or the log prints request bodies or
+credential material. Report the log window and the command; do not filter
+policy events out or add a rule that hides the denial.
+
+## Check 7 — Workspace refresh and sync-back
+
+### Run
+
+The sandbox workspace is disposable; the collected patch is the durable output.
+At session start the helper classifies the workspace as `clean`, `behind`,
+`retained`, or `parked`, refreshes it before Maki when safe, and refuses to
+overwrite output that no patch covers. The session itself no longer downloads
+the workdir over the project: it collects a patch against the sandbox baseline
+and applies it only when the safety check for the project's mode passes. The
+stub suite covers the matrix offline (`make test`); use these real-gateway
+checks for each state.
 
 Run each case from a scratch project directory. A fast-failing Maki model
 (`--model nope/nope`) keeps the session short; the sync runs the same way.
 
-### 7.1 Clean git sync
+#### 7.1 Clean git sync
 
 ```sh
 git init repo && cd repo
@@ -143,7 +222,7 @@ empty; the new commit's subject is `maki-oss: apply sandbox changes`; no
 `maki-oss/*` branch and no temporary worktree remain. `status` reports
 `Sync: clean` and `Next: maki-oss`.
 
-### 7.2 Host-changed reuse and tracked deletion
+#### 7.2 Host-changed reuse and tracked deletion
 
 With the sandbox from 7.1, change the host and delete a tracked file:
 
@@ -160,7 +239,7 @@ Maki runs. After the session, `base.txt` contains `host-v2`,
 still exists in the sandbox. A second unchanged run says `Workspace is already
 current` and records no upload.
 
-### 7.3 Conflicting host edit
+#### 7.3 Conflicting host edit
 
 Keep the sandbox baseline from 7.1 (or upload again), then edit the same file
 on the host and in the sandbox before the session runs:
@@ -179,7 +258,7 @@ patch, names its path, and prints the recovery block. `status` reports
 refreshes the workspace from the host and prints `Retained patch for review`,
 and the patch file still exists.
 
-### 7.4 Dirty/untracked baseline
+#### 7.4 Dirty/untracked baseline
 
 ```sh
 # start a repository with an uncommitted edit and an untracked file
@@ -196,7 +275,7 @@ worktree, the `git cherry-pick <result>` command, and the patch path. The host
 still has the local edit and untracked file; `agent-new.txt` is absent until
 you cherry-pick.
 
-### 7.5 Plain directory
+#### 7.5 Plain directory
 
 ```sh
 mkdir plain && cd plain && printf 'v1\n' >plain.txt
@@ -209,7 +288,7 @@ maki-oss run --name maki-sync-plain --provider <provider> --model nope/nope "noo
 **Expected:** `git apply --check` then `git apply`; `plain.txt` is `v2` and
 host-only files are untouched.
 
-### 7.6 Retained recovery without git or patch
+#### 7.6 Retained recovery without git or patch
 
 Run the plain case with a host `PATH` that has neither `git` nor `patch` (and
 still resolves `openshell`):
@@ -227,7 +306,7 @@ connect` command, a `maki-oss download <path> <dest>` example, and the patch
 path. No full workspace download runs. The patch file remains after the next
 session refreshes the workspace.
 
-### 7.7 Parked workspace and discard
+#### 7.7 Parked workspace and discard
 
 ```sh
 maki-oss run --name maki-sync-plain --provider <provider> --no-sync "noop"
@@ -243,7 +322,7 @@ commands. The session, `upload`, and `rm` each refuse without changing the
 workspace; the refusals name `--discard`. `upload --discard` refreshes the
 workspace and clears the marker while keeping any earlier patch files.
 
-### 7.8 Recreated sandbox
+#### 7.8 Recreated sandbox
 
 ```sh
 maki-oss rm --name maki-sync-plain --yes --discard
@@ -255,17 +334,35 @@ find "$HOME/.local/state/osa/sessions" -maxdepth 1 -name 'maki-sync-plain.archiv
 (patch files move with it). The new session creates a fresh sandbox, uploads
 the host tree once, and starts `clean` without inheriting the parked marker.
 
+### Verify
 
-## 8. MCP smoke test
+Expected: every case above reports exactly its stated result: 7.1 applies a
+clean fast-forward, 7.2 refreshes and preserves ignored files, 7.3 retains the
+conflicting patch, 7.4 leaves the dirty baseline for cherry-pick, 7.5 applies
+the plain patch, 7.6 retains the patch without git or patch, 7.7 parks and then
+discards, and 7.8 archives the old state and starts clean.
+
+### Stop if
+
+Any case diverges from its stated result — in particular a host file
+overwritten, a patch lost or silently applied, a parked marker that does not
+block the next session, or a discard that removes earlier patch files. Report
+`maki-oss status`, the stderr recovery block, and the patch path; do not delete
+state or force an upload to make the next case pass.
+
+## Check 8 — MCP smoke test
+
+### Run
 
 Run this after the reference environment image is built and selected. The base
 declares no MCP servers; the reference store declares `context7` and
 `mcp-context7` supplies its profile. If the current sandbox was created from the
 base, recreate it from the derived tag before starting.
 
-**8a. Build and select the reference environment image.** The base must exist
-first (`maki-oss image build` builds it). Then build the store and set the
-helper's `image` setting to the derived tag:
+#### 8a. Build and select the reference environment image
+
+The base must exist first (`maki-oss image build` builds it). Then build the
+store and set the helper's `image` setting to the derived tag:
 
 ```sh
 maki-oss image build
@@ -279,9 +376,10 @@ maki-oss up
 image in `maki-oss status`. A raw `openshell sandbox create` uses
 `--from maki-agent:reference` instead.
 
-**8b. Attach the profile and create the provider.** The profile carries both
-the egress rule and the credential binding, so these two commands are the whole
-setup:
+#### 8b. Attach the profile and create the provider
+
+The profile carries both the egress rule and the credential binding, so these
+two commands are the whole setup:
 
 ```sh
 CONTEXT7_API_KEY=<key> maki-oss provider setup \
@@ -294,7 +392,7 @@ maki-oss provider attach mcp-context7
 (The profile's id and the provider instance name differ; use the name printed
 by `maki-oss provider list` in the next step if you chose `--name`.)
 
-**8c. Confirm the endpoint entered the effective policy.**
+#### 8c. Confirm the endpoint entered the effective policy
 
 ```sh
 openshell policy get maki --full
@@ -304,7 +402,7 @@ openshell policy get maki --full
 `port: 443`, and `protocol: mcp`. No `mcp` endpoint appears in `--base`: the
 base policy stays free of MCP, and reach comes only from the attached profile.
 
-**8d. Read the readiness table.**
+#### 8d. Read the readiness table
 
 ```sh
 maki-oss mcp status
@@ -320,15 +418,16 @@ MCP readiness for sandbox 'maki':
 A failing gate prints its fix on the next line and the command exits non-zero:
 `provider=missing` names `maki-oss provider attach mcp-context7`;
 `sandbox=missing` names the environment-image build guidance and
-[`docs/ai/environment-playbook.md`](ai/environment-playbook.md) — the server is
+[`docs/ai/environment-playbook.md`](../environment-playbook.md) — the server is
 absent from the selected environment image, and rebuilding the base is not the
 fix. A stdio server is reported with its runtime gate instead of its transport:
 `runtime=missing` names the missing command with the same environment-image
 guidance.
 
-**8e. Call a tool from a session.** The tool names are namespaced
-`<server>__<tool>`; ask the agent to list what it sees rather than assuming a
-name:
+#### 8e. Call a tool from a session
+
+The tool names are namespaced `<server>__<tool>`; ask the agent to list what it
+sees rather than assuming a name:
 
 ```sh
 maki-oss run --no-sync "List every MCP tool available to you, one per line. Do not call any tool."
@@ -339,16 +438,34 @@ maki-oss run --no-sync "List every MCP tool available to you, one per line. Do n
 missing here but present on the host means a gate failed in 8d — check that
 before touching the config again.
 
-## 9. stdio MCP smoke test
+### Verify
+
+Expected: 8a builds and selects the derived image, 8b lints/imports/creates and
+attaches the provider, 8c shows the `_provider_mcp_context7` endpoint only in
+`--full`, 8d prints every context7 gate as `ok` with exit code 0, and 8e lists
+the `context7__` tools.
+
+### Stop if
+
+A build fails, the provider attachment is missing, an MCP endpoint appears in
+`--base`, a readiness gate is not `ok`, or the session lists no `context7__`
+tool. Report the failing step, `maki-oss mcp status`, and the effective policy;
+do not add a wildcard MCP endpoint or install the server into a running
+sandbox.
+
+## Check 9 — stdio MCP smoke test
+
+### Run
 
 Runs a stdio MCP server (`synthetic`) end to end: the runtime and package baked
 into the reference environment image, the credential crossing only as a
 placeholder through its profile, and `mcp status` judging the runtime gate. Each
 step names its command and expected output.
 
-**9a. Build the reference environment image and verify the runtime and
-package.** The base is built by `maki-oss image build`; the store layers Bun
-and the pre-warmed package on top:
+#### 9a. Build the reference environment image and verify the runtime and package
+
+The base is built by `maki-oss image build`; the store layers Bun and the
+pre-warmed package on top:
 
 ```sh
 docker build -t maki-agent:reference examples/environments/reference
@@ -359,10 +476,12 @@ docker run --rm --entrypoint sh maki-agent:reference -c 'command -v synthetic-se
 **Expected:** the build completes; the pinned bun version prints (for example
 `1.4.3`); `command -v` prints `/sandbox/.bun/bin/synthetic-search-mcp`.
 
-**9b. Attach the upstream profile and create the provider.** A stdio server's
-Maki-facing leg is a local pipe; its profile carries the REST endpoint the
-server process calls, with the credential bound to it. The host's literal key
-is migration input for `--env` only — never a value to copy into any file:
+#### 9b. Attach the upstream profile and create the provider
+
+A stdio server's Maki-facing leg is a local pipe; its profile carries the REST
+endpoint the server process calls, with the credential bound to it. The host's
+literal key is migration input for `--env` only — never a value to copy into any
+file:
 
 ```sh
 maki-oss provider setup --profile examples/providers/mcp-synthetic.yaml --env MCP_SYNTHETIC_API_KEY
@@ -373,9 +492,10 @@ maki-oss provider attach mcp-synthetic
 `Provider 'mcp-synthetic' created.`, then `Provider 'mcp-synthetic' attached`.
 (The variable is `MCP_SYNTHETIC_API_KEY`, not the host's `SYNTHETIC_API_KEY`:
 one credential key per attached provider, and `maki-synthetic` already owns
-the original name — see [`examples/providers/mcp-synthetic.yaml`](../examples/providers/mcp-synthetic.yaml).)
+the original name — see
+[`examples/providers/mcp-synthetic.yaml`](../../../examples/providers/mcp-synthetic.yaml).)
 
-**9c. Read the readiness table.**
+#### 9c. Read the readiness table
 
 ```sh
 maki-oss mcp status
@@ -393,10 +513,10 @@ MCP readiness for sandbox 'maki':
 A sandbox that predates the environment image instead prints
 `synthetic: sandbox=ok runtime=missing provider=ok transport=stdio` with the
 environment-image build guidance and
-[`docs/ai/environment-playbook.md`](ai/environment-playbook.md) — recreate the
+[`docs/ai/environment-playbook.md`](../environment-playbook.md) — recreate the
 sandbox from the derived tag and rerun; the helper installs nothing.
 
-**9d. Call the tool from a session.**
+#### 9d. Call the tool from a session
 
 ```sh
 maki-oss run --no-sync "List every MCP tool available to you, one per line. Then call synthetic__search with the query 'openspec' and report whether it returned results."
@@ -408,9 +528,58 @@ through the proxy with the placeholder substituted. A `401`/`403` means the
 provider credential or its endpoint binding is wrong; a missing tool means a
 gate failed in 9c — check that before touching the config.
 
+### Verify
+
+Expected: 9a builds the image and finds the pinned Bun and
+`synthetic-search-mcp`, 9b lints/imports/creates and attaches the provider, 9c
+shows every context7 and synthetic gate as `ok` with exit code 0, and 9d lists
+and calls `synthetic__search` successfully.
+
+### Stop if
+
+The image lacks the runtime or package, the provider attachment is missing, the
+runtime gate is not `ok`, or the tool call returns `401`/`403`. Report the
+failing step, `maki-oss mcp status`, and the provider list; do not install the
+package into the running sandbox or add a broader endpoint.
+
 ## Beyond this checklist
 
 These checks prove the boundary, not the model round-trip. A successful
 `maki -p "..."` request additionally exercises endpoint binding and proxy
 credential substitution against the upstream provider. Non-root identity
 (`id -u` returns `1500`) and the writable workspace are also worth a glance.
+
+## Invariants
+
+Never relax these to make a check pass:
+
+- The OpenShell sandbox is the security boundary. No host bind mounts; project
+  files move in and out through `openshell sandbox upload` / `download`.
+- No secrets through `--env` or `--env-from`. Model and service credentials go
+  through OpenShell provider profiles; the sandbox sees only an opaque stand-in
+  and the proxy substitutes the real value at approved endpoints.
+- Never spell the literal provider-placeholder prefix in a file the agent can
+  read. Describe it in prose instead.
+- Egress stays deny-by-default. Every endpoint is an explicit policy or
+  provider-profile decision; never use `tls: skip`, `access: full`, or a
+  wildcard host to fix a denial.
+- Sandbox processes stay non-root, uid/gid 1500, with the minimal filesystem
+  policy.
+- Maki never authenticates inside the sandbox. Do not run `maki auth login`
+  there, and do not set `ANTHROPIC_BASE_URL`, `OPENROUTER_BASE_URL`, or another
+  provider base-URL override.
+- Never mount or upload the host's Maki config or credential store. Global
+  config belongs in an environment store; project-local config uploads with the
+  project.
+
+## See also
+
+- [`docs/ai/playbooks/maki.md`](../playbooks/maki.md) — the ordered Maki path.
+- [`docs/ai/reference/maki.md`](../reference/maki.md) — Maki configuration,
+  profiles, MCP, and store shape.
+- [`docs/verification-log.md`](../../verification-log.md) — the recorded runs
+  these checks come from.
+- [`docs/setup-guide.md`](../../setup-guide.md) — the full walkthrough these
+  checks follow.
+- [`docs/ai/environment-playbook.md`](../environment-playbook.md) — compose the
+  environment image used by checks 8 and 9.

@@ -198,8 +198,9 @@ maki-oss run --no-sync "List every MCP tool available to you, one per line. Do n
 ```
 
 Expected: one `<server>__<tool>` name per tool on every enabled server. Then
-run the relevant checks in [`docs/verification.md`](../verification.md). Stop
-and report any mismatch.
+run the relevant checks in
+[`docs/ai/verification/maki.md`](verification/maki.md). OpenCode and Claude
+readers use their own verification pages. Stop and report any mismatch.
 
 **Verify the credential boundary one last time:** search the store and the
 image for literal credential material (known API-key prefixes and

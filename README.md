@@ -136,14 +136,15 @@ sandboxes by hand is a chore. osa gives you:
   `provider setup` wizard, and custom profiles.
 - [`docs/migrating-providers.md`](docs/migrating-providers.md) — move keys out
   of Maki and OpenCode stores, and the OAuth limitation.
-- [`docs/verification.md`](docs/verification.md) — isolation checklist with
-  exact commands and expected output.
+- [`docs/ai/verification/maki.md`](docs/ai/verification/maki.md) — the Maki
+  isolation checklist with exact commands and expected output; the OpenCode and
+  Claude records sit beside it.
 - [`docs/glossary.md`](docs/glossary.md) — shared vocabulary for these docs.
 - [`opencode-oss/README.md`](opencode-oss/README.md) — run OpenCode itself
-  natively in a sandbox (image, profiles, policy, verification record).
+  natively in a sandbox (image, profiles, policy, verification summary).
 - [`claude-oss/README.md`](claude-oss/README.md) — run Claude Code natively in
   a sandbox with an API key or a Claude subscription token (image, managed
-  settings, profiles, verification record).
+  settings, profiles, verification summary).
 
 ## Security invariants
 

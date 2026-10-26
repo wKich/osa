@@ -334,8 +334,8 @@ measurement rather than an edited string.
 #### Scenario: OpenShell version consistency
 
 - **WHEN** the OpenShell versions stated in `docs/ai/host-playbook.md`,
-  `docs/setup-guide.md`, `docs/verification.md`, and `docs/ai/references.md`
-  are compared
+  `docs/setup-guide.md`, `docs/ai/verification/maki.md`, and
+  `docs/ai/references.md` are compared
 - **THEN** all four name the same version, and it is the version the
   verification log records as tested
 
@@ -344,5 +344,5 @@ measurement rather than an edited string.
 - **WHEN** a page is changed to claim verification against a newer OpenShell
   version
 - **THEN** `docs/verification-log.md` carries a dated entry for that version,
-  and the checklist in `docs/verification.md` was run against it rather than
-  carried forward
+  and the checklist in `docs/ai/verification/maki.md` was run against it rather
+  than carried forward

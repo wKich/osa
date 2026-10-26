@@ -1,10 +1,16 @@
 # Host playbook: provision a bare host for osa
 
-Ordered, executable steps for a coding agent that starts from a bare macOS
-(Apple Silicon) or Linux machine. Work from the repository root once the
-repository exists (Phase 3). After each phase, run its `### Verify` block and
-**stop on a mismatch** — report the failing command and its output instead of
-working around it or continuing.
+| Field | Value |
+|---|---|
+| Doc | `host-playbook` |
+| Kind | `playbook` |
+| Agent | `shared` |
+| Covers | `P0-P2` |
+| Preconditions | none |
+| Handoff | `docs/ai/agent-playbook.md` |
+| Verification | `docs/verification.md` |
+| Reference | `docs/helper.md` |
+| Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
 
 > **Verified against OpenShell v0.1.5 and Maki v0.6.5 on 2026-10-25.** The Maki
 > version below is the one pinned by `examples/maki-image/Dockerfile`, and the
@@ -14,12 +20,31 @@ working around it or continuing.
 > in [`docs/ai/references.md`](references.md) — this playbook restates the
 > commands to type and points there for background.
 
+## Scope
+
+Ordered, executable steps for a coding agent that starts from a bare macOS
+(Apple Silicon) or Linux machine. Work from the repository root once the
+repository exists (Phase 3). After each phase, run its `### Verify` block and
+**stop on a mismatch** — report the failing command and its output instead of
+working around it or continuing.
+
 This playbook covers host setup only. Sandbox phases (provider profiles,
 policy choice, creation, isolation checks) continue in
 [`docs/ai/agent-playbook.md`](agent-playbook.md); the two read as one
 sequence. Never relax the security invariants listed at the end.
 
+## Inputs
+
+- A macOS (Apple Silicon) or Linux host with network access.
+- The repository URL to clone in Phase 3.
+- A model API key, exported in the environment or already held by Maki or
+  OpenCode; the provider wizard imports it without putting it on a command
+  line.
+- The shell you use (zsh-family or fish) to choose the Phase 4 path.
+
 ## Phase 1 — Preflight
+
+### Run
 
 Report which tools are already present; on a bare host every command below is
 absent, which is expected:
@@ -33,15 +58,23 @@ uname -m
 
 ### Verify
 
-Expected when a tool is present: the engine prints `28.0` or later;
+Expected: when a tool is present, the engine prints `28.0` or later;
 `openshell status` shows `Status: Connected`; `maki --version` prints
 `maki 0.6.5`; `uname -m` is `arm64` or `x86_64`. An absent command means the
 matching step in Phase 2 installs it; a present tool whose version or status
 does not match is a mismatch — fix it in Phase 2 rather than skipping ahead.
 
+### Stop if
+
+A present tool still mismatches after Phase 2, or the host architecture is
+neither `arm64` nor `x86_64`. Report the command and its output instead of
+continuing into sandbox phases.
+
 ## Phase 2 — Host tooling install
 
-### Host preconditions
+### Run
+
+#### Host preconditions
 
 Two things a bare host must supply that no step below installs; check them
 first.
@@ -66,7 +99,7 @@ id -nG | tr ' ' '\n' | grep -qx docker
 An empty result means the group is missing — installing the engine package
 does not grant it. Rootless-engine users can skip this check.
 
-### Container engine (Docker Engine 28+ or OrbStack)
+#### Container engine (Docker Engine 28+ or OrbStack)
 
 macOS (Homebrew):
 
@@ -80,7 +113,7 @@ background and the Docker Desktop networking toggles OpenShell needs are in
 [support matrix](https://docs.nvidia.com/openshell/about/support-matrix.md)
 lists supported hosts.
 
-### OpenShell CLI + gateway
+#### OpenShell CLI + gateway
 
 Install via the upstream installer (CLI, policy prover, and local gateway in
 one step; details in the OpenShell
@@ -100,7 +133,7 @@ brew services restart openshell             # macOS
 systemctl --user restart openshell-gateway  # Linux
 ```
 
-### Maki CLI
+#### Maki CLI
 
 ```sh
 curl -LsSf https://maki.sh/install.sh | sh
@@ -123,10 +156,16 @@ openshell status
 maki --version
 ```
 
-Expected: `28.0` or later; `Status: Connected`; `maki 0.6.5`. Stop on any
-mismatch.
+Expected: `28.0` or later; `Status: Connected`; `maki 0.6.5`.
+
+### Stop if
+
+An install still reports a version or status mismatch, or the gateway stays
+disconnected after a restart. Report the failing command and its output.
 
 ## Phase 3 — Repository and helper setup
+
+### Run
 
 Clone this repository and work from its root:
 
@@ -192,10 +231,16 @@ openshell provider list
 ```
 
 Expected: every doctor line reads `ok` and it exits `0` (the image now
-exists); the provider list names the provider you created. Stop on any
-failure.
+exists); the provider list names the provider you created.
+
+### Stop if
+
+A doctor line reads `warn` or `fail` for anything except the optional `jq`
+warning, or no provider is listed. Report the command and its output.
 
 ## Phase 4 — Shell preparation
+
+### Run
 
 Choose exactly one primary path per shell; verify it before moving on.
 
@@ -241,9 +286,16 @@ ls ~/.config/fish/completions/maki-oss.fish  # completions installed
 Expected: `command -v maki-oss` (POSIX) or the fish check resolves to this
 repository's `bin/maki-oss`, and the fish completion file exists. Run each
 block only in the shell it names — `type -q` is a fish builtin and errors
-under zsh and bash. Stop on any mismatch.
+under zsh and bash.
+
+### Stop if
+
+The helper resolves to another installation or the fish completion is
+missing. Report which path or shell failed; do not mix the two shell paths.
 
 ## Phase 5 — Daily driver
+
+### Run
 
 **Once per machine** (completed in Phase 3; listed here only to keep it
 separate from the loop): `maki-oss doctor`, `maki-oss image build`, an optional
@@ -301,9 +353,15 @@ maki-oss status
 Expected: `Exists: yes` with the project sandbox's phase and attached
 providers. `Exists: no` (with a non-zero exit) means no sandbox was created
 yet, or the loop's `rm` deleted it — run `maki-oss up` to create one, or
-`maki-oss` to start a session. Stop on any other mismatch.
+`maki-oss` to start a session.
 
-### Handoff
+### Stop if
+
+`maki-oss status` reports a parked workspace, a failed sync, or any state
+other than `Exists: yes` after the create or start command. Report the sync
+state and the helper's next-command hint.
+
+## Handoff
 
 Sandbox phases — provider profiles, policy choice, sandbox creation, isolation
 checks, and running Maki with the raw commands — continue in
@@ -319,3 +377,15 @@ design; do not improvise sandbox steps from this file.
 - Sandbox processes stay non-root (uid/gid 1500).
 - Never run `maki auth login` inside a sandbox, and never set a provider
   base-URL override there.
+
+## See also
+
+- [`docs/ai/agent-playbook.md`](agent-playbook.md) — sandbox phases P3-P8,
+  continuing this path.
+- [`docs/ai/environment-playbook.md`](environment-playbook.md) — personal
+  runtimes, MCP servers, and preferences on top of the base image.
+- [`docs/verification.md`](../verification.md) — isolation checklist.
+- [`docs/helper.md`](../helper.md) — `maki-oss` command reference.
+- [`docs/ai/references.md`](references.md) — upstream documentation index.
+- [`docs/ai/document-contract.md`](document-contract.md) — page shape used by
+  this playbook.

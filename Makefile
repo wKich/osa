@@ -9,7 +9,7 @@
 
 SHELL := /bin/sh
 
-.PHONY: test test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-profiles install-fish openspec-update sync-openspec
+.PHONY: test test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-docs lint-profiles install-fish openspec-update sync-openspec
 
 test:
 	tests/run-tests.sh
@@ -100,7 +100,10 @@ maki-drift:
 		echo 'bun not found; skipping Maki drift check'; \
 	fi
 
-lint:
+lint-docs:
+	scripts/check-playbooks.sh
+
+lint: lint-docs
 	shellcheck -x bin/maki-oss bin/opencode-oss bin/claude-oss bin/osa lib/oss-core.sh lib/osa-state.sh tests/run-tests.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode
 	fish -n fish/functions/maki-oss.fish
 	fish -n fish/conf.d/maki-oss.fish

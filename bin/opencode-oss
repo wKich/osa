@@ -54,7 +54,7 @@ Commands:
   help                          Show this help
 
 Common options:
-  --name NAME      Sandbox name (default: opencode-<project directory>), or
+  --name NAME      Sandbox name (default: oc-<project directory>), or
                    the provider name for provider setup
   --image REF      Sandbox image (default: opencode-agent:local)
   --policy FILE    Sandbox policy YAML
@@ -151,7 +151,7 @@ OSS_MCP_FIX_DOC=docs/opencode-oss.md
 
 DEFAULT_IMAGE=opencode-agent:local
 DEFAULT_POLICY=$repo_root/opencode-oss/policies/minimal.yaml
-DEFAULT_NAME='opencode-{project}'
+DEFAULT_NAME='oc-{project}'
 
 # profile-id -> example model, read for the post-setup hint.
 OC_MODEL_CATALOG=$OSS_PROFILES_DIR/catalog.tsv

@@ -44,13 +44,17 @@ defaults differ:
 | Config file | `…/maki-oss/config.toml` | `…/opencode-oss/config.toml` |
 | `image` default | `maki-agent:local` | `opencode-agent:local` |
 | `policy` default | `examples/policies/maki-minimal.yaml` | `opencode-oss/policies/minimal.yaml` |
-| `sandbox_name` default | `maki-{project}` | `opencode-{project}` |
+| `sandbox_name` default | `maki-{project}` | `oc-{project}` |
 | Session state | `~/.local/state/maki-oss/`, `/sandbox/.maki-oss/` | `~/.local/state/opencode-oss/`, `/sandbox/.opencode-oss/` |
 | Curated profiles | `examples/providers/` | `opencode-oss/providers/` |
 
 The two helpers share no state. In the same project directory they use
 different sandboxes, config files, and sync state, and a `MAKI_OSS_*`
-variable has no effect on `opencode-oss`. The `tui` key is accepted but
+variable has no effect on `opencode-oss`. The default sandbox name is
+`oc-{project}` rather than `opencode-{project}`, so ordinary project
+directories fit OpenShell's 19-character sandbox-name limit. A sandbox
+created with the old `opencode-{project}` default is not found automatically;
+set `sandbox_name` to its name or recreate it. The `tui` key is accepted but
 ignored, because the OpenCode TUI mode is a `maki-oss` feature.
 
 A minimal config:

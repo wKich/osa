@@ -96,13 +96,20 @@ strings; `providers` is a comma-separated list.
 | `providers` | `MAKI_OSS_PROVIDERS` | empty | Comma-separated provider names attached at creation |
 | `cpu` | `MAKI_OSS_CPU` | empty | CPU limit passed to `sandbox create` |
 | `memory` | `MAKI_OSS_MEMORY` | empty | Memory limit passed to `sandbox create` |
-| `sandbox_name` | `MAKI_OSS_SANDBOX_NAME` | `maki-{project}` | Name pattern; `{project}` is the sanitized current directory name |
+| `sandbox_name` | `MAKI_OSS_SANDBOX_NAME` | `maki-{project}` | Name pattern; `{project}` is the sanitized current directory name (lowercase letters, digits, and hyphens), shortened with a stable hash when the expanded name would exceed OpenShell's 19-character limit |
 | `engine` | `MAKI_OSS_ENGINE` | `docker` | `docker` or `podman` |
 | `gateway` | `MAKI_OSS_GATEWAY` | empty | OpenShell gateway name (`-g`) |
 | `workdir` | `MAKI_OSS_WORKDIR` | `/sandbox/project` | In-sandbox project directory used by `upload`, `download`, `maki`, and `run` |
 | `model` | `MAKI_OSS_MODEL` | empty | Default model passed to Maki (`provider/model`); `--model` overrides it |
 | `tui` | `MAKI_OSS_TUI` | empty | Interactive TUI for bare `maki-oss` and `maki-oss maki`: empty keeps Maki's own TUI, `opencode` runs the OpenCode TUI against the local bridge; any other value is a usage error. `run` ignores it |
 | `idle_stop` | `MAKI_OSS_IDLE_STOP` | `1h` | Stop the sandbox this long after the last session closes (seconds, or with an `s`, `m`, or `h` suffix); `0` disables it. `--idle-stop` overrides it. See [Idle stop](#idle-stop) |
+
+OpenShell accepts sandbox names of at most 19 lowercase letters, digits, and
+hyphens. The helper lowercases and sanitizes `{project}` to that alphabet;
+when the expanded name is too long, it shortens the project part and appends a
+stable four-character hash so long project names that share a prefix do not
+collide. An explicit `--name` or `sandbox_name` that breaks the rule fails
+before any gateway call.
 
 `MAKI_VERSION` (or `--maki-version`) sets the Maki release version passed to
 `image build`; when unset, the Dockerfile default applies.

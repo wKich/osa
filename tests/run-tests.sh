@@ -412,6 +412,10 @@ assert_log_line_missing() {
     fi
 }
 
+sandbox_name_from_log() {
+    awk 'previous == "--name" { print; exit } { previous = $0 }' "$LOG"
+}
+
 assert_log_before() { # FIRST SECOND
     if [ ! -f "$LOG" ]; then
         bad "argv log missing; cannot order '$1' and '$2'"
@@ -620,6 +624,82 @@ test_config_unknown_key() {
     assert_rc 1
     assert_err_has "opennshell_path"
     assert_err_has "config.toml"
+}
+
+test_sandbox_name_fit() {
+    begin "sandbox names are sanitized and fit OpenShell's 19-character limit"
+    new_case name-fit
+    RUN_DIR=$CASE/project/My_App.Test
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    [ "$(sandbox_name_from_log)" = "maki-my-app-test" ] \
+        || bad "the project name was not sanitized: $(sandbox_name_from_log)"
+
+    reset_state
+    reset_log
+    RUN_DIR=$CASE/project/this-project-name-is-way-too-long
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    long_name=$(sandbox_name_from_log)
+    [ -n "$long_name" ] || bad "the long project did not create a sandbox"
+    [ "${#long_name}" -le 19 ] \
+        || bad "sandbox name is ${#long_name} characters: $long_name"
+    case $long_name in
+        *[!a-z0-9-]*|'') bad "invalid sandbox name: $long_name" ;;
+    esac
+
+    # The same project resolves to the same fitted name on later commands.
+    run_maki status
+    assert_rc 0
+    assert_out_has "Sandbox:   $long_name"
+
+    # Names that share their readable prefix must not share a sandbox.
+    reset_state
+    reset_log
+    RUN_DIR=$CASE/project/this-project-name-is-way-too-long-other
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    other_name=$(sandbox_name_from_log)
+    [ "$other_name" != "$long_name" ] \
+        || bad "two long project names shared the sandbox name: $other_name"
+}
+
+test_sandbox_name_validation() {
+    begin "invalid explicit sandbox names fail before contacting the gateway"
+    new_case name-validation
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+
+    for bad_name in "My_Project" "abcdefghijklmnopqrst" "-leading" "trailing-" "a.b"; do
+        reset_log
+        run_maki up --name "$bad_name"
+        assert_rc 1
+        if [ -s "$LOG" ]; then
+            bad "gateway was contacted for the invalid name '$bad_name'"
+        fi
+        assert_err_has "sandbox name"
+    done
+
+    reset_log
+    run_maki up --name "My_Project"
+    assert_rc 1
+    assert_err_has "lowercase"
+
+    reset_log
+    run_maki up --name "abcdefghijklmnopqrst"
+    assert_rc 1
+    assert_err_has "19"
+
+    reset_log
+    run_maki up --name "{project}-abcdefghijklm"
+    assert_rc 1
+    assert_err_has "leaves only"
+    if [ -s "$LOG" ]; then
+        bad "gateway was contacted for a pattern with no room for {project}"
+    fi
 }
 
 test_up_creates() {
@@ -3868,9 +3948,9 @@ oc_ready_project() { # [DIR-NAME]
     done <<OC_SEED
 ${OC_SEED_FILES:-}
 OC_SEED
-    seed_sandbox "opencode-${1:-myproject}" Ready
+    seed_sandbox "oc-${1:-myproject}" Ready
     seed_oc_provider opencode-stub
-    attach_stub_provider "opencode-${1:-myproject}" opencode-stub
+    attach_stub_provider "oc-${1:-myproject}" opencode-stub
 }
 
 assert_stdin_closed() {
@@ -4205,7 +4285,7 @@ test_oc_mcp_status_present() {
     begin "opencode-oss mcp status passes a server present on both sides"
     oc_case oc-mcp-present
     oc_ready_project
-    attach_stub_provider opencode-myproject mcp-context7
+    attach_stub_provider oc-myproject mcp-context7
     seed_oc_host_mcp "$OC_HOST_MCP"
     EXEC_STDOUT=$OC_HOST_MCP
     POLICY_FULL='host: mcp.context7.com'
@@ -4267,7 +4347,7 @@ test_oc_isolation() {
 
     run_oc up
     assert_rc 0
-    assert_log_line "opencode-myproject"
+    assert_log_line "oc-myproject"
     assert_log_line "opencode-agent:local"
     assert_log_line "$ROOT/opencode-oss/policies/minimal.yaml"
     assert_log_line_missing "maki-only:tag"
@@ -4283,14 +4363,14 @@ test_oc_isolation() {
     run_maki status
     assert_out_has "Sandbox:   maki-myproject"
     run_oc status
-    assert_out_has "Sandbox:   opencode-myproject"
+    assert_out_has "Sandbox:   oc-myproject"
 
     # A session keeps its sync state under the opencode-oss names only.
     reset_state
     oc_ready_project
     run_oc run "touch nothing"
     assert_rc 0
-    [ -d "$(oc_session_dir opencode-myproject)" ] || bad "no opencode-oss session state"
+    [ -d "$(oc_session_dir oc-myproject)" ] || bad "no opencode-oss session state"
     [ ! -e "$HOME/.local/state/maki-oss" ] || bad "opencode-oss wrote maki-oss state"
     [ -d "$CASE/sandbox/.opencode-oss/git" ] || bad "the sandbox baseline is not under .opencode-oss"
     [ ! -e "$CASE/sandbox/.maki-oss" ] || bad "the sandbox has .maki-oss state"
@@ -4324,7 +4404,7 @@ test_oc_lifecycle_and_guard() {
     run_oc rm --yes
     assert_rc 0
     assert_log_line "delete"
-    [ ! -e "$STUB_STATE_DIR/sandboxes/opencode-myproject" ] || bad "rm --yes kept the sandbox"
+    [ ! -e "$STUB_STATE_DIR/sandboxes/oc-myproject" ] || bad "rm --yes kept the sandbox"
 
     reset_log
     run_oc
@@ -4360,7 +4440,7 @@ test_oc_run_timeout_and_proposals() {
     assert_rc 0
     assert_log_line "agent_policy_proposals_enabled"
     assert_log_before "settings" "--standalone"
-    assert_err_has "1 pending network-rule proposal(s) for 'opencode-myproject'. Review: opencode-oss policy review"
+    assert_err_has "1 pending network-rule proposal(s) for 'oc-myproject'. Review: opencode-oss policy review"
 }
 
 test_oc_sync_clean_git() {
@@ -4368,9 +4448,9 @@ test_oc_sync_clean_git() {
     oc_case oc-sync-git
     RUN_DIR=$CASE/project/repo
     seed_git_project "$RUN_DIR"
-    seed_sandbox opencode-repo Ready
+    seed_sandbox oc-repo Ready
     seed_oc_provider opencode-stub
-    attach_stub_provider opencode-repo opencode-stub
+    attach_stub_provider oc-repo opencode-stub
     run_oc upload .
     commit_before=$(git -C "$RUN_DIR" rev-parse HEAD)
     STUB_MAKI_SCRIPT='printf "agent\n" > agent.txt; printf "modified\n" > tracked.txt'
@@ -4383,7 +4463,7 @@ test_oc_sync_clean_git() {
     [ "$(git -C "$RUN_DIR" log -1 --format=%s)" = "opencode-oss: apply sandbox changes" ] \
         || bad "result commit has the wrong subject"
     [ -z "$(git -C "$RUN_DIR" branch --list 'opencode-oss/*')" ] || bad "temporary branch was not deleted"
-    [ ! -f "$(oc_session_dir opencode-repo)/pending" ] || bad "a clean apply left a pending marker"
+    [ ! -f "$(oc_session_dir oc-repo)/pending" ] || bad "a clean apply left a pending marker"
 }
 
 test_oc_sync_dirty_host() {
@@ -4392,9 +4472,9 @@ test_oc_sync_dirty_host() {
     RUN_DIR=$CASE/project/repo
     seed_git_project "$RUN_DIR"
     printf 'local edit\n' >>"$RUN_DIR/tracked.txt"
-    seed_sandbox opencode-repo Ready
+    seed_sandbox oc-repo Ready
     seed_oc_provider opencode-stub
-    attach_stub_provider opencode-repo opencode-stub
+    attach_stub_provider oc-repo opencode-stub
     STUB_MAKI_SCRIPT='printf "agent edited\n" > tracked.txt'
 
     run_oc
@@ -4403,7 +4483,7 @@ test_oc_sync_dirty_host() {
     oc_branch=$(git -C "$RUN_DIR" for-each-ref --format='%(refname:short)' 'refs/heads/opencode-oss/*' | head -n 1)
     [ -n "$oc_branch" ] || bad "result branch was not kept"
     grep -Fq 'local edit' "$RUN_DIR/tracked.txt" || bad "local edit was lost"
-    [ -f "$(oc_session_dir opencode-repo)/pending" ] || bad "no pending marker for the dirty host"
+    [ -f "$(oc_session_dir oc-repo)/pending" ] || bad "no pending marker for the dirty host"
 }
 
 test_oc_sync_plain_directory() {
@@ -4854,6 +4934,8 @@ run_test test_help
 run_test test_usage_errors
 run_test test_config_precedence
 run_test test_config_unknown_key
+run_test test_sandbox_name_fit
+run_test test_sandbox_name_validation
 run_test test_up_creates
 run_test test_up_idempotent
 run_test test_run_passthrough

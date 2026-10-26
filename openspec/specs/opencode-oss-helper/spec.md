@@ -21,7 +21,7 @@ substitutions, and SHALL NOT satisfy the requirements that are Maki-only:
 | `${XDG_CONFIG_HOME:-$HOME/.config}/maki-oss/config.toml` | `…/opencode-oss/config.toml` |
 | default image `maki-agent:local` | `opencode-agent:local` |
 | default policy `examples/policies/maki-minimal.yaml` | `opencode-oss/policies/minimal.yaml` |
-| default sandbox name `maki-{project}` | `opencode-{project}` |
+| default sandbox name `maki-{project}` | `oc-{project}` |
 | curated profiles `examples/providers/` and its catalog | `opencode-oss/providers/` and `stores.tsv` |
 | `maki-oss maki` and bare `maki-oss` | `opencode-oss opencode` and bare `opencode-oss` |
 | "Maki" as the launched agent | OpenCode |
@@ -62,7 +62,7 @@ The Maki-only requirements are the `tui = "opencode"` bridge mode and the
 
 #### Scenario: Products do not share state
 - **WHEN** `maki-oss` and `opencode-oss` run in the same project directory
-- **THEN** they use different sandboxes (`maki-<project>` and `opencode-<project>`), different config files, and different sync-state directories
+- **THEN** they use different sandboxes (`maki-<project>` and `oc-<project>`), different config files, and different sync-state directories
 
 ### Requirement: OpenCode launch contract
 

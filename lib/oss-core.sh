@@ -49,6 +49,8 @@ die_gateway() {
 
 DEFAULT_ENGINE=docker
 DEFAULT_WORKDIR=/sandbox/project
+# OpenShell 0.1.5 rejects sandbox names longer than 19 characters (DNS-1123 label).
+SANDBOX_NAME_MAX=19
 
 config_image=
 config_policy=
@@ -273,18 +275,52 @@ resolved_idle_stop() {
 }
 
 resolved_name() {
-    resolved_name_value=$(resolve_setting \
+    rn_template=$(resolve_setting \
         "$opt_name" "$(env_setting SANDBOX_NAME)" "$config_sandbox_name" "$DEFAULT_NAME")
-    case $resolved_name_value in
+    rn_name=$rn_template
+    case $rn_template in
         *'{project}'*)
-            resolved_name_value=$(printf '%s' "$resolved_name_value" \
-                | sed "s/{project}/$project_name/g")
+            # Fit {project} into the room the rest of the pattern leaves under
+            # OpenShell's limit. A shortened project keeps a stable hash so
+            # long names that share a prefix do not collide.
+            rn_fixed=$(printf '%s' "$rn_template" | sed 's/{project}//g')
+            rn_count=$(printf '%s' "$rn_template" | awk '{ print gsub(/\{project\}/, "") }')
+            rn_budget=$(( (SANDBOX_NAME_MAX - ${#rn_fixed}) / rn_count ))
+            if [ "$rn_budget" -lt 1 ]; then
+                die_usage "sandbox name pattern '$rn_template' is longer than $SANDBOX_NAME_MAX characters; shorten sandbox_name/--name"
+            fi
+            rn_project=$project_name
+            if [ "${#rn_project}" -gt "$rn_budget" ]; then
+                if [ "$rn_budget" -lt 6 ]; then
+                    die_usage "sandbox name pattern '$rn_template' leaves only $rn_budget character(s) for {project}; shorten sandbox_name/--name"
+                fi
+                rn_keep=$(printf '%s' "$rn_project" | cut -c1-"$((rn_budget - 5))")
+                rn_keep=$(printf '%s' "$rn_keep" | sed 's/-*$//')
+                rn_hash=$(printf '%s' "$rn_project" | cksum | awk '{ printf "%04x", $1 % 65536 }')
+                if [ -z "$rn_keep" ]; then
+                    rn_project=$rn_hash
+                else
+                    rn_project=$rn_keep-$rn_hash
+                fi
+            fi
+            rn_name=$(printf '%s' "$rn_template" | sed "s/{project}/$rn_project/g")
             ;;
     esac
-    if [ -z "$resolved_name_value" ]; then
+    if [ -z "$rn_name" ]; then
         die_usage "resolved sandbox name is empty; check sandbox_name/--name"
     fi
-    printf '%s' "$resolved_name_value"
+    case $rn_name in
+        *[!a-z0-9-]*)
+            die_usage "invalid sandbox name '$rn_name': use lowercase letters, digits, and hyphens"
+            ;;
+        -*|*-)
+            die_usage "invalid sandbox name '$rn_name': do not start or end with a hyphen"
+            ;;
+    esac
+    if [ "${#rn_name}" -gt "$SANDBOX_NAME_MAX" ]; then
+        die_usage "sandbox name '$rn_name' is ${#rn_name} characters; OpenShell allows at most $SANDBOX_NAME_MAX"
+    fi
+    printf '%s' "$rn_name"
 }
 
 # ---------------------------------------------------------------------------
@@ -4001,7 +4037,10 @@ oss_init() {
     config_file=$config_home/$OSS_CONFIG_NAME/config.toml
 
     project_basename=$(basename -- "$PWD")
-    project_name=$(printf '%s' "$project_basename" | tr -c 'A-Za-z0-9_.-' '-')
+    # OpenShell accepts only DNS-1123 labels: lowercase letters, digits, and
+    # hyphens. {project} is expanded into sandbox names, so sanitize it once.
+    project_name=$(printf '%s' "$project_basename" | LC_ALL=C tr '[:upper:]' '[:lower:]')
+    project_name=$(printf '%s' "$project_name" | LC_ALL=C tr -c 'a-z0-9-' '-')
     project_name=$(printf '%s' "$project_name" | sed 's/--*/-/g; s/^-//; s/-$//')
     if [ -z "$project_name" ]; then
         project_name=project

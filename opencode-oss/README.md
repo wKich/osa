@@ -60,7 +60,7 @@ opencode-oss status
 opencode-oss rm --yes
 ```
 
-The first session creates the project's sandbox (`opencode-<directory>`),
+The first session creates the project's sandbox (`oc-<directory>`),
 uploads the project, and attaches the remembered provider. On exit, the
 helper collects the sandbox changes as a patch. It applies the patch only
 when the sandbox baseline still matches the host, as `maki-oss` does. See

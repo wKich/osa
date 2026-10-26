@@ -16,6 +16,18 @@ The helper SHALL resolve settings from command-line flags, `MAKI_OSS_*` environm
 - **WHEN** the config file contains `opennshell_path = "/x"` (a misspelling)
 - **THEN** the command exits non-zero and the error names both the config file and the unknown key
 
+### Requirement: Sandbox names fit the gateway
+
+The helper SHALL derive `{project}` from the current directory name by lowercasing it, replacing every character outside `[a-z0-9-]` with a hyphen, collapsing repeated hyphens, and trimming leading and trailing hyphens. When the expanded sandbox name would exceed OpenShell's 19-character limit, the helper SHALL shorten the project part and append a stable four-character hash of the full project name so distinct projects do not collide. A name supplied with `--name` or `sandbox_name` SHALL be validated against the same lowercase, hyphen, and length rules before any gateway call, and an invalid name SHALL exit as a usage error.
+
+#### Scenario: A long project name is fitted
+- **WHEN** the user runs `maki-oss up` in a directory whose name expands to more than 19 characters
+- **THEN** the sandbox name is at most 19 lowercase letters, digits, or hyphens, and two directories that share a prefix receive different names
+
+#### Scenario: An invalid explicit name fails before the gateway
+- **WHEN** the user runs `maki-oss up --name My_Project`
+- **THEN** the command exits non-zero without contacting the gateway, and the error names the lowercase and hyphen rule
+
 ### Requirement: Idempotent sandbox lifecycle
 
 `maki-oss up` SHALL start the project's sandbox when it exists and is stopped, and SHALL create it when absent, never creating a second sandbox with the same name. `maki-oss up` SHALL remain create/start-only and SHALL NOT upload the project. `maki-oss status` SHALL report existence, phase, image, attached providers, sync state (`clean`, `behind`, `retained`, or `parked`), any retained patch path, and the next command for that state. `maki-oss rm` SHALL refuse to delete a parked workspace unless the user passes `--discard`, and SHALL archive instance-scoped sync state when it deletes a sandbox. Sandbox phase and provider lookups MUST give the same result whatever the gateway's JSON layout is (pretty-printed, compact, or a single line listing several sandboxes), with or without `jq` installed.

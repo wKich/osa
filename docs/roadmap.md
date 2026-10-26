@@ -9,6 +9,9 @@ kiss repo survey (same date). Restructured the same day into two independently
 numbered tracks of vertical slices; see [Renumbering](#renumbering) for the
 mapping from the earlier M0–M8 draft.
 
+Companion track:
+[Conveyor as the sandboxed orchestration layer](conveyor-roadmap.md).
+
 ## Target goals
 
 - **G1 — Host mobility.** A live sandboxed agent session survives moving

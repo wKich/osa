@@ -32,4 +32,4 @@ the helpers.
 - **WHEN** `docs/ai/host-playbook.md` is searched for `opencode-oss`,
   `claude-oss`, `opencode-agent`, and `claude-agent`
 - **THEN** there are no command or step matches; the OpenCode and Claude
-  playbooks own their image and provider steps
+  pages own their image and provider steps

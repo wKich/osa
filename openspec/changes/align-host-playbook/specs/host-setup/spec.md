@@ -244,10 +244,10 @@ than restate external documentation links.
 
 The OpenShell version a document claims to be verified against SHALL match
 `docs/ai/references.md` on every page that states one, and a page claiming an
-older verified version than the canonical one SHALL be treated as stale rather
-than as a second opinion. Bumping the canonical version SHALL be accompanied by
-a re-verification run recorded in `docs/verification-log.md`, so the claim is a
-measurement rather than an edited string.
+older verified OpenShell version than the canonical one SHALL be treated as
+stale rather than as a second opinion. Bumping the canonical version SHALL be
+accompanied by a re-verification run recorded in `docs/verification-log.md`, so
+the claim is a measurement rather than an edited string.
 
 #### Scenario: Maki version consistency
 
@@ -273,7 +273,7 @@ measurement rather than an edited string.
 #### Scenario: OpenShell version consistency
 
 - **WHEN** the OpenShell versions stated in `docs/ai/host-playbook.md`,
-  `docs/setup-guide.md`, `docs/verification.md`, and `docs/ai/references.md`
+  `docs/setup-guide.md`, `docs/ai/verification/maki.md`, and `docs/ai/references.md`
   are compared
 - **THEN** all four name the same version, and it is the version the
   verification log records as tested
@@ -283,10 +283,8 @@ measurement rather than an edited string.
 - **WHEN** a page is changed to claim verification against a newer OpenShell
   version
 - **THEN** `docs/verification-log.md` carries a dated entry for that version,
-  and the checklist in `docs/verification.md` was run against it rather than
+  and the checklist in `docs/ai/verification/maki.md` was run against it rather than
   carried forward
-
-## ADDED Requirements
 
 ### Requirement: Per-agent host steps live in the agent playbook
 
@@ -294,10 +292,10 @@ Agent-specific host steps SHALL live in the page for that agent.
 `docs/ai/host-playbook.md` MUST NOT contain an agent CLI install or version
 check, an agent image build, a provider wizard or profile command, an
 agent-specific shell integration command, or a daily-driver loop for any agent.
-`docs/ai/playbooks/maki.md`, `docs/opencode-oss.md`, and
-`docs/claude-oss.md` SHALL own those steps for Maki, OpenCode, and Claude Code
-respectively, and MAY link `docs/helper.md` for behavior shared by the
-helpers.
+`docs/ai/playbooks/maki.md`, `docs/ai/playbooks/opencode.md`, and
+`docs/ai/playbooks/claude.md` SHALL own those steps for Maki, OpenCode, and
+Claude Code respectively, and MAY link `docs/helper.md` for behavior shared by
+the helpers.
 
 #### Scenario: Maki CLI install and version are in the Maki playbook
 

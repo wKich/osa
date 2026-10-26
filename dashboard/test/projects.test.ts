@@ -1,0 +1,486 @@
+// Project reader tests: the state-root fixture, the contract reader, the
+// conformance check against the real `bin/osa`, the `osa` runner, and the
+// host-change cache. No gateway, no network.
+
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import {
+  findProject,
+  HostChangeCache,
+  isAllowedOsaArgv,
+  listProjects,
+  OsaRunner,
+  ProjectService,
+  resolveOsaBinary,
+  resolveStateRoot,
+  type ProjectEntry,
+} from "../src/projects.ts";
+import {
+  buildStateFixture,
+  emptyStateHome,
+  INVALID_FILE,
+  SANDBOX,
+  type StateFixture,
+} from "./state-fixture.ts";
+
+const repoRoot = join(import.meta.dir, "..", "..");
+const osaStub = join(import.meta.dir, "stub", "osa");
+
+let fixture: StateFixture;
+let cleanup: string[];
+
+beforeEach(() => {
+  fixture = buildStateFixture();
+  cleanup = [fixture.dir];
+});
+
+afterEach(() => {
+  for (const dir of cleanup) rmSync(dir, { recursive: true, force: true });
+});
+
+function byFile(entries: ProjectEntry[], file: string): ProjectEntry {
+  const entry = entries.find((candidate) => candidate.file === file);
+  if (!entry) throw new Error(`no entry for ${file}`);
+  return entry;
+}
+
+function bySandbox(entries: ProjectEntry[], sandbox: string): ProjectEntry {
+  return byFile(entries, `${sandbox}.toml`);
+}
+
+// ---------------------------------------------------------------------------
+// Fixture
+// ---------------------------------------------------------------------------
+
+describe("state-root fixture", () => {
+  test("contract files parse, or fail, as intended", () => {
+    const registry = readdirSync(fixture.registryDir).sort();
+    expect(registry).toEqual(
+      [
+        INVALID_FILE,
+        `${SANDBOX.future}.toml`,
+        `${SANDBOX.noKind}.toml`,
+        `${SANDBOX.orphan}.toml`,
+        `${SANDBOX.parked}.toml`,
+        `${SANDBOX.retained}.toml`,
+        `${SANDBOX.unknownTag}.toml`,
+      ].sort(),
+    );
+    for (const name of registry) {
+      const source = readFileSync(join(fixture.registryDir, name), "utf8");
+      if (name === INVALID_FILE) {
+        expect(() => Bun.TOML.parse(source)).toThrow();
+        continue;
+      }
+      const parsed = Bun.TOML.parse(source) as Record<string, string>;
+      expect(parsed.version).toBe(name === `${SANDBOX.future}.toml` ? "2" : "1");
+    }
+
+    const quoted = Bun.TOML.parse(
+      readFileSync(join(fixture.registryDir, `${SANDBOX.noKind}.toml`), "utf8"),
+    ) as Record<string, string>;
+    expect(quoted.host_path).toBe(fixture.quotedPath);
+    expect(quoted.host_path).toContain('my "app" dir');
+
+    const markers = Object.fromEntries(
+      [SANDBOX.retained, SANDBOX.parked, SANDBOX.noKind].map((sandbox) => [
+        sandbox,
+        Bun.TOML.parse(readFileSync(join(fixture.sessionsDir, sandbox, "pending"), "utf8")) as Record<
+          string,
+          string
+        >,
+      ]),
+    );
+    expect(markers[SANDBOX.retained]!.kind).toBe("retained");
+    expect(existsSync(markers[SANDBOX.retained]!.patch!)).toBe(true);
+    expect(markers[SANDBOX.parked]!.kind).toBe("parked");
+    expect(markers[SANDBOX.noKind]!.kind).toBeUndefined();
+    expect(existsSync(fixture.orphanPath)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Contract reader
+// ---------------------------------------------------------------------------
+
+describe("contract reader", () => {
+  test("state root follows XDG_STATE_HOME, then HOME", () => {
+    expect(resolveStateRoot({ XDG_STATE_HOME: "/x/state", HOME: "/home/u" })).toBe("/x/state/osa");
+    expect(resolveStateRoot({ HOME: "/home/u" })).toBe("/home/u/.local/state/osa");
+    expect(resolveStateRoot({ XDG_STATE_HOME: "", HOME: "/home/u" })).toBe(
+      "/home/u/.local/state/osa",
+    );
+  });
+
+  test("every fixture row is read as the contract says", () => {
+    const entries = listProjects(fixture.stateRoot);
+    expect(entries).toHaveLength(7);
+
+    const retained = bySandbox(entries, SANDBOX.retained);
+    expect(retained).toMatchObject({
+      supported: true,
+      agent: "mk",
+      host_path: fixture.appPath,
+      project: "app",
+      sandbox_name: SANDBOX.retained,
+      fingerprint: "abc123-1-2",
+      pending: "retained",
+      orphan: false,
+      note: null,
+    });
+
+    expect(bySandbox(entries, SANDBOX.parked)).toMatchObject({
+      agent: "oc",
+      host_path: fixture.appPath,
+      pending: "parked",
+      orphan: false,
+      note: null,
+    });
+
+    const noKind = bySandbox(entries, SANDBOX.noKind);
+    expect(noKind.agent).toBe("cc");
+    expect(noKind.host_path).toBe(fixture.quotedPath);
+    expect(noKind.project).toBe('my "app" dir');
+    expect(noKind.pending).toBe("parked");
+    expect(noKind.note).toContain("no kind");
+    expect(noKind.orphan).toBe(false);
+
+    expect(bySandbox(entries, SANDBOX.unknownTag)).toMatchObject({
+      supported: true,
+      agent: "zz",
+      pending: "",
+      orphan: false,
+    });
+
+    expect(bySandbox(entries, SANDBOX.orphan)).toMatchObject({
+      agent: "mk",
+      host_path: fixture.orphanPath,
+      pending: "",
+      orphan: true,
+    });
+
+    const future = bySandbox(entries, SANDBOX.future);
+    expect(future.supported).toBe(false);
+    expect(future.note).toContain("unsupported contract version");
+    expect(future.agent).toBe("");
+    expect(future.host_path).toBe("");
+    expect(future.sandbox_name).toBe("");
+
+    const invalid = byFile(entries, INVALID_FILE);
+    expect(invalid.supported).toBe(false);
+    expect(invalid.note).toContain("could not be parsed");
+    expect(invalid.sandbox_name).toBe("");
+  });
+
+  test("a missing registry directory is an empty list", () => {
+    const home = emptyStateHome();
+    cleanup.push(home);
+    expect(listProjects(join(home, "osa"))).toEqual([]);
+  });
+
+  test("findProject only returns supported entries by sandbox name", () => {
+    expect(findProject(fixture.stateRoot, SANDBOX.retained)?.agent).toBe("mk");
+    expect(findProject(fixture.stateRoot, SANDBOX.future)).toBeNull();
+    expect(findProject(fixture.stateRoot, "not-registered")).toBeNull();
+    expect(findProject(fixture.stateRoot, "../projects")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Conformance with bin/osa
+// ---------------------------------------------------------------------------
+
+describe("conformance with bin/osa", () => {
+  test("the dashboard reader agrees with osa projects --json", async () => {
+    if (!existsSync("/bin/sh") || Bun.which("awk") === null) {
+      console.log("skip conformance: /bin/sh or awk is missing");
+      return;
+    }
+    const proc = Bun.spawn({
+      cmd: [join(repoRoot, "bin", "osa"), "projects", "--json"],
+      env: { ...process.env, XDG_STATE_HOME: fixture.stateHome },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const [stdout, code] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    expect(code).toBe(0);
+    const fromOsa = JSON.parse(stdout) as Array<Record<string, unknown>>;
+
+    const compared = listProjects(fixture.stateRoot).filter(
+      (entry) => entry.supported && entry.note === null,
+    );
+    // Every v1 entry whose marker (if any) carries a kind.
+    expect(compared.map((entry) => entry.sandbox_name).sort()).toEqual(
+      [SANDBOX.orphan, SANDBOX.parked, SANDBOX.retained, SANDBOX.unknownTag].sort(),
+    );
+    const fields = ["agent", "host_path", "project", "sandbox_name", "pending", "orphan"] as const;
+    for (const entry of compared) {
+      const other = fromOsa.find((candidate) => candidate.sandbox_name === entry.sandbox_name);
+      expect(other).toBeDefined();
+      for (const field of fields) {
+        expect({ field, value: other![field] }).toEqual({ field, value: entry[field] });
+      }
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stub osa
+// ---------------------------------------------------------------------------
+
+interface StubSetup {
+  fixturePath: string;
+  logPath: string;
+  env: Record<string, string>;
+}
+
+function stubSetup(answers: Record<string, unknown>, extra: Record<string, string> = {}): StubSetup {
+  const fixturePath = join(fixture.dir, "osa-answers.json");
+  const logPath = join(fixture.dir, "osa-argv.log");
+  writeFileSync(fixturePath, JSON.stringify(answers));
+  return {
+    fixturePath,
+    logPath,
+    env: { STUB_OSA_FIXTURE: fixturePath, STUB_OSA_LOG: logPath, ...extra },
+  };
+}
+
+function loggedCalls(logPath: string): string[][] {
+  if (!existsSync(logPath)) return [];
+  return readFileSync(logPath, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as string[]);
+}
+
+function defaultAnswers(): Record<string, unknown> {
+  return {
+    [fixture.appPath]: {
+      quick: [
+        { sandbox_name: SANDBOX.retained, fingerprint_result: "changed" },
+        { sandbox_name: SANDBOX.parked, fingerprint_result: "unknown" },
+      ],
+      full: [
+        {
+          sandbox_name: SANDBOX.retained,
+          status: { phase: "Ready", sync: "behind", next: "maki-oss refresh" },
+        },
+      ],
+    },
+    [fixture.quotedPath]: {
+      quick: [{ sandbox_name: SANDBOX.noKind, fingerprint_result: "unchanged" }],
+    },
+    [fixture.toolPath]: { quick: [] },
+  };
+}
+
+describe("stub osa", () => {
+  test("answers status from the fixture and logs each argv", async () => {
+    const setup = stubSetup(defaultAnswers());
+    const runner = new OsaRunner({ binary: osaStub, env: setup.env });
+    const quick = await runner.runJson(["status", fixture.appPath, "--quick", "--json"], 5000);
+    expect(quick.ok).toBe(true);
+    if (quick.ok) expect((quick.value as unknown[])[0]).toMatchObject({ fingerprint_result: "changed" });
+    const full = await runner.runJson(["status", fixture.quotedPath, "--json"], 5000);
+    expect(full).toEqual({ ok: true, value: [] });
+    expect(loggedCalls(setup.logPath)).toEqual([
+      ["status", fixture.appPath, "--quick", "--json"],
+      ["status", fixture.quotedPath, "--json"],
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Runner
+// ---------------------------------------------------------------------------
+
+describe("osa runner", () => {
+  test("binary comes from DASHBOARD_OSA_BIN, then bin/osa, then PATH", () => {
+    expect(resolveOsaBinary({ DASHBOARD_OSA_BIN: "/opt/osa" }, repoRoot)).toBe("/opt/osa");
+    expect(resolveOsaBinary({}, repoRoot)).toBe(join(repoRoot, "bin", "osa"));
+    expect(resolveOsaBinary({}, fixture.dir)).toBe("osa");
+  });
+
+  test("only status --json and status --quick --json may run", async () => {
+    expect(isAllowedOsaArgv(["status", "/p", "--json"])).toBe(true);
+    expect(isAllowedOsaArgv(["status", "/p", "--quick", "--json"])).toBe(true);
+    expect(isAllowedOsaArgv(["projects", "--json"])).toBe(false);
+    expect(isAllowedOsaArgv(["up"])).toBe(false);
+    expect(isAllowedOsaArgv(["status", "/p"])).toBe(false);
+    expect(isAllowedOsaArgv(["status", "--json", "/p"])).toBe(false);
+    expect(isAllowedOsaArgv(["status", "relative", "--json"])).toBe(false);
+    expect(isAllowedOsaArgv(["status", "/p", "--json", "--quick"])).toBe(false);
+
+    const setup = stubSetup({});
+    const runner = new OsaRunner({ binary: osaStub, env: setup.env });
+    for (const args of [["projects", "--json"], ["up"]]) {
+      const result = await runner.runJson(args, 5000);
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.error.kind).toBe("invalid_request");
+    }
+    expect(loggedCalls(setup.logPath)).toEqual([]);
+  });
+
+  test("a missing binary is missing_cli", async () => {
+    const runner = new OsaRunner({ binary: join(fixture.dir, "no-such-osa") });
+    const result = await runner.runJson(["status", "/p", "--json"], 5000);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("missing_cli");
+  });
+
+  test("a failing osa is exit, with its message", async () => {
+    const setup = stubSetup({}, { STUB_OSA_FAIL: "exit" });
+    const result = await new OsaRunner({ binary: osaStub, env: setup.env }).runJson(
+      ["status", "/p", "--json"],
+      5000,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error.kind).toBe("exit");
+      expect(result.error.message).toContain("stub osa: forced failure");
+    }
+  });
+
+  test("a hanging osa is timeout", async () => {
+    const setup = stubSetup({}, { STUB_OSA_FAIL: "hang" });
+    const started = Date.now();
+    const result = await new OsaRunner({ binary: osaStub, env: setup.env }).runJson(
+      ["status", "/p", "--json"],
+      300,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("timeout");
+    expect(Date.now() - started).toBeLessThan(3000);
+  });
+
+  test("non-JSON output is invalid_json", async () => {
+    const setup = stubSetup({}, { STUB_OSA_FAIL: "invalid-json" });
+    const result = await new OsaRunner({ binary: osaStub, env: setup.env }).runJson(
+      ["status", "/p", "--json"],
+      5000,
+    );
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error.kind).toBe("invalid_json");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Host-change cache
+// ---------------------------------------------------------------------------
+
+describe("host-change cache", () => {
+  function service(setup: StubSetup, now?: () => number): ProjectService {
+    return new ProjectService({
+      stateRoot: fixture.stateRoot,
+      runnerOptions: { binary: osaStub, env: setup.env },
+      cache: now ? { now } : undefined,
+    });
+  }
+
+  function quickCalls(setup: StubSetup): string[] {
+    return loggedCalls(setup.logPath)
+      .filter((argv) => argv.includes("--quick"))
+      .map((argv) => argv[1]!);
+  }
+
+  test("repeated lists within 60 s check each path once; agents share a path", async () => {
+    const setup = stubSetup(defaultAnswers());
+    const projects = service(setup);
+    for (let index = 0; index < 5; index += 1) {
+      projects.list();
+      await projects.cache.idle();
+    }
+    const calls = quickCalls(setup);
+    expect(calls.sort()).toEqual([fixture.appPath, fixture.quotedPath, fixture.toolPath].sort());
+
+    const rows = projects.list();
+    const row = (sandbox: string) => rows.find((candidate) => candidate.sandbox_name === sandbox)!;
+    expect(row(SANDBOX.retained).fingerprintResult).toBe("changed");
+    expect(row(SANDBOX.parked).fingerprintResult).toBe("unknown");
+    expect(row(SANDBOX.noKind).fingerprintResult).toBe("unchanged");
+    expect(row(SANDBOX.unknownTag).fingerprintResult).toBe("unknown");
+    expect(row(SANDBOX.retained).checkedAt).toBeGreaterThan(0);
+    expect(row(SANDBOX.retained).osaError).toBeNull();
+  });
+
+  test("orphans and unsupported entries spawn nothing", async () => {
+    const setup = stubSetup(defaultAnswers());
+    const projects = service(setup);
+    const rows = projects.list();
+    await projects.cache.idle();
+    expect(quickCalls(setup)).not.toContain(fixture.orphanPath);
+    expect(quickCalls(setup)).toHaveLength(3);
+    const orphan = rows.find((candidate) => candidate.sandbox_name === SANDBOX.orphan)!;
+    expect(orphan.fingerprintResult).toBe("unknown");
+  });
+
+  test("refresh=1 drops the cache and checks again", async () => {
+    const setup = stubSetup(defaultAnswers());
+    const projects = service(setup);
+    projects.list();
+    await projects.cache.idle();
+    projects.list({ refresh: true });
+    await projects.cache.idle();
+    expect(quickCalls(setup).filter((path) => path === fixture.appPath)).toHaveLength(2);
+  });
+
+  test("a result older than 60 s is checked again in the background", async () => {
+    const setup = stubSetup(defaultAnswers());
+    let clock = 1_000_000;
+    const projects = service(setup, () => clock);
+    projects.list();
+    await projects.cache.idle();
+    clock += 59_000;
+    projects.list();
+    await projects.cache.idle();
+    expect(quickCalls(setup).filter((path) => path === fixture.appPath)).toHaveLength(1);
+    clock += 2_000;
+    const stale = projects.list();
+    // The stale result is still served while the new check runs.
+    expect(stale.find((row) => row.sandbox_name === SANDBOX.retained)!.fingerprintResult).toBe(
+      "changed",
+    );
+    await projects.cache.idle();
+    expect(quickCalls(setup).filter((path) => path === fixture.appPath)).toHaveLength(2);
+  });
+
+  test("at most two checks run at once", async () => {
+    const setup = stubSetup(defaultAnswers(), { STUB_OSA_DELAY: "0.2" });
+    const runner = new OsaRunner({ binary: osaStub, env: setup.env });
+    let running = 0;
+    let peak = 0;
+    const original = runner.runJson.bind(runner);
+    runner.runJson = async (args, timeoutMs) => {
+      running += 1;
+      peak = Math.max(peak, running);
+      try {
+        return await original(args, timeoutMs);
+      } finally {
+        running -= 1;
+      }
+    };
+    const cache = new HostChangeCache(runner);
+    cache.schedule(["/a", "/b", "/c", "/d", "/e"]);
+    await cache.idle();
+    expect(peak).toBe(2);
+    expect(quickCalls(setup)).toHaveLength(5);
+  });
+
+  test("a failing osa keeps the rows and records the error", async () => {
+    const projects = new ProjectService({
+      stateRoot: fixture.stateRoot,
+      runnerOptions: { binary: join(fixture.dir, "no-such-osa") },
+    });
+    projects.list();
+    await projects.cache.idle();
+    const rows = projects.list();
+    const retained = rows.find((row) => row.sandbox_name === SANDBOX.retained)!;
+    expect(retained.pending).toBe("retained");
+    expect(retained.fingerprintResult).toBeNull();
+    expect(retained.osaError?.kind).toBe("missing_cli");
+    const orphan = rows.find((row) => row.sandbox_name === SANDBOX.orphan)!;
+    expect(orphan.orphan).toBe(true);
+    expect(orphan.osaError).toBeNull();
+  });
+});

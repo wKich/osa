@@ -1407,3 +1407,54 @@ $ maki-oss rm --yes
 ✓ Sandbox mk-osa-live-6eee deletion accepted; cleanup is pending
 # projects/mk-osa-live-6eee.toml removed; osa status --json → []
 ```
+
+## Dashboard Projects view — 2026-10-26
+
+`dashboard-project-view` (M1) on macOS 26.5 (Apple Silicon), Bun 1.4.2,
+Google Chrome 155.0.8059.85, OpenShell 0.1.5.
+
+### Offline checks (task 7.4)
+
+| Check | Result |
+|---|---|
+| `cd dashboard && bun test` | 92 pass, 0 fail (461 `expect()` calls, 4 files); stable over 6 consecutive runs |
+| `bun run scripts/browser-check.ts` | 41 passed, 0 failed (25 existing checks + 16 for the Projects journey), 10 consecutive clean runs |
+| `dashboard/scripts/smoke.sh` | 47 passed, 0 failed |
+| `make test` | 204 passed, 0 failed, 0 skipped |
+| `make lint-docs` | `check-playbooks: ok` |
+| `openspec validate dashboard-project-view --strict` | valid |
+| `openspec validate --specs --strict` | 19 passed, 0 failed |
+
+The conformance test in `projects.test.ts` ran the real `bin/osa projects
+--json` over the fixture (not skipped). It also shows the one intended
+difference: for a marker with no `kind`, `osa` falls back to the patch size
+(`retained`), and the dashboard reports `parked` with a note.
+
+A first browser-check run failed 2 checks: the journey read the table before
+the first inventory poll returned, while rows still said "gateway unknown".
+The journey now waits for the inventory join, and the next 10 runs were clean.
+
+### Real state root (task 7.5)
+
+The dashboard ran with its defaults (`$HOME/.local/state/osa`, the
+repository's `bin/osa`, the real gateway) and was opened in headless Chrome:
+
+```text
+$ bin/osa projects
+AGENT SANDBOX             PENDING  PROJECT      PATH
+cc    cc-osa-cb62         -        osa          /Users/ki/Projects/experiments/osa
+mk    maki-kiss           -        kiss         /Users/ki/Projects/yourpapai/kiss-playwright
+mk    mk-osa-cb62         -        osa          /Users/ki/Projects/experiments/osa
+oc    oc-kiss-5390        -        kiss         /Users/ki/Projects/yourpapai/kiss-playwright
+oc    oc-maki-openshell   -        osa          /Users/ki/Projects/experiments/osa
+
+GET /api/projects → 5 rows; agent, host_path, pending, and orphan equal
+osa's for all 5 (0 mismatches). Host: changed for cc-osa-cb62, mk-osa-cb62,
+and oc-kiss-5390; unknown for maki-kiss and oc-maki-openshell (no recorded
+fingerprint).
+```
+
+The page listed all 5 projects as "nothing pending", each sandbox linked to
+the live gateway, and the attention counter stayed hidden (0). This host had
+no retained, parked, or orphan entries at the time, so those badges were
+covered only by the fixture-backed checks above.

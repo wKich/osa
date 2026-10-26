@@ -49,6 +49,10 @@ interface BunGlobal {
   serve(options: BunServeOptions): BunServer;
   spawn(options: BunSpawnOptions): BunSubprocess;
   sleep(ms: number): Promise<void>;
+  file(path: string): { text(): Promise<string>; readonly size: number };
+  readonly TOML: { parse(input: string): unknown };
+  which(command: string): string | null;
+  hash(data: string | Uint8Array): number | bigint;
   readonly version: string;
 }
 
@@ -80,10 +84,35 @@ declare module "node:fs" {
   export function readFileSync(path: string, encoding: "utf8"): string;
   export function rmSync(path: string, options?: { recursive?: boolean; force?: boolean }): void;
   export function existsSync(path: string): boolean;
+  export function readdirSync(path: string): string[];
+  export interface Stats {
+    isFile(): boolean;
+    isDirectory(): boolean;
+    isSymbolicLink(): boolean;
+    readonly size: number;
+    readonly mtimeMs: number;
+  }
+  export function statSync(path: string): Stats;
+  export function lstatSync(path: string): Stats;
+  export function realpathSync(path: string): string;
+  export function openSync(path: string, flags: string): number;
+  export function readSync(
+    fd: number,
+    buffer: Uint8Array,
+    offset: number,
+    length: number,
+    position: number | null,
+  ): number;
+  export function closeSync(fd: number): void;
+  export function symlinkSync(target: string, path: string): void;
+  export function chmodSync(path: string, mode: number): void;
+  export function readFileSync(path: string): Uint8Array;
 }
 
 declare module "node:path" {
   export function join(...parts: string[]): string;
+  export function dirname(path: string): string;
+  export function isAbsolute(path: string): boolean;
 }
 
 declare module "node:os" {

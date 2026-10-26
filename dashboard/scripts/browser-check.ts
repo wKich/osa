@@ -6,7 +6,9 @@
 // claims of the change: inventory refresh and rendering, XSS containment,
 // lifecycle actions with typed delete confirmation, read-only controls, log
 // streaming with filters/pause/reconnect and disconnect cleanup, policy tabs,
-// and rule approve/reject.
+// rule approve/reject, and the Projects view (registry list, attention
+// counter, read-only patch viewer, full status) over a state-root fixture and
+// the stub osa.
 //
 // No npm dependencies. Skips (exit 0) when no Chrome/Chromium binary is found.
 //
@@ -17,9 +19,17 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { DashboardConfig } from "../src/config.ts";
 import { OpenShellClient } from "../src/openshell.ts";
+import { ProjectService } from "../src/projects.ts";
 import { createDashboardServer, type DashboardHandle } from "../src/server.ts";
+import {
+  buildStateFixture,
+  SANDBOX,
+  writeEntry,
+  XSS_PATCH_LINE,
+} from "../test/state-fixture.ts";
 
 const stubPath = join(import.meta.dir, "..", "test", "stub", "openshell");
+const osaStubPath = join(import.meta.dir, "..", "test", "stub", "osa");
 
 function findChrome(): string | null {
   const candidates = [
@@ -55,6 +65,8 @@ function check(condition: boolean, label: string): void {
 
 interface Cdp {
   ready: Promise<void>;
+  /** Uncaught page exceptions and console errors seen so far. */
+  errors: string[];
   send(method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>>;
   evaluate(expression: string): Promise<unknown>;
   close(): void;
@@ -62,6 +74,7 @@ interface Cdp {
 
 function createCdp(url: string): Cdp {
   const socket = new WebSocket(url);
+  const errors: string[] = [];
   let nextId = 1;
   const pending = new Map<
     number,
@@ -87,9 +100,17 @@ function createCdp(url: string): Cdp {
         : new TextDecoder().decode(event.data as Uint8Array);
     const message = JSON.parse(text) as {
       id?: number;
+      method?: string;
+      params?: Record<string, any>;
       result?: Record<string, unknown>;
       error?: { message?: string };
     };
+    if (message.method === "Runtime.exceptionThrown") {
+      const details = message.params?.exceptionDetails;
+      errors.push(`exception: ${details?.exception?.description ?? details?.text ?? "unknown"}`);
+    } else if (message.method === "Runtime.consoleAPICalled" && message.params?.type === "error") {
+      errors.push(`console.error: ${JSON.stringify(message.params?.args?.map((arg: any) => arg.value))}`);
+    }
     if (message.id === undefined) return;
     const entry = pending.get(message.id);
     if (!entry) return;
@@ -132,7 +153,7 @@ function createCdp(url: string): Cdp {
     return result.result?.value;
   }
 
-  return { ready, send, evaluate, close: () => socket.close() };
+  return { ready, errors, send, evaluate, close: () => socket.close() };
 }
 
 async function waitFor(
@@ -189,6 +210,37 @@ writeFileSync(join(stateDir, "providers", "xss"), "");
 writeFileSync(join(stateDir, "notes", "xss"), XSS_NOTE);
 writeFileSync(join(stateDir, "sandboxes", "logs-demo"), "Ready\n");
 writeFileSync(join(stateDir, "providers", "logs-demo"), "");
+// The retained-patch project's sandbox is on the gateway; the others are not.
+writeFileSync(join(stateDir, "sandboxes", SANDBOX.retained), "Ready\n");
+writeFileSync(join(stateDir, "providers", SANDBOX.retained), "");
+
+const stateFixture = buildStateFixture();
+const osaAnswers = join(workDir, "osa-answers.json");
+const osaLog = join(workDir, "osa-argv.log");
+writeFileSync(
+  osaAnswers,
+  JSON.stringify({
+    [stateFixture.appPath]: {
+      quick: [
+        { sandbox_name: SANDBOX.retained, fingerprint_result: "changed" },
+        { sandbox_name: SANDBOX.parked, fingerprint_result: "unchanged" },
+      ],
+      full: [
+        {
+          sandbox_name: SANDBOX.retained,
+          status: { phase: "Ready", sync: "behind", next: "maki-oss refresh" },
+        },
+      ],
+    },
+  }),
+);
+
+function makeProjects(): ProjectService {
+  return new ProjectService({
+    stateRoot: stateFixture.stateRoot,
+    runnerOptions: { binary: osaStubPath, env: { STUB_OSA_FIXTURE: osaAnswers, STUB_OSA_LOG: osaLog } },
+  });
+}
 
 const config: DashboardConfig = {
   image: "maki-agent:local",
@@ -216,12 +268,18 @@ function argv(): string {
   return existsSync(argvLog) ? readFileSync(argvLog, "utf8") : "";
 }
 
-const mainServer: DashboardHandle = createDashboardServer({ port: 0, client: makeClient(), config });
+const mainServer: DashboardHandle = createDashboardServer({
+  port: 0,
+  client: makeClient(),
+  config,
+  projects: makeProjects(),
+});
 const readOnlyServer: DashboardHandle = createDashboardServer({
   port: 0,
   client: makeClient(),
   config,
   readOnly: true,
+  projects: makeProjects(),
 });
 const mainUrl = `http://127.0.0.1:${mainServer.port}/`;
 const readOnlyUrl = `http://127.0.0.1:${readOnlyServer.port}/`;
@@ -272,11 +330,15 @@ async function openPage(url: string): Promise<{ id: string; cdp: Cdp }> {
   const cdp = createCdp(target.webSocketDebuggerUrl);
   await cdp.ready;
   await cdp.send("Page.enable");
+  await cdp.send("Runtime.enable");
   await waitFor(cdp, `document.readyState === "complete"`, `page load for ${url}`);
   return { id: target.id, cdp };
 }
 
-async function closePage(id: string): Promise<void> {
+const pageErrors: string[] = [];
+
+async function closePage(id: string, cdp?: Cdp): Promise<void> {
+  if (cdp) pageErrors.push(...cdp.errors);
   try {
     await cdpFetch(`/json/close/${id}`);
   } catch {
@@ -304,6 +366,7 @@ async function runChecks(): Promise<void> {
   // -------------------------------------------------------------------------
   const inventoryPage = await openPage(mainUrl);
   const inventory = inventoryPage.cdp;
+  await clickButton(inventory, "Sandboxes");
 
   await waitFor(
     inventory,
@@ -457,7 +520,7 @@ async function runChecks(): Promise<void> {
   );
   check(true, "reconnect replays the buffered lines");
 
-  await closePage(inventoryPage.id);
+  await closePage(inventoryPage.id, inventory);
   await waitForFile(join(stateDir, "logs-killed"), "log child kill on disconnect");
   check(true, "closing the tab kills the log child process");
 
@@ -466,6 +529,7 @@ async function runChecks(): Promise<void> {
   // -------------------------------------------------------------------------
   const readOnlyPage = await openPage(readOnlyUrl);
   const readOnly = readOnlyPage.cdp;
+  await clickButton(readOnly, "Sandboxes");
   await waitFor(readOnly, `document.body.textContent.includes("Read-only mode")`, "read-only notice");
   await waitFor(
     readOnly,
@@ -496,13 +560,14 @@ async function runChecks(): Promise<void> {
     )) === true,
     "read-only disables confirmation inputs",
   );
-  await closePage(readOnlyPage.id);
+  await closePage(readOnlyPage.id, readOnly);
 
   // -------------------------------------------------------------------------
   // Policy view: effective vs base tabs
   // -------------------------------------------------------------------------
   const viewPage = await openPage(mainUrl);
   const views = viewPage.cdp;
+  await clickButton(views, "Sandboxes");
   await waitFor(
     views,
     `document.querySelectorAll("#inventory-table tbody tr").length >= 1`,
@@ -582,7 +647,128 @@ async function runChecks(): Promise<void> {
     "approve hit the CLI with the chunk id",
   );
 
-  await closePage(viewPage.id);
+  await closePage(viewPage.id, views);
+
+  await projectsJourney();
+
+  check(pageErrors.length === 0, `no page exceptions or console errors (${pageErrors.join("; ")})`);
+}
+
+// ---------------------------------------------------------------------------
+// Projects: list, counter, refresh, patch viewer, full status, read-only
+// ---------------------------------------------------------------------------
+
+async function projectsJourney(): Promise<void> {
+  const page = await openPage(mainUrl);
+  const cdp = page.cdp;
+  const rowCount = `document.querySelectorAll("#projects-table tbody tr").length`;
+  const tableText = `document.getElementById("projects-table").textContent`;
+
+  await waitFor(cdp, `${rowCount} === 7`, "every fixture row on the landing view");
+  // Rows can render before the first inventory poll lands ("gateway unknown").
+  await waitFor(cdp, `${tableText}.includes("not on gateway")`, "the inventory join");
+  check(
+    (await cdp.evaluate(`(() => {
+      const text = ${tableText};
+      return ${JSON.stringify([...Object.values(SANDBOX).filter((name) => name !== SANDBOX.future), "broken.toml", `${SANDBOX.future}.toml`])}
+        .every((name) => text.includes(name));
+    })()`)) === true,
+    "the landing view lists every fixture row, unsupported ones by file name",
+  );
+  check(
+    (await cdp.evaluate(`(() => {
+      const text = ${tableText};
+      return text.includes("Maki") && text.includes("OpenCode") && text.includes("Claude Code") &&
+        text.includes("zz") && text.includes("unsupported contract version") &&
+        text.includes("orphan: folder missing") && text.includes("not on gateway");
+    })()`)) === true,
+    "rows show agent labels, the raw unknown tag, notes, and badges",
+  );
+  check(
+    (await cdp.evaluate(`[...document.querySelectorAll("#projects-table button.link")].map((b) => b.textContent).join(",")`)) ===
+      SANDBOX.retained,
+    "only the sandbox on the gateway links to its detail view",
+  );
+  await waitFor(cdp, `${tableText}.includes("changed since last sync")`, "host-change result from osa");
+  check(true, "host-change result appears from the cached quick status");
+
+  const attention = `document.getElementById("attention")`;
+  await waitFor(cdp, `!${attention}.hidden && ${attention}.textContent === "4 need attention"`, "attention counter");
+  check(true, "counter counts retained, parked, and orphan projects");
+
+  await clickButton(cdp, "Sandboxes");
+  await waitFor(cdp, `document.getElementById("inventory-table") !== null`, "sandboxes tab");
+  check((await cdp.evaluate(`!${attention}.hidden`)) === true, "counter stays visible on the Sandboxes tab");
+  await cdp.evaluate(`${attention}.click()`);
+  await waitFor(cdp, `document.getElementById("projects-table") !== null`, "counter opens Projects");
+  check(true, "activating the counter opens the Projects view");
+
+  writeEntry(stateFixture, {
+    agent: "cx",
+    host_path: stateFixture.toolPath,
+    project: "late",
+    sandbox_name: "cx-late-7777",
+  });
+  await waitFor(cdp, `${tableText}.includes("cx-late-7777")`, "new registry entry", 7000);
+  check(true, "a new registry file appears within one refresh");
+
+  rmSync(join(stateFixture.sessionsDir, SANDBOX.parked, "pending"));
+  await waitFor(cdp, `${attention}.textContent === "3 need attention"`, "counter after resolution", 7000);
+  check(true, "counter drops when a pending marker is removed");
+
+  await clickButton(cdp, "View patch");
+  await waitFor(cdp, `document.querySelectorAll("#patch-view .patch-line").length > 0`, "patch lines");
+  check(
+    (await cdp.evaluate(`(() => {
+      const view = document.getElementById("patch-view");
+      return view.querySelectorAll(".patch-add").length > 0 &&
+        view.querySelectorAll(".patch-del").length > 0 &&
+        view.querySelectorAll(".patch-hunk").length === 1;
+    })()`)) === true,
+    "patch lines are marked as added, removed, and hunk",
+  );
+  check(
+    (await cdp.evaluate(`[...document.querySelectorAll("#app button")].map((b) => b.textContent).join(",")`)) ===
+      "← Projects",
+    "the patch view has no apply, branch, or drop control",
+  );
+  check(
+    (await cdp.evaluate(`document.getElementById("patch-view").textContent.includes(${JSON.stringify(XSS_PATCH_LINE)})`)) ===
+      true && (await cdp.evaluate(`document.querySelectorAll("#app img").length`)) === 0,
+    "markup in a patch renders as text and creates no element",
+  );
+
+  await clickButton(cdp, "← Projects");
+  await waitFor(cdp, `${rowCount} >= 7`, "projects after the patch");
+  await cdp.evaluate(`(() => {
+    const row = [...document.querySelectorAll("#projects-table tbody tr")].find((tr) => tr.textContent.includes(${JSON.stringify(SANDBOX.retained)}));
+    [...row.querySelectorAll("button")].find((b) => b.textContent === "Check (contacts gateway)").click();
+    return true;
+  })()`);
+  await waitFor(
+    cdp,
+    `${tableText}.includes("sync: behind") && ${tableText}.includes("next: maki-oss refresh")`,
+    "full status on the row",
+  );
+  check(true, "a row's full check shows behind and the next command");
+  await closePage(page.id, cdp);
+
+  const readOnlyPage = await openPage(readOnlyUrl);
+  const readOnly = readOnlyPage.cdp;
+  await waitFor(readOnly, `document.querySelectorAll("#projects-table tbody tr").length >= 7`, "read-only projects");
+  await clickButton(readOnly, "View patch");
+  await waitFor(
+    readOnly,
+    `document.querySelectorAll("#patch-view .patch-add").length > 0`,
+    "read-only patch lines",
+  );
+  check(true, "read-only mode still opens the patch");
+  await closePage(readOnlyPage.id, readOnly);
+
+  const quick = existsSync(osaLog)
+    ? readFileSync(osaLog, "utf8").split("\n").filter((line) => line.includes("--quick"))
+    : [];
+  check(quick.length > 0, "the stub osa answered the quick checks");
 }
 
 try {
@@ -599,6 +785,7 @@ try {
 } finally {
   readOnlyServer.stop();
   mainServer.stop();
+  rmSync(stateFixture.dir, { recursive: true, force: true });
   chromeProcess.kill();
   // Kill any Chrome helper processes that share this throwaway profile.
   const pkill = Bun.spawn({ cmd: ["pkill", "-f", profileDir], stdout: "ignore", stderr: "ignore" });

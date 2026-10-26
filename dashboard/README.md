@@ -1,13 +1,14 @@
 # OpenShell dashboard
 
-A minimal local web dashboard for [OpenShell](https://docs.nvidia.com/openshell):
+A minimal local web dashboard for osa and [OpenShell](https://docs.nvidia.com/openshell):
+the projects every agent front-end has registered with their sync state,
 sandbox inventory and lifecycle, live logs over Server-Sent Events, read-only
 policy inspection, and rule-proposal review, without replacing `openshell term`
-or the CLI.
+or the CLIs.
 
 Bun + TypeScript, **zero npm dependencies**, no build step, no database, no
 daemon: one command starts a loopback-only server that reads gateway JSON
-through the `openshell` CLI.
+through the `openshell` CLI and project state from the osa state root.
 
 ## Requirements
 
@@ -17,6 +18,9 @@ through the `openshell` CLI.
   `connected`). The dashboard never reads, stores, or forwards credential
   values; it invokes the CLI, which holds its own credentials.
 - A gateway reachable from this host. Remote gateways are out of scope for v1.
+- For the Projects view: the `osa` command (the repository's `bin/osa` is used
+  by default) and the projects registered by `maki-oss`, `opencode-oss`, or
+  `claude-oss`.
 
 ## Quick start
 
@@ -26,8 +30,40 @@ bun install          # resolves with zero packages
 bun run start        # http://127.0.0.1:8787
 ```
 
-Open the printed URL. The inventory refreshes every 3 seconds; per-sandbox
+Open the printed URL. The page opens on **Projects**; the **Sandboxes** tab
+holds the gateway inventory. Both lists refresh every 3 seconds; per-sandbox
 views (`Logs`, `Policy`, `Rules`) stream or fetch on demand.
+
+## Projects view
+
+The Projects view lists every entry in the osa project registry
+(`$XDG_STATE_HOME/osa/projects/*.toml`, else `$HOME/.local/state/osa/…`)
+across all agents: agent, project, host path, and sandbox name. A sandbox that
+the gateway lists links to its detail view; otherwise the row says
+"not on gateway" (or "gateway unknown" while the inventory is unavailable).
+An unknown agent tag is shown raw. An entry that does not parse, or whose
+contract `version` is not `"1"`, is listed by file name with a note.
+
+Each row shows:
+
+- **Pending**: `retained` or `parked` from the session's `pending` marker, and
+  `orphan` when the host folder is gone. These come from file reads only; the
+  list never contacts the gateway.
+- **Host**: whether the host changed since the last sync (`changed`,
+  `unchanged`, `unknown`), from `osa status PATH --quick --json`. Results are
+  cached per host path for 60 seconds and refreshed in the background, at most
+  two at a time, and only while a page polls the list. Orphans are never
+  checked. **Check host changes** drops the cache.
+- **Status**: **Check (contacts gateway)** runs `osa status PATH --json` (30 s
+  timeout) and shows the sync state (`clean`, `behind`, `retained`, `parked`),
+  phase, and the next command the front-end suggests.
+- **View patch** (retained patches only): the patch text read-only, with added
+  and removed lines marked, truncated at 2 MiB with a notice.
+
+The header's attention counter shows how many projects have a retained patch,
+a parked workspace, or a missing folder; it is visible from every view and
+opens Projects. Nothing in the Projects view writes: resolving pending work
+stays with the front-end in the project.
 
 ## Scripts
 
@@ -49,6 +85,8 @@ Priority: flag > environment variable > default.
 | `--token T` | `DASHBOARD_TOKEN` | random per start | Session token embedded in the served page and required by every mutating route |
 | `--read-only` | `DASHBOARD_READ_ONLY` | off | Rejects every mutating route with 403 and hides the controls (`1`, `true`, `yes`, `on`) |
 | — | `DASHBOARD_OPENSHELL_BIN` | `openshell` | CLI binary to invoke (tests point this at the stub) |
+| — | `DASHBOARD_OSA_BIN` | `../bin/osa`, else `osa` | `osa` binary for host-change and full status checks: this variable, else the repository's `bin/osa` next to the dashboard, else `osa` on `PATH` |
+| — | `XDG_STATE_HOME` | `$HOME/.local/state` | Base of the osa state root (`$XDG_STATE_HOME/osa`) the Projects view reads |
 | `-h`, `--help` | — | — | Print usage |
 
 `DASHBOARD_PORT` and `DASHBOARD_HOST` make `bun run start` easy to wrap in a
@@ -83,6 +121,11 @@ Read routes (no token required on loopback):
 | `GET /api/sandboxes/:name/policy?view=base\|full` | Base or effective policy |
 | `GET /api/sandboxes/:name/rules?status=pending` | Rule proposals parsed from `rule get` |
 | `GET /events/logs?name=:name&token=:token` | SSE log stream (ring-buffer replay, heartbeat comments). Requires the page's session token |
+| `GET /api/projects[?refresh=1]` | Registry entries with `pending`, `orphan`, `note`, `fingerprintResult`, `checkedAt`, and per-row `osaError`; `refresh=1` drops the host-change cache |
+| `GET /api/projects/:sandbox/status` | `osa status <host_path> --json`, narrowed to that sandbox; 404 for a sandbox not in the registry |
+| `GET /api/projects/:sandbox/patch` | The retained patch `{name, size, truncated, text}`. Requires `X-Dashboard-Token`, in read-only mode too |
+
+Project routes accept GET only; any other method returns 405 and runs nothing.
 
 Mutating routes require the `X-Dashboard-Token` header and fail with 403 in
 read-only mode:
@@ -118,14 +161,21 @@ The dashboard is a local operator tool, not a hardened service. What it does:
 - **Read-only mode** for shared or demo machines: every mutation returns 403.
 - **Defense in depth in the browser.** The page carries a strict CSP
   (`script-src 'self'`, `default-src 'none'`), and the frontend renders gateway
-  data only as text nodes — the served `app.js` contains no HTML sink
-  identifiers, enforced by a test.
+  and project data only as text nodes — the served ES modules under `/app/`
+  contain no HTML sink identifiers, enforced by a test. Only the module names
+  found in `src/app/` at startup are served; no URL path reaches the file
+  system.
 - **No secrets through the dashboard.** It never reads or stores credential
   values, and it adds no `--env` values; provider credentials stay with the
   CLI and OpenShell's provider profiles. The API responses contain gateway
   metadata only.
 - **No host bind mounts, no sandbox changes.** The dashboard only shells out to
-  `openshell`, and only with argv arrays (never through a shell).
+  `openshell` and `osa`, and only with argv arrays (never through a shell). The
+  only `osa` commands it can run are `status PATH --json` and
+  `status PATH --quick --json`.
+- **Project data stays read-only.** The Projects view reads the osa state root
+  and never creates, modifies, or deletes a file there or in a registered
+  host project; no project route accepts a method other than GET.
 
 Threat model: the assets are the gateway (mutating sandboxes, approving rules)
 and the metadata the API exposes. The main risks are (1) another local process
@@ -136,6 +186,16 @@ the authenticated `openshell` CLI, so the dashboard does not add a new trust
 boundary; it just makes the same capabilities reachable from a browser tab.
 The dashboard itself holds no credentials, so compromising it does not leak
 gateway secrets directly.
+
+Patches are host source code, which is more sensitive than gateway metadata.
+The patch route therefore requires the session token as `X-Dashboard-Token`
+in read-write and read-only mode alike, so a page that reaches the port (for
+example through DNS rebinding) cannot read it. It serves a patch only when
+the sandbox is in the registry and the marker's `patch` path resolves, after
+following symbolic links, to a regular file directly inside that sandbox's
+`sessions/<sandbox>/` directory, reads at most 2 MiB, and returns it as JSON
+text that the page renders as text nodes. It serves host code read-only; no
+project route writes anything.
 
 ## Known limitations
 
@@ -152,14 +212,19 @@ gateway secrets directly.
 ## Testing
 
 ```sh
-bun test              # adapter, routes, guards, SSE lifecycle (49 cases)
-bun run scripts/browser-check.ts   # real headless Chrome against the stub (25 checks)
+bun test              # adapter, project reader, routes, guards, SSE lifecycle
+bun run scripts/browser-check.ts   # real headless Chrome against the stubs
 ```
 
 Tests put `test/stub` first on `PATH` (or set `DASHBOARD_OPENSHELL_BIN`) and
-never touch a real gateway; the browser check uses the same stub and a
+never touch a real gateway; the browser check uses the same stubs and a
 throwaway Chrome profile. `test/stub/openshell` records argv, returns pinned
 v0.1.2 JSON shapes, simulates lifecycle state, and can emit timed log lines.
+`test/stub/osa` answers `status PATH [--quick] --json` from a JSON fixture,
+logs argv, and can fail, hang, or print invalid JSON. `test/state-fixture.ts`
+builds a throwaway state root with every registry and marker shape the
+Projects view handles, and a conformance test checks the dashboard's reader
+against the real `bin/osa projects --json` over it.
 
 `scripts/smoke.sh` starts the real server with the stub on `PATH`, checks every
 documented flag, and asserts the API payloads end to end:

@@ -300,6 +300,9 @@ directory (mode `700`; files `600`):
 | `patch-<timestamp>.patch` | Collected patch, retained until you remove it |
 | `worktrees/<id>/` | Review worktree kept when no fast-forward happened |
 | `review-<timestamp>/` | Selective export used when the host has no git |
+| `dropped/` | Patches set aside with `osa resolve <sandbox> drop --yes` |
+| `rescue-<timestamp>/` | Full workspace copies made by `osa resolve <sandbox> rescue` |
+| `locks/` | Session and resolve exclusion (see [osa resolve](#osa-resolve)) |
 | `pending` | Marker for unresolved changes: `kind` (`retained` or `parked`), patch path, sandbox ID, result tree |
 
 The apply path depends on the project and the baseline:
@@ -334,9 +337,12 @@ A failed collection parks the workspace because no durable patch exists. An
 apply failure or conflict retains the patch and does not park. Both write
 nothing to the project and leave the changes in the sandbox. The recovery
 block prints `openshell sandbox connect <name>`, a `maki-oss download <path>
-<dest>` example, and the patch or pending path. A retained patch stays
-available until you apply or delete it and never blocks a later session;
-resolve a parked workspace with `maki-oss download` or `maki-oss upload
+<dest>` example, the patch or pending path, and the
+[`osa resolve`](#osa-resolve) commands for the pending kind: `apply`,
+`branch`, and `drop --yes` for a retained patch; `rescue` and
+`discard --yes` for a parked workspace. A retained patch stays available
+until you apply, branch, or drop it and never blocks a later session; a
+parked workspace is also resolved by `maki-oss download` or `maki-oss upload
 --discard` (or `rm --discard`).
 
 Gitignored files, empty directories, and sandbox-only artifacts do not travel
@@ -367,6 +373,9 @@ Two sessions for the same project are not coordinated beyond that instance
 check: both may classify the workspace and upload at once. The last writer
 wins in the sandbox, and each exit collects the diff from its own baseline.
 Run one session per project at a time if you need deterministic sync.
+Sessions and `osa resolve` do exclude each other through a per-sandbox lock
+(see [osa resolve](#osa-resolve)); a session started by a helper older than
+that lock takes none, so upgrade the front-ends together.
 
 #### Idle stop
 
@@ -785,10 +794,12 @@ it. A plain folder, or a host without git, records none.
 
 ## osa
 
-`osa` reports on the projects every front-end has registered. It is
-read-only: it never creates, starts, stops, deletes, uploads to, or
-downloads from a sandbox, never launches an agent, and never writes the
-state root.
+`osa` reports on the projects every front-end has registered and resolves
+their pending sync output. `projects` and `status` are read-only: they never
+create, start, stop, delete, upload to, or download from a sandbox, never
+launch an agent, and never write the state root. `resolve` is the only
+command that changes anything. No `osa` command creates, stops, or deletes a
+sandbox or launches an agent; only `resolve rescue` may start a stopped one.
 
 ```sh
 osa projects                 # every project, with its pending kind
@@ -808,10 +819,69 @@ the same phase, providers, sync state (`clean`, `behind`, `retained`, or
 `parked`), patch, and next command as `maki-oss status` or
 `opencode-oss status`, and may run the same read-only workspace probe. With
 `--json` each entry carries that report under `status`. `--quick` skips the
-gateway and the tree hash: it reports the pending kind and
+gateway and the tree hash: it reports the pending kind,
 `fingerprint_result`, which is `changed`, `unchanged`, or `unknown` (no
-recorded fingerprint, a plain folder, or a missing folder), and never
+recorded fingerprint, a plain folder, or a missing folder), and `busy`
+(`true` while a live session or resolve holds the sandbox's lock), and never
 `clean` or `behind`. A path with no entry prints `[]` with `--json`.
+
+### osa resolve
+
+```sh
+osa resolve SANDBOX apply             # retained patch -> working tree, no commit
+osa resolve SANDBOX branch            # retained patch -> new branch at the recorded base
+osa resolve SANDBOX drop --yes        # set the retained patch aside
+osa resolve SANDBOX rescue            # copy a parked workspace into the state directory
+osa resolve SANDBOX discard --yes     # replace a parked workspace with the host project
+osa resolve SANDBOX branch --json     # one result object on stdout
+```
+
+`SANDBOX` is a registered sandbox name, as `osa projects` lists it. `osa`
+finds its registry entry by file name, refuses an unregistered name or an
+orphan, and runs the owning front-end's internal `__resolve` command in the
+project folder, so the action uses that front-end's configuration and the
+same checks as the session exit. It never prompts.
+
+| Action | Pending kind | What it does |
+|---|---|---|
+| `apply` | retained | Dry-runs the whole patch against the current working tree (`git apply --check`, or `patch --dry-run` without git), then applies it all at once. Never stages, commits, switches branches, or moves `HEAD`. A patch whose reverse already applies only clears the marker. A failed dry run changes nothing and suggests `branch`. A binary patch on a host without git is refused. |
+| `branch` | retained | Needs a git repository rooted at the project folder and the session's recorded base commit. Applies the patch in a temporary worktree under the session's `worktrees/` at that commit (falling back to a three-way apply), commits it as the front-end (`maki-oss@localhost`), creates `osa/<sandbox>-<YYYYmmddHHMMSS>`, and removes the worktree. The working tree, index, current branch, and `HEAD` are untouched. A conflict, or a base that is gone, leaves no branch. |
+| `drop --yes` | retained | Clears the marker and moves the patch into the session's `dropped/`. Changes no project file; recover with `git apply <dropped patch>`. |
+| `rescue` | parked | Downloads the sandbox workdir into a new `rescue-<timestamp>/` in the session directory and prints its path. Starts a stopped sandbox first and says so. Writes nowhere else, and the workspace stays parked. |
+| `discard --yes` | parked | Runs the front-end's `upload --discard`: replaces the sandbox workspace with the host project, records a new baseline, and clears the marker. Existing patch files are kept. A stopped sandbox is refused; start it first. |
+
+An action for the other pending kind, or for a sandbox with nothing pending,
+is refused and names the actions that fit. `apply`, `branch`, and `drop`
+never contact the gateway; after any of them the next session refreshes the
+workspace from the host, as it would have with the marker. The patch file
+stays on disk (moved, for `drop`). When the session's baseline was dirty, the
+branch's base is the snapshot commit of the uncommitted work at upload, so
+`git cherry-pick <branch>` takes only the agent's change; `git merge` would
+also bring in that snapshot.
+
+Exit codes: `0` done, `1` usage error, `2` refused before any change (wrong
+kind, unregistered, orphan, missing `--yes`, busy, failed dry run, conflict),
+`3` failed during the action after cleanup (for example a failed download).
+Notes go to stderr. With `--json`, stdout is exactly one object:
+
+```json
+{"sandbox":"maki-app-1a2b","action":"branch","ok":true,"changed":["refs/heads/osa/maki-app-1a2b-20261026120000"],"message":"Committed the retained patch on branch ..."}
+```
+
+`changed` lists the paths or ref the action wrote: the project files for
+`apply`, the branch for `branch`, the moved patch for `drop`, the rescue
+directory for `rescue`, and `<sandbox>:<workdir>` for `discard`.
+
+**Lock.** A session (bare invocation or `run`) writes
+`sessions/<sandbox>/locks/session.<pid>` before it ensures the sandbox and
+removes it after the exit sync. A resolve creates `locks/resolve.d/` with its
+PID. Each side announces itself before it checks the other: a resolve is
+refused while a live session holds the sandbox, and a session refuses to
+start while a live resolve runs. Two sessions still start together. A file
+whose PID is no longer running is removed and ignored. If a reused PID makes
+a lock look live, check the PID the error names and, when no such session or
+resolve runs, delete `sessions/<sandbox>/locks/` by hand. The lock files are
+internal, not part of the state contract.
 
 ## Cookbook: two commands per project
 

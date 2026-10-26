@@ -23,11 +23,13 @@ sandbox. This page starts at P3 and ends at P8; the shared host prerequisites
 [`docs/ai/host-playbook.md`](../host-playbook.md). The OpenCode CLI is baked
 into the image, so there is no host agent install.
 
-The `opencode-oss` helper is the primary path; every phase also shows the raw
-`docker` and `openshell` commands for scripting or boundary debugging. Run
-every command from the repository root unless a phase says otherwise. After
-each phase, run its verification and stop on a mismatch — do not work around a
-failed check by weakening isolation.
+The `opencode-oss` helper is the primary path. The image, provider, sandbox,
+run, and cleanup phases show the raw `docker` and `openshell` commands for
+scripting or boundary debugging; the policy and isolation phases are checks
+and decisions.
+Run every command from the repository root unless a phase says otherwise.
+After each phase, run its verification and stop on a mismatch — do not work
+around a failed check by weakening isolation.
 
 OpenCode-specific configuration, sessions, MCP, and store details are in
 [`docs/ai/reference/opencode.md`](../reference/opencode.md). Shared helper
@@ -281,7 +283,7 @@ sandbox's `/sandbox/.config/opencode/opencode.json`. The base image declares
 no MCP server, so a server present only on the host is reported
 `sandbox=missing` with the `FROM opencode-agent:local` fix, and the command
 exits 3; that is an environment-store task, not an isolation failure. Details
-are in [`docs/ai/reference/opencode.md`](../reference/opencode.md#mcp-status)
+are in [`docs/ai/reference/opencode.md`](../reference/opencode.md#mcp)
 and [`docs/mcp-migration.md`](../../mcp-migration.md).
 
 ### Verify

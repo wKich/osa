@@ -44,14 +44,14 @@ Shipped profiles are the `opencode-*` set under `opencode-oss/providers/`;
 each keeps its Maki counterpart's endpoint and credential env var but
 authorizes only `/usr/local/bin/opencode`, and a sandbox attaches
 `opencode-<name>`, not `maki-<name>`. `opencode-oss provider setup` imports one
-and remembers it; [Phase 2](../playbooks/opencode.md#phase-2--load-the-provider-profile-and-create-the-provider) is the procedure. The OpenCode model catalog is
+and remembers it; the playbook's
+[Phase 2](../playbooks/opencode.md#phase-2--load-the-provider-profile-and-create-the-provider)
+is the procedure. The OpenCode model catalog is
 [`opencode-oss/providers/catalog.tsv`](../../../opencode-oss/providers/catalog.tsv);
 shared `--env`/`--from`/`--file` forms are in
 [`docs/providers.md`](../../providers.md).
 
 ## Sessions
-
-### Model selection
 
 The model resolves from `--model`, then `OPENCODE_OSS_MODEL`, then config
 `model`. The TUI has no model flag, so the helper passes a one-exec
@@ -82,8 +82,6 @@ OpenCode traps (commands are in [Phase 6](../playbooks/opencode.md#phase-6--run-
 
 ## MCP
 
-### MCP status
-
 `opencode-oss mcp status` compares the host `~/.config/opencode/opencode.json`
 `mcp` key with the sandbox's `/sandbox/.config/opencode/opencode.json`, using
 `maki-oss mcp status`'s gates (sandbox, provider `opencode-mcp-<name>`,
@@ -96,15 +94,16 @@ endpoint, local runtime); `doctor` prints the table. The mapping is in
 
 ## Store
 
-The base image is agent-only; its build is [Phase 1](../playbooks/opencode.md#phase-1--build-the-image) of the playbook. Personal config, MCP, skills, and plugins belong in a store built `FROM opencode-agent:local`.
-
 ### Personal environment
 
-A store copies `config/` to `/sandbox/.config/opencode/` (`opencode.json`,
-`tui.json`, `skills/`) and selects its tag through the helper's `image`
-setting. `config/opencode.json` replaces the baked file, so repeat its
-`permissions` deny rules. Verify in a session or the built image with
-`opencode debug config --standalone --print-logs`; never during the image
+A store builds `FROM opencode-agent:local` (the base image is agent-only;
+build: [Phase 1](../playbooks/opencode.md#phase-1--build-the-image)) and copies
+`config/` to `/sandbox/.config/opencode/` (`opencode.json`, `tui.json`,
+`skills/`). It selects its tag through the helper's `image` setting.
+`config/opencode.json` is the host config with every credential replaced by an
+`{env:VAR}` reference; do not bake a literal key. It replaces the baked file,
+so repeat its `permissions` deny rules. Verify in a session or the built image
+with `opencode debug config --standalone --print-logs`; never during the image
 build. The full layout is in
 [`docs/ai/environment-playbook.md`](../environment-playbook.md).
 
@@ -117,7 +116,8 @@ build. The full layout is in
 - The baked `opencode.json` denies `sudo`, `su`, `ssh`, `scp`,
   `opencode auth*`, and edits under `/sandbox/.config/**`, and holds under
   `--auto`; personal changes belong in a store.
-- The `tui = "opencode"` bridge mode and the dashboard and oskhs are out of scope; the [playbook](../playbooks/opencode.md) owns the rest.
+- The `tui = "opencode"` bridge mode and the dashboard and oskhs are out of
+  scope; the [playbook](../playbooks/opencode.md) owns the rest.
 
 ## See also
 
@@ -125,6 +125,6 @@ build. The full layout is in
 - [`docs/ai/playbooks/opencode.md`](../playbooks/opencode.md) — the ordered OpenCode path.
 - [`opencode-oss/README.md`](../../../opencode-oss/README.md) — raw path and verification record.
 - [`docs/helper.md`](../../helper.md) — shared helper commands and sync.
-- [`docs/providers.md`](../../providers.md) and [`docs/mcp-migration.md`](../../mcp-migration.md) — shared provider forms and MCP.
+- [`docs/providers.md`](../../providers.md) — shared provider forms.
 - [`docs/ai/environment-playbook.md`](../environment-playbook.md) — the store.
 - [`docs/verification.md`](../../verification.md) — isolation checklist.

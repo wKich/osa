@@ -91,7 +91,8 @@ does not pass image `ENV`.
 
 The model resolves from `--model`, then `CLAUDE_OSS_MODEL`, then config
 `model`; aliases such as `sonnet` and `opus` work, and with no model Claude
-Code picks its own default. Nothing is written to the project or sandbox.
+Code picks its own default. Nothing is written to the project or to the
+sandbox config.
 
 | Option | Claude Code flag |
 |---|---|
@@ -100,8 +101,9 @@ Code picks its own default. Nothing is written to the project or sandbox.
 | `--session-id ID` | `--session-id ID` (must be a UUID) |
 
 Any two together are a usage error, and `--session-id` must be a UUID; both
-fail before sandbox work. `--continue` after a `run` opens the last interactive
-session, not the run; use `--resume` with its `session_id`. Sessions survive
+fail before sandbox work. An interactive `claude-oss --continue` after a
+`claude-oss run` opens the last interactive session, not the run; use
+`--resume` with the run's `session_id` to pick the run up. Sessions survive
 `stop`/`start`, not `rm`.
 
 ## MCP

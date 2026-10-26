@@ -3196,7 +3196,8 @@ test_no_placeholder_spelling() {
     needle=$(printf 'openshell:resolve'':env:')
     hits=
     for f in "$ROOT/AGENTS.md" "$ROOT/README.md" "$ROOT/Makefile" \
-        "$ROOT/docs"/*.md "$ROOT/docs/ai"/*.md "$ROOT/examples"/*.toml \
+        "$ROOT/docs"/*.md "$ROOT/docs/ai"/*.md "$ROOT/docs/ai"/*/*.md \
+        "$ROOT/examples"/*.toml \
         "$ROOT/examples/providers"/*.yaml "$ROOT/examples/policies"/*.yaml; do
         [ -f "$f" ] || continue
         if grep -qF -- "$needle" "$f"; then

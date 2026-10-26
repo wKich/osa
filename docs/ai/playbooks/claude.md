@@ -64,6 +64,7 @@ Helper path:
 ./bin/claude-oss image build
 docker run --rm claude-agent:local claude --version
 IMAGE=claude-agent:local
+REPO_ROOT=$(pwd)
 ```
 
 Raw fallback:
@@ -72,6 +73,7 @@ Raw fallback:
 docker build -t claude-agent:local claude-oss/image
 docker run --rm claude-agent:local claude --version
 IMAGE=claude-agent:local
+REPO_ROOT=$(pwd)
 ```
 
 The base image is agent-only: pinned Claude Code `2.1.308`, uid/gid 1500, no
@@ -243,7 +245,7 @@ SANDBOX=claude
 WORKDIR=/sandbox/project/$(basename "$PROJECT_PATH")
 openshell sandbox create --name "$SANDBOX" \
   --from "$IMAGE" \
-  --policy claude-oss/policies/minimal.yaml \
+  --policy "$REPO_ROOT/claude-oss/policies/minimal.yaml" \
   --provider "$PROVIDER" \
   --upload "$PROJECT_PATH:/sandbox/project"
 ```
@@ -373,10 +375,10 @@ Claude Code's traps are part of the command, not optional style:
   every permission mode), not a permission prompt. They deny `sudo`, `su`,
   `ssh`, `scp`, in-sandbox `claude` authentication, and edits to Claude Code's
   own config and the guardrail files.
-- **`--continue` splits headless and interactive sessions.** After a
-  `claude-oss run`, `--continue` opens the last interactive session, not the
-  run. To pick a run up in the TUI, pass `--resume` with the `session_id` from
-  the run's events.
+- **`--continue` splits headless and interactive sessions.** An interactive
+  `claude-oss --continue` after a `claude-oss run` opens the last interactive
+  session, not the run; use `--resume` with the run's `session_id` to pick the
+  run up.
 - **No traffic outside the model endpoint.** The managed settings turn off
   auto-update, telemetry, error reporting, and marketplace auto-install, so a
   session reaches only `api.anthropic.com`.
@@ -390,8 +392,9 @@ Claude Code's traps are part of the command, not optional style:
 
 Expected: the smoke-test JSON contains a result event with the reply `OK` and
 exits 0; a continued run reuses the same session ID; the real task exits 0 and
-its JSON contains a result rather than an error; the TUI renders and answers
-with the configured model.
+its JSON contains a result rather than an error; the TUI renders and answers —
+the helper starts it on the configured model, while the raw command uses Claude
+Code's default, so select a profile-covered model with `/model` if needed.
 
 ### Stop if
 

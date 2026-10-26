@@ -5,9 +5,10 @@ inside NVIDIA OpenShell sandboxes. This is the only index of external
 documentation links in this repository, so `scripts/check-links.sh` can keep
 link rot in one place.
 
-**Verified against OpenShell v0.1.5 and Maki v0.6.5 on 2026-10-25.** Maki
-`v0.6.5` is pinned in `examples/maki-image/Dockerfile`; re-verify the links and
-version notes after any project publishes a release.
+**Verified against OpenShell v0.1.5 and Maki v0.6.5 on 2026-10-25; Claude Code
+v2.1.308 on 2026-10-26.** Maki `v0.6.5` is pinned in
+`examples/maki-image/Dockerfile`; re-verify the links and version notes after
+any project publishes a release.
 
 How to use this pack:
 

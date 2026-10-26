@@ -1504,3 +1504,42 @@ Checks on the host repository afterwards:
 The first attempt used the configured default model and failed with an
 API 403 (`glm-5-code` not permitted) before any change; the run above passed
 `--model kontur/code-ultra`.
+
+## Dashboard resolve actions — 2026-10-26
+
+Change `dashboard-sync-actions`. Offline: `cd dashboard && bun test` 109
+passed, `bun run scripts/browser-check.ts` 55 passed (the resolve journey
+included), `make lint-docs` passes, and
+`openspec validate dashboard-sync-actions --strict` is valid.
+
+### Real retained patch applied from the browser (task 5.3)
+
+A throwaway git project (`dash-resolve`, one commit and an uncommitted edit
+to `notes.txt`) on the real gateway with `maki-agent:personal`:
+
+```text
+$ maki-oss run --timeout 300 --model kontur/code-ultra "Create a new file named hello.txt ..."
+Collected sandbox changes: .../sessions/mk-dash-resolv-24a7/patch-20261026231052-24943.patch
+The sandbox patch is retained for review; the workspace can be refreshed.
+
+$ osa status --quick --json      → "pending":"retained", "busy":false
+```
+
+The dashboard then ran with its defaults (`$HOME/.local/state/osa`, the
+repository's `bin/osa`, a minted token, read-write) and was driven in
+headless Chrome:
+
+- The row showed `retained`, "unchanged since last sync", and
+  **Review patch**; the patch view offered `Apply,Branch,Drop` under the diff.
+- **Apply** listed `hello.txt` before sending anything. **Confirm apply** ran
+  `osa resolve mk-dash-resolv-24a7 apply --json`, and the outcome read
+  "Apply done. Applied the retained patch to …/dash-resolve (not staged or
+  committed). Patch kept: …/patch-20261026231052-24943.patch" with the changed
+  file `…/dash-resolve/hello.txt`.
+- The viewer dropped its actions, and back on Projects the row read "nothing
+  pending" with no `retained` badge before the next poll.
+
+Checks on the host afterwards: `git status --short` shows ` M notes.txt` (the
+uncommitted edit kept) and `?? hello.txt` ("hello from the sandbox"); `HEAD`
+is still the `init` commit; the `pending` marker is gone and the patch file
+is still in the session directory; `osa projects` shows no pending kind.

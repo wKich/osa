@@ -165,15 +165,29 @@ NOT use host bind mounts or automatic sync.
 
 ### Requirement: Self-contained subproject with recorded verification
 
-All OpenCode sandbox deliverables SHALL live under `opencode-oss/`, except
-one pointer from the root `README.md`. The change MUST NOT modify
-`bin/maki-oss`, `bridge/`, `oskhs/`, `dashboard/`, `examples/`, or the
-existing specs. `opencode-oss/README.md` SHALL record the verification
-commands and their observed results for the pinned version.
+All OpenCode sandbox deliverables SHALL live under `opencode-oss/`, except:
+
+- the `bin/opencode-oss` helper front-end
+- the shared helper core in `lib/`
+- `docs/opencode-oss.md`
+- the `Makefile` lint and test entries for the helper
+- one pointer from the root `README.md`
+- edits to `bin/maki-oss` that move shared logic into the core without
+  changing its observable behavior
+
+OpenCode work MUST NOT modify `bridge/`, `oskhs/`, `dashboard/`,
+`examples/`, or the observable behavior of `bin/maki-oss`.
+`opencode-oss/README.md` SHALL record the verification commands and their
+observed results for the pinned version.
 
 #### Scenario: No cross-subproject edits
-- **WHEN** `git diff --stat` for this change is inspected
-- **THEN** every changed path is under `opencode-oss/` or `openspec/changes/add-opencode-oss/`, or is the root `README.md`
+- **WHEN** `git diff --stat` for an OpenCode change is inspected
+- **THEN** every changed path is under `opencode-oss/`, `lib/`, `tests/`, or that change's `openspec/changes/` directory, or is `bin/opencode-oss`, `docs/opencode-oss.md`, `Makefile`, the root `README.md`, or `bin/maki-oss`
+- **AND** a `bin/maki-oss` edit only moves shared logic into `lib/`, so every existing `maki-oss` test passes without edits
+
+#### Scenario: maki-oss behavior unchanged
+- **WHEN** an OpenCode change is applied and `make test` runs
+- **THEN** every existing `maki-oss` test passes without edits
 
 #### Scenario: Verification record exists
 - **WHEN** a reader opens `opencode-oss/README.md`

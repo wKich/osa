@@ -7,7 +7,7 @@
 | Agent | `shared` |
 | Covers | `P0-P2` |
 | Preconditions | none |
-| Handoff | `docs/ai/agent-playbook.md` |
+| Handoff | `docs/ai/playbooks/maki.md` |
 | Verification | `docs/verification.md` |
 | Reference | `docs/helper.md` |
 | Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
@@ -33,7 +33,7 @@ working around it or continuing.
 
 This playbook covers host setup only. Sandbox phases (provider profiles,
 policy choice, creation, isolation checks) continue in
-[`docs/ai/agent-playbook.md`](agent-playbook.md); the two read as one
+[`docs/ai/playbooks/maki.md`](playbooks/maki.md); the two read as one
 sequence. Never relax the security invariants listed at the end.
 
 ## Inputs
@@ -368,7 +368,7 @@ state and the helper's next-command hint.
 
 Sandbox phases — provider profiles, policy choice, sandbox creation, isolation
 checks, and running Maki with the raw commands — continue in
-[`docs/ai/agent-playbook.md`](agent-playbook.md). This playbook ends here by
+[`docs/ai/playbooks/maki.md`](playbooks/maki.md). This playbook ends here by
 design; do not improvise sandbox steps from this file.
 
 ## Invariants (never relax these to make a command work)
@@ -383,7 +383,7 @@ design; do not improvise sandbox steps from this file.
 
 ## See also
 
-- [`docs/ai/agent-playbook.md`](agent-playbook.md) — sandbox phases P3-P8,
+- [`docs/ai/playbooks/maki.md`](playbooks/maki.md) — sandbox phases P0, P3-P8,
   continuing this path.
 - [`docs/ai/environment-playbook.md`](environment-playbook.md) — personal
   runtimes, MCP servers, and preferences on top of the base image.

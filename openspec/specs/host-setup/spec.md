@@ -185,7 +185,7 @@ observable outcome of the bare `maki-oss` command.
 
 ### Requirement: Clear boundary to the sandbox playbook
 
-The playbook SHALL end by handing off to `docs/ai/agent-playbook.md` for
+The playbook SHALL end by handing off to `docs/ai/playbooks/maki.md` for
 sandbox phases, and MUST NOT contain sandbox creation, policy selection, or
 isolation-verification commands of its own.
 
@@ -200,7 +200,7 @@ isolation-verification commands of its own.
 #### Scenario: Handoff is present
 
 - **WHEN** an agent finishes the daily-driver section
-- **THEN** the playbook links to `docs/ai/agent-playbook.md` and states that
+- **THEN** the playbook links to `docs/ai/playbooks/maki.md` and states that
   the sandbox phases continue there
 
 ### Requirement: Discoverable from the files agents read first

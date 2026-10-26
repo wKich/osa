@@ -333,4 +333,4 @@ defined once in [`docs/glossary.md`](glossary.md).
   these examples; the `add-openshell-bun-dashboard` change visualizes the same
   gateway.
 - For agent-driven setup, use
-  [`docs/ai/agent-playbook.md`](ai/agent-playbook.md).
+  [`docs/ai/playbooks/maki.md`](ai/playbooks/maki.md).

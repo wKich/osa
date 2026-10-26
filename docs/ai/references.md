@@ -10,7 +10,7 @@ version notes after either project publishes a release.
 
 How to use this pack:
 
-- `docs/ai/agent-playbook.md` is the executable path — exact commands in order.
+- `docs/ai/playbooks/maki.md` is the executable path — exact commands in order.
 - This file is the lookup table when a command fails or a concept is unclear.
 - `docs/glossary.md` defines the shared vocabulary once.
 

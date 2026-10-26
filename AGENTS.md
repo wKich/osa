@@ -17,7 +17,7 @@ Start here:
 - `docs/ai/environment-playbook.md` — compose a personal environment (MCP
   servers, runtimes, preferences) on the base image; hands off to the
   reference store under `examples/environments/reference/`.
-- `docs/ai/agent-playbook.md` — ordered, executable steps to build the image,
+- `docs/ai/playbooks/maki.md` — ordered, executable steps to build the image,
   load provider profiles, create a sandbox, and run Maki.
 - `docs/ai/references.md` — curated upstream documentation (OpenShell and
   Maki), the only index of external documentation links in this repository.

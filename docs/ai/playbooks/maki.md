@@ -1,19 +1,19 @@
-# Agent playbook: stand up a sandboxed Maki
+# Playbook: Maki
 
 | Field | Value |
 |---|---|
 | Doc | `playbook-maki` |
 | Kind | `playbook` |
 | Agent | `Maki` |
-| Covers | `P3-P8` |
+| Covers | `P0, P3-P8` |
 | Preconditions | `docs/ai/host-playbook.md` `P0-P2` |
 | Handoff | `docs/verification.md` |
 | Verification | `docs/verification.md` |
-| Reference | `docs/helper.md` |
+| Reference | `docs/ai/reference/maki.md` |
 | Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
 
 > **Maki path; return to onboarding for OpenCode or Claude** — [open the
-> onboarding guide](onboarding.md).
+> onboarding guide](../onboarding.md).
 
 ## Scope
 
@@ -100,7 +100,7 @@ IMAGE=maki-agent:reference
 ```
 
 For a user-owned store, follow the environment playbook
-([`docs/ai/environment-playbook.md`](environment-playbook.md)); never edit
+([`docs/ai/environment-playbook.md`](../environment-playbook.md)); never edit
 `examples/maki-image/` for a personal choice. Set the same tag in the helper's
 `image` setting when using `maki-oss`.
 
@@ -345,14 +345,14 @@ action; do not start a new sandbox to fix a report.
 
 ## See also
 
-- [`docs/ai/host-playbook.md`](host-playbook.md) — host prerequisites P0-P2,
+- [`docs/ai/host-playbook.md`](../host-playbook.md) — host prerequisites P0-P2,
   preceding this path.
-- [`docs/ai/environment-playbook.md`](environment-playbook.md) — personal
+- [`docs/ai/environment-playbook.md`](../environment-playbook.md) — personal
   runtimes, MCP servers, and preferences on top of the base image.
-- [`docs/verification.md`](../verification.md) — isolation checklist used by
+- [`docs/verification.md`](../../verification.md) — isolation checklist used by
   Phase 5.
-- [`docs/helper.md`](../helper.md) — `maki-oss` command reference and the
+- [`docs/helper.md`](../../helper.md) — `maki-oss` command reference and the
   helper shortcut.
-- [`docs/ai/references.md`](references.md) — upstream documentation index.
-- [`docs/ai/document-contract.md`](document-contract.md) — page shape used by
+- [`docs/ai/references.md`](../references.md) — upstream documentation index.
+- [`docs/ai/document-contract.md`](../document-contract.md) — page shape used by
   this playbook.

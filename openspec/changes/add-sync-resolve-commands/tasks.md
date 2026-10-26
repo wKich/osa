@@ -31,4 +31,4 @@
 
 - [x] 6.1 Update `recovery_block` to print the `osa resolve` commands with the real sandbox name for each kind. Verify with the updated "Recovery names the osa resolve commands" test and the existing recovery tests.
 - [x] 6.2 Document `osa resolve` in `docs/helper.md` (actions, safety rules, exit codes, `--json`, the lock and its manual override, the dirty-baseline branch note) and add `rescue copy` and `dropped patch` to `docs/glossary.md`. Verify with `make lint-docs` passing.
-- [ ] 6.3 Run `make test`, `make lint`, and `openspec validate add-sync-resolve-commands --strict`, then resolve one real retained patch on this host with `osa resolve … branch` and record the result in `docs/verification-log.md`. Verify all pass and the log entry exists.
+- [x] 6.3 Run `make test`, `make lint`, and `openspec validate add-sync-resolve-commands --strict`, then resolve one real retained patch on this host with `osa resolve … branch` and record the result in `docs/verification-log.md`. Verify all pass and the log entry exists.

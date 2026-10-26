@@ -260,13 +260,15 @@ maki-oss stop                         # park the sandbox
 maki-oss rm                           # delete it (prompts; --yes non-interactive)
 ```
 
-Bare `maki-oss` creates or reuses the project sandbox, uploads the project on
-first creation, attaches remembered providers, launches Maki, and on exit
-collects the sandbox changes as a patch. A clean repository is fast-forwarded;
-a dirty, moved, or stale host keeps the patch or a review branch instead of
-overwriting host files (`--no-sync` opts out). A reused sandbox is not
-re-uploaded — run `maki-oss upload` first to refresh it from the current host
-tree. Full reference: [`docs/helper.md`](../helper.md).
+Bare `maki-oss` creates or reuses the project sandbox, refreshes the disposable
+project workspace when the host tree moved, attaches remembered providers,
+launches Maki, and on exit collects the sandbox changes as a patch. A clean
+repository is fast-forwarded; a dirty, moved, or older sandbox keeps the patch
+or a review branch instead of overwriting host files (`--no-sync` opts out). A
+retained patch never blocks the next session; a parked workspace (collection
+failed or `--no-sync`) refuses the next session until you download or discard
+it. `maki-oss status` prints the sync state and the next command. Full
+reference: [`docs/helper.md`](../helper.md).
 
 Every session enables the in-sandbox policy advisor and, on the way out,
 checks for pending network-rule proposals. If the agent asked for an endpoint

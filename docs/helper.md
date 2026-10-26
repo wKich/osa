@@ -6,12 +6,13 @@ runs Maki headless or interactively, and encodes the safety rules from the
 [setup guide](setup-guide.md) so they are not retyped per project.
 
 Bare `maki-oss` (no subcommand) is the one-command session: it ensures the
-project sandbox, uploads the project when the sandbox is first created,
-launches Maki, and on exit collects the sandbox changes as a patch. The patch
-is applied to the host only when the sandbox baseline still matches the host
-tree; otherwise it is kept for review and the project is left untouched.
-After a one-time `maki-oss provider setup`, a project needs no further setup
-commands.
+project sandbox, makes the workspace match the host, launches Maki, and on
+exit collects the sandbox changes as a patch. The sandbox **workspace** is a
+disposable replica: it is refreshed before a session when the host moved and
+no uncollected output would be lost. The patch is applied to the host only
+when the sandbox baseline still matches the host tree; otherwise it is kept
+for review and the project is left untouched. After a one-time
+`maki-oss provider setup`, a project needs no further setup commands.
 
 The sandbox remains the security boundary:
 
@@ -177,14 +178,17 @@ with no subcommand is the same command. The ensure step:
    provider setup wizard inline, and continues the session afterwards;
 2. creates the sandbox when absent (uploading the project once) or starts a
    stopped one, never creating a second sandbox;
-3. attaches any remembered provider that is not attached yet.
+3. refreshes the workspace from the host when it is `behind`, or when a
+   `retained` patch covers the sandbox output;
+4. attaches any remembered provider that is not attached yet.
 
 When the session ends — including Ctrl-C or a non-zero exit — the helper
 collects the sandbox workdir changes as a patch and applies them only through
 the safety check described in [Safe session sync](#safe-session-sync). A host
 edit is never overwritten by an automatic overlay. `--no-sync` skips collection
-and leaves the changes in the sandbox. `--model provider/model` (or the config
-`model` key) selects the model.
+and parks the workspace (the next session refuses until you download or
+discard it). `--model provider/model` (or the config `model` key) selects the
+model.
 
 Three session flags are forwarded to Maki unchanged: `--continue` (`-c`)
 resumes the most recent session in the sandbox workdir, `--resume <ID>`
@@ -203,15 +207,31 @@ recreated (`maki-oss rm`). The helper's sync state (baseline, synced pair,
 patches, worktrees, pending marker) lives on the host under
 `${XDG_STATE_HOME:-$HOME/.local/state}/maki-oss/sessions/<sandbox>/`.
 
-A session that **reuses** an existing sandbox does not re-upload the project,
-so the sandbox may still hold an earlier copy of your files. The helper prints
-a `Reusing ...` note to stderr and compares each side with the tree pair it
-recorded at the last upload or clean apply. If either side moved, the sandbox
-is stale: no patch is applied automatically, and the collected patch is kept
-for review. Run `maki-oss upload` first to refresh the sandbox from the
-current host tree. The recorded pair is what keeps a clean filter (LFS) or a
-submodule from looking like a host change: those hash differently on each
-side, and comparing them directly would mark a fresh sandbox stale.
+The sandbox **workspace** is disposable; the container is not. Maki sessions,
+installed dependencies, and caches survive `stop`/`start`, but the tracked
+project tree is a replica of the host and is refreshed before a session when
+it is safe. The helper records the sandbox instance ID and a host/sandbox tree
+pair at each refresh or clean apply, then classifies the workspace as `clean`,
+`behind`, `retained`, or `parked` (defined under [Sync state](glossary.md#sync-state)):
+
+- `clean`: the host and sandbox match the recorded pair. No upload; the
+  session reuses the workspace.
+- `behind`: the host moved and the sandbox did not. The helper uploads the
+  current host tree first. Upload is copy-in; tracked deletions are pruned
+  while ignored sandbox artifacts such as `node_modules` survive.
+- `retained`: a collected patch exists on the host for the sandbox output.
+  The next session refreshes the workspace and keeps the patch for review;
+  this state does not block. After the refresh, a patch whose result no longer
+  matches the sandbox is only an advisory notice: the workspace is `clean` or
+  `behind` and the patch file stays.
+- `parked`: the sandbox has output with no durable patch (collection failed,
+  `--no-sync`, or the workspace was edited outside the helper). The helper
+  does not upload over it and refuses to launch Maki until you download it or
+  pass `--discard`.
+
+The recorded pair is what keeps a clean filter (LFS) or a submodule from
+looking like a host change: those hash differently on each side, and comparing
+them directly would mark a fresh sandbox stale.
 
 ```sh
 cd ~/code/myproject
@@ -236,12 +256,12 @@ directory (mode `700`; files `600`):
 
 | Path | Meaning |
 |---|---|
-| `baseline` | Mode, branch, commit, tree, dirty flag, upload mode, staleness |
-| `synced` | Host and sandbox tree pair recorded at the last upload or clean apply |
+| `baseline` | Mode, branch, commit, tree, dirty flag, upload mode, sync state, sandbox ID |
+| `synced` | Host and sandbox tree pair plus sandbox ID recorded at the last refresh or clean apply |
 | `patch-<timestamp>.patch` | Collected patch, retained until you remove it |
 | `worktrees/<id>/` | Review worktree kept when no fast-forward happened |
 | `review-<timestamp>/` | Selective export used when the host has no git |
-| `pending` | Marker for unresolved changes; blocks automatic apply |
+| `pending` | Marker for unresolved changes: `kind` (`retained` or `parked`), patch path, sandbox ID, result tree |
 
 The apply path depends on the project and the baseline:
 
@@ -264,19 +284,47 @@ The apply path depends on the project and the baseline:
 - **No host git:** text patches use `patch` (dry run first); binary patches
   export only the changed files, with a path/hash manifest, into
   `review-<timestamp>/`. If neither tool is available, the helper fails closed.
-- **Stale sandbox or unresolved pending patch:** no automatic apply. The
-  patch is retained and the recovery block points at the sandbox and patch.
+- **Retained patch:** no automatic apply. The patch is kept for review and the
+  next session refreshes the workspace from the host even when the host tree
+  did not move. The helper clears the notice when the patch is already applied
+  to the host (reverse check) but never deletes the patch file.
+- **Parked workspace:** no upload and no apply. The recovery block prints the
+  download and `--discard` commands.
 
-A failed collection or apply writes nothing to the project, keeps the patch,
-leaves the changes in the sandbox, and prints recovery commands:
-`openshell sandbox connect <name>`, a `maki-oss download <path> <dest>`
-example, and the pending marker path. Remove the marker after applying or
-discarding the patch; until then a later session will not upload over the
-sandbox or apply a new patch automatically. `maki-oss upload` re-records the
-sandbox baseline and clears the marker, because it is an explicit refresh.
+A failed collection parks the workspace because no durable patch exists. An
+apply failure or conflict retains the patch and does not park. Both write
+nothing to the project and leave the changes in the sandbox. The recovery
+block prints `openshell sandbox connect <name>`, a `maki-oss download <path>
+<dest>` example, and the patch or pending path. A retained patch stays
+available until you apply or delete it and never blocks a later session;
+resolve a parked workspace with `maki-oss download` or `maki-oss upload
+--discard` (or `rm --discard`).
 
 Gitignored files, empty directories, and sandbox-only artifacts do not travel
 in a patch. Use `maki-oss download` when you need a full copy.
+
+#### Migration, rollback, and concurrency
+
+State written by versions before the disposable-workspace change had no
+`sandbox_id`, `kind`, or `result_tree`. The helper reads such a marker as
+`retained` when its patch file is present and non-empty, and as `parked`
+otherwise, so an upgrade does not strand old state.
+
+To roll back, install the previous helper. It treats any `pending` file as a
+blocking marker, which is exactly the old fail-closed behavior; remove
+`pending` after resolving the patch when you want automatic apply again.
+Patch files written by the new helper remain valid input for `git apply`.
+
+State directories are scoped by sandbox name and instance. Recreating a
+sandbox archives the old directory as
+`sessions/<name>.archive-<timestamp>-<pid>`, so a new instance never inherits
+a parked marker; `rm` archives the directory after deleting the sandbox and
+retained patch files move with it into the archive.
+
+Two sessions for the same project are not coordinated beyond that instance
+check: both may classify the workspace and upload at once. The last writer
+wins in the sandbox, and each exit collects the diff from its own baseline.
+Run one session per project at a time if you need deterministic sync.
 
 #### Idle stop
 
@@ -393,9 +441,17 @@ the run's processes but cannot read their environment to find them
 
 ### upload / download
 
-`upload [LOCAL_PATH] [SANDBOX_DEST]` copies local files into the sandbox. The
-default local path is `.` and the default destination is the workdir. An upload
-to the workdir re-records the sandbox baseline and clears a pending marker.
+`upload [--discard] [LOCAL_PATH] [SANDBOX_DEST]` copies local files into the
+sandbox. The default local path is `.` and the default destination is the
+workdir. An upload to the workdir refreshes the tracked tree: it uploads the
+current host tree, removes tracked files deleted on the host, preserves
+ignored sandbox-local artifacts such as `node_modules`, and re-records the
+baseline and synced pair. A parked workspace is refused unless `--discard` is
+passed; discard replaces the parked output and keeps existing patch files. A
+retained patch is kept and its path is printed. An upload to any other
+destination is a copy-in: it does not prune and does not re-record the
+baseline. `upload` never clears a retained patch file.
+
 `download [SANDBOX_PATH] DEST` copies files out to an explicit host
 destination; with one argument that argument is the destination and the
 workdir is downloaded. It is the explicit full-copy escape hatch and is never
@@ -406,6 +462,7 @@ bind mount or exposes any other host path.
 
 ```sh
 maki-oss upload .                          # project -> /sandbox/project
+maki-oss upload --discard .                # replace a parked workspace
 maki-oss upload ./dist /sandbox/project/dist
 maki-oss download /sandbox/project/out ./out
 ```
@@ -413,8 +470,11 @@ maki-oss download /sandbox/project/out ./out
 ### status / list / logs
 
 `status` reports the project sandbox's existence, phase, configured image,
-and attached providers. `list` delegates to `openshell sandbox list`. `logs`
-forwards `--tail`, `--since`, `--source`, `--level`, and `-n`.
+attached providers, and sync state (`clean`, `behind`, `retained`, or
+`parked`), plus the retained patch path and the next command. A parked
+workspace also prints the discard commands. `list` delegates to `openshell
+sandbox list`. `logs` forwards `--tail`, `--since`, `--source`, `--level`, and
+`-n`.
 
 ```sh
 maki-oss status
@@ -430,13 +490,17 @@ use for the next `up`.
 
 `start` and `stop` delegate to the gateway. `rm` prints the exact sandbox
 name and asks for confirmation; when stdin is not a terminal it refuses
-unless `--yes` is passed, and it never sends a delete request otherwise.
+unless `--yes` is passed, and it never sends a delete request otherwise. A
+parked workspace is refused unless `--discard` is passed, so uncollected
+sandbox output cannot be deleted by accident. After a successful delete the
+instance state directory is archived (retained patch files move with it).
 
 ```sh
 maki-oss stop
 maki-oss start
 maki-oss rm            # prompts
 maki-oss rm --yes      # non-interactive
+maki-oss rm --yes --discard  # delete a parked workspace
 ```
 
 ### policy show / edit / apply
@@ -634,13 +698,14 @@ maki-oss provider setup          # wizard; remembers the provider
 
 # Every project, afterwards:
 cd ~/code/myproject
-maki-oss                         # ensure sandbox, upload on first run,
+maki-oss                         # ensure sandbox, refresh when needed,
                                  # launch Maki, sync changes back on exit
 maki-oss run "explain this project and fix the failing tests"
 ```
 
 The session commands ensure the sandbox themselves: create when absent
-(uploading the project once), start when stopped, attach remembered providers.
+(uploading the project once) or reuse when present (refreshing the workspace
+when the host moved), start when stopped, attach remembered providers.
 `maki-oss run` is the headless variant of the same flow. The first bare run
 in a project with no remembered provider offers the setup wizard inline (or
 exits with the exact command when stdin is not a TTY).

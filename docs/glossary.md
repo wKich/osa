@@ -72,6 +72,22 @@ reference pack.
   candidate policy grants no more access than a boundary policy.
 - **Workspace** — an OpenShell scoping unit for resources such as providers and
   profiles; a local single-user gateway uses the `default` workspace.
+- **Project workspace** — the tracked project tree inside the sandbox workdir
+  (default `/sandbox/project`). It is disposable: the host tree is the source
+  of truth and the collected patch is the durable output. Maki sessions and
+  installed dependencies live in the container, not in the project workspace.
+- **Sync state** — the classification of a project workspace at session start:
+  - **clean** — the host and sandbox trees match the recorded pair; the
+    session starts without an upload.
+  - **behind** — the host tree moved and the sandbox did not; the helper
+    refreshes the project workspace from the host before Maki runs.
+  - **retained** — a collected patch on the host covers the sandbox output;
+    the next session refreshes the project workspace and keeps the patch for
+    review. Retained does not block.
+  - **parked** — the sandbox holds output with no durable patch (collection
+    failed, `--no-sync`, or a manual edit); the helper refuses to upload over
+    it or launch Maki until the output is downloaded or discarded with
+    `--discard`.
 - **Template** — a reusable sandbox workload definition (image, resources,
   settings) that `openshell sandbox create --template` can instantiate.
 - **MCP config** — Maki's table of MCP servers: `~/.config/maki/mcp.toml` on the

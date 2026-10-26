@@ -10,7 +10,9 @@ The recorded run for this repository is in
 [`docs/verification-log.md`](verification-log.md).
 
 **Expected version: OpenShell v0.1.5.** The checklist below was last run
-against that version on 2026-10-22.
+against that version on 2026-10-22. Section 7 was re-run for the
+disposable-workspace change on 2026-10-26; see
+[`docs/verification-log.md`](verification-log.md).
 
 ## 1. Denied egress
 
@@ -106,13 +108,16 @@ Do not add `--level warn`: policy events are info-level and would be filtered
 out. The logged binary path is how OpenShell identifies the caller; use it to
 fix a rule that lists the wrong path.
 
-## 7. Session sync-back
+## 7. Workspace refresh and sync-back
 
-The session sync no longer downloads the workdir over the project. It collects
-a patch against the baseline the sandbox started from and applies it only when
-the safety check for the project's mode passes. The stub suite covers the
-matrix offline (`make test`); use these real-gateway checks for the happy path
-and the fail-closed paths.
+The sandbox workspace is disposable; the collected patch is the durable
+output. At session start the helper classifies the workspace as `clean`,
+`behind`, `retained`, or `parked`, refreshes it before Maki when safe, and
+refuses to overwrite output that no patch covers. The session itself no longer
+downloads the workdir over the project: it collects a patch against the
+sandbox baseline and applies it only when the safety check for the project's
+mode passes. The stub suite covers the matrix offline (`make test`); use these
+real-gateway checks for each state.
 
 Run each case from a scratch project directory. A fast-failing Maki model
 (`--model nope/nope`) keeps the session short; the sync runs the same way.
@@ -129,15 +134,33 @@ maki-oss upload .
 openshell sandbox exec -n maki-sync-check --no-login-shell \
   --workdir /sandbox/project -- sh -c 'printf "agent\n" >agent-note.txt; printf "changed\n" >base.txt'
 maki-oss run --name maki-sync-check --provider <provider> --model nope/nope "noop"
+maki-oss status --name maki-sync-check
 ```
 
 **Expected:** stderr says `Applied sandbox changes to branch '<branch>'.` The
 host contains `agent-note.txt` and the changed `base.txt`; `git status` is
 empty; the new commit's subject is `maki-oss: apply sandbox changes`; no
-`maki-oss/*` branch and no temporary worktree remain; the patch is retained
-under `$HOME/.local/state/maki-oss/sessions/maki-sync-check/`.
+`maki-oss/*` branch and no temporary worktree remain. `status` reports
+`Sync: clean` and `Next: maki-oss`.
 
-### 7.2 Conflicting host edit
+### 7.2 Host-changed reuse and tracked deletion
+
+With the sandbox from 7.1, change the host and delete a tracked file:
+
+```sh
+printf 'host-v2\n' >base.txt
+git rm -q agent-note.txt
+mkdir -p node_modules/demo && printf 'local dep\n' >node_modules/demo/index.js
+maki-oss run --name maki-sync-check --provider <provider> --model nope/nope "noop"
+```
+
+**Expected:** stderr says `Refreshing the workspace from the host...`, then
+Maki runs. After the session, `base.txt` contains `host-v2`,
+`agent-note.txt` is absent in the sandbox, and `node_modules/demo/index.js`
+still exists in the sandbox. A second unchanged run says `Workspace is already
+current` and records no upload.
+
+### 7.3 Conflicting host edit
 
 Keep the sandbox baseline from 7.1 (or upload again), then edit the same file
 on the host and in the sandbox before the session runs:
@@ -147,13 +170,16 @@ printf 'host edit\n' >base.txt
 openshell sandbox exec -n maki-sync-check --no-login-shell \
   --workdir /sandbox/project -- sh -c 'printf "sandbox edit\n" >base.txt'
 maki-oss run --name maki-sync-check --provider <provider> --model nope/nope "noop"
+maki-oss status --name maki-sync-check
 ```
 
-**Expected:** the host file still contains `host edit`; stderr reports the
-sandbox is stale or the patch conflicts, names the retained patch, and prints
-the recovery block. No host file is overwritten.
+**Expected:** the host file still contains `host edit`; stderr retains the
+patch, names its path, and prints the recovery block. `status` reports
+`Sync: retained` and the patch path. A later session does not block: it first
+refreshes the workspace from the host and prints `Retained patch for review`,
+and the patch file still exists.
 
-### 7.3 Dirty/untracked baseline
+### 7.4 Dirty/untracked baseline
 
 ```sh
 # start a repository with an uncommitted edit and an untracked file
@@ -170,7 +196,7 @@ worktree, the `git cherry-pick <result>` command, and the patch path. The host
 still has the local edit and untracked file; `agent-new.txt` is absent until
 you cherry-pick.
 
-### 7.4 Plain directory
+### 7.5 Plain directory
 
 ```sh
 mkdir plain && cd plain && printf 'v1\n' >plain.txt
@@ -183,7 +209,7 @@ maki-oss run --name maki-sync-plain --provider <provider> --model nope/nope "noo
 **Expected:** `git apply --check` then `git apply`; `plain.txt` is `v2` and
 host-only files are untouched.
 
-### 7.5 Fail-closed recovery
+### 7.6 Retained recovery without git or patch
 
 Run the plain case with a host `PATH` that has neither `git` nor `patch` (and
 still resolves `openshell`):
@@ -195,10 +221,40 @@ PATH=/path/to/tools-without-git-or-patch maki-oss run --name maki-sync-plain \
   --provider <provider> --model nope/nope "noop"
 ```
 
-**Expected:** the host file stays `v2`; stderr prints the recovery block with
-the sandbox name, workspace path, `openshell sandbox connect` command, a
-`maki-oss download <path> <dest>` example, the patch path, and the pending
-marker path. No full workspace download runs.
+**Expected:** the host file stays `v2`; stderr prints `The sandbox patch is
+retained for review`, the sandbox name, workspace path, `openshell sandbox
+connect` command, a `maki-oss download <path> <dest>` example, and the patch
+path. No full workspace download runs. The patch file remains after the next
+session refreshes the workspace.
+
+### 7.7 Parked workspace and discard
+
+```sh
+maki-oss run --name maki-sync-plain --provider <provider> --no-sync "noop"
+maki-oss status --name maki-sync-plain
+maki-oss run --name maki-sync-plain --provider <provider> "noop"
+maki-oss upload . --name maki-sync-plain
+maki-oss rm --name maki-sync-plain --yes
+maki-oss upload --discard . --name maki-sync-plain
+```
+
+**Expected:** `status` reports `Sync: parked` with download and discard
+commands. The session, `upload`, and `rm` each refuse without changing the
+workspace; the refusals name `--discard`. `upload --discard` refreshes the
+workspace and clears the marker while keeping any earlier patch files.
+
+### 7.8 Recreated sandbox
+
+```sh
+maki-oss rm --name maki-sync-plain --yes --discard
+maki-oss run --name maki-sync-plain --provider <provider> --model nope/nope "noop"
+find "$HOME/.local/state/maki-oss/sessions" -maxdepth 1 -name 'maki-sync-plain.archive-*'
+```
+
+**Expected:** `rm` deletes the sandbox and archives the old state directory
+(patch files move with it). The new session creates a fresh sandbox, uploads
+the host tree once, and starts `clean` without inheriting the parked marker.
+
 
 ## 8. MCP smoke test
 

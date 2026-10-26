@@ -1172,3 +1172,161 @@ No sandbox changes to sync.
 
 That session armed a fresh watcher with the default period
 (`23:25:25 armed secs=3600 session=76777`, `23:25:49 closed session=76777`).
+
+## Disposable workspace sync — 2026-10-26
+
+Live pass for `disposable-sandbox-sync` against the real gateway (OpenShell
+0.1.5, `maki-agent:personal`, macOS host). The scratch project was a small git
+repository in the temporary workspace; sandboxes `maki-sync-live`,
+`maki-sync-live-ret`, and `maki-sync-live-fail` were created for the pass and
+deleted afterwards. The personal `maki-maki-openshell` sandbox was left
+untouched (its status was already `parked`).
+
+### 1. Fresh create, upload, status
+
+```text
+$ maki-oss up --name maki-sync-live
+Creating sandbox 'maki-sync-live' from maki-agent:personal...
+Sandbox 'maki-sync-live' is ready. Next: maki-oss (the session refreshes the workspace).
+
+$ maki-oss upload . --name maki-sync-live
+Refreshing the workspace from the host...
+Uploading . -> sandbox:/sandbox/project
+✓ Upload complete
+Refreshed the workspace from the host.
+
+$ maki-oss status --name maki-sync-live
+Sync:      clean
+Next:      maki-oss
+```
+
+### 2. Host-changed refresh, tracked deletion, ignored artifact
+
+The host changed `base.txt` and deleted `extra.txt`; a `node_modules/survivor`
+file was placed in the sandbox before the session.
+
+```text
+$ maki-oss status --name maki-sync-live
+Sync:      behind
+Next:      maki-oss (refreshes the workspace)
+
+$ maki-oss run --name maki-sync-live --model nope/nope "noop"
+Reusing 'maki-sync-live'; changes are collected as a patch on exit, and the workspace is checked before Maki runs.
+Refreshing the workspace from the host...
+Uploading . -> sandbox:/sandbox/project
+✓ Upload complete
+Refreshed the workspace from the host.
+No sandbox changes to sync.
+
+  sandbox: base=host-v3
+           extra-absent
+           dep-present
+
+$ maki-oss status --name maki-sync-live
+Sync:      clean
+```
+
+The tracked deletion was pruned and the gitignored dependency survived. A
+second unchanged session skipped the upload (`Workspace is already current`).
+
+### 3. Retained patch, refresh, advisory notice
+
+A dirty host baseline and an agent write produced a retained patch:
+
+```text
+$ maki-oss run --name maki-sync-live-ret --model kontur/code-ultra \
+    "Overwrite base.txt with exactly the word agent..."
+Collected sandbox changes: .../patch-20261026015030-78277.patch
+Uncommitted host work was not committed. Apply the agent changes with:
+  git cherry-pick ab9c9ded455c0e59c568d5e5cd77ea1abc0dd8a1
+The sandbox patch is retained for review; the workspace can be refreshed.
+  patch: .../patch-20261026015030-78277.patch
+
+$ maki-oss status --name maki-sync-live-ret
+Sync:      retained
+Next:      maki-oss (refreshes before the next session)
+Patch:     .../patch-20261026015030-78277.patch
+```
+
+The next session refreshed the workspace and announced the retained patch:
+
+```text
+$ maki-oss run --name maki-sync-live-ret --model nope/nope "noop"
+Refreshing the workspace from the host...
+Refreshed the workspace from the host.
+Retained patch for review: .../patch-20261026015030-78277.patch
+No sandbox changes to sync.
+
+$ maki-oss status --name maki-sync-live-ret
+Sync:      clean
+Next:      maki-oss
+```
+
+No `Patch:` line remained (the result tree no longer matched the refreshed
+sandbox), and the patch file still existed. `rm --yes` deleted the sandbox and
+archived the state directory with the patch inside.
+
+### 4. Collection failure parks
+
+During a short `zai/glm-5.3-flash` session, `/sandbox/.maki-oss/git` was removed
+after the prepare step:
+
+```text
+maki-oss: warning: could not collect sandbox changes: fatal: not a git repository: '/sandbox/.maki-oss/git'
+maki-oss: sandbox changes are not in the host project; the workspace is parked
+...
+  discard:   maki-oss upload --discard   (or maki-oss rm --discard)
+
+$ maki-oss status --name maki-sync-live-fail
+Sync:      parked
+Next:      maki-oss download /sandbox/project ./DEST
+Discard:   maki-oss upload --discard (or maki-oss rm --discard)
+
+$ maki-oss upload . --name maki-sync-live-fail
+maki-oss: the workspace is parked; download its changes or pass --discard to replace them
+
+$ maki-oss upload --discard . --name maki-sync-live-fail
+Refreshed the workspace from the host.
+Discarded the parked workspace state.
+
+$ maki-oss status --name maki-sync-live-fail
+Sync:      clean
+```
+
+### 5. No-sync park and guards
+
+```text
+$ maki-oss run --name maki-sync-live --model nope/nope --no-sync "noop"
+Skipped download (--no-sync); the workspace is parked.
+...
+$ maki-oss status --name maki-sync-live
+Sync:      parked
+
+$ maki-oss upload . --name maki-sync-live
+maki-oss: the workspace is parked; download its changes or pass --discard to replace them
+
+$ maki-oss rm --yes --name maki-sync-live
+maki-oss: the workspace is parked; download its changes or pass --discard to delete them
+```
+
+`upload --discard .` and `rm --yes --discard` both succeeded, and `status`
+returned to `clean`.
+
+### 6. Recreated sandbox
+
+`rm --yes --discard` on the parked sandbox archived the state and deleted it.
+`up` created a new instance; after `upload .` and a no-op session, the new
+gateway ID matched the recorded baseline and the workspace was clean:
+
+```text
+Archived the previous sandbox state to ~/.local/state/maki-oss/sessions/maki-sync-live.archive-...
+archive=.../maki-sync-live.archive-20261026014937-41141
+new_id=24431513-24f8-47ba-a03c-d597a2c980a4
+baseline sandbox_id=24431513-24f8-47ba-a03c-d597a2c980a4
+synced   sandbox_id=24431513-24f8-47ba-a03c-d597a2c980a4
+Sync:      clean
+```
+
+No sandbox created for the pass remained afterwards. The old-state migration
+and the no-git/no-patch retained path were exercised by the stub suite
+(`make test`), not repeated against the gateway.

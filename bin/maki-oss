@@ -32,13 +32,16 @@ Commands:
                                 Maki session (bare `maki-oss` does the same)
   run "<prompt>"                Ensure the sandbox, run Maki headless, and
                                 print its JSON output
-  upload [PATH] [DEST]          Copy local files into the sandbox
+  upload [--discard] [PATH] [DEST]
+                                Refresh the workspace from local files
+                                (--discard replaces parked changes)
   download [SANDBOX_PATH] DEST  Copy files from the sandbox to the host
-  status                        Show this project's sandbox
+  status                        Show the sandbox and workspace sync state
   list                          List sandboxes on the gateway
   logs                          Show sandbox logs
   start, stop                   Start or stop the sandbox
-  rm [--yes]                    Delete the sandbox (confirmation required)
+  rm [--yes] [--discard]        Delete the sandbox (confirmation required;
+                                --discard deletes a parked workspace)
   policy show|edit|apply        Work with the sandbox policy
   policy review                 List pending network-rule proposals
   policy approve CHUNK_ID       Approve one proposal (confirmation required)
@@ -76,9 +79,11 @@ Common options:
   --session-id ID  Session commands: write the run under a chosen session id
   --timeout SECS   run: end Maki inside the sandbox after SECS seconds
                    (exit 124)
-  --no-sync        Session commands: skip collecting changes on exit
-                   (default: collect a patch and apply it only when the
-                   sandbox baseline matches the host)
+  --no-sync        Session commands: skip collecting changes on exit and
+                   park the workspace (default: collect a patch and apply it
+                   only when the sandbox baseline matches the host)
+  --discard        upload: replace a parked workspace; rm: delete a parked
+                   workspace's unique changes (both keep patch files)
   --idle-stop DUR  Session commands: stop the sandbox DUR after the last
                    session closes and no Maki runs in it (seconds, or with
                    an s, m, or h suffix; default 1h; 0 disables)

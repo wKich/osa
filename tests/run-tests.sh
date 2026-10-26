@@ -205,8 +205,9 @@ reset_state() {
 }
 
 seed_sandbox() {
-    mkdir -p "$STUB_STATE_DIR/sandboxes" "$STUB_STATE_DIR/providers"
+    mkdir -p "$STUB_STATE_DIR/sandboxes" "$STUB_STATE_DIR/providers" "$STUB_STATE_DIR/ids"
     printf '%s\n' "${2:-Ready}" >"$STUB_STATE_DIR/sandboxes/$1"
+    printf 'id-%s\n' "$1" >"$STUB_STATE_DIR/ids/$1"
     : >"$STUB_STATE_DIR/providers/$1"
     # An existing sandbox has a workdir; mirror the project into it (never
     # .git, which OpenShell's upload excludes).
@@ -452,6 +453,14 @@ baseline_value() { # SANDBOX KEY
     sed -n "s/^$2=//p" "$(session_dir "$1")/baseline" 2>/dev/null | head -n 1
 }
 
+pending_value() { # SANDBOX KEY
+    sed -n "s/^$2=//p" "$(session_dir "$1")/pending" 2>/dev/null | head -n 1
+}
+
+synced_value() { # SANDBOX KEY
+    sed -n "s/^$2=//p" "$(session_dir "$1")/synced" 2>/dev/null | head -n 1
+}
+
 assert_file_mode() { # FILE MODE
     if [ ! -e "$1" ]; then
         bad "missing file: $1"
@@ -634,6 +643,9 @@ test_up_creates() {
     if [ ! -e "$STUB_STATE_DIR/sandboxes/maki-myproject" ]; then
         bad "sandbox state was not created"
     fi
+    assert_log_missing "upload"
+    assert_log_line_missing "maki"
+    assert_out_has "the session refreshes the workspace"
 }
 
 test_up_idempotent() {
@@ -647,6 +659,8 @@ test_up_idempotent() {
     assert_rc 0
     assert_log_missing "create"
     assert_log_missing "sandbox start"
+    assert_log_missing "upload"
+    assert_log_line_missing "maki"
 
     printf 'Stopped\n' >"$STUB_STATE_DIR/sandboxes/maki-myproject"
     reset_log
@@ -1872,7 +1886,8 @@ test_session_flag_conflicts() {
     run_maki status --continue
     assert_rc 0
     assert_out_has "Sandbox:   maki-myproject"
-    assert_log_missing "exec"
+    assert_log_line_missing "maki"
+    assert_log_missing "--tty"
 }
 
 test_tui_config_key() {
@@ -2240,6 +2255,8 @@ test_session_no_sync() {
     assert_log_missing "download"
     assert_log_missing "maki-oss/result"
     assert_err_has "--no-sync"
+    [ "$(pending_value maki-myproject kind)" = parked ] \
+        || bad "--no-sync did not park the workspace"
 }
 
 test_session_sync_failure_preserves_code() {
@@ -2263,6 +2280,16 @@ test_session_sync_failure_preserves_code() {
     if [ ! -f "$HOME/.local/state/maki-oss/sessions/maki-myproject/pending" ]; then
         bad "collection failure did not write the pending marker"
     fi
+    [ "$(pending_value maki-myproject kind)" = parked ] \
+        || bad "collection failure did not park the workspace"
+
+    reset_log
+    STUB_EXEC_SCRIPT_FAIL=
+    EXEC_EXIT=0
+    run_maki maki
+    assert_rc 1
+    assert_err_has "is parked"
+    assert_log_line_missing "maki"
 }
 
 test_session_plain_apply() {
@@ -2433,24 +2460,41 @@ test_exit_surfaces_proposals_on_interrupt() {
   Chunk: 2258b82a-8253-4094-bf5f-3e309b2b9c11
   Status: pending'
 
-    # Run in the foreground so SIGINT is not ignored, then signal once the
-    # exec stub has started. The exit hook must still surface proposals.
+    # Hold the agent open until signaled, so the interrupt cannot race the
+    # session and the exit hook runs while Maki is attached. The helper runs
+    # in the foreground because background jobs ignore SIGINT.
+    STUB_MAKI_SCRIPT='touch '"$CASE"'/maki-started
+while [ ! -f '"$CASE"'/maki-stop ]; do sleep 0.1; done'
     (
-        sleep 2
+        tries=0
+        while [ ! -f "$CASE/maki-started" ] && [ "$tries" -lt 100 ]; do
+            sleep 0.1
+            tries=$((tries + 1))
+        done
         pkill -INT -f "$MAKI maki" 2>/dev/null || true
-        sleep 3
+        sleep 1
+        touch "$CASE/maki-stop"
+        sleep 5
         pkill -KILL -f "$MAKI maki" 2>/dev/null || true
     ) &
     RC=0
-    PATH="$STUB_DIR:$PATH" \
-    HOME="$HOME" \
-    XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
-    STUB_LOG="$STUB_LOG" \
-    STUB_STATE_DIR="$STUB_STATE_DIR" \
-    STUB_RULE_PENDING="$RULE_PENDING" \
-    STUB_EXEC_STDOUT='interrupted' \
-        "$MAKI" maki >"$OUT" 2>"$ERR" </dev/null || RC=$?
+    (
+        cd "$RUN_DIR"
+        PATH="$STUB_DIR:$PATH" \
+        HOME="$HOME" \
+        XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
+        STUB_LOG="$STUB_LOG" \
+        STUB_STATE_DIR="$STUB_STATE_DIR" \
+        STUB_RULE_PENDING="$RULE_PENDING" \
+        STUB_EXEC_STDOUT='interrupted' \
+        STUB_SANDBOX_ROOT="$CASE/sandbox" \
+        STUB_SANDBOX_TOOLS="$CASE/sandbox-tools" \
+        STUB_MAKI_SCRIPT="$STUB_MAKI_SCRIPT" \
+        MAKI_OSS_WORKDIR="$SANDBOX_WORKDIR" \
+            "$MAKI" maki >"$OUT" 2>"$ERR" </dev/null
+    ) || RC=$?
     wait || true
+    [ "$RC" -eq 130 ] || bad "interrupted session exited $RC instead of 130"
     assert_err_has "1 pending network-rule proposal"
 }
 
@@ -3120,7 +3164,7 @@ test_filtered_baseline_is_not_stale_after_upload() {
 }
 
 test_existing_sandbox_baseline_migration() {
-    begin "a reused sandbox without a baseline gets one and warns once"
+    begin "a reused sandbox without a baseline adopts a matching workspace and warns once"
     new_case sandbox-migration
     RUN_DIR=$CASE/project/repo
     seed_git_project "$RUN_DIR"
@@ -3130,38 +3174,75 @@ test_existing_sandbox_baseline_migration() {
 
     run_maki run "hi"
     assert_rc 0
-    assert_err_has "Recording a sandbox baseline"
-    assert_err_has "changes already in the sandbox are not exported"
+    assert_err_has "Adopting the sandbox workspace as the baseline"
+    assert_err_has "Workspace is already current"
+    assert_log_missing "upload"
     init_count=$(grep -c 'git init -q' "$LOG" 2>/dev/null || true)
     [ "$init_count" = 1 ] || bad "expected exactly one baseline initialization, got ${init_count:-0}"
 }
 
-test_stale_sandbox_keeps_patch() {
-    begin "a stale sandbox is reported and its patch is kept without applying"
-    new_case stale-sandbox
+test_host_change_refreshes_before_session() {
+    begin "a host change refreshes a reused workspace before Maki runs"
+    new_case host-refresh
     RUN_DIR=$CASE/project/repo
     seed_git_project "$RUN_DIR"
     seed_sandbox maki-repo Ready
     seed_remembered_provider maki-stub
     attach_stub_provider maki-repo maki-stub
     run_maki upload .
-    reset_log
-    GIT_TRACE_LOG=$CASE/git.trace
     printf 'host-change\n' >>"$RUN_DIR/tracked.txt"
+    git -C "$RUN_DIR" add tracked.txt
+    git -C "$RUN_DIR" commit -q -m "host change"
+    reset_log
     STUB_MAKI_SCRIPT='printf "sandbox-change\n" >> tracked.txt'
 
     run_maki maki
     assert_rc 0
-    assert_err_has "is stale"
-    assert_err_has "patch will be kept for review"
-    git_trace_missing "worktree add"
-    git_trace_missing "git apply"
-    if grep -Fq 'sandbox-change' "$RUN_DIR/tracked.txt"; then
-        bad "a stale sandbox patch was applied to the host"
-    fi
-    patch_file=$(find "$(session_dir maki-repo)" -maxdepth 1 -name 'patch-*.patch' -type f 2>/dev/null | head -n 1)
-    [ -n "$patch_file" ] || bad "the stale patch was not retained"
-    [ -f "$(session_dir maki-repo)/pending" ] || bad "the stale patch did not write a pending marker"
+    assert_err_has "Refreshing the workspace from the host"
+    assert_log_has "upload"
+    grep -Fq 'host-change' "$RUN_DIR/tracked.txt" \
+        || bad "the refreshed host change was lost"
+    grep -Fq 'sandbox-change' "$RUN_DIR/tracked.txt" \
+        || bad "the agent change did not apply after the refresh"
+    [ ! -f "$(session_dir maki-repo)/pending" ] \
+        || bad "a clean host left a pending marker"
+
+    # The refresh recorded a new pair, so the next unchanged session skips
+    # the upload.
+    reset_log
+    STUB_MAKI_SCRIPT=
+    run_maki maki
+    assert_rc 0
+    assert_err_has "already current"
+    assert_log_missing "upload"
+    [ "$(synced_value maki-repo host_tree)" = "$(baseline_value maki-repo tree)" ] \
+        || bad "the synced host tree does not match the recorded baseline"
+    [ "$(synced_value maki-repo sandbox_tree)" = "$(baseline_value maki-repo sandbox_tree)" ] \
+        || bad "the synced sandbox tree does not match the recorded baseline"
+}
+
+test_parked_workspace_refuses_session() {
+    begin "a parked workspace refuses to launch Maki"
+    new_case parked-session
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'host\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    # The sandbox has a file the host does not: no durable patch covers it.
+    printf 'sandbox-only\n' >"$SANDBOX_WORKDIR/extra.txt"
+
+    STUB_MAKI_SCRIPT='printf "ran\n" > ran.txt'
+    run_maki maki
+    assert_rc 1
+    assert_err_has "is parked"
+    assert_err_has "sandbox changes are not in the host project"
+    assert_log_line_missing "maki"
+    assert_log_missing "upload"
+    [ "$(pending_value maki-myproject kind)" = parked ] \
+        || bad "the parked workspace has no parked marker"
+    [ ! -e "$RUN_DIR/ran.txt" ] || bad "Maki ran in a parked workspace"
 }
 
 test_session_state_permissions_and_second_session() {
@@ -3612,9 +3693,9 @@ test_no_git_no_patch_fails_closed() {
     [ -f "$(session_dir maki-myproject)/pending" ] || bad "failure did not write a pending marker"
 }
 
-test_pending_marker_blocks_second_session() {
-    begin "a pending patch blocks automatic apply in a later session"
-    new_case pending-block
+test_parked_workspace_blocks_second_session() {
+    begin "a parked workspace blocks a later session until it is discarded"
+    new_case parked-block
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
     printf 'base\n' >"$RUN_DIR/file.txt"
@@ -3622,32 +3703,68 @@ test_pending_marker_blocks_second_session() {
     seed_remembered_provider maki-stub
     attach_stub_provider maki-myproject maki-stub
     STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
-    # Force the first apply to fail closed by removing the apply tool and git.
-    PATH_OVERRIDE=$(no_git_path)
-    run_maki maki
+    run_maki maki --no-sync
     assert_rc 0
-    [ -f "$(session_dir maki-myproject)/pending" ] || bad "first session did not leave a pending patch"
-    first_patch=$(baseline_value_pending patch)
-    [ -n "$first_patch" ] || bad "pending marker has no patch path"
+    [ "$(pending_value maki-myproject kind)" = parked ] \
+        || bad "first session did not park the workspace"
+    [ "$(cat "$RUN_DIR/file.txt")" = base ] \
+        || bad "no-sync wrote the host project"
+    [ -z "$(pending_value maki-myproject patch)" ] \
+        || bad "no-sync wrote a patch path"
 
     reset_log
-    PATH_OVERRIDE=
-    GIT_TRACE_LOG=$CASE/git.trace
     STUB_MAKI_SCRIPT='printf "agent2\n" > second.txt'
     run_maki maki
-    assert_rc 0
-    assert_err_has "Pending sandbox changes from an earlier session"
-    assert_err_has "$first_patch"
-    assert_err_has "Automatic apply is off"
+    assert_rc 1
+    assert_err_has "is parked"
+    assert_err_has "sandbox changes are not in the host project"
     assert_log_missing "upload"
-    git_trace_missing "worktree add"
-    git_trace_missing "git apply"
-    [ ! -e "$RUN_DIR/second.txt" ] || bad "a new patch was applied despite the pending marker"
+    assert_log_line_missing "maki"
+    [ ! -e "$RUN_DIR/second.txt" ] || bad "a session ran in a parked workspace"
     [ "$(cat "$RUN_DIR/file.txt")" = base ] || bad "the host project was modified"
 }
 
-baseline_value_pending() { # KEY
-    sed -n "s/^$1=//p" "$(session_dir maki-myproject)/pending" 2>/dev/null | head -n 1
+test_retained_patch_does_not_block_second_session() {
+    begin "a retained patch does not block a later session"
+    new_case retained-block
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    # No git and no patch on the host: the patch is collected but cannot apply.
+    PATH_OVERRIDE=$(no_git_path)
+    run_maki maki
+    assert_rc 0
+    [ "$(pending_value maki-myproject kind)" = retained ] \
+        || bad "a collected patch was not retained"
+    first_patch=$(pending_value maki-myproject patch)
+    [ -n "$first_patch" ] && [ -f "$first_patch" ] \
+        || bad "the retained patch file is missing"
+    [ "$(pending_value maki-myproject sandbox_id)" = "$(cat "$STUB_STATE_DIR/ids/maki-myproject")" ] \
+        || bad "the retained marker has no matching sandbox ID"
+    [ -n "$(pending_value maki-myproject result_tree)" ] \
+        || bad "the retained marker has no result tree"
+    grep -Fq "patch=$first_patch" "$(session_dir maki-myproject)/pending" \
+        || bad "the marker is not readable by the previous helper"
+    [ "$(cat "$RUN_DIR/file.txt")" = base ] \
+        || bad "the host was changed despite the retained patch"
+
+    reset_log
+    PATH_OVERRIDE=
+    STUB_MAKI_SCRIPT='printf "second\n" > second.txt'
+    run_maki maki
+    assert_rc 0
+    assert_err_has "Retained patch for review"
+    assert_log_has "upload"
+    assert_log_line_before "upload" "maki"
+    [ "$(cat "$RUN_DIR/second.txt")" = second ] \
+        || bad "the later session did not apply its own patch"
+    [ "$(cat "$RUN_DIR/file.txt")" = base ] \
+        || bad "the retained agent change was applied without review"
+    [ -f "$first_patch" ] || bad "the retained patch file was deleted"
 }
 
 test_run_stdout_is_maki_only() {
@@ -3669,6 +3786,421 @@ test_run_stdout_is_maki_only() {
 
 # ---------------------------------------------------------------------------
 
+test_sandbox_id_recorded() {
+    begin "a session records the sandbox ID and status reads it back"
+    new_case sandbox-id
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    id_before=$(cat "$STUB_STATE_DIR/ids/maki-repo")
+
+    run_maki run "hi"
+    assert_rc 0
+    [ "$(baseline_value maki-repo sandbox_id)" = "$id_before" ] \
+        || bad "the baseline did not record the sandbox ID"
+    [ "$(synced_value maki-repo sandbox_id)" = "$id_before" ] \
+        || bad "the synced marker did not record the sandbox ID"
+
+    reset_log
+    run_maki status
+    assert_rc 0
+    assert_out_has "Sync:      clean"
+    assert_log_has "get"
+}
+
+test_legacy_retained_marker() {
+    begin "an old pending marker with a patch becomes retained and non-blocking"
+    new_case legacy-retained
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    run_maki upload .
+    assert_rc 0
+    state=$(session_dir maki-myproject)
+    legacy_patch=$state/patch-legacy.patch
+    printf 'legacy patch\n' >"$legacy_patch"
+    printf 'patch=%s\nsandbox=maki-myproject\ncreated=2026-01-01T00:00:00Z\nreason=apply failed\n' \
+        "$legacy_patch" >"$state/pending"
+
+    reset_log
+    run_maki maki
+    assert_rc 0
+    assert_err_missing "is parked"
+    assert_err_has "Retained patch for review"
+    assert_log_missing "upload"
+    assert_log_line "maki"
+    [ "$(cat "$RUN_DIR/file.txt")" = base ] || bad "the legacy patch was applied"
+}
+
+test_legacy_parked_marker() {
+    begin "an old pending marker without a patch stays parked"
+    new_case legacy-parked
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    run_maki upload .
+    assert_rc 0
+    state=$(session_dir maki-myproject)
+    printf 'patch=\nsandbox=maki-myproject\ncreated=2026-01-01T00:00:00Z\nreason=collection failed\n' \
+        >"$state/pending"
+
+    reset_log
+    STUB_MAKI_SCRIPT='printf "ran\n" > ran.txt'
+    run_maki maki
+    assert_rc 1
+    assert_err_has "is parked"
+    assert_log_line_missing "maki"
+    [ ! -e "$RUN_DIR/ran.txt" ] || bad "Maki ran in a parked workspace"
+}
+
+test_status_clean_and_behind() {
+    begin "status reports clean and behind as the host moves"
+    new_case status-clean-behind
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    run_maki upload .
+    assert_rc 0
+
+    reset_log
+    run_maki status
+    assert_rc 0
+    assert_out_has "Sync:      clean"
+    assert_out_has "Next:      maki-oss"
+
+    printf 'host-change\n' >>"$RUN_DIR/tracked.txt"
+    run_maki status
+    assert_rc 0
+    assert_out_has "Sync:      behind"
+    assert_out_has "refreshes the workspace"
+}
+
+test_status_retained() {
+    begin "status reports a retained patch path"
+    new_case status-retained
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    PATH_OVERRIDE=$(no_git_path)
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    run_maki maki
+    assert_rc 0
+    retained_patch=$(pending_value maki-myproject patch)
+    [ -n "$retained_patch" ] || bad "the retained patch path is missing"
+
+    PATH_OVERRIDE=
+    reset_log
+    run_maki status
+    assert_rc 0
+    assert_out_has "Sync:      retained"
+    assert_out_has "Patch:     $retained_patch"
+    assert_out_has "refreshes before the next session"
+}
+
+test_status_parked() {
+    begin "status reports a parked workspace and the discard command"
+    new_case status-parked
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    run_maki maki --no-sync
+    assert_rc 0
+
+    reset_log
+    run_maki status
+    assert_rc 0
+    assert_out_has "Sync:      parked"
+    assert_out_has "Discard:   maki-oss upload --discard"
+    assert_out_has "Next:      maki-oss download"
+}
+
+test_sandbox_id_mismatch_archives_state() {
+    begin "a changed sandbox ID archives the previous instance state"
+    new_case id-mismatch
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    run_maki maki --no-sync
+    assert_rc 0
+    [ "$(pending_value maki-myproject kind)" = parked ] \
+        || bad "the workspace was not parked"
+
+    # The same name now stands for a new, empty sandbox instance.
+    printf 'id-recreated\n' >"$STUB_STATE_DIR/ids/maki-myproject"
+    rm -rf "$CASE/sandbox"
+    reset_log
+    STUB_MAKI_SCRIPT=
+    run_maki maki
+    assert_rc 0
+    assert_err_has "Archived the previous sandbox state"
+    assert_err_missing "is parked"
+    assert_log_has "upload"
+    assert_log_line "maki"
+    archive=$(find "$(dirname "$(session_dir maki-myproject)")" \
+        -maxdepth 1 -name 'maki-myproject.archive-*' -type d 2>/dev/null | head -n 1)
+    [ -n "$archive" ] || bad "the previous instance state was not archived"
+}
+
+test_rm_parked_guard_and_recreate() {
+    begin "rm refuses a parked workspace and a recreated sandbox starts clean"
+    new_case rm-recreate
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    PATH_OVERRIDE=$(no_git_path)
+    run_maki maki
+    assert_rc 0
+    [ "$(pending_value maki-myproject kind)" = retained ] \
+        || bad "the patch was not retained"
+    retained_patch=$(pending_value maki-myproject patch)
+    [ -f "$retained_patch" ] || bad "the retained patch file is missing"
+    PATH_OVERRIDE=
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    run_maki maki --no-sync
+    assert_rc 0
+    [ "$(pending_value maki-myproject kind)" = parked ] \
+        || bad "the workspace was not parked"
+
+    reset_log
+    run_maki rm --yes
+    assert_rc 1
+    assert_err_has "the workspace is parked"
+    assert_err_has "--discard"
+    assert_log_missing "delete"
+    [ -f "$STUB_STATE_DIR/sandboxes/maki-myproject" ] \
+        || bad "the sandbox was deleted despite the parked guard"
+
+    run_maki rm --yes --discard
+    assert_rc 0
+    assert_log_line "delete"
+    [ ! -f "$STUB_STATE_DIR/sandboxes/maki-myproject" ] \
+        || bad "the sandbox was not deleted"
+    archive=$(find "$(dirname "$(session_dir maki-myproject)")" \
+        -maxdepth 1 -name 'maki-myproject.archive-*' -type d 2>/dev/null | head -n 1)
+    [ -n "$archive" ] || bad "rm did not archive the state directory"
+    [ -f "$archive/$(basename -- "$retained_patch")" ] \
+        || bad "rm deleted the retained patch file"
+
+    reset_log
+    STUB_MAKI_SCRIPT=
+    run_maki run "hi"
+    assert_rc 0
+    assert_err_missing "is parked"
+    assert_log_has "upload"
+    new_id=$(cat "$STUB_STATE_DIR/ids/maki-myproject")
+    [ "$(baseline_value maki-myproject sandbox_id)" = "$new_id" ] \
+        || bad "the recreated sandbox ID was not recorded"
+}
+
+test_upload_prunes_tracked_deletion() {
+    begin "upload removes a tracked deletion and keeps gitignored artifacts"
+    new_case prune-repo
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    printf 'node_modules/\n' >"$RUN_DIR/.gitignore"
+    printf 'extra\n' >"$RUN_DIR/extra.txt"
+    git -C "$RUN_DIR" add .gitignore extra.txt
+    git -C "$RUN_DIR" commit -q -m extra
+    mkdir -p "$RUN_DIR/node_modules/dep"
+    printf 'dep\n' >"$RUN_DIR/node_modules/dep/index.js"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+
+    run_maki upload .
+    assert_rc 0
+    [ -f "$SANDBOX_WORKDIR/extra.txt" ] || bad "the tracked file was not uploaded"
+    mkdir -p "$SANDBOX_WORKDIR/node_modules/dep"
+    printf 'sandbox-dep\n' >"$SANDBOX_WORKDIR/node_modules/dep/index.js"
+
+    rm "$RUN_DIR/extra.txt"
+    reset_log
+    run_maki upload .
+    assert_rc 0
+    [ ! -e "$SANDBOX_WORKDIR/extra.txt" ] || bad "the tracked deletion was not pruned"
+    [ -f "$SANDBOX_WORKDIR/node_modules/dep/index.js" ] \
+        || bad "the gitignored artifact was pruned"
+}
+
+test_upload_prunes_plain_deletion() {
+    begin "upload prunes a deleted file without a repository"
+    new_case prune-plain
+    RUN_DIR=$CASE/project/plain
+    mkdir -p "$RUN_DIR"
+    printf 'one\n' >"$RUN_DIR/one.txt"
+    seed_sandbox maki-plain Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-plain maki-stub
+
+    run_maki upload .
+    assert_rc 0
+    rm "$RUN_DIR/one.txt"
+    reset_log
+    run_maki upload .
+    assert_rc 0
+    [ ! -e "$SANDBOX_WORKDIR/one.txt" ] || bad "the plain deletion was not pruned"
+}
+
+test_upload_discards_parked_workspace() {
+    begin "upload refuses a parked workspace and --discard replaces it"
+    new_case upload-discard
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    PATH_OVERRIDE=$(no_git_path)
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    run_maki maki
+    assert_rc 0
+    retained_patch=$(pending_value maki-myproject patch)
+    PATH_OVERRIDE=
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    run_maki maki --no-sync
+    assert_rc 0
+    [ "$(pending_value maki-myproject kind)" = parked ] \
+        || bad "the workspace was not parked"
+
+    reset_log
+    run_maki upload .
+    assert_rc 1
+    assert_err_has "the workspace is parked"
+    assert_err_has "--discard"
+    assert_err_has "download"
+    assert_log_missing "upload"
+    [ "$(cat "$RUN_DIR/file.txt")" = base ] || bad "the parked host was overwritten"
+
+    run_maki upload --discard .
+    assert_rc 0
+    assert_log_has "upload"
+    [ ! -f "$(session_dir maki-myproject)/pending" ] \
+        || bad "discard left the parked marker"
+    [ -f "$retained_patch" ] || bad "discard deleted an earlier patch file"
+    [ "$(cat "$SANDBOX_WORKDIR/file.txt")" = base ] \
+        || bad "discard did not refresh the workspace from the host"
+}
+
+test_upload_subpath_keeps_copy_in_semantics() {
+    begin "a subpath upload copies only that path and does not prune"
+    new_case upload-subpath
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR/dist"
+    printf 'built\n' >"$RUN_DIR/dist/app.js"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    run_maki upload .
+    assert_rc 0
+    printf 'keep\n' >"$SANDBOX_WORKDIR/keep.txt"
+    printf 'new\n' >"$RUN_DIR/dist/new.js"
+
+    reset_log
+    run_maki upload "$RUN_DIR/dist" "$SANDBOX_WORKDIR/dist"
+    assert_rc 0
+    assert_log_has "upload"
+    [ -f "$SANDBOX_WORKDIR/dist/new.js" ] || bad "the subpath was not copied"
+    [ -f "$SANDBOX_WORKDIR/keep.txt" ] || bad "a subpath upload pruned the workspace"
+}
+
+test_applied_retained_patch_clears_notice() {
+    begin "an applied retained patch clears the notice without deleting the patch"
+    new_case retained-applied
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    PATH_OVERRIDE=$(no_git_path)
+    STUB_MAKI_SCRIPT='printf "agent\n" > tracked.txt'
+    run_maki maki
+    assert_rc 0
+    [ "$(pending_value maki-repo kind)" = retained ] \
+        || bad "the patch was not retained"
+    retained_patch=$(pending_value maki-repo patch)
+    [ -n "$retained_patch" ] || bad "the retained patch path is missing"
+
+    PATH_OVERRIDE=
+    git -C "$RUN_DIR" apply "$retained_patch"
+    [ "$(cat "$RUN_DIR/tracked.txt")" = agent ] \
+        || bad "the test could not apply the retained patch"
+
+    reset_log
+    STUB_MAKI_SCRIPT=
+    run_maki maki
+    assert_rc 0
+    assert_err_has "already applied"
+    [ ! -f "$(session_dir maki-repo)/pending" ] \
+        || bad "the applied patch notice was not cleared"
+    [ -f "$retained_patch" ] || bad "clearing the notice deleted the patch file"
+}
+
+test_stale_retained_notice_is_advisory() {
+    begin "a retained patch that no longer matches the sandbox is only advisory"
+    new_case retained-advisory
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    PATH_OVERRIDE=$(no_git_path)
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    run_maki maki
+    assert_rc 0
+    [ "$(pending_value maki-myproject kind)" = retained ] \
+        || bad "the patch was not retained"
+    retained_patch=$(pending_value maki-myproject patch)
+
+    # The next session refreshes the retained workspace and makes no changes,
+    # so the marker remains but no longer covers the sandbox.
+    PATH_OVERRIDE=
+    STUB_MAKI_SCRIPT=
+    reset_log
+    run_maki maki
+    assert_rc 0
+    assert_err_has "Retained patch for review"
+    assert_log_has "upload"
+    [ -f "$(session_dir maki-myproject)/pending" ] \
+        || bad "the advisory marker was removed"
+    [ "$(cat "$SANDBOX_WORKDIR/file.txt")" = base ] \
+        || bad "the refresh did not restore the host tree"
+    [ "$(cat "$RUN_DIR/file.txt")" = base ] \
+        || bad "the retained change was applied"
+
+    reset_log
+    run_maki status
+    assert_rc 0
+    assert_out_has "Sync:      clean"
+    assert_out_missing "Patch:"
+    [ -f "$retained_patch" ] || bad "the advisory patch file was deleted"
+}
+
 run_test test_help
 run_test test_usage_errors
 run_test test_config_precedence
@@ -3678,6 +4210,10 @@ run_test test_up_idempotent
 run_test test_run_passthrough
 run_test test_maki_attach
 run_test test_upload_no_mount
+run_test test_upload_prunes_tracked_deletion
+run_test test_upload_prunes_plain_deletion
+run_test test_upload_discards_parked_workspace
+run_test test_upload_subpath_keeps_copy_in_semantics
 run_test test_download
 run_test test_env_refusal
 run_test test_env_refusal_session_path
@@ -3758,7 +4294,11 @@ run_test test_baseline_capture_dirty_git
 run_test test_sandbox_baseline_after_upload
 run_test test_filtered_baseline_is_not_stale_after_upload
 run_test test_existing_sandbox_baseline_migration
-run_test test_stale_sandbox_keeps_patch
+run_test test_sandbox_id_recorded
+run_test test_host_change_refreshes_before_session
+run_test test_parked_workspace_refuses_session
+run_test test_sandbox_id_mismatch_archives_state
+run_test test_rm_parked_guard_and_recreate
 run_test test_session_state_permissions_and_second_session
 run_test test_interrupt_still_collects_patch
 run_test test_patch_content_and_git_isolation
@@ -3773,7 +4313,15 @@ run_test test_no_git_text_apply
 run_test test_no_git_text_conflict_keeps_project
 run_test test_no_git_binary_export
 run_test test_no_git_no_patch_fails_closed
-run_test test_pending_marker_blocks_second_session
+run_test test_parked_workspace_blocks_second_session
+run_test test_retained_patch_does_not_block_second_session
+run_test test_applied_retained_patch_clears_notice
+run_test test_stale_retained_notice_is_advisory
+run_test test_legacy_retained_marker
+run_test test_legacy_parked_marker
+run_test test_status_clean_and_behind
+run_test test_status_retained
+run_test test_status_parked
 run_test test_run_stdout_is_maki_only
 run_test test_policy_advisor_enabled_on_session
 run_test test_policy_advisor_enabled_on_fresh_create

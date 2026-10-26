@@ -441,6 +441,26 @@ sandbox_phase() {
     fi
 }
 
+sandbox_id() { # NAME
+    sandbox_id_name=$1
+    sandbox_id_json=''
+    if sandbox_id_json=$(os sandbox get "$sandbox_id_name" --output json 2>/dev/null); then
+        if [ "$have_jq" -eq 1 ]; then
+            printf '%s' "$sandbox_id_json" | jq -r '.id // empty'
+        else
+            printf '%s' "$sandbox_id_json" \
+                | sed -n 's/.*"id":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1
+        fi
+        return 0
+    fi
+    # Older gateways may not accept --output json for a single sandbox; the
+    # table form still names the Id.
+    sandbox_id_table=''
+    sandbox_id_table=$(os sandbox get "$sandbox_id_name" 2>/dev/null) || return 0
+    printf '%s\n' "$sandbox_id_table" \
+        | sed -n 's/^[[:space:]]*Id:[[:space:]]*//p' | head -n 1
+}
+
 require_sandbox() {
     require_sandbox_phase=$(sandbox_phase "$1")
     if [ -z "$require_sandbox_phase" ]; then
@@ -750,7 +770,7 @@ cmd_up() {
         say "Creating sandbox '$name' from $image..."
         run_sandbox_create "$name"
     fi
-    say "Sandbox '$name' is ready. Next: $PROGRAM upload ."
+    say "Sandbox '$name' is ready. Next: $PROGRAM (the session refreshes the workspace)."
 }
 
 # Builds and runs `openshell sandbox create` for the resolved settings. The
@@ -840,7 +860,7 @@ gitdir=$1 worktree=$2
 export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
 export GIT_AUTHOR_NAME='"$PROGRAM"' GIT_AUTHOR_EMAIL='"$PROGRAM"'@localhost
 export GIT_COMMITTER_NAME='"$PROGRAM"' GIT_COMMITTER_EMAIL='"$PROGRAM"'@localhost
-mkdir -p "$gitdir"
+mkdir -p "$gitdir" "$worktree"
 git init -q
 git add -A
 tree=$(git write-tree)
@@ -850,12 +870,22 @@ printf "%s\n" "$tree"'
 
 # shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
 SANDBOX_PROBE_SCRIPT='set -e
-export GIT_DIR=$1 GIT_WORK_TREE=$2
-if git rev-parse -q --verify refs/'"$PROGRAM"'/base >/dev/null 2>&1; then
-    git rev-parse "refs/'"$PROGRAM"'/base^{tree}"
-else
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+if ! git rev-parse -q --verify refs/'"$PROGRAM"'/base >/dev/null 2>&1; then
     printf "missing\n"
-fi'
+    exit 0
+fi
+index=$gitdir/tree-index.$$
+rm -f "$index"
+if ! GIT_INDEX_FILE=$index git add -A 2>/dev/null; then
+    rm -f "$index"
+    printf "missing\n"
+    exit 0
+fi
+tree=$(GIT_INDEX_FILE=$index git write-tree)
+rm -f "$index"
+printf "%s\n" "$tree"'
 
 # shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
 SANDBOX_COLLECT_SCRIPT='set -e
@@ -889,12 +919,69 @@ SANDBOX_ADVANCE_SCRIPT='set -e
 export GIT_DIR=$1
 git update-ref refs/'"$PROGRAM"'/base refs/'"$PROGRAM"'/result'
 
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+SANDBOX_RESULT_TREE_SCRIPT='set -e
+export GIT_DIR=$1
+git rev-parse -q --verify refs/'"$PROGRAM"'/result^{tree} 2>/dev/null || true'
+
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+SANDBOX_TREE_EMPTY_SCRIPT='set -e
+export GIT_DIR=$1
+tree=$3
+if [ -z "$tree" ] || [ -z "$(git ls-tree -r --name-only "$tree" 2>/dev/null | head -n 1)" ]; then
+    printf "empty\n"
+else
+    printf "nonempty\n"
+fi'
+
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+SANDBOX_WORKDIR_NONEMPTY_SCRIPT='set -e
+worktree=$2
+if [ -n "$(find "$worktree" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+    printf "nonempty\n"
+else
+    printf "empty\n"
+fi'
+
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+SANDBOX_PRUNE_SCRIPT='set -e
+worktree=$2
+manifest=$3
+while IFS= read -r path; do
+    case $path in
+        ""|/*|..|../*|*/..|*/../*) continue ;;
+    esac
+    target=$worktree/$path
+    if [ -f "$target" ] || [ -L "$target" ]; then
+        rm -f -- "$target"
+    fi
+done < "$manifest"
+rm -f -- "$manifest"'
+
 sandbox_script() { # NAME WORKDIR SCRIPT
     ss_name=$1
     ss_workdir=$2
     ss_script=$3
     os sandbox exec -n "$ss_name" --no-login-shell --workdir "$ss_workdir" -- \
         sh -c "$ss_script" "$PROGRAM-git" "$(sandbox_git_dir "$ss_workdir")" "$ss_workdir"
+}
+
+sandbox_script_extra() { # NAME WORKDIR SCRIPT EXTRA
+    sse_name=$1
+    sse_workdir=$2
+    sse_script=$3
+    sse_extra=$4
+    os sandbox exec -n "$sse_name" --no-login-shell --workdir "$sse_workdir" -- \
+        sh -c "$sse_script" "$PROGRAM-git" "$(sandbox_git_dir "$sse_workdir")" \
+        "$sse_workdir" "$sse_extra"
+}
+
+# Creates the workdir before an exec that needs --workdir. A sandbox created
+# by a concurrent run, or by `up` before the first refresh, may not have it.
+sandbox_mkdir() { # NAME WORKDIR
+    # shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+    os sandbox exec -n "$1" --no-login-shell -- \
+        sh -c 'mkdir -p "$1"' "$PROGRAM-git" "$2" >/dev/null 2>&1
 }
 
 # After a successful apply the sandbox holds the same tree as the host, so the
@@ -910,16 +997,38 @@ read_baseline() { # FILE KEY
     sed -n "s/^$2=//p" "$1" 2>/dev/null | head -n 1
 }
 
-# Records the host tree and the sandbox tree that were in sync at upload or
-# after a clean apply. A clean filter (LFS) or a submodule hashes differently
-# on each side, so comparing the two trees directly calls a fresh sandbox
-# stale; each side is compared with its own earlier value instead.
-write_synced_marker() { # STATE_DIR HOST_TREE SANDBOX_TREE
-    [ -n "$2" ] && [ -n "$3" ] || return 0
+archive_state_dir() { # STATE_DIR REASON
+    archive_dir=$1
+    archive_reason=$2
+    [ -d "$archive_dir" ] || return 0
+    archive_stamp=$(date +%Y%m%d%H%M%S)-$$
+    archive_dest=$archive_dir.archive-$archive_stamp
+    if ! mv -- "$archive_dir" "$archive_dest" 2>/dev/null; then
+        warn "cannot archive the previous sandbox state at $archive_dir ($archive_reason)"
+        return 1
+    fi
+    if ! (umask 077 && mkdir -p "$archive_dir" && chmod 700 "$archive_dir" 2>/dev/null); then
+        warn "archived the previous state to $archive_dest but cannot recreate $archive_dir"
+        return 1
+    fi
+    note "Archived the previous sandbox state to $archive_dest ($archive_reason)."
+    return 0
+}
+
+# Records the host tree, the sandbox tree, and the sandbox instance that were
+# in sync at upload or after a clean apply. A clean filter (LFS) or a submodule
+# hashes differently on each side, so comparing the two trees directly calls a
+# fresh sandbox stale; each side is compared with its own earlier value.
+write_synced_marker() { # STATE_DIR HOST_TREE SANDBOX_TREE [SANDBOX_ID]
+    [ -n "$3" ] || return 0
     synced_tmp=$1/synced.$$
     if ! (
         umask 077
-        printf 'host_tree=%s\nsandbox_tree=%s\n' "$2" "$3" >"$synced_tmp"
+        {
+            printf 'host_tree=%s\n' "${2:-}"
+            printf 'sandbox_tree=%s\n' "$3"
+            printf 'sandbox_id=%s\n' "${4:-}"
+        } >"$synced_tmp"
     ); then
         rm -f "$synced_tmp"
         return 0
@@ -927,9 +1036,63 @@ write_synced_marker() { # STATE_DIR HOST_TREE SANDBOX_TREE
     mv -- "$synced_tmp" "$1/synced" 2>/dev/null || rm -f "$synced_tmp"
 }
 
+# Writes the path list of TREE to STATE_DIR/host_manifest. The list travels
+# with the tree so a later refresh can prune tracked deletions without
+# depending on a possibly garbage-collected tree object.
+write_host_manifest() { # STATE_DIR TREE
+    whm_dir=$1
+    whm_tree=$2
+    [ -n "$whm_tree" ] || return 0
+    whm_tmp=$whm_dir/host_manifest.$$
+    if (umask 077 && git ls-tree -r --name-only "$whm_tree" >"$whm_tmp" 2>/dev/null); then
+        mv -- "$whm_tmp" "$whm_dir/host_manifest" 2>/dev/null || rm -f "$whm_tmp"
+    else
+        rm -f "$whm_tmp"
+    fi
+}
+
+# Builds a tree for a project the helper treats as plain (not a repository
+# root, or no HEAD yet) so freshness and pruning still work when git exists.
+capture_plain_tree() { # STATE_DIR
+    cpt_state=$1
+    cpt_dir=${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-tree.$$
+    rm -rf "$cpt_dir"
+    if ! (umask 077 && git init -q "$cpt_dir" 2>/dev/null); then
+        rm -rf "$cpt_dir"
+        return 0
+    fi
+    cpt_index=$cpt_dir/index
+    cpt_tree=
+    if GIT_DIR=$cpt_dir/.git GIT_WORK_TREE=$PWD GIT_INDEX_FILE=$cpt_index \
+        git add -A 2>/dev/null; then
+        cpt_tree=$(GIT_DIR=$cpt_dir/.git GIT_INDEX_FILE=$cpt_index \
+            git write-tree 2>/dev/null) || cpt_tree=
+    fi
+    if [ -n "$cpt_tree" ]; then
+        bl_mode=plain
+        bl_git=1
+        bl_tree=$cpt_tree
+        bl_dirty=0
+        bl_base=
+        bl_ok=1
+        cpt_manifest=$cpt_state/host_manifest.$$
+        if (umask 077 && GIT_DIR=$cpt_dir/.git \
+            git ls-tree -r --name-only "$cpt_tree" >"$cpt_manifest" 2>/dev/null); then
+            mv -- "$cpt_manifest" "$cpt_state/host_manifest" 2>/dev/null \
+                || rm -f "$cpt_manifest"
+        else
+            rm -f "$cpt_manifest"
+        fi
+    fi
+    rm -rf "$cpt_dir"
+    return 0
+}
+
 # Records the host tree in the state directory. A clean repository uses HEAD;
 # a dirty or untracked one gets a synthetic commit built from a temporary
-# index, so the user's index, branch, and working tree are untouched.
+# index, so the user's index, branch, and working tree are untouched. A plain
+# project uses a temporary repository when git is available; otherwise the
+# freshness check falls back to the recorded sandbox tree.
 capture_host_baseline() { # STATE_DIR
     bl_mode=plain
     bl_git=0
@@ -940,16 +1103,29 @@ capture_host_baseline() { # STATE_DIR
     bl_base=
     bl_ok=0
     command -v git >/dev/null 2>&1 || return 0
-    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 0
-    bl_root=$(git rev-parse --show-toplevel 2>/dev/null) || return 0
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        capture_plain_tree "$1"
+        return 0
+    fi
+    bl_root=$(git rev-parse --show-toplevel 2>/dev/null) || bl_root=
     bl_pwd=$(pwd -P)
     # The upload sends $PWD, not the repository root, so a subdirectory is
     # treated as a plain project and uses the patch check instead.
-    [ "$bl_root" = "$bl_pwd" ] || return 0
-    git rev-parse -q --verify HEAD >/dev/null 2>&1 || return 0
+    if [ -z "$bl_root" ] || [ "$bl_root" != "$bl_pwd" ]; then
+        capture_plain_tree "$1"
+        return 0
+    fi
+    if ! git rev-parse -q --verify HEAD >/dev/null 2>&1; then
+        capture_plain_tree "$1"
+        return 0
+    fi
     bl_branch=$(git symbolic-ref --short -q HEAD 2>/dev/null) || bl_branch=
-    bl_commit=$(git rev-parse -q --verify HEAD) || return 0
-    bl_tree=$(git rev-parse -q --verify "HEAD^{tree}") || return 0
+    bl_commit=$(git rev-parse -q --verify HEAD) || bl_commit=
+    bl_tree=$(git rev-parse -q --verify "HEAD^{tree}") || bl_tree=
+    if [ -z "$bl_commit" ] || [ -z "$bl_tree" ]; then
+        capture_plain_tree "$1"
+        return 0
+    fi
     if [ -z "$(git status --porcelain)" ]; then
         bl_mode=clean
         bl_base=$bl_commit
@@ -971,16 +1147,19 @@ capture_host_baseline() { # STATE_DIR
             bl_dirty=0
             bl_tree=
             bl_base=
-            warn "cannot snapshot the working tree; this session will use the patch check"
+            capture_plain_tree "$1"
+            [ "$bl_ok" -eq 1 ] \
+                || warn "cannot snapshot the working tree; this session will use the patch check"
             return 0
         fi
         rm -f "$bl_index"
     fi
     bl_git=1
     bl_ok=1
+    write_host_manifest "$1" "$bl_tree"
 }
 
-write_session_baseline() { # DIR NAME WORKDIR SANDBOX_TREE STALE UPLOAD
+write_session_baseline() { # DIR NAME WORKDIR SANDBOX_TREE STATE STALE UPLOAD SANDBOX_ID
     write_tmp=$1/baseline.$$
     if ! (
         umask 077
@@ -995,8 +1174,10 @@ write_session_baseline() { # DIR NAME WORKDIR SANDBOX_TREE STALE UPLOAD
             printf 'base=%s\n' "$bl_base"
             printf 'dirty=%s\n' "$bl_dirty"
             printf 'sandbox_tree=%s\n' "$4"
-            printf 'stale=%s\n' "$5"
-            printf 'upload=%s\n' "$6"
+            printf 'state=%s\n' "$5"
+            printf 'stale=%s\n' "$6"
+            printf 'upload=%s\n' "$7"
+            printf 'sandbox_id=%s\n' "${8:-}"
         } >"$write_tmp"
     ); then
         warn "cannot write the session baseline in $1"
@@ -1017,22 +1198,227 @@ write_session_baseline() { # DIR NAME WORKDIR SANDBOX_TREE STALE UPLOAD
 refresh_synced_marker() {
     capture_host_baseline "$sync_state_dir"
     refresh_sandbox_tree=$(sandbox_script "$sync_name" "$sync_workdir" "$SANDBOX_PROBE_SCRIPT" 2>/dev/null) || refresh_sandbox_tree=
-    if [ "$bl_ok" -eq 1 ] && [ -n "$refresh_sandbox_tree" ]; then
-        write_synced_marker "$sync_state_dir" "$bl_tree" "$refresh_sandbox_tree"
+    if [ -n "$refresh_sandbox_tree" ]; then
+        write_synced_marker "$sync_state_dir" "$bl_tree" "$refresh_sandbox_tree" "${sync_sandbox_id:-}"
     fi
 }
 
-# Captures the host baseline, records or reads the sandbox baseline, and marks
-# the sandbox stale when the two trees differ. Runs before Maki attaches.
+# Copies the host manifest that capture_host_baseline just wrote to the
+# manifest that belongs to the newly recorded pair. The next refresh uses it
+# to prune files the host deleted.
+record_host_manifest() { # STATE_DIR
+    rhm_dir=$1
+    [ -f "$rhm_dir/host_manifest" ] || return 0
+    rhm_tmp=$rhm_dir/manifest.$$
+    if (umask 077 && cp "$rhm_dir/host_manifest" "$rhm_tmp" 2>/dev/null); then
+        mv -- "$rhm_tmp" "$rhm_dir/manifest" 2>/dev/null || rm -f "$rhm_tmp"
+    else
+        rm -f "$rhm_tmp"
+    fi
+}
+
+# Removes tracked files that the previous refresh put in the sandbox but the
+# host no longer has. Ignored sandbox artifacts are not in the old manifest,
+# so they survive. Paths with tabs or newlines keep the existing manifest
+# limitation.
+prune_old_paths() { # NAME WORKDIR STATE_DIR
+    pop_name=$1
+    pop_workdir=$2
+    pop_dir=$3
+    pop_current=$pop_dir/host_manifest
+    [ -f "$pop_current" ] || return 0
+    pop_old_list=$pop_dir/prune-old.$$
+    pop_new_list=$pop_dir/prune-new.$$
+    pop_list=$pop_dir/prune-list.$$
+    if [ -f "$pop_dir/manifest" ]; then
+        LC_ALL=C sort "$pop_dir/manifest" >"$pop_old_list" 2>/dev/null \
+            || : >"$pop_old_list"
+    elif [ -n "$synced_host_tree" ] \
+        && git cat-file -e "$synced_host_tree" 2>/dev/null; then
+        if ! git ls-tree -r --name-only "$synced_host_tree" 2>/dev/null \
+            | LC_ALL=C sort >"$pop_old_list"; then
+            : >"$pop_old_list"
+        fi
+    else
+        rm -f "$pop_old_list" "$pop_new_list" "$pop_list"
+        return 0
+    fi
+    LC_ALL=C sort "$pop_current" >"$pop_new_list" 2>/dev/null \
+        || : >"$pop_new_list"
+    comm -23 "$pop_old_list" "$pop_new_list" >"$pop_list" 2>/dev/null \
+        || : >"$pop_list"
+    if [ -s "$pop_list" ]; then
+        chmod 600 "$pop_list" 2>/dev/null || true
+        pop_dest=$(dirname -- "$pop_workdir")/$OSS_TMP_PREFIX-prune.$$
+        if os sandbox upload "$pop_name" "$pop_list" "$pop_dest" >/dev/null 2>&1; then
+            if ! sandbox_script_extra "$pop_name" "$pop_workdir" \
+                "$SANDBOX_PRUNE_SCRIPT" "$pop_dest" >/dev/null 2>&1; then
+                warn "could not prune tracked files removed on the host"
+            fi
+        else
+            warn "could not send the tracked-deletion list to the sandbox"
+        fi
+    fi
+    rm -f "$pop_old_list" "$pop_new_list" "$pop_list"
+    return 0
+}
+
+refresh_sandbox_workspace() { # NAME WORKDIR STATE_DIR
+    rsw_name=$1
+    rsw_workdir=$2
+    rsw_dir=$3
+    if [ "$opt_no_git_ignore" -eq 0 ]; then
+        prune_old_paths "$rsw_name" "$rsw_workdir" "$rsw_dir" || true
+    fi
+    note "Refreshing the workspace from the host..."
+    set -- sandbox upload
+    if [ "$opt_no_git_ignore" -eq 1 ]; then
+        set -- "$@" --no-git-ignore
+    fi
+    set -- "$@" "$rsw_name" . "$rsw_workdir"
+    run_gateway "$@"
+    if ! rsw_tree=$(sandbox_script "$rsw_name" "$rsw_workdir" \
+        "$SANDBOX_INIT_SCRIPT" 2>/dev/null); then
+        warn "uploaded, but could not record the sandbox baseline for '$rsw_name'"
+        return 1
+    fi
+    record_host_manifest "$rsw_dir"
+    write_synced_marker "$rsw_dir" "$bl_tree" "$rsw_tree" "$sync_sandbox_id"
+    sync_sandbox_tree=$rsw_tree
+    note "Refreshed the workspace from the host."
+    return 0
+}
+
+# A retained patch whose change is already in the host tree no longer needs
+# review. Only git can check the reverse cleanly; without git the notice stays.
+retained_patch_applied() { # PATCH
+    [ -n "$1" ] && [ -f "$1" ] || return 1
+    command -v git >/dev/null 2>&1 || return 1
+    git rev-parse --is-inside-work-tree >/dev/null 2>&1 || return 1
+    git apply --reverse --check "$1" >/dev/null 2>&1
+}
+
+# A retained marker covers the sandbox when its result tree matches (or when
+# it predates result trees). Otherwise it is only an advisory notice.
+retained_covers_sandbox() {
+    [ "$sync_pending_kind" = retained ] || return 1
+    [ -z "$sync_pending_result_tree" ] \
+        || [ "$sync_pending_result_tree" = "$sync_sandbox_tree" ]
+}
+
+# Classifies the workspace from the recorded pair and the current trees.
+# Sets sync_state and sync_needs_refresh; never writes.
+sync_classify() {
+    sync_state=clean
+    sync_needs_refresh=0
+    if [ "$sync_pending_kind" = parked ]; then
+        sync_state=parked
+        return 0
+    fi
+    if [ "$sync_created" -eq 1 ]; then
+        sync_state=behind
+        sync_needs_refresh=1
+        return 0
+    fi
+    if [ "$sync_probe_ok" -eq 0 ]; then
+        sync_state=parked
+        return 0
+    fi
+    if [ "$sync_pending_kind" = retained ] \
+        && [ -n "$sync_pending_result_tree" ] \
+        && [ "$sync_pending_result_tree" = "$sync_sandbox_tree" ]; then
+        sync_state=retained
+        sync_needs_refresh=1
+        return 0
+    fi
+    if [ "$bl_ok" -eq 1 ]; then
+        if [ -z "$synced_host_tree" ] || [ -z "$synced_sandbox_tree" ]; then
+            if [ "$sync_sandbox_tree" = "$bl_tree" ]; then
+                sync_state=clean
+                if retained_covers_sandbox; then
+                    sync_state=retained
+                fi
+            elif [ "$sync_sandbox_empty" -eq 1 ]; then
+                sync_state=behind
+                sync_needs_refresh=1
+            else
+                sync_state=parked
+            fi
+            return 0
+        fi
+        if [ "$sync_sandbox_tree" != "$synced_sandbox_tree" ]; then
+            if [ "$sync_pending_kind" = retained ] \
+                && [ -n "$sync_pending_result_tree" ] \
+                && [ "$sync_pending_result_tree" = "$sync_sandbox_tree" ]; then
+                sync_state=retained
+                sync_needs_refresh=1
+            else
+                sync_state=parked
+            fi
+            return 0
+        fi
+        if [ "$bl_tree" != "$synced_host_tree" ]; then
+            sync_state=behind
+            sync_needs_refresh=1
+        else
+            sync_state=clean
+            if retained_covers_sandbox; then
+                sync_state=retained
+            fi
+        fi
+        return 0
+    fi
+    # The host has no tree (no git). Compare the sandbox with its own last
+    # value; a sandbox that did not move is safe to refresh from the host.
+    if [ -z "$synced_sandbox_tree" ]; then
+        sync_state=clean
+        if retained_covers_sandbox; then
+            sync_state=retained
+        fi
+        return 0
+    fi
+    if [ "$sync_sandbox_tree" != "$synced_sandbox_tree" ]; then
+        if [ "$sync_pending_kind" = retained ] \
+            && [ -n "$sync_pending_result_tree" ] \
+            && [ "$sync_pending_result_tree" = "$sync_sandbox_tree" ]; then
+            sync_state=retained
+            sync_needs_refresh=1
+        else
+            sync_state=parked
+        fi
+        return 0
+    fi
+    sync_state=behind
+    sync_needs_refresh=1
+}
+
+# Captures the host baseline, records or reads the sandbox baseline, classifies
+# the workspace, refreshes it when safe, and blocks a parked one. Runs before
+# Maki attaches.
 prepare_session_sync() { # NAME CREATED
     prepare_name=$1
     prepare_created=$2
     sync_name=$prepare_name
     sync_workdir=$(resolved_workdir)
     sync_state_dir=$(session_state_dir "$prepare_name")
-    sync_pending_blocked=0
+    sync_blocked=0
+    sync_state=clean
+    sync_needs_refresh=0
     sync_stale=0
-    sync_upload=
+    sync_upload=filtered
+    sync_pending_patch=
+    sync_pending_kind=
+    sync_pending_result_tree=
+    sync_pending_id=
+    sync_sandbox_id=
+    sync_sandbox_tree=
+    sync_probe_ok=0
+    sync_sandbox_empty=0
+    sync_result_tree=
+    synced_host_tree=
+    synced_sandbox_tree=
+    synced_sandbox_id=
+    sync_created=$prepare_created
     bl_mode=plain
     bl_git=0
     bl_branch=
@@ -1041,37 +1427,68 @@ prepare_session_sync() { # NAME CREATED
     bl_dirty=0
     bl_base=
     bl_ok=0
-    synced_host_tree=
-    synced_sandbox_tree=
-    if [ "$opt_no_sync" -eq 1 ]; then
-        return 0
-    fi
     if ! (umask 077 && mkdir -p "$sync_state_dir" && chmod 700 "$sync_state_dir" 2>/dev/null); then
         warn "cannot create session state directory $sync_state_dir; changes will stay in the sandbox"
         return 0
     fi
+    # A new sandbox instance cannot own the previous instance's unresolved
+    # patch or recorded trees. Archive that state before reading it.
+    if [ "$prepare_created" -eq 1 ] \
+        && { [ -f "$sync_state_dir/pending" ] \
+            || [ -f "$sync_state_dir/synced" ] \
+            || [ -f "$sync_state_dir/baseline" ]; }; then
+        archive_state_dir "$sync_state_dir" "new sandbox instance" || true
+    fi
+    sync_sandbox_id=$(sandbox_id "$prepare_name")
     if [ -f "$sync_state_dir/synced" ]; then
         synced_host_tree=$(read_baseline "$sync_state_dir/synced" host_tree)
         synced_sandbox_tree=$(read_baseline "$sync_state_dir/synced" sandbox_tree)
+        synced_sandbox_id=$(read_baseline "$sync_state_dir/synced" sandbox_id)
+    fi
+    if [ -z "$synced_sandbox_id" ] && [ -f "$sync_state_dir/baseline" ]; then
+        synced_sandbox_id=$(read_baseline "$sync_state_dir/baseline" sandbox_id)
+    fi
+    if [ -n "$sync_sandbox_id" ] && [ -n "$synced_sandbox_id" ] \
+        && [ "$sync_sandbox_id" != "$synced_sandbox_id" ]; then
+        archive_state_dir "$sync_state_dir" "sandbox id changed" || true
+        synced_host_tree=
+        synced_sandbox_tree=
+        synced_sandbox_id=
     fi
     if [ -f "$sync_state_dir/pending" ]; then
-        sync_pending_blocked=1
-        note "Pending sandbox changes from an earlier session: $(read_baseline "$sync_state_dir/pending" patch)"
-        note "Automatic apply is off until they are applied or discarded; remove $sync_state_dir/pending afterwards."
+        sync_pending_patch=$(read_baseline "$sync_state_dir/pending" patch)
+        sync_pending_kind=$(read_baseline "$sync_state_dir/pending" kind)
+        sync_pending_result_tree=$(read_baseline "$sync_state_dir/pending" result_tree)
+        sync_pending_id=$(read_baseline "$sync_state_dir/pending" sandbox_id)
+        if [ -z "$sync_pending_kind" ]; then
+            if [ -n "$sync_pending_patch" ] && [ -s "$sync_pending_patch" ]; then
+                sync_pending_kind=retained
+            else
+                sync_pending_kind=parked
+            fi
+        fi
+        if [ -n "$sync_pending_id" ] && [ -n "$sync_sandbox_id" ] \
+            && [ "$sync_pending_id" != "$sync_sandbox_id" ]; then
+            note "Ignoring a pending marker from a previous sandbox instance."
+            rm -f "$sync_state_dir/pending"
+            sync_pending_patch=
+            sync_pending_kind=
+            sync_pending_result_tree=
+            sync_pending_id=
+        fi
     fi
     capture_host_baseline "$sync_state_dir"
-    sync_sandbox_tree=
-    sync_probe_ok=0
     if [ "$prepare_created" -eq 1 ]; then
-        if sync_sandbox_tree=$(sandbox_script "$prepare_name" "$sync_workdir" "$SANDBOX_INIT_SCRIPT" 2>/dev/null); then
-            sync_probe_ok=1
-        fi
+        sync_probe_ok=1
     else
-        if sync_probe=$(sandbox_script "$prepare_name" "$sync_workdir" "$SANDBOX_PROBE_SCRIPT" 2>/dev/null); then
+        sandbox_mkdir "$prepare_name" "$sync_workdir" || true
+        if sync_probe=$(sandbox_script "$prepare_name" "$sync_workdir" \
+            "$SANDBOX_PROBE_SCRIPT" 2>/dev/null); then
             sync_probe_ok=1
             if [ "$sync_probe" = missing ]; then
-                note "Recording a sandbox baseline for '$prepare_name'; changes already in the sandbox are not exported."
-                if sync_sandbox_tree=$(sandbox_script "$prepare_name" "$sync_workdir" "$SANDBOX_INIT_SCRIPT" 2>/dev/null); then
+                note "Adopting the sandbox workspace as the baseline for '$prepare_name'."
+                if sync_sandbox_tree=$(sandbox_script "$prepare_name" "$sync_workdir" \
+                    "$SANDBOX_INIT_SCRIPT" 2>/dev/null); then
                     sync_probe_ok=1
                 else
                     sync_probe_ok=0
@@ -1082,41 +1499,86 @@ prepare_session_sync() { # NAME CREATED
         fi
     fi
     if [ "$sync_probe_ok" -eq 0 ]; then
-        warn "cannot read or record the sandbox baseline; automatic apply is disabled for '$prepare_name'"
-    fi
-    if [ "$opt_no_git_ignore" -eq 0 ] && [ "$bl_ok" -eq 1 ]; then
-        # Compare each side with the recorded pair, not with the other side:
-        # filters and submodules hash differently on the host and the sandbox.
-        if [ "$prepare_created" -eq 1 ]; then
-            # A sandbox created by this run was uploaded from this tree.
-            [ "$sync_probe_ok" -eq 1 ] || sync_stale=1
-        elif [ -n "$synced_host_tree" ] && [ -n "$synced_sandbox_tree" ]; then
-            if [ "$bl_tree" != "$synced_host_tree" ] \
-                || [ "$sync_sandbox_tree" != "$synced_sandbox_tree" ]; then
-                sync_stale=1
-            fi
-        elif [ -z "$sync_sandbox_tree" ] || [ "$bl_tree" != "$sync_sandbox_tree" ]; then
-            # No recorded pair (state from an older version): keep the direct
-            # tree comparison until an upload or clean apply records one.
-            sync_stale=1
-        fi
-    fi
-    if [ "$sync_stale" -eq 0 ] && [ "$sync_probe_ok" -eq 1 ] && [ "$bl_ok" -eq 1 ] \
-        && [ "$opt_no_git_ignore" -eq 0 ] && [ -n "$sync_sandbox_tree" ]; then
-        write_synced_marker "$sync_state_dir" "$bl_tree" "$sync_sandbox_tree"
-    fi
-    if [ "$sync_stale" -eq 1 ]; then
-        note "Sandbox '$prepare_name' is stale: its baseline tree differs from the host."
-        note "The patch will be kept for review instead of being applied. Refresh with '$PROGRAM upload'."
+        warn "cannot read or record the sandbox baseline for '$prepare_name'"
     fi
     if [ "$opt_no_git_ignore" -eq 1 ]; then
-        note "Automatic worktree apply is off for --no-git-ignore uploads; the patch is applied with the plain check."
         sync_upload=unfiltered
+        note "Automatic worktree apply is off for --no-git-ignore uploads; the patch is applied with the plain check."
+    fi
+    if [ -z "$synced_sandbox_tree" ] && [ -z "$sync_pending_kind" ] \
+        && [ -f "$sync_state_dir/baseline" ]; then
+        synced_sandbox_tree=$(read_baseline "$sync_state_dir/baseline" sandbox_tree)
+    fi
+    if [ "$bl_ok" -eq 1 ] && [ "$sync_probe_ok" -eq 1 ] \
+        && [ -z "$synced_sandbox_tree" ] && [ -n "$sync_sandbox_tree" ] \
+        && [ "$sync_sandbox_tree" != "$bl_tree" ]; then
+        case $(sandbox_script_extra "$prepare_name" "$sync_workdir" \
+            "$SANDBOX_TREE_EMPTY_SCRIPT" "$sync_sandbox_tree" 2>/dev/null) in
+            empty) sync_sandbox_empty=1 ;;
+        esac
+    fi
+    sync_classify
+    # A retained patch whose change is already in the host tree no longer needs
+    # review. Clearing it also lets a refresh overwrite the covered output.
+    if [ "$sync_state" = retained ] && retained_patch_applied "$sync_pending_patch"; then
+        note "The retained patch is already applied; clearing the notice."
+        rm -f "$sync_state_dir/pending"
+        sync_pending_kind=
+        sync_pending_result_tree=
+        sync_pending_id=
+        if [ "$bl_ok" -eq 1 ] && [ "$bl_tree" = "$sync_sandbox_tree" ]; then
+            sync_state=clean
+            sync_needs_refresh=0
+            # The sandbox already holds the applied result; move its base so
+            # the exit collection does not report the same change again.
+            advance_sandbox_baseline
+        else
+            sync_state=behind
+            sync_needs_refresh=1
+        fi
+    fi
+    if [ "$sync_state" = parked ]; then
+        sync_stale=1
+        note "Workspace '$prepare_name' is parked: it holds changes with no durable patch."
+        write_pending "${sync_pending_patch:-}" "workspace parked" "parked" \
+            "${sync_sandbox_tree:-}" || true
+        recovery_block "parked" "${sync_pending_patch:-}"
+        write_session_baseline "$sync_state_dir" "$prepare_name" "$sync_workdir" \
+            "${sync_sandbox_tree:-}" "parked" "$sync_stale" "$sync_upload" "$sync_sandbox_id" || true
+        sync_blocked=1
+        return 0
+    fi
+    if [ "$sync_needs_refresh" -eq 1 ] || [ "$prepare_created" -eq 1 ]; then
+        if ! refresh_sandbox_workspace "$prepare_name" "$sync_workdir" "$sync_state_dir"; then
+            sync_state=parked
+            sync_stale=1
+            write_pending "" "refresh failed" "parked" ""
+            recovery_block "parked" ""
+            write_session_baseline "$sync_state_dir" "$prepare_name" "$sync_workdir" \
+                "" "parked" "$sync_stale" "$sync_upload" "$sync_sandbox_id" || true
+            sync_blocked=1
+            return 0
+        fi
+        sync_state=clean
+        if [ "$sync_pending_kind" = retained ]; then
+            sync_state=retained
+            note "Retained patch for review: $sync_pending_patch"
+        fi
     else
-        sync_upload=filtered
+        if [ "$sync_probe_ok" -eq 1 ] && [ -n "$sync_sandbox_tree" ] \
+            && { [ -z "$synced_sandbox_tree" ] || [ -z "$synced_host_tree" ]; }; then
+            write_synced_marker "$sync_state_dir" "$bl_tree" "$sync_sandbox_tree" \
+                "$sync_sandbox_id"
+            record_host_manifest "$sync_state_dir"
+        fi
+        note "Workspace is already current; the baseline matches the host."
+        if [ "$sync_state" = retained ] && [ -n "$sync_pending_patch" ]; then
+            note "Retained patch for review: $sync_pending_patch"
+        fi
     fi
     write_session_baseline "$sync_state_dir" "$prepare_name" "$sync_workdir" \
-        "$sync_sandbox_tree" "$sync_stale" "$sync_upload" || true
+        "${sync_sandbox_tree:-}" "$sync_state" "$sync_stale" "$sync_upload" \
+        "$sync_sandbox_id" || true
 }
 
 session_armed=0
@@ -1139,29 +1601,66 @@ sync_exit_hook() {
 }
 
 # shellcheck disable=SC2329  # reached through the sync exit path
-write_pending() { # PATCH REASON
+write_pending() { # PATCH REASON [KIND] [RESULT_TREE]
     [ -n "${sync_state_dir:-}" ] || return 0
+    wp_patch=${1:-}
+    wp_reason=${2:-}
+    wp_kind=${3:-}
+    wp_result_tree=${4:-}
+    case $wp_kind in
+        retained|parked) ;;
+        *)
+            if [ -n "$wp_patch" ] && [ -s "$wp_patch" ]; then
+                wp_kind=retained
+            else
+                wp_kind=parked
+            fi
+            ;;
+    esac
     (
         umask 077
-        printf 'patch=%s\nsandbox=%s\ncreated=%s\nreason=%s\n' \
-            "$1" "${sync_name:-}" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$2" \
-            >"$sync_state_dir/pending"
+        printf 'patch=%s\nsandbox=%s\nsandbox_id=%s\ncreated=%s\nreason=%s\nkind=%s\nresult_tree=%s\n' \
+            "$wp_patch" "${sync_name:-}" "${sync_sandbox_id:-}" \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$wp_reason" "$wp_kind" \
+            "$wp_result_tree" >"$sync_state_dir/pending"
     ) || warn "cannot write the pending marker in $sync_state_dir"
+    sync_pending_patch=$wp_patch
+    sync_pending_kind=$wp_kind
+    sync_pending_result_tree=$wp_result_tree
+    sync_pending_id=${sync_sandbox_id:-}
 }
 
 # shellcheck disable=SC2329  # reached through the sync exit path
-recovery_block() { # PATCH
+recovery_block() { # KIND [PATCH]
+    recovery_kind=${1:-parked}
+    recovery_patch=${2:-}
     recovery_name=${sync_name:-$(resolved_name)}
     recovery_workdir=${sync_workdir:-$(resolved_workdir)}
-    err "sandbox changes are not in the host project; the sandbox still holds them"
+    if [ "$recovery_kind" = retained ]; then
+        note "The sandbox patch is retained for review; the workspace can be refreshed."
+        note "  sandbox:   $recovery_name"
+        note "  workspace: $recovery_workdir"
+        note "  inspect:   openshell sandbox connect $recovery_name"
+        note "  copy one:  $PROGRAM download $recovery_workdir/PATH ./DEST"
+        note "  download:  $PROGRAM download $recovery_workdir ./DEST"
+        if [ -n "$recovery_patch" ]; then
+            note "  patch:     $recovery_patch"
+            note "  review:    git apply --3way '$recovery_patch'"
+        fi
+        note "  next:      $PROGRAM (the next session refreshes from the host)"
+        return 0
+    fi
+    err "sandbox changes are not in the host project; the workspace is parked"
     err "  sandbox:   $recovery_name"
     err "  workspace: $recovery_workdir"
     err "  inspect:   openshell sandbox connect $recovery_name"
     err "  copy one:  $PROGRAM download $recovery_workdir/PATH ./DEST"
-    if [ -n "${1:-}" ] && [ -f "$1" ]; then
-        err "  patch:     $1"
+    err "  download:  $PROGRAM download $recovery_workdir ./DEST"
+    if [ -n "$recovery_patch" ] && [ -f "$recovery_patch" ]; then
+        err "  patch:     $recovery_patch"
     fi
-    err "  pending:   ${sync_state_dir:-state}/pending (remove it after resolving)"
+    err "  discard:   $PROGRAM upload --discard   (or $PROGRAM rm --discard)"
+    err "  pending:   ${sync_state_dir:-state}/pending"
 }
 
 # shellcheck disable=SC2329  # reached through the sync exit path
@@ -1181,11 +1680,13 @@ collect_sandbox_patch() { # PATCH
     fi
     rm -f "$collect_err"
     chmod 600 "$collect_patch" 2>/dev/null || true
+    sync_result_tree=$(sandbox_script "$sync_name" "$sync_workdir" \
+        "$SANDBOX_RESULT_TREE_SCRIPT" 2>/dev/null) || sync_result_tree=
     return 0
 }
 
-# Collects changes, applies them when the safety check passes, and leaves the
-# patch and a pending marker otherwise. Always returns 0 so it cannot change
+# Collects changes, applies them when the safety check passes, and leaves a
+# retained or parked marker otherwise. Always returns 0 so it cannot change
 # Maki's exit code; output stays on stderr.
 # shellcheck disable=SC2329  # invoked via trap and by sync_exit_hook
 sync_project_back() {
@@ -1193,18 +1694,21 @@ sync_project_back() {
         return 0
     fi
     sync_finished=1
-    if [ "$opt_no_sync" -eq 1 ]; then
-        note "Skipped download (--no-sync); copy changes with '$PROGRAM download'."
-        return 0
-    fi
     sync_name=${sync_name:-$(resolved_name)}
     sync_workdir=${sync_workdir:-$(resolved_workdir)}
     sync_state_dir=${sync_state_dir:-$(session_state_dir "$sync_name")}
+    if [ "$opt_no_sync" -eq 1 ]; then
+        write_pending "" "no-sync" "parked" ""
+        note "Skipped download (--no-sync); the workspace is parked."
+        recovery_block "parked" ""
+        announce_pending_proposals "$sync_name"
+        return 0
+    fi
     sync_stamp=$(date +%Y%m%d%H%M%S)-$$
     patch_file=$sync_state_dir/patch-$sync_stamp.patch
     if ! collect_sandbox_patch "$patch_file"; then
-        write_pending "" "collection failed"
-        recovery_block "$patch_file"
+        write_pending "" "collection failed" "parked" ""
+        recovery_block "parked" "$patch_file"
         announce_pending_proposals "$sync_name"
         return 0
     fi
@@ -1216,10 +1720,10 @@ sync_project_back() {
         apply_rc=0
         apply_sandbox_patch "$patch_file" || apply_rc=$?
         if [ "$apply_rc" -eq 1 ]; then
-            write_pending "$patch_file" "apply failed"
-            recovery_block "$patch_file"
+            write_pending "$patch_file" "apply failed" "retained" "$sync_result_tree"
+            recovery_block "retained" "$patch_file"
         elif [ "$apply_rc" -eq 2 ]; then
-            recovery_block "$patch_file"
+            recovery_block "${sync_pending_kind:-retained}" "$patch_file"
         fi
     fi
     announce_pending_proposals "$sync_name"
@@ -1230,16 +1734,15 @@ sync_project_back() {
 apply_sandbox_patch() { # PATCH
     apply_patch=$1
     apply_mode=$bl_mode
-    apply_stale=$sync_stale
     apply_upload=${sync_upload:-}
-    if [ "$sync_pending_blocked" -eq 1 ]; then
-        note "A pending patch is unresolved; keeping this patch for review."
-        write_pending "$apply_patch" "pending marker"
+    if [ "${sync_state:-}" = parked ]; then
+        note "The workspace is parked; keeping this patch for review."
+        write_pending "$apply_patch" "parked" "parked" "$sync_result_tree"
         return 2
     fi
-    if [ "$apply_stale" = 1 ]; then
-        note "The sandbox baseline is stale; keeping the patch for review."
-        write_pending "$apply_patch" "stale sandbox"
+    if [ "${sync_probe_ok:-1}" -eq 0 ]; then
+        note "Cannot verify the sandbox baseline; keeping this patch for review."
+        write_pending "$apply_patch" "unverified baseline" "retained" "$sync_result_tree"
         return 2
     fi
     if [ "$apply_upload" != unfiltered ] \
@@ -1298,7 +1801,7 @@ worktree_apply() { # PATCH
     fi
     if [ "$wa_applied" -eq 0 ]; then
         apply_conflict_guidance "$wa_patch" "$wa_wt" "$wa_name"
-        write_pending "$wa_patch" "conflict"
+        write_pending "$wa_patch" "conflict" "retained" "$sync_result_tree"
         return 2
     fi
     git -C "$wa_wt" add -A >&2 || {
@@ -1326,7 +1829,7 @@ worktree_apply() { # PATCH
         note "If cherry-pick refuses because a changed path is untracked, run: git add -N <path>"
         note "Or apply the patch directly: git apply '$wa_patch'"
         advance_sandbox_baseline
-        write_pending "$wa_patch" "dirty baseline"
+        write_pending "$wa_patch" "dirty baseline" "retained" "$sync_result_tree"
         return 2
     fi
     wa_now_branch=$(git symbolic-ref --short -q HEAD 2>/dev/null) || wa_now_branch=
@@ -1339,12 +1842,12 @@ worktree_apply() { # PATCH
         note "  merge:    git merge $wa_name"
         note "  patch:    $wa_patch"
         advance_sandbox_baseline
-        write_pending "$wa_patch" "host moved"
+        write_pending "$wa_patch" "host moved" "retained" "$sync_result_tree"
         return 2
     fi
     if ! git merge --ff-only "$wa_result" >&2; then
         warn "fast-forward failed; branch '$wa_name' and worktree '$wa_wt' are kept"
-        write_pending "$wa_patch" "fast-forward failed"
+        write_pending "$wa_patch" "fast-forward failed" "retained" "$sync_result_tree"
         return 2
     fi
     git worktree remove "$wa_wt" >/dev/null 2>&1 || true
@@ -1366,7 +1869,7 @@ plain_apply() { # PATCH
             note "The sandbox patch does not apply cleanly; $PWD was left unchanged."
             note "  patch:  $plain_patch"
             note "  review: git apply --3way '$plain_patch'"
-            write_pending "$plain_patch" "conflict"
+            write_pending "$plain_patch" "conflict" "retained" "$sync_result_tree"
             return 2
         fi
         if ! git apply "$plain_patch" >&2; then
@@ -1374,6 +1877,7 @@ plain_apply() { # PATCH
             return 1
         fi
         advance_sandbox_baseline
+        refresh_synced_marker
         rm -f "$sync_state_dir/pending"
         note "Applied sandbox changes to $PWD."
         return 0
@@ -1390,7 +1894,7 @@ plain_apply() { # PATCH
         note "The sandbox patch does not apply cleanly; $PWD was left unchanged."
         note "  patch:  $plain_patch"
         note "  review: patch -p1 < '$plain_patch'"
-        write_pending "$plain_patch" "conflict"
+        write_pending "$plain_patch" "conflict" "retained" "$sync_result_tree"
         return 2
     fi
     if ! patch -p1 --forward <"$plain_patch" >&2; then
@@ -1398,6 +1902,7 @@ plain_apply() { # PATCH
         return 1
     fi
     advance_sandbox_baseline
+    refresh_synced_marker
     rm -f "$sync_state_dir/pending"
     note "Applied sandbox changes to $PWD."
     return 0
@@ -1447,7 +1952,7 @@ export_review_files() { # PATCH
     fi
     note "The host has no git; changed files were exported for review: $export_dir"
     note "  manifest: $export_manifest"
-    write_pending "$export_patch" "binary export"
+    write_pending "$export_patch" "binary export" "retained" "$sync_result_tree"
     return 2
 }
 
@@ -1551,11 +2056,11 @@ ensure_sandbox_created=0
 # returns control instead of exiting; the caller re-checks and reuses.
 create_allow_fail=0
 
-# A reused sandbox still holds an earlier copy of the project. The exit sync
-# no longer overlays it: changes come back as a patch that is applied only
-# when the sandbox baseline matches the host.
+# A reused sandbox still holds an earlier copy of the project. The prepare
+# routine refreshes it when the host moved and leaves it alone when the trees
+# already match.
 announce_sandbox_reuse() { # NAME
-    note "Reusing '$1' without uploading; on exit, changes are collected as a patch and applied only if its baseline matches the host."
+    note "Reusing '$1'; changes are collected as a patch on exit, and the workspace is checked before Maki runs."
 }
 
 ensure_project_sandbox() {
@@ -1603,21 +2108,14 @@ ensure_project_sandbox() {
         fi
         wait_for_sandbox_ready "$name"
     fi
-    if [ "$ensure_sandbox_created" -eq 1 ]; then
-        workdir=$(resolved_workdir)
-        note "Uploading the project to '$name:$workdir'..."
-        set -- sandbox upload
-        if [ "$opt_no_git_ignore" -eq 1 ]; then
-            set -- "$@" --no-git-ignore
-        fi
-        set -- "$@" "$name" . "$workdir"
-        run_gateway "$@"
-    fi
     # Enable the advisor before Maki attaches so the agent can submit a
     # network-rule proposal and wait for a human decision. Covers both the
     # created and reused paths; `up` never reaches this function.
     enable_policy_advisor "$name" || true
     prepare_session_sync "$name" "$ensure_sandbox_created"
+    if [ "${sync_blocked:-0}" -eq 1 ]; then
+        exit "$EX_USAGE"
+    fi
     ensure_attach_missing "$name"
 }
 
@@ -1856,37 +2354,72 @@ cmd_run() {
 }
 
 cmd_upload() {
-    [ "$#" -le 2 ] || die_usage "usage: $PROGRAM upload [LOCAL_PATH] [SANDBOX_DEST]"
+    [ "$#" -le 2 ] || die_usage "usage: $PROGRAM upload [--discard] [LOCAL_PATH] [SANDBOX_DEST]"
     require_openshell
     name=$(resolved_name)
     require_sandbox "$name"
     src=${1:-.}
     dest=${2:-$(resolved_workdir)}
-    set -- sandbox upload
-    if [ "$opt_no_git_ignore" -eq 1 ]; then
-        set -- "$@" --no-git-ignore
+    workdir=$(resolved_workdir)
+    upload_state=$(session_state_dir "$name")
+    if ! (umask 077 && mkdir -p "$upload_state" && chmod 700 "$upload_state" 2>/dev/null); then
+        warn "cannot create the session state directory $upload_state"
     fi
-    set -- "$@" "$name" "$src" "$dest"
-    run_gateway "$@"
-    say "Uploaded '$src' to '$name:$dest'."
-    if [ "$dest" = "$(resolved_workdir)" ]; then
-        upload_state=$(session_state_dir "$name")
-        if (umask 077 && mkdir -p "$upload_state" && chmod 700 "$upload_state" 2>/dev/null); then
-            if upload_sandbox_tree=$(sandbox_script "$name" "$dest" "$SANDBOX_INIT_SCRIPT" 2>/dev/null); then
-                # The user explicitly refreshed the sandbox, so any earlier
-                # pending patch no longer blocks automatic apply.
-                rm -f "$upload_state/pending"
-                note "Recorded a new sandbox baseline for '$name'."
-                capture_host_baseline "$upload_state"
-                if [ "$bl_ok" -eq 1 ] && [ "$opt_no_git_ignore" -eq 0 ]; then
-                    write_synced_marker "$upload_state" "$bl_tree" "$upload_sandbox_tree"
-                fi
+    upload_patch=
+    upload_kind=
+    if [ -f "$upload_state/pending" ]; then
+        upload_patch=$(read_baseline "$upload_state/pending" patch)
+        upload_kind=$(read_baseline "$upload_state/pending" kind)
+        if [ -z "$upload_kind" ]; then
+            if [ -n "$upload_patch" ] && [ -s "$upload_patch" ]; then
+                upload_kind=retained
             else
-                warn "uploaded, but could not record the sandbox baseline for '$name'"
+                upload_kind=parked
             fi
-        else
-            warn "uploaded, but cannot create the session state directory $upload_state"
         fi
+    fi
+    if [ "$upload_kind" = parked ] && [ "$opt_discard" -eq 0 ]; then
+        err "the workspace is parked; download its changes or pass --discard to replace them"
+        err "  download: $PROGRAM download $workdir ./DEST"
+        err "  discard:  $PROGRAM upload --discard"
+        exit "$EX_USAGE"
+    fi
+    sync_name=$name
+    sync_workdir=$workdir
+    sync_state_dir=$upload_state
+    sync_sandbox_id=$(sandbox_id "$name")
+    sync_sandbox_tree=
+    sync_probe_ok=0
+    sync_pending_patch=$upload_patch
+    sync_pending_kind=$upload_kind
+    sync_pending_result_tree=$(read_baseline "$upload_state/pending" result_tree)
+    synced_host_tree=$(read_baseline "$upload_state/synced" host_tree)
+    synced_sandbox_tree=$(read_baseline "$upload_state/synced" sandbox_tree)
+    capture_host_baseline "$upload_state"
+    if [ "$dest" = "$workdir" ]; then
+        refresh_sandbox_workspace "$name" "$workdir" "$upload_state"
+        say "Uploaded '$src' to '$name:$dest'."
+    else
+        set -- sandbox upload
+        if [ "$opt_no_git_ignore" -eq 1 ]; then
+            set -- "$@" --no-git-ignore
+        fi
+        set -- "$@" "$name" "$src" "$dest"
+        run_gateway "$@"
+        say "Uploaded '$src' to '$name:$dest'."
+        if upload_tree=$(sandbox_script "$name" "$workdir" "$SANDBOX_INIT_SCRIPT" 2>/dev/null); then
+            record_host_manifest "$upload_state"
+            write_synced_marker "$upload_state" "$bl_tree" "$upload_tree" "$sync_sandbox_id"
+            note "Recorded a new sandbox baseline for '$name'."
+        else
+            warn "uploaded, but could not record the sandbox baseline for '$name'"
+        fi
+    fi
+    if [ "$upload_kind" = parked ] && [ "$opt_discard" -eq 1 ]; then
+        rm -f "$upload_state/pending"
+        note "Discarded the parked workspace state."
+    elif [ "$upload_kind" = retained ]; then
+        note "A retained patch is still available for review: ${upload_patch:-$upload_state/pending}"
     fi
 }
 
@@ -1926,6 +2459,117 @@ cmd_status() {
     say "Phase:     $phase"
     say "Image:     $image (configured)"
     say "Providers: ${providers:-none}"
+
+    status_dir=$(session_state_dir "$name")
+    status_tmp=${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-status.$$
+    rm -rf "$status_tmp"
+    mkdir -p "$status_tmp"
+    capture_host_baseline "$status_tmp"
+    status_bl_ok=$bl_ok
+    status_bl_tree=$bl_tree
+    synced_host_tree=$(read_baseline "$status_dir/synced" host_tree)
+    synced_sandbox_tree=$(read_baseline "$status_dir/synced" sandbox_tree)
+    status_synced_id=$(read_baseline "$status_dir/synced" sandbox_id)
+    sync_pending_patch=$(read_baseline "$status_dir/pending" patch)
+    sync_pending_kind=$(read_baseline "$status_dir/pending" kind)
+    sync_pending_result_tree=$(read_baseline "$status_dir/pending" result_tree)
+    if [ -z "$sync_pending_kind" ] && [ -f "$status_dir/pending" ]; then
+        if [ -n "$sync_pending_patch" ] && [ -s "$sync_pending_patch" ]; then
+            sync_pending_kind=retained
+        else
+            sync_pending_kind=parked
+        fi
+    fi
+    sync_sandbox_id=$(sandbox_id "$name")
+    if [ -n "$sync_sandbox_id" ] && [ -n "$status_synced_id" ] \
+        && [ "$sync_sandbox_id" != "$status_synced_id" ]; then
+        synced_host_tree=
+        synced_sandbox_tree=
+    fi
+    sync_sandbox_tree=
+    sync_probe_ok=0
+    sync_sandbox_empty=0
+    sync_created=0
+    bl_ok=$status_bl_ok
+    bl_tree=$status_bl_tree
+    if [ "$phase" = Ready ]; then
+        status_probe=$(sandbox_script "$name" "$(resolved_workdir)" \
+            "$SANDBOX_PROBE_SCRIPT" 2>/dev/null) || status_probe=
+        case $status_probe in
+            missing)
+                status_workdir_state=$(sandbox_script "$name" "$(resolved_workdir)" \
+                    "$SANDBOX_WORKDIR_NONEMPTY_SCRIPT" 2>/dev/null) || status_workdir_state=
+                if [ "$status_workdir_state" = empty ]; then
+                    sync_probe_ok=1
+                    sync_sandbox_tree=
+                    sync_sandbox_empty=1
+                fi
+                ;;
+            '')
+                ;;
+            *)
+                sync_probe_ok=1
+                sync_sandbox_tree=$status_probe
+                ;;
+        esac
+    fi
+    if [ "$sync_probe_ok" -eq 1 ] && [ "$bl_ok" -eq 1 ] \
+        && [ -z "$synced_sandbox_tree" ] && [ -n "$sync_sandbox_tree" ] \
+        && [ "$sync_sandbox_tree" != "$bl_tree" ]; then
+        case $(sandbox_script_extra "$name" "$(resolved_workdir)" \
+            "$SANDBOX_TREE_EMPTY_SCRIPT" "$sync_sandbox_tree" 2>/dev/null) in
+            empty) sync_sandbox_empty=1 ;;
+        esac
+    fi
+    if [ "$sync_probe_ok" -eq 1 ]; then
+        sync_classify
+        status_state=$sync_state
+    else
+        status_state=$(read_baseline "$status_dir/baseline" state)
+        case $status_state in
+            clean|behind|retained|parked) ;;
+            *)
+                if [ "$sync_pending_kind" = parked ]; then
+                    status_state=parked
+                elif [ "$sync_pending_kind" = retained ]; then
+                    status_state=retained
+                else
+                    status_state=behind
+                fi
+                ;;
+        esac
+        if [ "$status_state" = clean ] && [ "$status_bl_ok" -eq 1 ] \
+            && [ -n "$synced_host_tree" ] \
+            && [ "$status_bl_tree" != "$synced_host_tree" ]; then
+            status_state=behind
+        fi
+        if [ "$sync_pending_kind" = parked ]; then
+            status_state=parked
+        fi
+    fi
+    say "Sync:      $status_state"
+    case $status_state in
+        parked)
+            say "Next:      $PROGRAM download $(resolved_workdir) ./DEST"
+            say "Discard:   $PROGRAM upload --discard (or $PROGRAM rm --discard)"
+            if [ -n "$sync_pending_patch" ]; then
+                say "Patch:     $sync_pending_patch"
+            fi
+            ;;
+        retained)
+            say "Next:      $PROGRAM (refreshes before the next session)"
+            if [ -n "$sync_pending_patch" ]; then
+                say "Patch:     $sync_pending_patch"
+            fi
+            ;;
+        behind)
+            say "Next:      $PROGRAM (refreshes the workspace)"
+            ;;
+        *)
+            say "Next:      $PROGRAM"
+            ;;
+    esac
+    rm -rf "$status_tmp"
 }
 
 cmd_list() {
@@ -1982,6 +2626,22 @@ cmd_rm() {
         err "sandbox '$name' not found"
         exit "$EX_USAGE"
     fi
+    rm_state=$(session_state_dir "$name")
+    rm_patch=$(read_baseline "$rm_state/pending" patch)
+    rm_kind=$(read_baseline "$rm_state/pending" kind)
+    if [ -z "$rm_kind" ] && [ -f "$rm_state/pending" ]; then
+        if [ -n "$rm_patch" ] && [ -s "$rm_patch" ]; then
+            rm_kind=retained
+        else
+            rm_kind=parked
+        fi
+    fi
+    if [ "$rm_kind" = parked ] && [ "$opt_discard" -eq 0 ]; then
+        err "the workspace is parked; download its changes or pass --discard to delete them"
+        err "  download: $PROGRAM download $(resolved_workdir) ./DEST"
+        err "  discard:  $PROGRAM rm --yes --discard"
+        exit "$EX_USAGE"
+    fi
     if [ "$opt_yes" -eq 0 ]; then
         if [ -t 0 ]; then
             printf "Delete sandbox '%s'? [y/N] " "$name"
@@ -2000,6 +2660,9 @@ cmd_rm() {
     fi
     say "Deleting sandbox '$name'..."
     run_gateway sandbox delete "$name"
+    if [ -d "$rm_state" ]; then
+        archive_state_dir "$rm_state" "sandbox deleted" || true
+    fi
 }
 
 cmd_policy_show() {
@@ -3088,6 +3751,7 @@ opt_runtime_credentials=0
 opt_global_profile=0
 opt_no_git_ignore=0
 opt_no_sync=0
+opt_discard=0
 opt_from=
 opt_file=
 opt_field=
@@ -3358,6 +4022,7 @@ oss_main() {
             --no-attach) opt_attach=0 ;;
             --no-git-ignore) opt_no_git_ignore=1 ;;
             --no-sync) opt_no_sync=1 ;;
+            --discard) opt_discard=1 ;;
             -h|--help) opt_help=1 ;;
             --)
                 unprocessed=$((OPT_ARGC - OPT_I))

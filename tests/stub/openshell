@@ -84,6 +84,16 @@ stub_record_credential() {
     fi
 }
 
+# Stable ID for a simulated sandbox. A create writes a fresh one, so a
+# delete/recreate cycle looks like a new instance to the helper.
+stub_sandbox_id() { # NAME
+    if [ -n "$state" ] && [ -f "$state/ids/$1" ]; then
+        cat "$state/ids/$1"
+    else
+        printf 'id-%s\n' "$1"
+    fi
+}
+
 if [ "${1:-}" = "-g" ] || [ "${1:-}" = "--gateway" ]; then
     shift
     if [ "$#" -gt 0 ]; then
@@ -142,6 +152,9 @@ case $command_name in
                 fi
                 printf 'Ready\n' > "$sandboxes/$sandbox_name"
                 printf '%s\n' "$sandbox_providers" > "$providers/$sandbox_name"
+                mkdir -p "$state/ids"
+                printf 'id-%s-%s-%s\n' "$sandbox_name" "$(date +%s)" "$$" \
+                    > "$state/ids/$sandbox_name"
                 printf 'stub: created %s\n' "$sandbox_name"
                 ;;
             list)
@@ -164,15 +177,17 @@ case $command_name in
                         fi
                         stub_name=$(basename "$stub_entry")
                         stub_phase=$(cat "$stub_entry")
+                        stub_id=$(stub_sandbox_id "$stub_name")
                         if [ "$stub_first" -eq 0 ]; then
                             printf ','
                         fi
                         stub_first=0
                         if [ "$stub_compact" -eq 1 ]; then
-                            printf '{"name":"%s","phase":"%s"}' "$stub_name" "$stub_phase"
+                            printf '{"id":"%s","name":"%s","phase":"%s"}' \
+                                "$stub_id" "$stub_name" "$stub_phase"
                         else
-                            printf '\n    {"id": "id-%s", "name": "%s", "workspace": "default", "labels": {}, "annotations": {}, "resource_version": 1, "created_at": "2026-01-01 00:00:00", "phase": "%s", "current_policy_version": 1, "exit_code": null, "conditions": []}' \
-                                "$stub_name" "$stub_name" "$stub_phase"
+                            printf '\n    {"id": "%s", "name": "%s", "workspace": "default", "labels": {}, "annotations": {}, "resource_version": 1, "created_at": "2026-01-01 00:00:00", "phase": "%s", "current_policy_version": 1, "exit_code": null, "conditions": []}' \
+                                "$stub_id" "$stub_name" "$stub_phase"
                         fi
                     done
                 fi
@@ -190,6 +205,35 @@ case $command_name in
                 fi
                 printf 'Ready\n' > "$sandboxes/$sandbox_name"
                 ;;
+            get)
+                stub_get_name=${1:-}
+                stub_get_output=table
+                while [ "$#" -gt 0 ]; do
+                    case $1 in
+                        -o|--output)
+                            stub_get_output=${2:-table}
+                            shift
+                            ;;
+                        --output=*)
+                            stub_get_output=${1#--output=}
+                            ;;
+                    esac
+                    shift
+                done
+                if [ -z "$stub_get_name" ] || [ ! -e "$sandboxes/$stub_get_name" ]; then
+                    printf 'stub: sandbox %s not found\n' "$stub_get_name" >&2
+                    exit 1
+                fi
+                stub_get_phase=$(cat "$sandboxes/$stub_get_name")
+                stub_get_id=$(stub_sandbox_id "$stub_get_name")
+                if [ "$stub_get_output" = json ]; then
+                    printf '{"id":"%s","name":"%s","phase":"%s"}\n' \
+                        "$stub_get_id" "$stub_get_name" "$stub_get_phase"
+                else
+                    printf 'Sandbox:\n\n  Id: %s\n  Name: %s\n  Phase: %s\n' \
+                        "$stub_get_id" "$stub_get_name" "$stub_get_phase"
+                fi
+                ;;
             stop)
                 sandbox_name=${1:-}
                 if [ ! -e "$sandboxes/$sandbox_name" ]; then
@@ -201,6 +245,9 @@ case $command_name in
             delete)
                 sandbox_name=${1:-}
                 rm -f "$sandboxes/$sandbox_name" "$providers/$sandbox_name"
+                if [ -n "$state" ]; then
+                    rm -f "$state/ids/$sandbox_name"
+                fi
                 ;;
             exec)
                 stub_exec_args=$*
@@ -276,8 +323,8 @@ case $command_name in
                 stub_upload_src=${2:-}
                 stub_upload_dest=${3:-}
                 if [ -n "${STUB_SANDBOX_ROOT:-}" ] && [ -n "$stub_upload_dest" ] && [ -e "$stub_upload_src" ]; then
-                    mkdir -p "$stub_upload_dest"
                     if [ -d "$stub_upload_src" ]; then
+                        mkdir -p "$stub_upload_dest"
                         if [ "$stub_no_ignore" -eq 0 ] \
                             && command -v git >/dev/null 2>&1 \
                             && git -C "$stub_upload_src" rev-parse --is-inside-work-tree >/dev/null 2>&1; then

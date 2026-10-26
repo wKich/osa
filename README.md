@@ -39,13 +39,15 @@ cd ~/code/myproject
 maki-oss                    # ensure the sandbox, run Maki, sync safely
 ```
 
-That's it. Bare `maki-oss` creates or reuses the project's sandbox, uploads the
-project on first create, attaches remembered providers, launches Maki, and on
-exit collects the sandbox changes as a patch. The patch is applied only when
-the project's safety check passes — a host edit is never overwritten by a
-whole-workdir overlay, and conflicts leave your files untouched with the patch
-kept for review. After the one-time `provider setup`, a project needs no
-further setup.
+That's it. Bare `maki-oss` creates or reuses the project's sandbox, refreshes
+its disposable workspace when the host tree moved, attaches remembered
+providers, launches Maki, and on exit collects the sandbox changes as a patch.
+The patch is applied only when the project's safety check passes — a host edit
+is never overwritten by a whole-workdir overlay, and conflicts leave your files
+untouched with the patch kept for review. A retained patch never blocks the
+next session; a parked workspace (collection failed or `--no-sync`) refuses it
+until you download or discard the changes. After the one-time `provider
+setup`, a project needs no further setup.
 
 ## What do I send the agent?
 
@@ -88,9 +90,11 @@ sandboxes by hand is a chore. maki-oss gives you:
 - 🧩 **Any provider** — a `provider setup` wizard plus a curated profile
   catalog, with a migration guide for keys currently stored in Maki or
   OpenCode.
-- 🔄 **Safe file sync** — upload on create, then collect a patch on exit and
-  apply it only when the baseline still matches. Your project directory stays
-  the source of truth; conflicts keep a patch for review.
+- 🔄 **Safe file sync** — refresh a disposable workspace from the host when it
+  moved, then collect a patch on exit and apply it only when the baseline still
+  matches. Your project directory stays the source of truth; conflicts keep a
+  patch for review, and uncollected sandbox output parks the workspace instead
+  of being overwritten.
 - 🐟 **Fish-native** — a fisher-compatible plugin with completions, plus a
   plain POSIX `sh` helper for everyone else.
 - 📊 **Dashboard** — a minimal [Bun](https://bun.sh) web UI

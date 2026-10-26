@@ -9,9 +9,9 @@ complete -c maki-oss -n __fish_use_subcommand -a init -d 'Create or start the sa
 complete -c maki-oss -n __fish_use_subcommand -a up -d 'Create or start the sandbox'
 complete -c maki-oss -n __fish_use_subcommand -a maki -d 'Ensure the sandbox and attach Maki'
 complete -c maki-oss -n __fish_use_subcommand -a run -d 'Run Maki headless'
-complete -c maki-oss -n __fish_use_subcommand -a upload -d 'Copy local files into the sandbox'
+complete -c maki-oss -n __fish_use_subcommand -a upload -d 'Refresh the workspace from local files'
 complete -c maki-oss -n __fish_use_subcommand -a download -d 'Copy files out of the sandbox'
-complete -c maki-oss -n __fish_use_subcommand -a status -d 'Show this project sandbox'
+complete -c maki-oss -n __fish_use_subcommand -a status -d 'Show sandbox and sync state'
 complete -c maki-oss -n __fish_use_subcommand -a list -d 'List sandboxes on the gateway'
 complete -c maki-oss -n __fish_use_subcommand -a logs -d 'Show sandbox logs'
 complete -c maki-oss -n __fish_use_subcommand -a policy -d 'Work with the sandbox policy'
@@ -89,7 +89,8 @@ complete -c maki-oss -s c -l continue -d 'Resume the most recent session in the 
 complete -c maki-oss -s r -l resume -r -d 'Resume a specific session by id'
 complete -c maki-oss -l session-id -r -d 'Write the run under a chosen session id'
 complete -c maki-oss -l timeout -r -d 'run: end Maki inside the sandbox after SECS seconds'
-complete -c maki-oss -l no-sync -d 'Skip patch collection on exit'
+complete -c maki-oss -l no-sync -d 'Skip patch collection on exit and park the workspace'
+complete -c maki-oss -l discard -d 'Replace a parked workspace (upload) or delete it (rm)'
 complete -c maki-oss -l idle-stop -r -d 'Stop the sandbox this long after the last session closes (0 disables)'
 
 # image build options.

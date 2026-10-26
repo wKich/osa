@@ -171,8 +171,9 @@ shell's verification commands SHALL be labeled so they run only in that shell.
 
 - **WHEN** `docs/ai/host-playbook.md` is read for shell integration
 - **THEN** it names only the shared `bin/` on `PATH` step and points to the
-  agent playbook for fish integration and agent-specific fallback variables,
-  with no `maki-oss fish install` or `MAKI_OSS_BIN` command
+  shared `docs/helper.md` Fish setup section or the agent playbook for fish
+  integration and agent-specific fallback variables, with no
+  `maki-oss fish install` or `MAKI_OSS_BIN` command
 
 ### Requirement: Daily-driver loop separated from one-time setup
 

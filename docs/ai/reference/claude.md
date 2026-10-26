@@ -44,8 +44,9 @@ Both curated profiles are limited to `api.anthropic.com:443` and `/usr/local/bin
 | `claude-anthropic` | `ANTHROPIC_API_KEY` | `x-api-key` | per call (Anthropic Console) |
 | `claude-anthropic-oauth` | `CLAUDE_CODE_OAUTH_TOKEN` | `Authorization: Bearer` | your Claude Pro/Max plan |
 
-**Subscription token.** Create it on the host with `claude setup-token`, never
-in a sandbox, then pass it to `provider setup` (playbook
+**Subscription token.** Create it on the host with `claude setup-token` (this
+path needs the host `claude` CLI; the API-key path does not), never in a
+sandbox, then pass it to `provider setup` (playbook
 [Phase 2](../playbooks/claude.md#phase-2--load-the-provider-profile-and-create-the-provider)).
 It lives only in the OpenShell provider record, is inference-only, and lasts
 about a year; revoke it if a gateway is compromised. See

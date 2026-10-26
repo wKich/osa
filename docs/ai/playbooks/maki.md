@@ -292,6 +292,7 @@ git add -A && git commit -qm init
 ```sh
 # With a project (uploads require the create command to have no trailing
 # main command; Maki is launched later with sandbox exec):
+WORKDIR=/sandbox/project/$(basename "$PROJECT_PATH")
 openshell sandbox create --name maki \
   --from "$IMAGE" \
   --policy "$REPO_ROOT/examples/policies/maki-minimal.yaml" \
@@ -299,11 +300,16 @@ openshell sandbox create --name maki \
   --upload "$PROJECT_PATH:/sandbox/project"
 
 # Without a project:
+WORKDIR=/sandbox/project
 openshell sandbox create --name maki \
   --from "$IMAGE" \
   --policy "$REPO_ROOT/examples/policies/maki-minimal.yaml" \
   --provider "$PROVIDER"
 ```
+
+`--upload "$PROJECT_PATH:/sandbox/project"` lands the project at
+`/sandbox/project/<basename>`, which is why `WORKDIR` includes the basename.
+Phases 6-7 use `$WORKDIR`; without a project it is `/sandbox/project`.
 
 ### Verify
 
@@ -347,7 +353,7 @@ do not weaken isolation to continue.
 Smoke test first (cheap, proves model access end to end):
 
 ```sh
-openshell sandbox exec -n maki --workdir /sandbox/project --no-login-shell -- \
+openshell sandbox exec -n maki --workdir "$WORKDIR" --no-login-shell -- \
   maki -p "Reply with OK." --output-format json
 ```
 
@@ -382,7 +388,7 @@ the policy decision; do not retry with a broader rule.
 ### Run
 
 ```sh
-openshell sandbox download maki /sandbox/project ./project-out
+openshell sandbox download maki "$WORKDIR" ./project-out
 openshell sandbox delete maki
 ```
 

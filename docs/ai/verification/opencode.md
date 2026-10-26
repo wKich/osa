@@ -5,7 +5,7 @@
 | Agent | `OpenCode` |
 | Covers | `P6` |
 | Reference | `docs/ai/playbooks/opencode.md` |
-| Verified | OpenShell v0.1.5, OpenCode v2.1.4, 2026-10-25 |
+| Verified | OpenShell v0.1.5, OpenCode v2.1.4, 2026-10-25; helper 2026-10-26 |
 
 # Verification: OpenCode
 

@@ -259,7 +259,7 @@ installed dependencies, and caches survive `stop`/`start`, but the tracked
 project tree is a replica of the host and is refreshed before a session when
 it is safe. The helper records the sandbox instance ID and a host/sandbox tree
 pair at each refresh or clean apply, then classifies the workspace as `clean`,
-`behind`, `retained`, or `parked` (defined under [Sync state](glossary.md#sync-state)):
+`behind`, `retained`, or `parked` (defined under [Sync state](glossary.md)):
 
 - `clean`: the host and sandbox match the recorded pair. No upload; the
   session reuses the workspace.
@@ -943,10 +943,11 @@ With fisher (the fish plugin manager) the same plugin installs by copy:
 fisher install ./fish
 ```
 
-Both install the `maki-oss` function plus completions. The wrapper locates the
-helper via `$MAKI_OSS_BIN`, then the source repository (symlink install), then
-`maki-oss` on `PATH`. Fisher copies plugin files into the fish config
-directory, so with fisher put the repository's `bin/` on `PATH` or set
+Both install the plugin's functions (`maki-oss` and `opencode-oss`) plus
+completions. The wrapper locates the helper via `$MAKI_OSS_BIN`, then the
+source repository (symlink install), then `maki-oss` on `PATH`. Fisher copies
+plugin files into the fish config directory, so with fisher put the
+repository's `bin/` on `PATH` or set
 `MAKI_OSS_BIN=/path/to/repo/bin/maki-oss`. The `opencode-oss` wrapper behaves
 the same with `OPENCODE_OSS_BIN`.
 

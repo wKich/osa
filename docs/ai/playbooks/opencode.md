@@ -8,7 +8,7 @@
 | Handoff | `docs/ai/verification/opencode.md` |
 | Verification | `docs/ai/verification/opencode.md` |
 | Reference | `docs/ai/reference/opencode.md` |
-| Verified | OpenShell v0.1.5, OpenCode v2.1.4, 2026-10-25 |
+| Verified | OpenShell v0.1.5, OpenCode v2.1.4, 2026-10-25; helper 2026-10-26 |
 
 # Playbook: OpenCode
 

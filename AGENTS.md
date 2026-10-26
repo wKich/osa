@@ -18,8 +18,9 @@ Start here:
   reference store under `examples/environments/reference/`.
 - `docs/ai/playbooks/maki.md` — ordered, executable steps to build the image,
   load provider profiles, create a sandbox, and run Maki.
-- `docs/ai/references.md` — curated upstream documentation (OpenShell and
-  Maki), the only index of external documentation links in this repository.
+- `docs/ai/references.md` — curated upstream documentation (OpenShell, Maki,
+  OpenCode, and Claude Code), the only index of external documentation links
+  in this repository.
 
 Supporting docs: `docs/setup-guide.md` (full walkthrough),
 `docs/ai/verification/maki.md` (Maki isolation checklist; the OpenCode and

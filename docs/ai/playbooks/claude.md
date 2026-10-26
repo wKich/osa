@@ -48,8 +48,9 @@ behavior is in [`docs/helper.md`](../../helper.md), provider profiles in
 - The project path to upload (optional; skip the upload steps to work in an
   empty sandbox workspace).
 - The pinned Claude Code version is `2.1.308` from
-  [`claude-oss/image/Dockerfile`](../../../claude-oss/image/Dockerfile); no
-  host Claude Code CLI is required.
+  [`claude-oss/image/Dockerfile`](../../../claude-oss/image/Dockerfile). The
+  image carries the CLI; the API-key path needs no host CLI. The
+  subscription-token path uses the host `claude` CLI once to create the token.
 
 Never ask for a credential value in the conversation, and never put one on a
 command line. Never run `claude setup-token` in a sandbox.

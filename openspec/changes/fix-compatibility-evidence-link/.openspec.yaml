@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-27
+skip_specs: true
+goal: Point the GET /api/session row at tracked evidence so docs/compatibility.md has no link into a gitignored log in a clean checkout.

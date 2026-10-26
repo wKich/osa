@@ -144,6 +144,12 @@ docs alone.
   `opencode --server` inside the sandbox exposed via `openshell service
   expose` — decide during A5, not before.
 
+*Partly delivered outside this plan (2026-10-26):* `opencode-oss`,
+`claude-oss`, and `codex-oss` run their agents natively over the shared
+core (`lib/oss-core.sh`); the manifest, attach/export/transfer, and the
+B7 dependency (headless rounds for a second agent) still need checking
+against them.
+
 **Exit:** at least one non-maki agent completes attach/export/transfer
 locally.
 
@@ -256,7 +262,7 @@ on kiss only through the task-document contract in Mongo, not on kiss code.
 The kiss-side change (marker plus the readers of runtime state, B1.3a) is
 small and lives in the kiss repo.
 
-### B1 — First sandboxed task (W3+W4) — 6–8½ sessions, nine slices
+### B1 — First sandboxed task (W3+W4) — 6½–9 sessions, ten slices
 
 Each slice ends in a runnable demo and fits one session. B1 uses a gateway
 co-located with oskhs (same host or cluster) and repos small enough to seed
@@ -381,6 +387,39 @@ in one go; remote gateways and resumable large seeds are B5.
   rollback = unmark the channel. **Exit:** tasks in the marked prod channel
   run in a sandbox; every other task still goes through KHS; the sandbox
   holds only placeholders and cannot reach prod Mongo.
+- **B1.6 — Realign with the osa core** (½). The shared helper core
+  (`lib/oss-core.sh`) changed under oskhs after B1.4; oskhs's code did not,
+  and its offline suite records argv, so it cannot see the drift. *Found
+  2026-10-26 by code reading, not yet reproduced live:*
+  - *Registry binds the sandbox to a cwd.* `up` and `run` record the
+    caller's `pwd -P` as the sandbox's `host_path` and refuse the name from
+    any other directory; oskhs runs every round from a new temp dir, so the
+    second round fails `registry_guard`.
+  - *Policy advisor.* `run` enables network-rule proposals on the sandbox;
+    nobody reviews them for oskhs.
+  - *Parked workspace blocks later rounds.* Since the disposable-workspace
+    sync, `maki-oss run --no-sync` writes a `parked` marker per sandbox
+    (`<osa state>/sessions/<sandbox>/pending`), and the next session refuses
+    to launch on it. oskhs runs `--no-sync` from an empty temp dir, so the
+    first round on a project works and every later round — follow-ups
+    included — fails at the run stage. Each round also adopts its task
+    workspace as a sync baseline, leaving a git dir per task in the sandbox.
+  - *Idle-stop.* `run` arms a watcher that stops the sandbox after
+    `idle_stop` (default 1h). oskhs recovers through `maki-oss up`, at a
+    cold-start cost; who owns the warm sandbox's lifecycle is B2's call.
+  - *Sandbox names.* `repo-<project>` is unbounded; OpenShell and the core
+    allow 19 characters, so a kiss project title over 14 characters fails.
+
+  Scope (`realign-oskhs-with-osa-core`): an explicit caller-owned workspace
+  mode in the core (no session sync, baseline, parking, registry, or policy
+  advisor; the run wrapper, timeout, stop file, and lock unchanged) used by
+  oskhs's `run` and `up` calls; oskhs passes
+  `MAKI_OSS_IDLE_STOP=0` until B2 decides; oskhs fits sandbox names to 19
+  characters with a hash suffix as the core does. **Exit:** on the dev
+  stand, two consecutive tasks and a follow-up on one project all run, the
+  follow-up lands an MR commit, and the osa state root holds no parked
+  marker for the oskhs sandbox; a project title over 14 characters gets a
+  fitted name.
 
 ### B2 — Conversations that survive (W4) — 1½–2 sessions, two slices
 
@@ -445,7 +484,10 @@ Slices, both against the local kiss stack (B1.5 paused):
   change's design before any code:* where Maki keeps sessions in the sandbox
   (`~/.local/state/maki/…`?) and whether one session's files can be tarred
   alone; whether `--resume` accepts a different `--model` when the
-  project's kiss provider changes between rounds (and what to do if not).
+  project's kiss provider changes between rounds (and what to do if not);
+  whether `openshell sandbox stop` and a later start keep `/sandbox`
+  intact, which decides whether the core's idle-stop can stay on for warm
+  sandboxes or oskhs's sweeper owns the lifecycle (B1.6 turns it off).
   Then: session id, workspace kept between rounds, `--resume`, the GC
   sweeper on `idleTtlMs`. **Exit:** a three-round dev-stand thread whose
   later answers depend on earlier rounds' context.
@@ -478,15 +520,90 @@ archives in the same place. This milestone teaches kiss to read them:
 conversation across rounds, readable as the Pi transcripts are; Pi tasks
 render unchanged.
 
-### B3 — Feature parity (W4) — 2–3 sessions
+### B3 — Feature parity (W4) — 5–7½ sessions, six slices
 
-kiss's task process provides features oskhs does not yet: project skills,
-project MCP servers (path from the sandbox — open question 3), self-review,
-model selection and fallback, attachments and artifacts (GridFS), usage
-accounting. Each lands as an oskhs feature over the task-document contract.
+kiss's task process provides features oskhs does not yet. Many of them are
+Pi tools that call Mongo from inside the task process (`attach_artifact`,
+`project_memory_*`, `switch_workspace_to_edit_mode`, `PiMcpBridge`); in a
+sandbox Maki cannot reach Mongo, so each feature needs a path across the
+boundary, carried by oskhs. The slices group features by that path:
+
+| Path | Features |
+|---|---|
+| config written before the round | `systemInstruction`, `ignoreFiles`, skill profiles (`builtInSkillProfileIds`), `coAuthor` |
+| host-side accounting | usage, `cost`, `maxTaskCost` |
+| files in | attachments (`attachmentIds`), project memory snapshot |
+| declarations out | artifacts, project memory writes, edit-mode request |
+| host-run rounds | explore / read-only / edit mode, self-review |
+| egress policy | web search, kiss network restriction profiles |
+| live tool servers | project MCP servers (`mcpServers`) |
+
+Not ported: kiss's `gitProxy` (oskhs moves code with bundles); subagents
+and `read_image` are checked against Maki's native tools in B3.2, not
+re-implemented.
+
+*osa constraints (2026-10-26).* The base image carries only the agent
+runtime; MCP servers, their runtimes (bun is no longer in the base), and
+personal config live in an environment image built `FROM` it, and nothing
+is installed into a running sandbox. MCP credentials arrive as `${VAR}`
+placeholders from `mcp-<name>` provider profiles. Project skills live in
+`.maki/skills/`. B3 follows these rules: oskhs gets its own environment
+image, and per-project MCP config from Mongo must fit them.
+
+- **B3.1 — Usage and budget** (½). Maki's usage → `task.usage` and `cost`
+  as kiss writes them; `maxTaskCost` checked before each round, an
+  over-budget follow-up refused with kiss's message. **Exit:** a dev-stand
+  task shows its cost in kiss admin; a task over its budget refuses the
+  next follow-up.
+- **B3.2 — Agent config** (½–1). `systemInstruction` and `ignoreFiles` in
+  the round's workspace; kiss's skill profiles written to the workspace's
+  `.maki/skills/`; `coAuthor` on oskhs commits. Research: Maki's native
+  equivalents of Pi's subagent and image tools. **Exit:** a marked project
+  with a system instruction and a skill profile behaves as under KHS.
+- **B3.3 — In/out channel** (1–1½). Attachments uploaded into the
+  workspace; an oskhs environment image (`FROM` the base) carrying a stdio
+  oskhs-tools MCP server with no network that exposes `attach_artifact`,
+  `project_memory_read/write`, and `request_edit_mode` under kiss's names
+  and records each call to an outbox in the workspace; oskhs applies the
+  outbox after the round — artifacts to GridFS with kiss's delivery and
+  `deliveredArtifactIds`, memory writes to Mongo. Research first: Maki
+  loading a stdio server from the environment image's `mcp.toml` in
+  headless runs. **Exit:** a task that attaches a file shows it in the
+  thread; a memory written in one task is read in the next.
+- **B3.4 — Modes and self-review** (1). Explore and read-only rounds; the
+  edit-mode request through the outbox sets `editModeRequestedAt` and the
+  next round resumes (B2) with edit rights; a self-review round with
+  `selfReviewModelProvider` before publish, as `SelfReview.ts` does.
+  **Exit:** an explore task asks for edit mode and finishes with an MR that
+  passed self-review.
+- **B3.5 — Network** (½–1). Web search as a per-task egress rule; kiss's
+  network restriction profiles mapped to OpenShell policy, lifting oskhs's
+  current fail-closed refusal of restricted tasks (open question 5).
+  **Exit:** a restricted dev-stand task runs with its profile's egress and
+  nothing more.
+- **B3.6 — Project MCP servers** (1–1½). Decide open question 3 first, in
+  the change's design. HTTP servers fit osa's model directly: a provider
+  profile per server, the token substituted by the gateway, never inside.
+  Stdio servers from Mongo do not (no runtime install): candidates are a
+  per-project environment image, HTTP-only support with a visible refusal,
+  or a host-side bridge. **Exit:** a project with an HTTP MCP server works
+  unchanged; an unsupported server is refused with a message naming it.
 
 **Exit:** an existing project's config works unchanged when its channel is
-marked for oskhs.
+marked for oskhs — GitLab MR tasks excepted (B3b).
+
+### B3b — GitLab MR tasks (W4) — 1–1½ sessions
+
+Tasks created from GitLab MRs (`GitLabMRTaskSource`) and their sub-task
+types — `gitlab_review_request`, `gitlab_review_comment`,
+`gitlab_pipeline_failure` — with kiss's `processedNoteIds` /
+`processedJobIds` bookkeeping; job logs fetched by oskhs on the host (the
+sandbox has no GitLab egress); pipeline failures in their own short-lived
+session as kiss does. A second product surface rather than a parity item,
+so it is its own milestone. Needs B2 and B3.1.
+
+**Exit:** a review comment on an oskhs MR and a failed pipeline each get an
+answer or a fix commit on the MR.
 
 B2 and B3 can swap if parity matters more than durability. B2b needs only
 B2.2 and can run alongside B3 in the kiss repo; it lands before B4.
@@ -645,9 +762,11 @@ support (option B only).
 ```
 Track A (maki-oss):  A1 ─► A2 ─► A3 ─► A4 ─► A5
 Track B (kiss):      B1.1a ─► B1.1b ─► B1.2 ─► B1.3a ─► B1.3b ─► B1.3c ─► B1.3d ─► B1.4
-                     ─► B2.1 ─► B2.2 ─► B3 ─► B2b ─► B4 ─► B5 ─► B6 ─► B7
+                     ─► B1.6 ─► B2.1 ─► B2.2 ─► B3 ─► B2b ─► B3b ─► B4 ─► B5 ─► B6 ─► B7
                      B1.5 paused (local kiss stack until resumed); B2b may
                      start right after B2.2, alongside B3
+B3 inside:           B3.1 ─► B3.2 ─► B3.3 ─► B3.4;  B3.5 ─► B3.6
+                     (B3.1, B3.2, B3.5 have no B3 prerequisites)
 Cross:               A1 ─► B5    (remote gateway selection)
                      A2 ┄► B2    (soft: session tar converges on P5's format)
                      A5 ─► B7    (headless rounds for the second agent)
@@ -660,7 +779,7 @@ in the kiss repo and can run alongside them.
 | Track | Milestones | Sessions |
 |---|---|---|
 | A | A1 1½, A2 2–2½, A3 1½–2, A4 1, A5 ~1 | 7–8 |
-| B | B1 6–8½, B2 1½–2, B3 2–3, B2b 1–1½, B4 ½–1, B5 ½–1, B6 1–1½, B7 ~1 | 13½–19½ |
+| B | B1 6½–9, B2 1½–2, B3 5–7½, B2b 1–1½, B3b 1–1½, B4 ½–1, B5 ½–1, B6 1–1½, B7 ~1 | 18–26 |
 
 Track B grew from the first draft's 3½–5 sessions after a kiss code read:
 the Mongo credentials force the agent and the task process apart, oskhs
@@ -692,7 +811,10 @@ large repos need warm sandboxes with git-bundle sync.
    deltas.
 3. **MCP from the sandbox** — kiss's project MCP servers run in the task
    process today (`PiMcpBridge`); maki in the sandbox needs a reachable path
-   that does not carry their secrets inside. Decide in B3.
+   that does not carry their secrets inside. Decide in B3.6. Half-answered
+   2026-10-26 by osa's MCP model: HTTP servers go through `mcp-<name>`
+   provider profiles; stdio servers need their runtime baked into an
+   environment image, which per-project config from Mongo does not fit.
 4. ~~**Seeding a warm sandbox**~~ — decided 2026-10-23: one-time upload over
    the uplink (no GitLab credentials or egress in the sandbox); B5 makes the
    seed resumable.

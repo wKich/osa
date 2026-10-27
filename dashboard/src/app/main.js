@@ -9,9 +9,10 @@ import { openDetail, renderDetail } from "./detail.js";
 import { loadInventory, renderInventory } from "./inventory.js";
 import { cleanupLogStream, renderLogs, startLogStream } from "./logs.js";
 import { loadPatch, renderPatch } from "./patch.js";
+import { failingDoctorSandbox, showHealth, startIdleTicker } from "./health.js";
 import { loadPolicy, renderPolicy } from "./policy.js";
 import { loadProjects, refreshProject, renderProjects, updateProjectsTable } from "./projects.js";
-import { loadRules, renderRules } from "./rules.js";
+import { loadDenials, loadRules, renderRules } from "./rules.js";
 import { actions, state } from "./state.js";
 
 function renderTabs() {
@@ -41,13 +42,17 @@ function navigate(view) {
     state.policy = null;
     loadPolicy();
   }
-  if (view === "rules") loadRules();
+  if (view === "rules") {
+    loadRules();
+    loadDenials(false);
+  }
   if (view === "patch") loadPatch();
   if (view !== "patch") state.patch = null;
 }
 async function refreshDoctor() {
   try {
     const doctor = await request("/api/doctor");
+    state.doctor = doctor;
     renderStatus(doctor);
   } catch (error) {
     clear(state.status);
@@ -77,6 +82,14 @@ actions.render = render;
 actions.loadInventory = loadInventory;
 actions.openDetail = openDetail;
 actions.refreshProject = refreshProject;
+actions.renderStatus = () => {
+  if (state.doctor) renderStatus(state.doctor);
+};
+actions.failingHealth = failingDoctorSandbox;
+actions.showHealth = (sandbox) => {
+  if (state.view !== "projects") navigate("projects");
+  showHealth(sandbox);
+};
 
 state.tabs.projects.addEventListener("click", () => navigate("projects"));
 state.tabs.sandboxes.addEventListener("click", () => navigate("inventory"));
@@ -91,3 +104,4 @@ render();
 pollLists();
 refreshDoctor();
 startPolling();
+startIdleTicker();

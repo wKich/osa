@@ -418,6 +418,8 @@ MAKI_OSS_IDLE_STOP=0 maki-oss      # never stop automatically
   Each decision (`armed`, `closed`, `superseded`, `busy`, `stopped`,
   `stop-failed`, `scan-failed`) is appended to
   `${XDG_STATE_HOME:-~/.local/state}/osa/sessions/<sandbox>/idle.log`.
+  That file is internal; `osa health` and `osa status --quick --json`
+  report the state and the stop deadline from it (see [osa health](#osa-health)).
 
 #### OpenCode TUI mode (`tui = "opencode"`)
 
@@ -851,9 +853,9 @@ it. A plain folder, or a host without git, records none.
 ## osa
 
 `osa` reports on the projects every front-end has registered and resolves
-their pending sync output. `projects` and `status` are read-only: they never
-create, start, stop, delete, upload to, or download from a sandbox, never
-launch an agent, and never write the state root. `resolve` is the only
+their pending sync output. `projects`, `status`, and `health` are read-only:
+they never create, start, stop, delete, upload to, or download from a
+sandbox, never launch an agent, and never write the state root. `resolve` is the only
 command that changes anything. No `osa` command creates, stops, or deletes a
 sandbox or launches an agent; only `resolve rescue` may start a stopped one.
 
@@ -863,6 +865,7 @@ osa projects --json          # one JSON array, nothing else on stdout
 osa status                   # this folder, one entry per agent
 osa status ~/code/app --json
 osa status --quick --json    # no gateway, no tree hash
+osa health SANDBOX           # idle stop, MCP readiness, doctor checks
 ```
 
 `osa projects` lists each entry's agent, sandbox, pending kind (`retained`,
@@ -878,8 +881,61 @@ the same phase, providers, sync state (`clean`, `behind`, `retained`, or
 gateway and the tree hash: it reports the pending kind,
 `fingerprint_result`, which is `changed`, `unchanged`, or `unknown` (no
 recorded fingerprint, a plain folder, or a missing folder), and `busy`
-(`true` while a live session or resolve holds the sandbox's lock), and never
-`clean` or `behind`. A path with no entry prints `[]` with `--json`.
+(`true` while a live session or resolve holds the sandbox's lock), `idle`
+(the idle-stop object described under [osa health](#osa-health), read from
+the session's idle files), and never `clean` or `behind`. A path with no
+entry prints `[]` with `--json`.
+
+### osa health
+
+```sh
+osa health SANDBOX           # three sections as text
+osa health SANDBOX --json    # one JSON object, nothing else on stdout
+```
+
+`osa health SANDBOX` reports one registered sandbox's health. Like the full
+status, it asks the owning front-end, in the project folder, which runs the
+same read-only checks as its `status`, `mcp status`, and `doctor`:
+
+- **Idle stop**: the effective period in seconds (`0` when disabled) and one
+  state: `off` (disabled), `none` (no session has run), `running` (a session
+  is live), `counting` (the last session ended; the stop is pending, with the
+  deadline as an ISO 8601 UTC time), `stopped`, `skipped` (the watcher found
+  a later session or a running agent), or `failed` (the stop or the scan
+  failed), plus the last idle event and its time. It comes from the session's
+  `idle` and `idle.log` files, never from the gateway. When a session died
+  without its watcher recording `closed`, the deadline counts from the
+  session's start stamp and is marked `estimated`.
+- **MCP readiness**: per server, its transport and each gate with a pass or
+  fail result and the fix text, the same results `mcp status` prints. A
+  front-end without `mcp status` reports MCP as `unsupported`. MCP needs a
+  running sandbox: a stopped one reports `sandbox is not running`, and
+  `osa health` never starts it.
+- **Doctor**: each check with `ok`, `fail`, `skip`, or `warn` and its
+  detail, the same results `doctor` prints (without doctor's own MCP block).
+
+A section whose source fails carries an `error` while the others are still
+reported; with the gateway down, MCP reports an error, the doctor's `gateway`
+check is `fail`, and idle stop is still reported. An unregistered sandbox is
+a usage error. An orphan (its folder is gone) reports idle stop only, with
+`mcp` and `doctor` set to `{"error": "project folder missing"}`. The output
+never contains credential values.
+
+The JSON object:
+
+```json
+{
+  "sandbox": "mk-app-1a2b", "agent": "mk",
+  "idle": {"period": 3600, "state": "counting", "deadline": "2026-10-27T12:00:00Z",
+           "estimated": false, "last_event": "closed", "last_time": "2026-10-27T11:00:00Z"},
+  "mcp": {"supported": true, "ok": false, "error": null,
+          "servers": [{"name": "context7", "transport": "http",
+                       "gates": [{"gate": "provider", "ok": false,
+                                  "fix": "maki-oss provider attach mcp-context7"}]}]},
+  "doctor": {"ok": true, "error": null,
+             "checks": [{"name": "gateway", "status": "ok", "detail": "connected"}]}
+}
+```
 
 ### osa resolve
 

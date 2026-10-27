@@ -298,21 +298,21 @@ agent_doctor_extra() {
     doctor_tui=$(resolved_tui)
     if [ "$doctor_tui" = opencode ]; then
         if command -v bun >/dev/null 2>&1; then
-            say "ok    bun: $(command -v bun)"
+            doctor_check ok "bun" "$(command -v bun)"
         else
-            say "fail  bun: not found on PATH (required by tui = \"opencode\")"
+            doctor_check fail "bun" "not found on PATH (required by tui = \"opencode\")"
             doctor_status=$EX_DEP
         fi
         if command -v opencode >/dev/null 2>&1; then
-            say "ok    opencode: $(command -v opencode)"
+            doctor_check ok "opencode" "$(command -v opencode)"
         else
-            say "fail  opencode: not found on PATH (required by tui = \"opencode\")"
+            doctor_check fail "opencode" "not found on PATH (required by tui = \"opencode\")"
             doctor_status=$EX_DEP
         fi
         if [ -f "$BRIDGE_ENTRYPOINT" ]; then
-            say "ok    bridge entrypoint: $BRIDGE_ENTRYPOINT"
+            doctor_check ok "bridge entrypoint" "$BRIDGE_ENTRYPOINT"
         else
-            say "fail  bridge entrypoint: $BRIDGE_ENTRYPOINT not found"
+            doctor_check fail "bridge entrypoint" "$BRIDGE_ENTRYPOINT not found"
             doctor_status=$EX_DEP
         fi
     fi

@@ -47,6 +47,29 @@ die_gateway() {
     exit "$EX_GATEWAY"
 }
 
+# Check records: `doctor` and `mcp status` collect each result as one
+# tab-separated line in $OSS_RECORDS (when set) and render the text from the
+# same values, so `__health-json` reports exactly what the text commands
+# print. Tabs and newlines inside a field become spaces.
+check_record() { # FIELD...
+    [ -n "${OSS_RECORDS:-}" ] || return 0
+    cr_line=
+    cr_sep=
+    for cr_field in "$@"; do
+        cr_field=$(printf '%s' "$cr_field" | tr '\t\n' '  ')
+        cr_line=$cr_line$cr_sep$cr_field
+        cr_sep=$TAB
+    done
+    printf '%s\n' "$cr_line" >>"$OSS_RECORDS"
+}
+
+# One doctor check: STATUS is ok, fail, skip, or warn. Prints the
+# `STATUS  NAME: DETAIL` line.
+doctor_check() { # STATUS NAME DETAIL
+    check_record doctor "$1" "$2" "$3"
+    printf '%-5s %s: %s\n' "$1" "$2" "$3"
+}
+
 # ---------------------------------------------------------------------------
 # Defaults and configuration
 # ---------------------------------------------------------------------------
@@ -684,7 +707,13 @@ check_env_hygiene() {
 
 cmd_doctor() {
     [ "$#" -eq 0 ] || die_usage "doctor takes no arguments"
+    doctor_collect
+    exit "$doctor_status"
+}
 
+# Runs every doctor check, printing each line and recording it; sets
+# doctor_status to the exit code `doctor` reports.
+doctor_collect() {
     if [ "$have_jq" -eq 0 ]; then
         warn "jq not found; falling back to grep-based parsing"
     fi
@@ -695,10 +724,10 @@ cmd_doctor() {
     gateway_ok=0
 
     if command -v openshell >/dev/null 2>&1; then
-        say "ok    openshell CLI: $(command -v openshell)"
+        doctor_check ok "openshell CLI" "$(command -v openshell)"
         have_openshell=1
     else
-        say "fail  openshell CLI: not found on PATH"
+        doctor_check fail "openshell CLI" "not found on PATH"
         doctor_status=$EX_DEP
     fi
 
@@ -713,60 +742,60 @@ cmd_doctor() {
                     | sed -n 's/.*"status":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
             fi
             if [ "$connected" = connected ]; then
-                say "ok    gateway: connected"
+                doctor_check ok "gateway" "connected"
                 # shellcheck disable=SC2034  # read by the front-end's agent_doctor_extra
                 gateway_ok=1
             else
-                say "fail  gateway: not connected (status: ${connected:-unknown})"
+                doctor_check fail "gateway" "not connected (status: ${connected:-unknown})"
                 if [ "$doctor_status" -eq 0 ]; then
                     doctor_status=$EX_GATEWAY
                 fi
             fi
         else
-            say "fail  gateway: unreachable (openshell status failed)"
+            doctor_check fail "gateway" "unreachable (openshell status failed)"
             if [ "$doctor_status" -eq 0 ]; then
                 doctor_status=$EX_GATEWAY
             fi
         fi
     else
-        say "skip  gateway: openshell CLI unavailable"
+        doctor_check skip "gateway" "openshell CLI unavailable"
     fi
 
     doctor_engine=$(resolved_engine)
     if command -v "$doctor_engine" >/dev/null 2>&1; then
         if "$doctor_engine" version >/dev/null 2>&1; then
-            say "ok    container engine: $doctor_engine ($(command -v "$doctor_engine"))"
+            doctor_check ok "container engine" "$doctor_engine ($(command -v "$doctor_engine"))"
             engine_ok=1
         else
-            say "fail  container engine: $doctor_engine is installed but not running"
+            doctor_check fail "container engine" "$doctor_engine is installed but not running"
             doctor_status=$EX_DEP
         fi
     else
-        say "fail  container engine: $doctor_engine not found on PATH"
+        doctor_check fail "container engine" "$doctor_engine not found on PATH"
         doctor_status=$EX_DEP
     fi
 
     doctor_image=$(resolved_image)
     if [ "$engine_ok" -eq 1 ] && "$doctor_engine" image inspect "$doctor_image" >/dev/null 2>&1; then
-        say "ok    image: $doctor_image present"
+        doctor_check ok "image" "$doctor_image present"
     else
-        say "fail  image: $doctor_image not found (build it: $PROGRAM image build)"
+        doctor_check fail "image" "$doctor_image not found (build it: $PROGRAM image build)"
         doctor_status=$EX_DEP
     fi
 
     doctor_policy=$(resolved_policy)
     if [ -f "$doctor_policy" ]; then
-        say "ok    policy file: $doctor_policy"
+        doctor_check ok "policy file" "$doctor_policy"
     else
-        say "fail  policy file: $doctor_policy not found"
+        doctor_check fail "policy file" "$doctor_policy not found"
         doctor_status=$EX_DEP
     fi
 
     doctor_providers=$(providers_value)
     if [ "$have_openshell" -eq 0 ]; then
-        say "skip  providers: openshell CLI unavailable"
+        doctor_check skip "providers" "openshell CLI unavailable"
     elif [ -z "$doctor_providers" ]; then
-        say "ok    providers: none configured"
+        doctor_check ok "providers" "none configured"
     else
         doctor_known=''
         if ! doctor_known=$(os provider list --names 2>/dev/null); then
@@ -788,18 +817,16 @@ cmd_doctor() {
         set +f
         IFS=$saved_ifs
         if [ -n "$doctor_missing" ]; then
-            say "fail  providers: not found:$doctor_missing"
+            doctor_check fail "providers" "not found:$doctor_missing"
             if [ "$doctor_status" -eq 0 ]; then
                 doctor_status=$EX_GATEWAY
             fi
         else
-            say "ok    providers: $(printf '%s' "$doctor_providers" | tr '\n' ' ')"
+            doctor_check ok "providers" "$(printf '%s' "$doctor_providers" | tr '\n' ' ')"
         fi
     fi
 
     agent_doctor_extra
-
-    exit "$doctor_status"
 }
 
 cmd_up() {
@@ -3728,8 +3755,42 @@ cmd_provider_list() {
 # Prints the per-server gate table for sandbox $1 and sets mcp_any (any
 # enabled server on either side) and mcp_failed (servers with a failing
 # gate). Returns 1 when gateway data cannot be read at all.
+# Records one gate of the current server (mcp_server, mcp_transport) and
+# queues it for mcp_render_server. STATUS is ok or missing; FIX is the fix
+# line printed for it, or empty.
+mcp_gate() { # GATE STATUS [FIX]
+    check_record mcp "$mcp_server" "$mcp_transport" "$1" "$2" "${3:-}"
+    mcp_gates=$mcp_gates$1$TAB$2$TAB${3:-}$NL
+}
+
+# Prints the current server's gate line and its fix lines from the queued
+# gates, then clears the queue.
+mcp_render_server() {
+    mrs_line="  $mcp_server:"
+    mrs_fixes=
+    while IFS=$TAB read -r mrs_gate mrs_status mrs_fix; do
+        [ -n "$mrs_gate" ] || continue
+        mrs_line="$mrs_line $mrs_gate=$mrs_status"
+        if [ -n "$mrs_fix" ]; then
+            mrs_fixes="$mrs_fixes    fix: $mrs_fix$NL"
+        fi
+    done <<GATES
+$mcp_gates
+GATES
+    say "$mrs_line transport=$mcp_transport"
+    printf '%s' "$mrs_fixes"
+    mcp_gates=
+}
+
+# A config that cannot be parsed: recorded as an error and printed.
+mcp_unreadable() { # MESSAGE
+    check_record mcp-error "$1"
+    say "  unreadable: $1"
+}
+
 mcp_readiness_report() { # NAME
     mcp_name=$1
+    mcp_gates=
     mcp_tmp=${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-mcp.$$
     mcp_any=0
     mcp_failed=0
@@ -3745,10 +3806,10 @@ mcp_readiness_report() { # NAME
     # than read as "no servers", which would invent gate results.
     if [ "$mcp_unreadable_host" -eq 1 ] || [ "$mcp_unreadable_sandbox" -eq 1 ]; then
         if [ "$mcp_unreadable_host" -eq 1 ]; then
-            say "  unreadable: host config $OSS_HOST_MCP_CONFIG (cannot parse it)"
+            mcp_unreadable "host config $OSS_HOST_MCP_CONFIG (cannot parse it)"
         fi
         if [ "$mcp_unreadable_sandbox" -eq 1 ]; then
-            say "  unreadable: sandbox config $OSS_SANDBOX_MCP_CONFIG (cannot parse it)"
+            mcp_unreadable "sandbox config $OSS_SANDBOX_MCP_CONFIG (cannot parse it)"
         fi
         mcp_any=1
         mcp_failed=1
@@ -3798,24 +3859,28 @@ mcp_readiness_report() { # NAME
                     >/dev/null 2>&1; then
                 mcp_runtime_gate=ok
             fi
-            if [ "$mcp_sandbox_gate" = ok ] && [ "$mcp_runtime_gate" = ok ] \
-                && [ "$mcp_provider_gate" = ok ]; then
-                say "  $mcp_server: sandbox=ok runtime=ok provider=ok transport=stdio"
-                continue
-            fi
-            mcp_failed=$((mcp_failed + 1))
-            say "  $mcp_server: sandbox=$mcp_sandbox_gate runtime=$mcp_runtime_gate provider=$mcp_provider_gate transport=stdio"
-            mcp_build_fix=0
+            mcp_transport=stdio
+            mcp_fix=
             if [ "$mcp_sandbox_gate" = missing ]; then
-                say "    fix: build and select $OSS_MCP_FIX_IMAGE that declares '$mcp_server' (see $OSS_MCP_FIX_DOC)"
-                mcp_build_fix=1
+                mcp_fix="build and select $OSS_MCP_FIX_IMAGE that declares '$mcp_server' (see $OSS_MCP_FIX_DOC)"
             fi
-            if [ "$mcp_runtime_gate" = missing ] && [ "$mcp_build_fix" -eq 0 ]; then
-                say "    fix: build and select $OSS_MCP_FIX_IMAGE that provides the runtime '$mcp_argv0' for '$mcp_server' (see $OSS_MCP_FIX_DOC)"
+            mcp_gate sandbox "$mcp_sandbox_gate" "$mcp_fix"
+            # The build fix for a missing config also supplies the runtime.
+            mcp_fix=
+            if [ "$mcp_runtime_gate" = missing ] && [ "$mcp_sandbox_gate" = ok ]; then
+                mcp_fix="build and select $OSS_MCP_FIX_IMAGE that provides the runtime '$mcp_argv0' for '$mcp_server' (see $OSS_MCP_FIX_DOC)"
             fi
+            mcp_gate runtime "$mcp_runtime_gate" "$mcp_fix"
+            mcp_fix=
             if [ "$mcp_provider_gate" = missing ]; then
-                say "    fix: $PROGRAM provider attach $mcp_provider"
+                mcp_fix="$PROGRAM provider attach $mcp_provider"
             fi
+            mcp_gate provider "$mcp_provider_gate" "$mcp_fix"
+            if [ "$mcp_sandbox_gate" != ok ] || [ "$mcp_runtime_gate" != ok ] \
+                || [ "$mcp_provider_gate" != ok ]; then
+                mcp_failed=$((mcp_failed + 1))
+            fi
+            mcp_render_server
             continue
         fi
         mcp_endpoint_gate=ok
@@ -3823,22 +3888,26 @@ mcp_readiness_report() { # NAME
             || ! printf '%s\n' "$mcp_policy" | grep -Fq -- "$mcp_endpoint_host"; then
             mcp_endpoint_gate=missing
         fi
-        if [ "$mcp_sandbox_gate" = ok ] && [ "$mcp_provider_gate" = ok ] \
-            && [ "$mcp_endpoint_gate" = ok ]; then
-            say "  $mcp_server: sandbox=$mcp_sandbox_gate provider=ok endpoint=ok transport=http"
-            continue
-        fi
-        mcp_failed=$((mcp_failed + 1))
-        say "  $mcp_server: sandbox=$mcp_sandbox_gate provider=$mcp_provider_gate endpoint=$mcp_endpoint_gate transport=http"
+        mcp_fix=
         if [ "$mcp_sandbox_gate" = missing ]; then
-            say "    fix: build and select $OSS_MCP_FIX_IMAGE that declares '$mcp_server' (see $OSS_MCP_FIX_DOC)"
+            mcp_fix="build and select $OSS_MCP_FIX_IMAGE that declares '$mcp_server' (see $OSS_MCP_FIX_DOC)"
         fi
+        mcp_gate sandbox "$mcp_sandbox_gate" "$mcp_fix"
+        mcp_fix=
         if [ "$mcp_provider_gate" = missing ]; then
-            say "    fix: $PROGRAM provider attach $mcp_provider"
+            mcp_fix="$PROGRAM provider attach $mcp_provider"
         fi
+        mcp_gate provider "$mcp_provider_gate" "$mcp_fix"
+        mcp_fix=
         if [ "$mcp_endpoint_gate" = missing ]; then
-            say "    fix: the endpoint for '$mcp_endpoint_host' comes from the provider profile; run '$PROGRAM provider attach $mcp_provider' or import a profile that declares it"
+            mcp_fix="the endpoint for '$mcp_endpoint_host' comes from the provider profile; run '$PROGRAM provider attach $mcp_provider' or import a profile that declares it"
         fi
+        mcp_gate endpoint "$mcp_endpoint_gate" "$mcp_fix"
+        if [ "$mcp_sandbox_gate" != ok ] || [ "$mcp_provider_gate" != ok ] \
+            || [ "$mcp_endpoint_gate" != ok ]; then
+            mcp_failed=$((mcp_failed + 1))
+        fi
+        mcp_render_server
     done <"$mcp_tmp.list"
     rm -f -- "$mcp_tmp".host "$mcp_tmp".config "$mcp_tmp".sandbox "$mcp_tmp".list
     return 0
@@ -3872,9 +3941,13 @@ doctor_mcp_section() {
     # the agent, so the exit code stays decided by the checks above. It also
     # needs a reachable gateway, so it is skipped when the CLI or gateway is
     # down.
+    # `__health-json` reports MCP as its own section.
+    [ "${health_mode:-0}" -eq 0 ] || return 0
     say ""
     say "MCP readiness (informational):"
-    if [ "$have_openshell" -eq 0 ] || [ "$gateway_ok" -eq 0 ]; then
+    if [ "${OSS_MCP_REQUIRES_JQ:-0}" -eq 1 ] && [ "$have_jq" -eq 0 ]; then
+        say "  skipped: jq not found"
+    elif [ "$have_openshell" -eq 0 ] || [ "$gateway_ok" -eq 0 ]; then
         say "  skipped (gateway unavailable)"
     else
         doctor_name=$(resolved_name)
@@ -3887,6 +3960,133 @@ doctor_mcp_section() {
             say "  none configured"
         fi
     fi
+}
+
+# ---------------------------------------------------------------------------
+# Health: `osa health SANDBOX` runs `__health-json` (or `__health` for text)
+# here, in the project folder, with --name. One report of the idle stop (from
+# the session's idle files), MCP readiness (the `mcp status` gates), and the
+# doctor checks, collected as check records so the JSON and the text commands
+# cannot disagree. Read-only: it runs only the probes `status`, `mcp status`,
+# and `doctor` run, never starts a stopped sandbox, and prints no credential
+# value. A section whose source fails carries an error; the others are still
+# reported.
+# ---------------------------------------------------------------------------
+
+# Prints the MCP section as JSON from RECORDS. SUPPORTED is true or false;
+# ERROR is a message, or empty.
+health_mcp_json() { # RECORDS SUPPORTED ERROR
+    awk -F "$TAB" -v supported="$2" -v error="$3" '
+        function esc(s) {
+            gsub(/\\/, "\\\\", s)
+            gsub(/"/, "\\\"", s)
+            return "\"" s "\""
+        }
+        $1 == "mcp-error" { error = error (error == "" ? "" : "; ") $2; next }
+        $1 == "mcp" {
+            if (!($2 in index_of)) { order[++n] = $2; index_of[$2] = n; transport[$2] = $3 }
+            gate = "{\"gate\":" esc($4) ",\"ok\":" ($5 == "ok" ? "true" : "false") \
+                ",\"fix\":" ($6 == "" ? "null" : esc($6)) "}"
+            gates[$2] = gates[$2] (gates[$2] == "" ? "" : ",") gate
+            if ($5 != "ok") failed = 1
+        }
+        END {
+            if (supported != "true") {
+                printf "{\"supported\":false,\"ok\":null,\"error\":null,\"servers\":[]}"
+                exit
+            }
+            ok = (error == "" && !failed) ? "true" : "false"
+            printf "{\"supported\":true,\"ok\":%s,\"error\":%s,\"servers\":[", ok, (error == "" ? "null" : esc(error))
+            for (i = 1; i <= n; i++) {
+                s = order[i]
+                printf "%s{\"name\":%s,\"transport\":%s,\"gates\":[%s]}", (i > 1 ? "," : ""), esc(s), esc(transport[s]), gates[s]
+            }
+            printf "]}"
+        }
+    ' "$1"
+}
+
+# Prints the doctor section as JSON from RECORDS. OK is true or false.
+health_doctor_json() { # RECORDS OK
+    awk -F "$TAB" -v ok="$2" '
+        function esc(s) {
+            gsub(/\\/, "\\\\", s)
+            gsub(/"/, "\\\"", s)
+            return "\"" s "\""
+        }
+        $1 == "doctor" {
+            checks = checks (checks == "" ? "" : ",") "{\"name\":" esc($3) ",\"status\":" esc($2) ",\"detail\":" esc($4) "}"
+        }
+        END { printf "{\"ok\":%s,\"error\":null,\"checks\":[%s]}", ok, checks }
+    ' "$1"
+}
+
+cmd_health() { # json|text
+    hl_format=$1
+    shift
+    [ "$#" -eq 0 ] || die_usage "usage: $PROGRAM --name SANDBOX __health-json"
+    hl_name=$(resolved_name)
+    hl_dir=$(session_state_dir "$hl_name")
+    hl_period=$(resolved_idle_stop 2>/dev/null) || hl_period=
+    hl_tmp=${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-health.$$
+    : >"$hl_tmp.mcp"
+    : >"$hl_tmp.doctor"
+    hl_out=/dev/null
+    if [ "$hl_format" = text ]; then
+        hl_out=/dev/stdout
+        say "Health of sandbox '$hl_name' ($OSS_AGENT_TAG):"
+        say "Idle stop: $(idle_text "$hl_dir" "$hl_period")"
+        say ""
+        say "MCP readiness:"
+    fi
+
+    # MCP: only a Ready sandbox is probed; nothing here starts one.
+    hl_supported=true
+    hl_mcp_error=
+    if ! command -v agent_mcp_servers >/dev/null 2>&1; then
+        hl_supported=false
+    elif [ "${OSS_MCP_REQUIRES_JQ:-0}" -eq 1 ] && [ "$have_jq" -eq 0 ]; then
+        hl_mcp_error="mcp status needs jq; install jq"
+    elif ! command -v openshell >/dev/null 2>&1; then
+        hl_mcp_error="openshell CLI not found on PATH"
+    elif ! hl_phase=$(sandbox_phase "$hl_name" 2>/dev/null); then
+        hl_mcp_error="cannot reach the gateway; try '$PROGRAM doctor'"
+    elif [ -z "$hl_phase" ]; then
+        hl_mcp_error="no sandbox '$hl_name'; run '$PROGRAM up' first"
+    elif [ "$hl_phase" != Ready ]; then
+        hl_mcp_error="sandbox is not running (phase: $hl_phase)"
+    elif ! (OSS_RECORDS=$hl_tmp.mcp && mcp_readiness_report "$hl_name") >"$hl_out" 2>/dev/null; then
+        hl_mcp_error="cannot read MCP readiness from the gateway; try '$PROGRAM doctor'"
+    fi
+    if [ "$hl_format" = text ]; then
+        if [ "$hl_supported" = false ]; then
+            say "  unsupported: $PROGRAM has no mcp status"
+        elif [ -n "$hl_mcp_error" ]; then
+            say "  error: $hl_mcp_error"
+        elif [ ! -s "$hl_tmp.mcp" ]; then
+            say "  none configured"
+        fi
+        say ""
+        say "Doctor:"
+    fi
+
+    # Doctor: the same checks as `doctor`, without its MCP section.
+    hl_doctor_ok=true
+    (
+        health_mode=1
+        OSS_RECORDS=$hl_tmp.doctor
+        doctor_collect
+        exit "$doctor_status"
+    ) >"$hl_out" 2>/dev/null || hl_doctor_ok=false
+
+    if [ "$hl_format" = json ]; then
+        printf '{"sandbox":%s,"agent":%s,"idle":%s,"mcp":%s,"doctor":%s}\n' \
+            "$(json_str "$hl_name")" "$(json_str "$OSS_AGENT_TAG")" \
+            "$(idle_json "$hl_dir" "$hl_period")" \
+            "$(health_mcp_json "$hl_tmp.mcp" "$hl_supported" "$hl_mcp_error")" \
+            "$(health_doctor_json "$hl_tmp.doctor" "$hl_doctor_ok")"
+    fi
+    rm -f -- "$hl_tmp.mcp" "$hl_tmp.doctor"
 }
 
 # ---------------------------------------------------------------------------
@@ -5204,6 +5404,14 @@ oss_main() {
         __resolve)
             # osa resolve: resolve the pending work of the --name sandbox.
             cmd_resolve "$@"
+            ;;
+        __health-json)
+            # osa health --json: idle stop, MCP readiness, and doctor as JSON.
+            cmd_health json "$@"
+            ;;
+        __health)
+            # osa health: the same report as text.
+            cmd_health text "$@"
             ;;
         list)
             cmd_list "$@"

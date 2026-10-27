@@ -449,6 +449,100 @@ describe("read routes", () => {
   });
 });
 
+describe("denials route", () => {
+  const logsCalls = (): number => argvLog().split("---\n").filter((entry) => entry.startsWith("logs\n")).length;
+
+  test("no token returns 403 and never calls logs", async () => {
+    seedSandbox("demo");
+    const handle = start();
+    resetLog();
+    const response = await fetch(`${base(handle)}/api/sandboxes/demo/denials`);
+    expect(response.status).toBe(403);
+    expect(argvLog()).toBe("");
+    const wrong = await fetch(`${base(handle)}/api/sandboxes/demo/denials`, {
+      headers: { "x-dashboard-token": "wrong" },
+    });
+    expect(wrong.status).toBe(403);
+    expect(argvLog()).toBe("");
+  });
+
+  test("read-only mode with the token returns grouped and matched denials", async () => {
+    seedSandbox("demo");
+    const handle = start({ readOnly: true });
+    const response = await fetch(`${base(handle)}/api/sandboxes/demo/denials`, { headers: authHeaders(handle) });
+    expect(response.status).toBe(200);
+    const { denials } = await response.json();
+    expect(denials.window).toBe("1h");
+    expect(denials.capped).toBe(false);
+    expect(denials.unparsed).toBe(1);
+    expect(denials.unparsedSamples[0]).toContain("HTTP:GET");
+    const find = (host: string, port: number | null) =>
+      denials.groups.find((group: { host: string; port: number | null }) => group.host === host && group.port === port);
+    expect(find("example.com", 443)).toMatchObject({ binary: "/usr/bin/curl", count: 3, matches: [] });
+    expect(find("example.com", null)).toMatchObject({ count: 1, reasons: ["policy_dns_ineligible"] });
+    expect(find("api.example.com", 443).matches).toEqual(["chunk-pending-1"]);
+    expect(find("<img src=x onerror=alert(1)>", 443)).toBeTruthy();
+    expect(argvLog()).toContain("logs\ndemo\n--since\n1h\n--source\nsandbox\n-n\n5000\n");
+  });
+
+  test("an invalid window returns 400 without calling the CLI", async () => {
+    seedSandbox("demo");
+    const handle = start();
+    resetLog();
+    const response = await fetch(`${base(handle)}/api/sandboxes/demo/denials?window=--all`, {
+      headers: authHeaders(handle),
+    });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.kind).toBe("invalid_request");
+    expect(argvLog()).toBe("");
+  });
+
+  test("a second read within 30 seconds reuses the cache; refresh=1 reads again", async () => {
+    seedSandbox("demo");
+    const handle = start();
+    resetLog();
+    const url = `${base(handle)}/api/sandboxes/demo/denials?window=15m`;
+    expect((await fetch(url, { headers: authHeaders(handle) })).status).toBe(200);
+    expect((await fetch(url, { headers: authHeaders(handle) })).status).toBe(200);
+    expect(logsCalls()).toBe(1);
+    expect(argvLog()).toContain("--since\n15m\n");
+    // Another window is its own cache entry.
+    await fetch(`${base(handle)}/api/sandboxes/demo/denials?window=6h`, { headers: authHeaders(handle) });
+    expect(logsCalls()).toBe(2);
+    await fetch(`${url}&refresh=1`, { headers: authHeaders(handle) });
+    expect(logsCalls()).toBe(3);
+  });
+
+  test("the inventory carries the last read's unmatched count and never reads logs", async () => {
+    seedSandbox("demo");
+    const handle = start();
+    resetLog();
+    const before = await (await fetch(`${base(handle)}/api/sandboxes`)).json();
+    expect(before.sandboxes[0].denials).toBeNull();
+    expect(logsCalls()).toBe(0);
+    const { denials } = await (
+      await fetch(`${base(handle)}/api/sandboxes/demo/denials`, { headers: authHeaders(handle) })
+    ).json();
+    const unmatched = denials.groups.filter((group: { matches: string[] }) => group.matches.length === 0).length;
+    const after = await (await fetch(`${base(handle)}/api/sandboxes`)).json();
+    expect(after.sandboxes[0].denials).toMatchObject({ unmatched, window: "1h" });
+    expect(typeof after.sandboxes[0].denials.readAt).toBe("number");
+    expect(logsCalls()).toBe(1);
+  });
+
+  test("a gateway failure returns the CLI's error text", async () => {
+    seedSandbox("demo");
+    const handle = start({ client: makeClient({ STUB_LOGS_FAIL: "1" }) });
+    const response = await fetch(`${base(handle)}/api/sandboxes/demo/denials`, { headers: authHeaders(handle) });
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body.error.message).toContain("gateway unreachable");
+    // The proposals route still answers.
+    const rules = await (await fetch(`${base(handle)}/api/sandboxes/demo/rules?status=pending`)).json();
+    expect(rules.rules).toHaveLength(1);
+  });
+});
+
 describe("mutation guards", () => {
   test("mutating routes reject a missing or wrong token", async () => {
     seedSandbox("demo");
@@ -952,6 +1046,72 @@ describe("project routes", () => {
     const quoted = await listRows(handle, `?path=${encodeURIComponent(fixture.quotedPath)}`);
     expect(quoted.map((entry) => entry.sandbox_name)).toEqual([SANDBOX.noKind]);
     expect(await listRows(handle, "?path=%2Fnot%2Fregistered")).toEqual([]);
+  });
+
+  describe("health route", () => {
+    function setHealthAnswers(answers: Record<string, unknown>): void {
+      const current = JSON.parse(readFileSync(osaAnswers, "utf8")) as Record<string, unknown>;
+      writeFileSync(osaAnswers, JSON.stringify({ ...current, health: answers }));
+    }
+
+    test("GET /api/projects/:sandbox/health runs osa health for a registered sandbox", async () => {
+      setHealthAnswers({
+        [SANDBOX.retained]: {
+          report: { sandbox: SANDBOX.retained, agent: "mk", idle: { state: "off" }, mcp: { supported: false }, doctor: { ok: true, checks: [] } },
+        },
+      });
+      const handle = start({ projects: projectService() });
+      const response = await fetch(`${base(handle)}/api/projects/${SANDBOX.retained}/health`);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.health).toMatchObject({ sandbox: SANDBOX.retained, mcp: { supported: false } });
+      expect(osaCalls()).toContainEqual(["health", SANDBOX.retained, "--json"]);
+    });
+
+    test("an unregistered sandbox is 404 and runs nothing", async () => {
+      const handle = start({ projects: projectService() });
+      const response = await fetch(`${base(handle)}/api/projects/mk-nowhere-0000/health`);
+      expect(response.status).toBe(404);
+      expect(osaCalls().some((args) => args[0] === "health")).toBe(false);
+    });
+
+    test("a slow osa health times out", async () => {
+      setHealthAnswers({ [SANDBOX.retained]: { report: {}, delay: 2 } });
+      const projects = new ProjectService({
+        stateRoot: fixture.stateRoot,
+        runnerOptions: { binary: osaStub, env: { STUB_OSA_FIXTURE: osaAnswers, STUB_OSA_LOG: osaLog } },
+        healthTimeoutMs: 200,
+      });
+      const handle = start({ projects });
+      const response = await fetch(`${base(handle)}/api/projects/${SANDBOX.retained}/health`);
+      expect(response.status).toBe(504);
+      expect((await response.json()).error.kind).toBe("timeout");
+    });
+
+    test("polling the project list never runs osa health, and rows carry idle", async () => {
+      const current = JSON.parse(readFileSync(osaAnswers, "utf8")) as Record<string, any>;
+      current[fixture.appPath].quick[0].idle = {
+        period: 3600,
+        state: "counting",
+        deadline: "2026-10-27T12:00:00Z",
+        estimated: false,
+        last_event: "closed",
+        last_time: "2026-10-27T11:00:00Z",
+      };
+      writeFileSync(osaAnswers, JSON.stringify(current));
+      const projects = projectService();
+      const handle = start({ projects });
+      await listRows(handle);
+      await projects.cache.idle();
+      const rows = await listRows(handle, "?refresh=1");
+      await projects.cache.idle();
+      const again = await listRows(handle);
+      expect(row(again, SANDBOX.retained).idle).toMatchObject({ state: "counting", deadline: "2026-10-27T12:00:00Z" });
+      expect(row(again, SANDBOX.parked).idle).toMatchObject({ state: "none", deadline: null });
+      expect(row(rows, SANDBOX.orphan).idle).toBeNull();
+      expect(osaCalls().length).toBeGreaterThan(0);
+      expect(osaCalls().some((args) => args[0] === "health")).toBe(false);
+    });
   });
 
   describe("resolve route", () => {

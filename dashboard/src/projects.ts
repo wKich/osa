@@ -8,10 +8,14 @@
 // (cached per host path, design D2) and `osa status PATH --json` for the full
 // sync state on request (design D3).
 //
+// `osa health SANDBOX --json` reports a registered sandbox's idle stop, MCP
+// readiness, and doctor checks on request only (dashboard-health design D4);
+// the idle state on each row comes from the quick status already cached.
+//
 // The one write is `osa resolve SANDBOX ACTION --json` for a registered
 // sandbox: nothing here creates, modifies, or deletes a file itself, and the
-// runner refuses every `osa` argv except the two `status … --json` shapes and
-// that one `resolve` shape.
+// runner refuses every `osa` argv except the two `status … --json` shapes,
+// `health SANDBOX --json`, and that one `resolve` shape.
 
 import {
   closeSync,
@@ -31,6 +35,7 @@ export const HOST_CHANGE_TTL_MS = 60_000;
 export const HOST_CHANGE_CONCURRENCY = 2;
 export const QUICK_TIMEOUT_MS = 20_000;
 export const FULL_TIMEOUT_MS = 30_000;
+export const HEALTH_TIMEOUT_MS = 30_000;
 export const PATCH_LIMIT_BYTES = 2 * 1024 * 1024;
 export const RESOLVE_TIMEOUT_MS = 60_000;
 /** Rescue downloads the sandbox workdir, so it gets longer. */
@@ -80,6 +85,34 @@ export interface ProjectRow extends ProjectEntry {
   osaError: OpenShellError | null;
   /** A session or resolve held the sandbox at the last check. */
   busy: boolean;
+  /** The idle-stop state from the last quick status, or null. */
+  idle: IdleInfo | null;
+}
+
+/** `osa status --quick --json`'s `idle` object. */
+export interface IdleInfo {
+  period: number | null;
+  state: string;
+  /** ISO 8601 UTC while `state` is `counting`, else null. */
+  deadline: string | null;
+  estimated: boolean;
+  last_event: string | null;
+  last_time: string | null;
+}
+
+function idleInfo(value: unknown): IdleInfo | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.state !== "string") return null;
+  const text = (key: string): string | null => (typeof record[key] === "string" ? (record[key] as string) : null);
+  return {
+    period: typeof record.period === "number" ? record.period : null,
+    state: record.state,
+    deadline: text("deadline"),
+    estimated: record.estimated === true,
+    last_event: text("last_event"),
+    last_time: text("last_time"),
+  };
 }
 
 export interface PatchView {
@@ -260,6 +293,9 @@ export function resolveArgv(sandbox: string, action: ResolveAction): string[] {
  * discard only, with SANDBOX a generated sandbox name.
  */
 export function isAllowedOsaArgv(args: readonly string[]): boolean {
+  if (args[0] === "health") {
+    return args.length === 3 && SANDBOX_NAME.test(args[1] ?? "") && args[2] === "--json";
+  }
   if (args[0] === "resolve") {
     const [, sandbox = "", action] = args;
     if (!SANDBOX_NAME.test(sandbox) || !isResolveAction(action)) return false;
@@ -381,6 +417,8 @@ interface HostCheck {
   results: Map<string, FingerprintResult>;
   /** Sandboxes the quick status reported `busy`. */
   busy: Set<string>;
+  /** `idle` by sandbox_name. */
+  idle: Map<string, IdleInfo>;
   error: OpenShellError | null;
 }
 
@@ -480,7 +518,13 @@ export class HostChangeCache {
     // A `clear()` or `drop()` while this ran means the caller asked for a fresh result.
     if (generation !== this.generation) return;
     if (pathGeneration !== (this.pathGenerations.get(path) ?? 0)) return;
-    const check: HostCheck = { at: this.now(), results: new Map(), busy: new Set(), error: null };
+    const check: HostCheck = {
+      at: this.now(),
+      results: new Map(),
+      busy: new Set(),
+      idle: new Map(),
+      error: null,
+    };
     if (!result.ok) {
       check.error = result.error;
     } else if (!Array.isArray(result.value)) {
@@ -492,6 +536,8 @@ export class HostChangeCache {
         if (typeof record.sandbox_name === "string" && record.busy === true) {
           check.busy.add(record.sandbox_name);
         }
+        const idle = idleInfo(record.idle);
+        if (typeof record.sandbox_name === "string" && idle) check.idle.set(record.sandbox_name, idle);
         const value = record.fingerprint_result;
         if (
           typeof record.sandbox_name === "string" &&
@@ -517,6 +563,8 @@ export interface ProjectServiceOptions {
   cache?: { ttlMs?: number; concurrency?: number; now?: () => number; timeoutMs?: number };
   /** Full status timeout, milliseconds (default 30 s). */
   fullTimeoutMs?: number;
+  /** Health timeout, milliseconds (default 30 s). */
+  healthTimeoutMs?: number;
   /** Resolve timeouts, milliseconds (default 60 s, and 120 s for rescue). */
   resolveTimeoutMs?: number;
   rescueTimeoutMs?: number;
@@ -568,6 +616,7 @@ export class ProjectService {
   readonly runner: OsaRunner;
   readonly cache: HostChangeCache;
   private readonly fullTimeoutMs: number;
+  private readonly healthTimeoutMs: number;
   private readonly resolveTimeoutMs: number;
   private readonly rescueTimeoutMs: number;
   /** Sandboxes with a resolve running (design D2). */
@@ -576,6 +625,7 @@ export class ProjectService {
   constructor(options: ProjectServiceOptions = {}) {
     this.stateRoot = options.stateRoot ?? resolveStateRoot();
     this.fullTimeoutMs = options.fullTimeoutMs ?? FULL_TIMEOUT_MS;
+    this.healthTimeoutMs = options.healthTimeoutMs ?? HEALTH_TIMEOUT_MS;
     this.resolveTimeoutMs = options.resolveTimeoutMs ?? RESOLVE_TIMEOUT_MS;
     this.rescueTimeoutMs = options.rescueTimeoutMs ?? RESCUE_TIMEOUT_MS;
     this.runner = options.runner ?? new OsaRunner(options.runnerOptions);
@@ -599,7 +649,7 @@ export class ProjectService {
       entries.filter((entry) => entry.supported && !entry.orphan).map((entry) => entry.host_path),
     );
     return entries.map((entry): ProjectRow => {
-      const none = { fingerprintResult: null, checkedAt: null, osaError: null, busy: false };
+      const none = { fingerprintResult: null, checkedAt: null, osaError: null, busy: false, idle: null };
       if (!entry.supported) return { ...entry, ...none };
       if (entry.orphan) return { ...entry, ...none, fingerprintResult: "unknown" };
       const check = this.cache.get(entry.host_path);
@@ -610,6 +660,7 @@ export class ProjectService {
         checkedAt: check.at,
         osaError: check.error,
         busy: check.busy.has(entry.sandbox_name),
+        idle: check.idle.get(entry.sandbox_name) ?? null,
       };
     });
   }
@@ -635,6 +686,26 @@ export class ProjectService {
       };
     }
     return { ok: true, value: match };
+  }
+
+  /**
+   * `osa health SANDBOX --json` for a registered sandbox (dashboard-health
+   * design D4): 404 for an unregistered sandbox, never cached, never run by
+   * the list.
+   */
+  async health(sandbox: string): Promise<ServiceResult<unknown>> {
+    const entry = findProject(this.stateRoot, sandbox);
+    if (!entry || !entry.supported) return notRegistered(sandbox);
+    const result = await this.runner.runJson(["health", entry.sandbox_name, "--json"], this.healthTimeoutMs);
+    if (!result.ok) return { ok: false, error: result.error };
+    if (typeof result.value !== "object" || result.value === null || Array.isArray(result.value)) {
+      return {
+        ok: false,
+        status: 502,
+        error: { kind: "invalid_json", message: "osa health did not return an object" },
+      };
+    }
+    return { ok: true, value: result.value };
   }
 
   /**

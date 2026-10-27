@@ -155,6 +155,7 @@ OSS_AGENT_TAG=oc                         # registry agent tag and default name p
 OSS_HOST_MCP_CONFIG=${HOME:-/tmp}/.config/opencode/opencode.json
 OSS_SANDBOX_MCP_CONFIG=/sandbox/.config/opencode/opencode.json
 OSS_MCP_PROVIDER_PREFIX=opencode-mcp-  # provider name for server <name>
+OSS_MCP_REQUIRES_JQ=1                   # mcp status and health read JSON with jq
 OSS_MCP_FIX_IMAGE='an environment image built FROM opencode-agent:local'
 OSS_MCP_FIX_DOC=docs/ai/reference/opencode.md
 
@@ -315,17 +316,11 @@ agent_doctor_extra() {
     # free tier the sandbox policy denies. Informational: it never fails.
     doctor_model=$(resolved_model)
     if [ -n "$doctor_model" ]; then
-        say "ok    model: $doctor_model"
+        doctor_check ok "model" "$doctor_model"
     else
-        say "warn  model: none set; OpenCode's default may be a model no attached profile covers (set model = \"provider/model\" in $config_file)"
+        doctor_check warn "model" "none set; OpenCode's default may be a model no attached profile covers (set model = \"provider/model\" in $config_file)"
     fi
 
-    if [ "$have_jq" -eq 0 ]; then
-        say ""
-        say "MCP readiness (informational):"
-        say "  skipped: jq not found"
-        return 0
-    fi
     doctor_mcp_section
 }
 

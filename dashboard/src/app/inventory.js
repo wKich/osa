@@ -2,7 +2,7 @@
 
 import { mutate, request } from "./api.js";
 import { showError, showNotice } from "./banner.js";
-import { clear, h } from "./dom.js";
+import { clear, deniedBadge, h } from "./dom.js";
 import { actions, state } from "./state.js";
 
 export async function loadInventory() {
@@ -29,6 +29,7 @@ function inventoryTable() {
       h("th", { text: "Image" }),
       h("th", { text: "Labels" }),
       h("th", { text: "Notes" }),
+      h("th", { text: "Egress" }),
     ])),
   );
   const body = h("tbody");
@@ -52,6 +53,7 @@ function inventoryTable() {
         ]),
         h("td", { text: labels || "—" }),
         h("td", { class: sandbox.note ? "warn" : "muted", text: sandbox.note || "—" }),
+        h("td", null, deniedBadge(sandbox.denials)),
       ]),
     );
   }

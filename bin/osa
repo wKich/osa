@@ -4,11 +4,12 @@
 # osa: report on every project the agent front-ends (maki-oss, opencode-oss,
 # claude-oss, codex-oss) have registered in the shared state root.
 #
-# `projects` and `status` are read-only: they never create, start, stop,
-# delete, upload to, download from, or run anything in a sandbox, and they
-# never write the state root. They read the published contract files
-# (registry entries and pending markers) and, for a full status, ask the
-# owning front-end. `resolve` is the one command that writes: it validates the
+# `projects`, `status`, and `health` are read-only: they never create, start,
+# stop, delete, upload to, or download from a sandbox, launch an agent, or
+# write the state root. They read the published contract files (registry
+# entries and pending markers) and, for a full status or health, ask the
+# owning front-end, which runs only its read-only status, `mcp status`, and
+# `doctor` probes. `resolve` is the one command that writes: it validates the
 # sandbox here and hands the action to the owning front-end's `__resolve`.
 #
 # POSIX sh. See docs/helper.md for the full reference.
@@ -40,6 +41,8 @@ Commands:
   projects [--json]                 List every registered project
   status [PATH] [--json] [--quick]  Report the project at PATH (default: .)
                                     for each agent registered there
+  health SANDBOX [--json]           Report the sandbox's idle stop, MCP
+                                    readiness, and doctor checks
   resolve SANDBOX ACTION [--yes] [--json]
                                     Resolve the sandbox's pending work:
                                     apply, branch, or drop --yes for a
@@ -48,12 +51,12 @@ Commands:
   help                              Show this help
 
 Options:
-  --json    Print one JSON array (resolve: one JSON object) on stdout and
-            nothing else
-  --quick   Skip the gateway and the tree hash: report the pending kind and
+  --json    Print one JSON array (health and resolve: one JSON object) on
+            stdout and nothing else
+  --quick   Skip the gateway and the tree hash: report the pending kind,
             whether the host changed since the last sync (changed,
-            unchanged, or unknown), and whether a session or resolve is
-            running (busy)
+            unchanged, or unknown), whether a session or resolve is
+            running (busy), and the idle-stop state and deadline (idle)
   --yes     Confirm drop or discard
 
 Only resolve changes anything. Exit codes for resolve: 0 done, 1 usage
@@ -208,7 +211,8 @@ cmd_status() {
             if [ "$opt_json" -eq 1 ]; then
                 printf '%s{' "$cs_sep"
                 entry_json_fields
-                printf ',"fingerprint_result":%s,"busy":%s}' "$(json_str "$cs_fp")" "$cs_busy"
+                printf ',"fingerprint_result":%s,"busy":%s,"idle":%s}' "$(json_str "$cs_fp")" \
+                    "$cs_busy" "$(idle_json "$state_root/sessions/$e_sandbox_name")"
             else
                 printf 'Sandbox:   %s (%s)\n' "$e_sandbox_name" "$e_agent"
                 printf 'Pending:   %s\n' "${e_pending:-none}"
@@ -216,6 +220,7 @@ cmd_status() {
                 if [ "$cs_busy" = true ]; then
                     printf 'Busy:      a session or resolve is running\n'
                 fi
+                printf 'Idle stop: %s\n' "$(idle_text "$state_root/sessions/$e_sandbox_name")"
             fi
         else
             cs_front=$(front_end "$e_agent")
@@ -262,20 +267,64 @@ resolve_refuse() { # MESSAGE
     exit "$EX_REFUSED"
 }
 
-# Finds the registry entry by file name, never by joining the argument into a
-# path, refuses an unregistered or orphan entry, and runs the owning
-# front-end's `__resolve` in the project folder.
-cmd_resolve() {
-    cr_file=
-    while IFS= read -r cr_entry; do
-        [ -n "$cr_entry" ] || continue
-        if [ "${cr_entry##*/}" = "$opt_sandbox.toml" ]; then
-            cr_file=$cr_entry
-            break
+# Prints the registry entry file for SANDBOX, found by file name, never by
+# joining the argument into a path; nothing when it is not registered.
+entry_file() { # SANDBOX
+    while IFS= read -r ef_entry; do
+        [ -n "$ef_entry" ] || continue
+        if [ "${ef_entry##*/}" = "$1.toml" ]; then
+            printf '%s' "$ef_entry"
+            return 0
         fi
     done <<ENTRIES
 $(registry_entries)
 ENTRIES
+}
+
+# Reports one registered sandbox's health. The owning front-end runs it in the
+# project folder (`__health-json`, or `__health` for text); an orphan, or an
+# agent osa does not know, gets the idle section from files only.
+cmd_health() {
+    ch_file=$(entry_file "$opt_sandbox")
+    if [ -z "$ch_file" ]; then
+        die_usage "sandbox '$opt_sandbox' is not registered; run 'osa projects' to list sandboxes"
+    fi
+    load_entry "$ch_file"
+    if [ "$e_sandbox_name" != "$opt_sandbox" ]; then
+        die_usage "the registry entry $ch_file names sandbox '$e_sandbox_name', not '$opt_sandbox'"
+    fi
+    ch_front=$(front_end "$e_agent")
+    ch_error=
+    if [ "$e_orphan" = true ]; then
+        ch_error="project folder missing"
+    elif [ -z "$ch_front" ]; then
+        ch_error="agent '$e_agent' is not known to osa"
+    fi
+    if [ -z "$ch_error" ]; then
+        ch_verb=__health
+        if [ "$opt_json" -eq 1 ]; then
+            ch_verb=__health-json
+        fi
+        ch_rc=0
+        (cd "$e_host_path" && exec "$ch_front" --name "$opt_sandbox" "$ch_verb") || ch_rc=$?
+        exit "$ch_rc"
+    fi
+    ch_dir=$state_root/sessions/$opt_sandbox
+    if [ "$opt_json" -eq 1 ]; then
+        printf '{"sandbox":%s,"agent":%s,"idle":%s,"mcp":{"error":%s},"doctor":{"error":%s}}\n' \
+            "$(json_str "$opt_sandbox")" "$(json_str "$e_agent")" "$(idle_json "$ch_dir")" \
+            "$(json_str "$ch_error")" "$(json_str "$ch_error")"
+        return 0
+    fi
+    printf "Health of sandbox '%s' (%s):\n" "$opt_sandbox" "$e_agent"
+    printf 'Idle stop: %s\n' "$(idle_text "$ch_dir")"
+    printf '\nMCP readiness:\n  error: %s\n\nDoctor:\n  error: %s\n' "$ch_error" "$ch_error"
+}
+
+# Refuses an unregistered or orphan entry and runs the owning front-end's
+# `__resolve` in the project folder.
+cmd_resolve() {
+    cr_file=$(entry_file "$opt_sandbox")
     if [ -z "$cr_file" ]; then
         resolve_refuse "sandbox '$opt_sandbox' is not registered; run 'osa projects' to list sandboxes"
     fi
@@ -319,9 +368,9 @@ case $cmd in
         usage
         exit 0
         ;;
-    projects|status|resolve) ;;
+    projects|status|health|resolve) ;;
     *)
-        die_usage "unknown command: $cmd (commands: projects, status, resolve, help)"
+        die_usage "unknown command: $cmd (commands: projects, status, health, resolve, help)"
         ;;
 esac
 while [ "$#" -gt 0 ]; do
@@ -337,6 +386,12 @@ while [ "$#" -gt 0 ]; do
             ;;
         -*) die_usage "unknown option: $1" ;;
         *)
+            if [ "$cmd" = health ]; then
+                [ -z "$opt_sandbox" ] || die_usage "health takes one SANDBOX"
+                opt_sandbox=$1
+                shift
+                continue
+            fi
             if [ "$cmd" = resolve ]; then
                 if [ -z "$opt_sandbox" ]; then
                     opt_sandbox=$1
@@ -356,6 +411,10 @@ while [ "$#" -gt 0 ]; do
     shift
 done
 
+if [ "$cmd" = health ]; then
+    [ -n "$opt_sandbox" ] || die_usage "usage: osa health SANDBOX [--json]"
+fi
+
 if [ "$cmd" = resolve ]; then
     [ -n "$opt_action" ] || die_usage "usage: osa resolve SANDBOX ACTION [--yes] [--json]"
     case $opt_action in
@@ -367,5 +426,6 @@ fi
 case $cmd in
     projects) cmd_projects ;;
     status) cmd_status ;;
+    health) cmd_health ;;
     resolve) cmd_resolve ;;
 esac

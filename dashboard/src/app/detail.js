@@ -4,6 +4,7 @@
 import { mutate, request } from "./api.js";
 import { clearBanner, showError, showNotice } from "./banner.js";
 import { clear, formatTimestamp, h, shortHash } from "./dom.js";
+import { healthPanel, openHealth } from "./health.js";
 import { cleanupLogStream } from "./logs.js";
 import { actions, state } from "./state.js";
 
@@ -171,6 +172,11 @@ export function renderDetail() {
     return;
   }
   const detail = state.detail;
+  // Health exists for registered projects only; raw gateway sandboxes keep
+  // this view as it is.
+  const registered = state.projects.some(
+    (project) => project.supported && project.sandbox_name === detail.sandbox.name,
+  );
   state.app.append(
     h("div", { class: "card" }, [
       h("div", { class: "row" }, [
@@ -185,7 +191,14 @@ export function renderDetail() {
       h("button", { text: "Logs", onclick: () => actions.navigate("logs") }),
       h("button", { text: "Policy", onclick: () => actions.navigate("policy") }),
       h("button", { text: "Rules", onclick: () => actions.navigate("rules") }),
+      registered ? h("button", { text: "Health", onclick: () => openHealth(detail.sandbox.name) }) : null,
     ]),
+    registered && state.healthOpen === detail.sandbox.name
+      ? healthPanel(detail.sandbox.name, () => {
+          state.healthOpen = null;
+          actions.render();
+        })
+      : null,
     h("div", { class: "card" }, [h("h3", { text: "Providers" }), providersTable(detail.providers || [])]),
     h("div", { class: "card" }, [h("h3", { text: "Policy revisions" }), revisionsTable(detail.revisions || [])]),
   );
@@ -202,6 +215,7 @@ export async function openDetail(name) {
   state.selected = name;
   state.detail = null;
   state.rules = [];
+  state.denials = null;
   cleanupLogStream();
   clearBanner();
   actions.navigate("detail");

@@ -350,10 +350,72 @@ describe("stub osa", () => {
     expect(extra.code).toBe(1);
 
     const quick = await answer(["status", fixture.appPath, "--quick", "--json"]);
-    expect(JSON.parse(quick.stdout)).toEqual([{ sandbox_name: SANDBOX.retained, busy: true }]);
+    expect(JSON.parse(quick.stdout)).toEqual([
+      {
+        sandbox_name: SANDBOX.retained,
+        busy: true,
+        idle: { period: null, state: "none", deadline: null, estimated: false, last_event: null, last_time: null },
+      },
+    ]);
 
     expect(loggedCalls(setup.logPath)).toHaveLength(7);
     expect(loggedCalls(setup.logPath)[2]).toEqual(["resolve", SANDBOX.retained, "drop", "--json", "--yes"]);
+  });
+});
+
+describe("stub osa health", () => {
+  const answer = async (args: string[], env: Record<string, string>) => {
+    const proc = Bun.spawn({ cmd: [osaStub, ...args], env: { ...process.env, ...env }, stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    return { stdout, stderr, code };
+  };
+
+  test("answers health from the built-in fixtures", async () => {
+    const setup = stubSetup({});
+    const report = async (sandbox: string) => {
+      const result = await answer(["health", sandbox, "--json"], setup.env);
+      expect(result.code).toBe(0);
+      return JSON.parse(result.stdout);
+    };
+    const ok = await report("health-ok");
+    expect(ok).toMatchObject({ sandbox: "health-ok", agent: "mk", mcp: { supported: true, ok: true }, doctor: { ok: true } });
+    expect(ok.idle.state).toBe("running");
+    const failing = await report("health-mcp-fail");
+    expect(failing.mcp.ok).toBe(false);
+    expect(failing.mcp.servers[0].gates).toContainEqual({
+      gate: "provider",
+      ok: false,
+      fix: "maki-oss provider attach mcp-context7",
+    });
+    expect((await report("health-unsupported")).mcp).toEqual({ supported: false, ok: null, error: null, servers: [] });
+    const partial = await report("health-partial");
+    expect(partial.mcp.error).toContain("gateway");
+    expect(partial.doctor.checks).toContainEqual({ name: "gateway", status: "fail", detail: "unreachable (openshell status failed)" });
+    expect(partial.idle).toMatchObject({ state: "counting", deadline: "2026-10-27T12:00:00Z" });
+    expect((await report("health-markup")).doctor.checks[0].detail).toContain("<img src=x onerror=alert(1)>");
+    expect(loggedCalls(setup.logPath)).toHaveLength(5);
+  });
+
+  test("answers health from the fixture, and an unknown sandbox as a usage error", async () => {
+    const setup = stubSetup({
+      health: { [SANDBOX.retained]: { report: { sandbox: SANDBOX.retained, agent: "mk" }, stderr: "note" } },
+      [fixture.appPath]: {
+        quick: [{ sandbox_name: SANDBOX.retained, idle: { period: 60, state: "counting", deadline: "2026-10-27T10:00:00Z" } }],
+      },
+    });
+    const fixed = await answer(["health", SANDBOX.retained, "--json"], setup.env);
+    expect(JSON.parse(fixed.stdout)).toEqual({ sandbox: SANDBOX.retained, agent: "mk" });
+    expect(fixed.stderr).toContain("note");
+    const unknown = await answer(["health", "mk-nowhere", "--json"], setup.env);
+    expect(unknown.code).toBe(1);
+    expect(unknown.stderr).toContain("not registered");
+    expect((await answer(["health", SANDBOX.retained], setup.env)).code).toBe(1);
+    const quick = await answer(["status", fixture.appPath, "--quick", "--json"], setup.env);
+    expect(JSON.parse(quick.stdout)[0].idle).toEqual({ period: 60, state: "counting", deadline: "2026-10-27T10:00:00Z" });
   });
 });
 
@@ -378,6 +440,18 @@ describe("osa runner", () => {
     expect(isAllowedOsaArgv(["status", "relative", "--json"])).toBe(false);
     expect(isAllowedOsaArgv(["status", "/p", "--json", "--quick"])).toBe(false);
     expect(isAllowedOsaArgv(["status", "/p", "--json", "--yes"])).toBe(false);
+    expect(isAllowedOsaArgv(["health", "mk-app-1", "--json"])).toBe(true);
+    for (const args of [
+      ["health", "mk-app-1"],
+      ["health", "--json", "mk-app-1"],
+      ["health", "mk-app-1", "--json", "--yes"],
+      ["health", "../x", "--json"],
+      ["health", "-x", "--json"],
+      ["health", "", "--json"],
+      ["health", "a b", "--json"],
+    ]) {
+      expect({ args, allowed: isAllowedOsaArgv(args) }).toEqual({ args, allowed: false });
+    }
 
     const setup = stubSetup({});
     const runner = new OsaRunner({ binary: osaStub, env: setup.env });

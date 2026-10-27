@@ -1545,3 +1545,83 @@ Checks on the host afterwards: `git status --short` shows ` M notes.txt` (the
 uncommitted edit kept) and `?? hello.txt` ("hello from the sandbox"); `HEAD`
 is still the `init` commit; the `pending` marker is gone and the patch file
 is still in the session directory; `osa projects` shows no pending kind.
+
+## Dashboard egress denials — 2026-10-27
+
+Change `dashboard-egress`. Offline: `cd dashboard && bun test` 165 passed,
+`bun run scripts/browser-check.ts` 63 passed (the egress journey included),
+`make lint-docs` passes, and `openspec validate dashboard-egress --strict` is
+valid.
+
+### Real denial in the Rules view (task 4.3)
+
+A scratch sandbox on the real gateway (OpenShell 0.1.5), created from
+`maki-agent:personal` with `examples/policies/maki-minimal.yaml` and deleted
+afterwards:
+
+```text
+$ openshell sandbox exec dash-egress-verify -- curl -sS -m 10 -o /dev/null https://example.com
+curl: (7) Failed to connect to example.com port 443 after 2 ms: Couldn't connect to server
+
+$ openshell logs dash-egress-verify --since 15m --source sandbox -n 5000 | grep DENIED
+[1793074091.448] [sandbox] [OCSF ] [ocsf] NET:REFUSE [MED] DENIED example.com [reason:policy_dns_ineligible]
+[1793074091.449] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED /usr/bin/curl(0) -> example.com:443 [reason:transparent_tcp_policy_denied]
+```
+
+The dashboard then ran with its defaults (real `openshell`, minted token,
+read-write) and was driven in headless Chrome to the sandbox's Rules view:
+
+- The policy advisor had proposed `allow_example_com_443` (endpoints
+  `example.com:443 [L4]`, binary `/usr/bin/curl`, 65% confidence). Under it,
+  "Denied traffic this proposal would allow" listed `example.com:443` from
+  `/usr/bin/curl` (count 1, `transparent_tcp_policy_denied`) and `example.com`
+  with no port (count 1, `policy_dns_ineligible`).
+- "Denied, no proposal" read "Every denial in this window matches a pending
+  proposal"; no unparsed lines were reported.
+- Back on the inventory, the row showed `0 denied · 6s ago` from that read.
+
+## Dashboard health — 2026-10-27
+
+Change `dashboard-health`. Offline: `make test` 252 passed, `make lint`
+passes, `cd dashboard && bun test` 171 passed,
+`bun run scripts/browser-check.ts` 76 passed (the health journey included),
+`make lint-docs` passes, and `openspec validate dashboard-health --strict` is
+valid.
+
+### Real session countdown (task 5.3)
+
+A throwaway plain folder (`dash-health`) on the real gateway (OpenShell
+0.1.5, `maki-agent:personal`), with a session that starts the agent and ends
+at once:
+
+```text
+$ maki-oss run --idle-stop 2m --model nope/nope "noop"
+✖ invalid --model spec
+No sandbox changes to sync.
+
+$ osa status --quick --json   → "idle":{"period":120,"state":"counting",...}
+```
+
+The dashboard then ran with its defaults (`$HOME/.local/state/osa`, the
+repository's `bin/osa`, real `openshell`) and was driven in headless Chrome:
+
+- The project row's idle cell read `stops in 1m 37s`, `1m 36s`, `1m 35s` on
+  three successive seconds, with the absolute deadline
+  (`2026-10-27T04:48:43Z`) on hover.
+- At the deadline the cell read `stop due`; the watcher logged `stopped` at
+  04:48:49Z and the next quick status turned the cell to `stopped`.
+- **Health** showed idle stop, both MCP servers (`context7` http and
+  `synthetic` stdio) with every gate passing, and the six doctor checks, all
+  `ok`.
+- With the sandbox stopped, `osa health mk-dash-health-7666 --json` reported
+  `"mcp":{"error":"sandbox is not running (phase: Stopped)"}`, and the sandbox
+  stayed `Stopped`.
+
+This run found one defect, fixed before the checks above were repeated: the
+Health panel took the configured `idle_stop` (1 h) as the period instead of
+the `--idle-stop 2m` the session's watcher was armed with, so its deadline
+was an hour out while the row's was right. `idle_state` now uses the period
+from the session's `armed` line and falls back to the setting only when there
+is none. A second session then showed the same deadline in the row and the
+panel (`2026-10-27T04:51:53Z`, period 120 s). The scratch sandbox was removed
+with `maki-oss rm --yes`.

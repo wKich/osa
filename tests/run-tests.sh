@@ -7059,16 +7059,17 @@ assert_json_array() { # COUNT
 }
 
 test_osa_usage() {
-    begin "osa offers projects, status, resolve, and help, and rejects anything else"
+    begin "osa offers projects, status, health, resolve, and help, and rejects anything else"
     new_case osa-usage
     run_osa help
     assert_rc 0
     assert_out_has "projects"
     assert_out_has "status"
+    assert_out_has "health SANDBOX"
     assert_out_has "resolve"
     run_osa up
     assert_rc 1
-    assert_err_has "projects, status, resolve, help"
+    assert_err_has "projects, status, health, resolve, help"
     run_osa projects --quick
     assert_rc 1
 }
@@ -7246,11 +7247,150 @@ test_osa_read_only() {
     assert_rc 0
     run_osa status --json
     assert_rc 0
+    run_osa health maki-myproject
+    assert_rc 0
+    run_osa health maki-myproject --json
+    assert_rc 0
     for osa_verb in create start stop delete upload download maki; do
         assert_log_line_missing "$osa_verb"
     done
     state_snapshot >"$CASE/after.txt"
     cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "osa changed a file under the state root"
+}
+
+# ---------------------------------------------------------------------------
+# Idle stop state (specs/osa-project-layer: "osa health reports a sandbox's
+# health"): idle_state over constructed idle/idle.log files.
+# ---------------------------------------------------------------------------
+
+# Appends `LOCAL_TIME EVENT...` to DIR/idle.log, SECONDS_AGO before now, in the
+# local time of the current TZ, the way idle_log writes it.
+idle_line() { # DIR SECONDS_AGO EVENT...
+    il_dir=$1
+    il_epoch=$(($(date +%s) - $2))
+    shift 2
+    il_local=$(date -d "@$il_epoch" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null \
+        || date -r "$il_epoch" '+%Y-%m-%dT%H:%M:%S')
+    mkdir -p "$il_dir"
+    printf '%s %s\n' "$il_local" "$*" >>"$il_dir/idle.log"
+}
+
+# Seconds since the epoch for an ISO 8601 UTC time.
+iso_epoch() { # TIME
+    date -u -d "$1" +%s 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s
+}
+
+idle_state_of() { # DIR [SECS]
+    (. "$ROOT/lib/osa-state.sh" && idle_state "$@")
+}
+
+# Field N (1-based) of an idle_state line.
+idle_field() { # LINE N
+    printf '%s\n' "$1" | awk -F '\t' -v n="$2" '{ print $n }'
+}
+
+# Fails unless DEADLINE is SECONDS from now, within 5 seconds.
+assert_deadline_in() { # DEADLINE SECONDS
+    adi_at=$(iso_epoch "$1") || { bad "deadline is not ISO 8601 UTC: $1"; return 0; }
+    adi_off=$((adi_at - $(date +%s) - $2))
+    [ "$adi_off" -ge -5 ] && [ "$adi_off" -le 5 ] \
+        || bad "deadline $1 is ${adi_off}s off from now + $2s"
+}
+
+test_idle_state() {
+    begin "idle_state reports every idle-stop state from the idle files"
+    new_case idle-state
+    is_dead_pid=$(sh -c 'echo $$')
+
+    st=$(idle_state_of "$CASE/none" 3600)
+    [ "$(idle_field "$st" 1)" = none ] || bad "no idle.log: $st"
+    st=$(idle_state_of "$CASE/none" 0)
+    [ "$(idle_field "$st" 1)" = off ] && [ "$(idle_field "$st" 2)" = 0 ] || bad "secs 0: $st"
+
+    idle_line "$CASE/running" 30 "armed secs=3600 session=$$ watcher=1"
+    printf '%s.%s\n' "$(date +%s)" "$$" >"$CASE/running/idle"
+    st=$(idle_state_of "$CASE/running")
+    [ "$(idle_field "$st" 1)" = running ] || bad "a live session: $st"
+    [ "$(idle_field "$st" 2)" = 3600 ] || bad "the period comes from the armed line: $st"
+
+    idle_line "$CASE/counting" 900 "armed secs=3600 session=$is_dead_pid watcher=1"
+    idle_line "$CASE/counting" 600 "closed session=$is_dead_pid"
+    st=$(idle_state_of "$CASE/counting")
+    [ "$(idle_field "$st" 1)" = counting ] && [ "$(idle_field "$st" 4)" = false ] \
+        || bad "a closed session: $st"
+    assert_deadline_in "$(idle_field "$st" 3)" 3000
+    [ "$(idle_field "$st" 5)" = closed ] || bad "last event: $st"
+    assert_deadline_in "$(idle_field "$st" 6)" -600
+    # The watcher's own period (from --idle-stop, say) wins over the setting.
+    st=$(idle_state_of "$CASE/counting" 1800)
+    assert_deadline_in "$(idle_field "$st" 3)" 3000
+    [ "$(idle_field "$st" 2)" = 3600 ] || bad "the armed period was replaced: $st"
+    # Without an armed line the setting is the period.
+    idle_line "$CASE/no-armed" 600 "closed session=$is_dead_pid"
+    st=$(idle_state_of "$CASE/no-armed" 1800)
+    assert_deadline_in "$(idle_field "$st" 3)" 1200
+
+    idle_line "$CASE/estimated" 120 "armed secs=3600 session=$is_dead_pid watcher=1"
+    printf '%s.%s\n' "$(date +%s)" "$is_dead_pid" >"$CASE/estimated/idle"
+    st=$(idle_state_of "$CASE/estimated")
+    [ "$(idle_field "$st" 1)" = counting ] && [ "$(idle_field "$st" 4)" = true ] \
+        || bad "a dead session without closed is an estimate: $st"
+    assert_deadline_in "$(idle_field "$st" 3)" 3600
+
+    for is_case in stopped:stopped superseded:skipped busy:skipped \
+        stop-failed:failed scan-failed:failed; do
+        is_event=${is_case%%:*}
+        idle_line "$CASE/$is_event" 3700 "armed secs=60 session=$is_dead_pid watcher=1"
+        idle_line "$CASE/$is_event" 3600 "closed session=$is_dead_pid"
+        idle_line "$CASE/$is_event" 3540 "$is_event session=$is_dead_pid"
+        st=$(idle_state_of "$CASE/$is_event")
+        [ "$(idle_field "$st" 1)" = "${is_case#*:}" ] || bad "$is_event: $st"
+        [ "$(idle_field "$st" 3)" = - ] || bad "$is_event has a deadline: $st"
+        [ "$(idle_field "$st" 5)" = "$is_event" ] || bad "$is_event last event: $st"
+    done
+
+    begin "idle_state converts local log times to UTC in any time zone"
+    for is_tz in Asia/Yekaterinburg America/New_York UTC; do
+        rm -rf "$CASE/tz"
+        st=$(
+            TZ=$is_tz
+            export TZ
+            idle_line "$CASE/tz" 900 "armed secs=3600 session=$is_dead_pid watcher=1"
+            idle_line "$CASE/tz" 600 "closed session=$is_dead_pid"
+            idle_state_of "$CASE/tz"
+        )
+        case $(idle_field "$st" 3) in
+            *Z) ;;
+            *) bad "$is_tz: the deadline is not UTC: $st" ;;
+        esac
+        assert_deadline_in "$(idle_field "$st" 3)" 3000
+    done
+}
+
+test_osa_quick_idle() {
+    begin "osa status --quick reports the idle deadline without the gateway"
+    new_case osa-quick-idle
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    oqi_dead=$(sh -c 'echo $$')
+    idle_line "$(session_dir maki-myproject)" 900 "armed secs=3600 session=$oqi_dead watcher=1"
+    idle_line "$(session_dir maki-myproject)" 600 "closed session=$oqi_dead"
+    reset_log
+    run_osa status --quick --json
+    assert_rc 0
+    assert_json_array 1
+    assert_out_has '"idle":{"period":3600,"state":"counting","deadline":"'
+    oqi_deadline=$(sed -n 's/.*"idle":{[^}]*"deadline":"\([^"]*\)".*/\1/p' "$OUT")
+    assert_deadline_in "$oqi_deadline" 3000
+    if [ -s "$LOG" ]; then
+        bad "--quick contacted the gateway: $(tr '\n' ' ' <"$LOG")"
+    fi
+    run_osa status --quick
+    assert_rc 0
+    assert_out_has "Idle stop: counting down; stop due $oqi_deadline (period 3600s)"
+    [ ! -s "$LOG" ] || bad "--quick text contacted the gateway"
 }
 
 # ---------------------------------------------------------------------------
@@ -7436,7 +7576,7 @@ test_resolve_dispatch_refusals() {
     assert_out_has "resolve SANDBOX ACTION"
     run_osa up
     assert_rc 1
-    assert_err_has "projects, status, resolve, help"
+    assert_err_has "projects, status, health, resolve, help"
     run_osa resolve
     assert_rc 1
     run_osa resolve maki-x frobnicate
@@ -8015,6 +8155,242 @@ test_caller_invalid_mode() {
     return 0
 }
 
+# ---------------------------------------------------------------------------
+# Health (specs/osa-project-layer: "osa health reports a sandbox's health"):
+# each front-end's __health-json against its own doctor and mcp status text.
+# ---------------------------------------------------------------------------
+
+# Runs FRONT (maki, oc, cc, or cx) with its stub environment.
+run_front_any() { # FRONT ARGS...
+    rfa_front=$1
+    shift
+    case $rfa_front in
+        cx) run_cx "$@" ;;
+        *) run_front "$rfa_front" "$@" ;;
+    esac
+}
+
+# Renders a health JSON file's MCP section as `mcp status` gate and fix lines.
+health_mcp_text() { # FILE
+    jq -r '.mcp.servers[]
+        | "  \(.name): \([.gates[] | "\(.gate)=\(if .ok then "ok" else "missing" end)"] | join(" ")) transport=\(.transport)",
+          (.gates[] | select(.fix != null) | "    fix: \(.fix)")' "$1"
+}
+
+# Renders a health JSON file's doctor section as `doctor` check lines.
+health_doctor_text() { # FILE
+    jq -r '.doctor.checks[] | "\(.status)\u0001\(.name)\u0001\(.detail)"' "$1" \
+        | awk -F '\001' '{ printf "%-5s %s: %s\n", $1, $2, $3 }'
+}
+
+# Runs FRONT's mcp status, doctor, and __health-json in the current case and
+# fails unless the JSON reports the same gates, fixes, and checks.
+assert_health_matches() { # FRONT
+    run_front_any "$1" mcp status
+    grep '^  ' "$OUT" >"$CASE/expected-mcp" || :
+    run_front_any "$1" doctor
+    grep -E '^(ok|fail|skip|warn) ' "$OUT" >"$CASE/expected-doctor" || :
+    run_front_any "$1" __health-json
+    assert_rc 0
+    cp "$OUT" "$CASE/health.json"
+    jq -e 'type == "object"' "$CASE/health.json" >/dev/null 2>&1 \
+        || { bad "$1 __health-json is not one JSON object: $(cat "$CASE/health.json")"; return 0; }
+    health_mcp_text "$CASE/health.json" >"$CASE/got-mcp"
+    cmp -s "$CASE/expected-mcp" "$CASE/got-mcp" \
+        || bad "$1 MCP gates differ from mcp status: $(diff "$CASE/expected-mcp" "$CASE/got-mcp" | tr '\n' ' ')"
+    health_doctor_text "$CASE/health.json" >"$CASE/got-doctor"
+    cmp -s "$CASE/expected-doctor" "$CASE/got-doctor" \
+        || bad "$1 doctor checks differ from doctor: $(diff "$CASE/expected-doctor" "$CASE/got-doctor" | tr '\n' ' ')"
+    [ -s "$CASE/got-doctor" ] || bad "$1 reported no doctor checks"
+}
+
+health_value() { # JQ
+    jq -r "$1" "$CASE/health.json"
+}
+
+test_health_json_maki() {
+    begin "maki-oss __health-json matches its mcp status and doctor"
+    command -v jq >/dev/null 2>&1 || { skipped "jq not found"; return 0; }
+    new_case health-maki
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_host_mcp stdio
+    attach_stub_provider maki-myproject mcp-context7
+    seed_exec_stdio 1
+    POLICY_FULL='host: mcp.context7.com'
+    assert_health_matches maki
+    [ "$(health_value '.sandbox + " " + .agent')" = "maki-myproject mk" ] \
+        || bad "sandbox and agent: $(health_value '.sandbox + " " + .agent')"
+    [ "$(health_value '.mcp.supported')" = true ] && [ "$(health_value '.mcp.ok')" = false ] \
+        || bad "a failing gate is not reported: $(health_value '.mcp')"
+    health_value '.mcp.servers[] | select(.name == "synthetic") | .gates[] | select(.gate == "runtime") | .fix' \
+        | grep -q "provides the runtime 'bun'" || bad "the runtime gate carries no fix"
+    [ "$(health_value '.doctor.checks[] | select(.name == "image") | .status')" = ok ] \
+        || bad "no image check: $(health_value '.doctor')"
+    # The suite runs with MAKI_OSS_IDLE_STOP=0.
+    [ "$(health_value '.idle.state + " " + (.idle.period | tostring)')" = "off 0" ] \
+        || bad "idle: $(health_value '.idle')"
+    assert_log_line_missing start
+    # shellcheck disable=SC2016  # the literal ${VAR} placeholder text is the assertion
+    assert_secret_absent '${SYNTHETIC_API_KEY}'
+
+    begin "maki-oss __health-json reports a missing image the way doctor does"
+    # The stub engine fails every call, so `image inspect` finds nothing.
+    STUB_ENGINE_EXIT=1
+    export STUB_ENGINE_EXIT
+    assert_health_matches maki
+    unset STUB_ENGINE_EXIT
+    health_value '.doctor.checks[] | select(.name == "image") | .status + " " + .detail' \
+        | grep -q '^fail maki-agent:local not found (build it: maki-oss image build)$' \
+        || bad "image check: $(health_value '.doctor.checks[] | select(.name == "image")')"
+    [ "$(health_value '.doctor.ok')" = false ] || bad "doctor.ok with a missing image"
+}
+
+test_health_json_front_ends() {
+    begin "opencode-oss __health-json matches its mcp status and doctor"
+    command -v jq >/dev/null 2>&1 || { skipped "jq not found"; return 0; }
+    oc_case health-oc
+    oc_ready_project
+    seed_oc_host_mcp "$OC_HOST_MCP"
+    EXEC_STDOUT=$(cat "$ROOT/opencode-oss/image/config/opencode.json")
+    assert_health_matches oc
+    [ "$(health_value '.agent')" = oc ] || bad "agent: $(health_value '.agent')"
+    [ "$(health_value '.doctor.checks[] | select(.name == "model") | .status')" = warn ] \
+        || bad "the model warning is missing: $(health_value '.doctor')"
+
+    begin "opencode-oss __health-json reports MCP as an error without jq"
+    PATH_OVERRIDE=$(no_jq_path)
+    run_oc __health-json
+    PATH_OVERRIDE=
+    assert_rc 0
+    cp "$OUT" "$CASE/health.json"
+    health_value '.mcp.error' | grep -q 'needs jq' || bad "MCP without jq: $(cat "$OUT")"
+    [ "$(health_value '.doctor.checks | length > 0')" = true ] || bad "doctor missing without jq"
+
+    begin "claude-oss __health-json matches its mcp status and doctor"
+    cc_case health-cc
+    cc_ready_project
+    seed_cc_host_mcp "$CC_HOST_MCP"
+    EXEC_STDOUT=$(cat "$ROOT/claude-oss/image/claude.json")
+    assert_health_matches cc
+    [ "$(health_value '.agent')" = cc ] || bad "agent: $(health_value '.agent')"
+
+    begin "codex-oss __health-json matches its mcp status and doctor"
+    cx_case health-cx
+    cx_ready_project
+    seed_cx_host_mcp "$CX_HOST_MCP"
+    EXEC_STDOUT='model = "x"'
+    assert_health_matches cx
+    [ "$(health_value '.agent')" = cx ] || bad "agent: $(health_value '.agent')"
+}
+
+test_health_json_stopped() {
+    begin "__health-json reports a stopped sandbox's MCP as an error and starts nothing"
+    command -v jq >/dev/null 2>&1 || { skipped "jq not found"; return 0; }
+    new_case health-stopped
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Stopped
+    seed_host_mcp
+    reset_log
+    run_maki __health-json
+    assert_rc 0
+    cp "$OUT" "$CASE/health.json"
+    health_value '.mcp.error' | grep -q 'not running' || bad "MCP error: $(health_value '.mcp')"
+    [ "$(health_value '.mcp.servers | length')" = 0 ] || bad "a stopped sandbox reported servers"
+    [ "$(health_value '.doctor.checks | length > 0')" = true ] || bad "doctor missing"
+    for hs_verb in start exec create; do
+        assert_log_line_missing "$hs_verb"
+    done
+    phase=$(cat "$STUB_STATE_DIR/sandboxes/maki-myproject")
+    [ "$phase" = Stopped ] || bad "the sandbox phase changed to $phase"
+}
+
+test_osa_health() {
+    begin "osa health reports a registered sandbox through its front-end"
+    command -v jq >/dev/null 2>&1 || { skipped "jq not found"; return 0; }
+    new_case osa-health
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_maki_store anthropic 'fixture-health-secret-5c1e'
+    seed_remembered_provider maki-stub
+    run_maki up
+    assert_rc 0
+    attach_stub_provider maki-myproject maki-stub
+    seed_host_mcp
+    EXEC_STDOUT=$(sandbox_mcp_fixture)
+    POLICY_FULL='host: mcp.context7.com'
+    oh_dead=$(sh -c 'echo $$')
+    idle_line "$(session_dir maki-myproject)" 900 "armed secs=3600 session=$oh_dead watcher=1"
+    idle_line "$(session_dir maki-myproject)" 600 "closed session=$oh_dead"
+    ENV_IDLE_STOP=1h
+
+    RUN_DIR=$CASE
+    run_osa health maki-myproject --json
+    assert_rc 0
+    cp "$OUT" "$CASE/health.json"
+    [ "$(health_value '.sandbox + " " + .agent')" = "maki-myproject mk" ] \
+        || bad "sandbox and agent: $(cat "$OUT")"
+    [ "$(health_value '.idle.state + " " + (.idle.period | tostring)')" = "counting 3600" ] \
+        || bad "idle: $(health_value '.idle')"
+    [ "$(health_value '.mcp.servers[0].gates[] | select(.gate == "provider") | .fix')" = \
+        "maki-oss provider attach mcp-context7" ] || bad "MCP: $(health_value '.mcp')"
+    [ "$(health_value '.doctor.checks[] | select(.name == "gateway") | .status')" = ok ] \
+        || bad "doctor: $(health_value '.doctor')"
+    assert_secret_absent 'fixture-health-secret-5c1e'
+
+    run_osa health maki-myproject
+    assert_rc 0
+    assert_out_has "Health of sandbox 'maki-myproject' (mk):"
+    assert_out_has "Idle stop: counting down; stop due "
+    assert_out_has "context7: sandbox=ok provider=missing endpoint=ok transport=http"
+    assert_out_has "fix: maki-oss provider attach mcp-context7"
+    assert_out_has "ok    gateway: connected"
+    assert_secret_absent 'fixture-health-secret-5c1e'
+
+    begin "osa health reports MCP and the gateway check as failed when the gateway is down"
+    GATEWAY_DOWN=1
+    run_osa health maki-myproject --json
+    GATEWAY_DOWN=
+    assert_rc 0
+    cp "$OUT" "$CASE/health.json"
+    health_value '.mcp.error' | grep -q 'gateway' || bad "MCP error: $(health_value '.mcp')"
+    [ "$(health_value '.doctor.checks[] | select(.name == "gateway") | .status')" = fail ] \
+        || bad "doctor gateway: $(health_value '.doctor')"
+    [ "$(health_value '.idle.state')" = counting ] || bad "idle without the gateway: $(health_value '.idle')"
+    assert_secret_absent 'fixture-health-secret-5c1e'
+
+    begin "osa health refuses an unregistered sandbox as a usage error"
+    reset_log
+    run_osa health mk-nowhere-0000 --json
+    assert_rc 1
+    assert_err_has "not registered"
+    [ ! -s "$OUT" ] || bad "stdout for an unregistered sandbox: $(cat "$OUT")"
+    [ ! -s "$LOG" ] || bad "an unregistered sandbox contacted the gateway"
+    run_osa health
+    assert_rc 1
+    assert_err_has "usage: osa health SANDBOX"
+
+    begin "osa health reports only idle stop for an orphan"
+    seed_registry_entry mk-ghost-0000 mk "$CASE/project/gone"
+    oh_ghost=$(state_root)/sessions/mk-ghost-0000
+    idle_line "$oh_ghost" 7200 "armed secs=60 session=$oh_dead watcher=1"
+    idle_line "$oh_ghost" 7100 "stopped session=$oh_dead"
+    reset_log
+    run_osa health mk-ghost-0000 --json
+    assert_rc 0
+    cp "$OUT" "$CASE/health.json"
+    [ "$(health_value '.idle.state')" = stopped ] || bad "orphan idle: $(cat "$OUT")"
+    [ "$(health_value '.mcp.error + "|" + .doctor.error')" = "project folder missing|project folder missing" ] \
+        || bad "orphan sections: $(cat "$OUT")"
+    [ ! -s "$LOG" ] || bad "an orphan's health contacted the gateway"
+    run_osa health mk-ghost-0000
+    assert_rc 0
+    assert_out_has "Idle stop: stopped at "
+    assert_out_has "error: project folder missing"
+}
+
 run_test test_flat_get_helper
 run_test test_shared_state_root
 run_test test_old_state_root_ignored
@@ -8029,6 +8405,12 @@ run_test test_osa_projects
 run_test test_osa_status_quick
 run_test test_osa_status_full
 run_test test_osa_read_only
+run_test test_idle_state
+run_test test_osa_quick_idle
+run_test test_health_json_maki
+run_test test_health_json_front_ends
+run_test test_health_json_stopped
+run_test test_osa_health
 run_test test_resolve_fixtures
 run_test test_resolve_dispatch_refusals
 run_test test_resolve_wrong_kind

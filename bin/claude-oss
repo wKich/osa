@@ -152,6 +152,7 @@ OSS_AGENT_TAG=cc                         # registry agent tag and default name p
 OSS_HOST_MCP_CONFIG=${CLAUDE_CONFIG_DIR:-${HOME:-/tmp}}/.claude.json
 OSS_SANDBOX_MCP_CONFIG=/sandbox/.claude.json
 OSS_MCP_PROVIDER_PREFIX=claude-mcp-      # provider name for server <name>
+OSS_MCP_REQUIRES_JQ=1                   # mcp status and health read JSON with jq
 OSS_MCP_FIX_IMAGE='an environment image built FROM claude-agent:local'
 OSS_MCP_FIX_DOC=docs/ai/reference/claude.md
 
@@ -308,24 +309,18 @@ cc_doctor_precedence() {
         *"\"$CC_TOKEN_PROVIDER\""*) ;;
         *) return 0 ;;
     esac
-    say "warn  credentials: $CC_KEY_PROVIDER and $CC_TOKEN_PROVIDER are both attached to '$cc_name'; Claude Code uses the API key ($CC_KEY_PROVIDER), not the subscription; detach one: openshell sandbox provider detach $cc_name <provider>"
+    doctor_check warn "credentials" "$CC_KEY_PROVIDER and $CC_TOKEN_PROVIDER are both attached to '$cc_name'; Claude Code uses the API key ($CC_KEY_PROVIDER), not the subscription; detach one: openshell sandbox provider detach $cc_name <provider>"
 }
 
 agent_doctor_extra() {
     doctor_model=$(resolved_model)
     if [ -n "$doctor_model" ]; then
-        say "ok    model: $doctor_model"
+        doctor_check ok "model" "$doctor_model"
     else
-        say "ok    model: Claude Code's default"
+        doctor_check ok "model" "Claude Code's default"
     fi
     cc_doctor_precedence
 
-    if [ "$have_jq" -eq 0 ]; then
-        say ""
-        say "MCP readiness (informational):"
-        say "  skipped: jq not found"
-        return 0
-    fi
     doctor_mcp_section
 }
 

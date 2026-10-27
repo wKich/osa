@@ -13,18 +13,23 @@
 //   - mutating routes require the session token in `X-Dashboard-Token`, which
 //     also blocks cross-site form posts;
 //   - the log stream requires the same token as a `token` query parameter
-//     (EventSource cannot send headers), in read-only mode too;
+//     (EventSource cannot send headers), in read-only mode too; the denials
+//     route, which also carries log content, requires it in
+//     `X-Dashboard-Token`, in read-only mode too;
 //   - `--read-only` rejects every mutating route with 403;
 //   - project routes are GET only and never write: the list reads the osa
-//     state contract, status runs `osa status … --json`, and the patch route
+//     state contract, status runs `osa status … --json`, health runs
+//     `osa health SANDBOX --json` on request only, and the patch route
 //     (host source code) requires the session token in both modes;
 //   - the one project write is POST /api/projects/:sandbox/resolve, behind the
 //     same mutation guard, which runs exactly one `osa resolve` for a
 //     registered sandbox with a fixed argv.
 
 import { loadConfig, type DashboardConfig } from "./config.ts";
+import { DenialCache, matchDenials, scanDenials } from "./egress.ts";
 import { LogHub } from "./logs.ts";
 import {
+  isLogWindow,
   OpenShellClient,
   type OpenShellClientOptions,
   type OpenShellError,
@@ -200,6 +205,7 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
   const hubs = new Map<string, LogHub>();
   const modules = moduleAllowlist();
   const projects = options.projects ?? new ProjectService(options.projectOptions);
+  const denials = new DenialCache();
 
   // Host names this server answers to. Port 0 binds resolve to `listenPort`
   // once Bun.serve has returned.
@@ -290,7 +296,7 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
     return json(reply.body, status);
   };
 
-  // GET /api/projects, /api/projects/:sandbox/status, /api/projects/:sandbox/patch
+  // GET /api/projects, /api/projects/:sandbox/status|health|patch
   const handleProjects = async (request: Request, segments: string[]): Promise<Response> => {
     if (segments.length === 4 && segments[3] === "resolve") {
       return handleResolve(request, segments[2] ?? "");
@@ -307,6 +313,9 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
     const sandbox = segments[2] ?? "";
     if (segments.length === 4 && segments[3] === "status") {
       return serviceResponse(await projects.status(sandbox), (status) => ({ status }));
+    }
+    if (segments.length === 4 && segments[3] === "health") {
+      return serviceResponse(await projects.health(sandbox), (health) => ({ health }));
     }
     if (segments.length === 4 && segments[3] === "patch") {
       // A patch carries host source code: token required, read-only mode too.
@@ -342,7 +351,11 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
       if (method === "GET") {
         const result = await client.listSandboxes();
         if (!result.ok) return errorResponse(result.error);
-        return json({ sandboxes: result.value });
+        // The denied badge comes from the last denials read only; listing
+        // never reads logs.
+        return json({
+          sandboxes: result.value.map((sandbox) => ({ ...sandbox, denials: denials.badge(sandbox.name) })),
+        });
       }
       if (method === "POST") {
         const denied = guardMutation(request);
@@ -410,6 +423,33 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
       const result = await client.rules(name, status);
       if (!result.ok) return errorResponse(result.error);
       return json({ rules: result.value });
+    }
+
+    // GET /api/sandboxes/:name/denials?window=15m|1h|6h&refresh=1
+    if (segments.length === 4 && segments[3] === "denials" && method === "GET") {
+      // Log content: token required, read-only mode too, before any CLI call.
+      if (!hasToken(request)) return forbidden("forbidden", "missing or invalid session token");
+      const params = new URL(request.url).searchParams;
+      const window = params.get("window") ?? "1h";
+      if (!isLogWindow(window)) {
+        return errorResponse(
+          { kind: "invalid_request", message: "window must be one of 15m, 1h, 6h" },
+          400,
+        );
+      }
+      let scan = params.get("refresh") === "1" ? null : denials.get(name, window, Date.now());
+      if (!scan) {
+        const logs = await client.recentLogs(name, window);
+        if (!logs.ok) return errorResponse(logs.error);
+        scan = scanDenials(window, logs.value, Date.now());
+        denials.put(name, scan);
+      }
+      // Proposals are matched fresh every time, so a decision shows at once.
+      const proposals = await client.rules(name, "pending");
+      if (!proposals.ok) return errorResponse(proposals.error);
+      const matched = matchDenials(scan, proposals.value);
+      denials.recordBadge(name, matched);
+      return json({ denials: matched });
     }
 
     // POST /api/sandboxes/:name/start|stop|delete

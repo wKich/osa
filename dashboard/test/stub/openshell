@@ -25,6 +25,10 @@
 #   STUB_LOG_LINES     number of lines emitted by `logs --tail` (default 3)
 #   STUB_LOG_INTERVAL  seconds between emitted log lines (default 0.05)
 #   STUB_LOG_KEEPALIVE "1" (default) keeps streaming after the lines
+#   STUB_LOGS_FAIL     "1": a one-shot `logs` read (no --tail) fails as an
+#                      unreachable gateway; every other command still works
+#   STUB_LOGS_FILE     file printed by a one-shot `logs` read instead of the
+#                      built-in denial fixture
 #   STUB_VERSION       version string reported by `version`
 
 set -eu
@@ -401,6 +405,42 @@ case $command_name in
         esac
         ;;
     logs)
+        # `logs NAME --since W --source sandbox -n N` is the one-shot read the
+        # egress view uses: it prints the denial fixture and exits. Only
+        # `--tail` streams.
+        tail=0
+        for arg in "$@"; do
+            [ "$arg" = --tail ] && tail=1
+        done
+        if [ "$tail" -eq 0 ]; then
+            if [ "${STUB_LOGS_FAIL:-}" = 1 ]; then
+                printf 'stub: gateway unreachable\n' >&2
+                exit 1
+            fi
+            if [ -n "${STUB_LOGS_FILE:-}" ]; then
+                cat "$STUB_LOGS_FILE"
+                exit 0
+            fi
+            esc=$(printf '\033')
+            # Real shapes from docs/verification-log.md, the upstream
+            # `[policy:- engine:opa]` shape, IPv6, non-denials, an unknown
+            # layout, ANSI color, and a host carrying markup.
+            cat <<FIXTURE
+[1759622400.100] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED /usr/bin/curl(64) -> example.com:443 [reason:transparent_tcp_policy_denied]
+[1759622400.200] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED /usr/bin/curl(64) -> example.com:443 [reason:transparent_tcp_policy_denied]
+[1759622400.250] [sandbox] [OCSF ] [ocsf] CONFIG:OBSERVATION [INFO] Policy DNS staged unapproved name example.com synthetic=198.18.0.2 for TCP policy review
+[1759622400.300] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED /usr/bin/curl(64) -> example.com:443 [reason:transparent_tcp_policy_denied]
+[1759622400.400] [sandbox] [OCSF ] [ocsf] NET:REFUSE [MED] DENIED example.com [reason:policy_dns_ineligible]
+[1759622400.500] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED /usr/bin/curl(58) -> api.example.com:443 [policy:- engine:opa]
+[1759622400.600] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED /usr/bin/curl(70) -> [2001:db8::1]:8443 [reason:transparent_tcp_policy_denied]
+[1759622400.650] [sandbox] [OCSF ] [ocsf] NET:OPEN [INFO] ALLOWED /usr/bin/curl(71) -> base.example.com:443 [policy:stub_base_rule engine:opa]
+[1759622400.700] [sandbox] [OCSF ] [ocsf] HTTP:GET [MED] DENIED GET https://api.example.com/v1/secret [policy:- engine:l7]
+[1759622400.750] [sandbox] [INFO ] [supervisor] DENIED is only a word in this line
+${esc}[33m[1759622400.800] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED${esc}[0m /usr/bin/git(80) -> github.com:443 [reason:transparent_tcp_policy_denied]
+[1759622400.900] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED /usr/bin/curl(81) -> <img src=x onerror=alert(1)>:443 [reason:transparent_tcp_policy_denied]
+FIXTURE
+            exit 0
+        fi
         # Browser/SSE lifecycle checks observe the kill marker file: the
         # server must SIGTERM this child when the last client disconnects.
         if [ -n "$state" ]; then

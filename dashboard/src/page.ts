@@ -79,6 +79,14 @@ export function renderPage(options: PageOptions): string {
   .badge { display: inline-block; border: 1px solid currentColor; padding: 0 .35rem; margin-right: .3rem; font-size: .85em; }
   .badge-retained, .badge-parked { color: #b45309; }
   .badge-orphan { color: #c44; }
+  .badge-denied { color: #c44; }
+  .badge-denied-none { opacity: .65; }
+  h4 { font-size: .85rem; margin: .6rem 0 .2rem; }
+  .denials-row > td { padding-left: 2rem; }
+  .idle-counting { color: #b45309; }
+  .health-row > td { padding-left: 1.5rem; }
+  .health-section { margin: .4rem 0; }
+  pre.unparsed { max-height: 10rem; overflow: auto; border: 1px solid rgba(128, 128, 128, .4); padding: .4rem; }
   .full-status { margin-top: .3rem; }
   .resolve-outcome { margin-top: .3rem; }
   .resolve-outcome ul { margin: .2rem 0; padding-left: 1.2rem; }

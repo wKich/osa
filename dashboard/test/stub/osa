@@ -2,11 +2,20 @@
 // Stub osa CLI for the dashboard test suite.
 //
 // Answers `status PATH --quick --json` and `status PATH --json` from a JSON
-// fixture keyed by host path, and `resolve SANDBOX ACTION --json [--yes]` from
-// its `resolve` key, by sandbox and action:
+// fixture keyed by host path, `health SANDBOX --json` from its `health` key
+// (else the built-in HEALTH_FIXTURES below), and `resolve SANDBOX ACTION
+// --json [--yes]` from its `resolve` key, by sandbox and action:
 //
 //   {
 //     "/abs/path": { "quick": [ ...entries ], "full": [ ...entries ] },
+//     "health": {
+//       "SANDBOX": {
+//         "report": { ... },    // the health object printed (default: built in)
+//         "exit": 0,            // exit code (default 0)
+//         "stderr": "...",      // written to stderr
+//         "delay": 0.5          // seconds to wait before answering
+//       }
+//     },
 //     "resolve": {
 //       "SANDBOX": {
 //         "ACTION": {
@@ -23,9 +32,11 @@
 //   }
 //
 // A path missing from the fixture (or a missing mode) answers `[]`, like osa
-// for an unregistered path; a quick entry reports `busy` when the fixture
-// says so. A resolve with no answer is refused with exit 2. Every other
-// command is a usage error.
+// for an unregistered path; a quick entry reports `busy` and `idle` as the
+// fixture gives them, and `idle` is `{"state": "none", ...}` when it gives
+// none. A health request for a sandbox with no answer is a usage error
+// (exit 1), like osa for an unregistered sandbox. A resolve with no answer
+// is refused with exit 2. Every other command is a usage error.
 //
 // Environment knobs:
 //   STUB_OSA_FIXTURE  JSON fixture file (default: none, every answer is [])
@@ -54,13 +65,109 @@ switch (env.STUB_OSA_FAIL) {
     process.exit(0);
 }
 
+/** An idle section; `state` and `deadline` vary, the rest is filled in. */
+function idle(state: string, deadline: string | null = null, period: number | null = 3600) {
+  return { period, state, deadline, estimated: false, last_event: null, last_time: null };
+}
+
+const OK_DOCTOR = {
+  ok: true,
+  error: null,
+  checks: [
+    { name: "openshell CLI", status: "ok", detail: "/usr/local/bin/openshell" },
+    { name: "gateway", status: "ok", detail: "connected" },
+    { name: "image", status: "ok", detail: "maki-agent:local present" },
+  ],
+};
+
+const OK_MCP = {
+  supported: true,
+  ok: true,
+  error: null,
+  servers: [
+    {
+      name: "context7",
+      transport: "http",
+      gates: [
+        { gate: "sandbox", ok: true, fix: null },
+        { gate: "provider", ok: true, fix: null },
+        { gate: "endpoint", ok: true, fix: null },
+      ],
+    },
+  ],
+};
+
+/**
+ * Built-in `osa health SANDBOX --json` answers, by sandbox name: every
+ * section ok, a failing MCP gate, unsupported MCP, a partial error (gateway
+ * down), and markup in a doctor detail.
+ */
+const HEALTH_FIXTURES: Record<string, unknown> = {
+  "health-ok": { sandbox: "health-ok", agent: "mk", idle: idle("running"), mcp: OK_MCP, doctor: OK_DOCTOR },
+  "health-mcp-fail": {
+    sandbox: "health-mcp-fail",
+    agent: "mk",
+    idle: idle("off", null, 0),
+    mcp: {
+      supported: true,
+      ok: false,
+      error: null,
+      servers: [
+        {
+          name: "context7",
+          transport: "http",
+          gates: [
+            { gate: "sandbox", ok: true, fix: null },
+            { gate: "provider", ok: false, fix: "maki-oss provider attach mcp-context7" },
+            { gate: "endpoint", ok: true, fix: null },
+          ],
+        },
+      ],
+    },
+    doctor: OK_DOCTOR,
+  },
+  "health-unsupported": {
+    sandbox: "health-unsupported",
+    agent: "oc",
+    idle: idle("stopped"),
+    mcp: { supported: false, ok: null, error: null, servers: [] },
+    doctor: OK_DOCTOR,
+  },
+  "health-partial": {
+    sandbox: "health-partial",
+    agent: "mk",
+    idle: idle("counting", "2026-10-27T12:00:00Z"),
+    mcp: { supported: true, ok: false, error: "cannot reach the gateway; try 'maki-oss doctor'", servers: [] },
+    doctor: {
+      ok: false,
+      error: null,
+      checks: [
+        { name: "openshell CLI", status: "ok", detail: "/usr/local/bin/openshell" },
+        { name: "gateway", status: "fail", detail: "unreachable (openshell status failed)" },
+      ],
+    },
+  },
+  "health-markup": {
+    sandbox: "health-markup",
+    agent: "mk",
+    idle: idle("none", null, null),
+    mcp: OK_MCP,
+    doctor: {
+      ok: false,
+      error: null,
+      checks: [{ name: "policy file", status: "fail", detail: "<img src=x onerror=alert(1)> not found" }],
+    },
+  },
+};
+
 const quick = args[0] === "status" && args.length === 4 && args[2] === "--quick" && args[3] === "--json";
+const health = args[0] === "health" && args.length === 3 && args[2] === "--json";
 const full = args[0] === "status" && args.length === 3 && args[2] === "--json";
 const resolve =
   args[0] === "resolve" &&
   args[3] === "--json" &&
   (args.length === 4 || (args.length === 5 && args[4] === "--yes"));
-if (!(quick || full || resolve)) {
+if (!(quick || full || health || resolve)) {
   process.stderr.write(`stub osa: unsupported argv: ${args.join(" ")}\n`);
   process.exit(1);
 }
@@ -72,6 +179,20 @@ const fixture =
   env.STUB_OSA_FIXTURE && existsSync(env.STUB_OSA_FIXTURE)
     ? JSON.parse(readFileSync(env.STUB_OSA_FIXTURE, "utf8"))
     : {};
+
+if (health) {
+  const sandbox = args[1]!;
+  const answer = fixture.health?.[sandbox] ?? {};
+  const report = answer.report ?? HEALTH_FIXTURES[sandbox];
+  if (answer.delay) await Bun.sleep(answer.delay * 1000);
+  if (answer.stderr) process.stderr.write(`${answer.stderr}\n`);
+  if (!report && answer.exit === undefined) {
+    process.stderr.write(`osa: sandbox '${sandbox}' is not registered; run 'osa projects' to list sandboxes\n`);
+    process.exit(1);
+  }
+  if (report) process.stdout.write(`${JSON.stringify(report)}\n`);
+  process.exit(answer.exit ?? 0);
+}
 
 if (resolve) {
   const [, sandbox, action] = args as [string, string, string];
@@ -95,4 +216,7 @@ if (resolve) {
 }
 
 const answer = fixture[args[1]!]?.[quick ? "quick" : "full"] ?? [];
-process.stdout.write(`${JSON.stringify(answer)}\n`);
+const entries = quick
+  ? answer.map((entry: Record<string, unknown>) => ({ idle: idle("none", null, null), ...entry }))
+  : answer;
+process.stdout.write(`${JSON.stringify(entries)}\n`);

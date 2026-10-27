@@ -57,12 +57,44 @@ Each row shows:
 - **Status**: **Check (contacts gateway)** runs `osa status PATH --json` (30 s
   timeout) and shows the sync state (`clean`, `behind`, `retained`, `parked`),
   phase, and the next command the front-end suggests.
+- **Idle stop**: the idle-stop state from the same cached quick status
+  (`idle` in `osa status --quick --json`). While it is `counting`, the cell
+  shows the time left (for example `stops in 4m 59s`), updated every second in
+  the browser without a request; once the deadline passes it reads
+  `stop due` until the next quick status reports the new state. Hovering
+  shows the absolute deadline (UTC), which matters when the browser's clock
+  is not the dashboard host's. Other states read `off`, `no session`,
+  `session running`, `stopped`, `skipped`, or `stop failed`.
+- **Health** opens the Health panel under the row (see below).
 - **Review patch** (retained patches only): the patch text, never editable,
   with added and removed lines marked, truncated at 2 MiB with a notice.
 
 The header's attention counter shows how many projects have a retained patch,
 a parked workspace, or a missing folder; it is visible from every view and
 opens Projects.
+
+### Health panel
+
+**Health** on a project row, or on the detail view of a sandbox that is in
+the registry, runs `osa health SANDBOX --json` (30 s timeout) and shows:
+
+- **Idle stop**: the state, the deadline (marked when estimated), the period,
+  and the last idle event;
+- **MCP readiness**: each server and gate with pass or fail and the fix text
+  `mcp status` prints; `unsupported` for a front-end without `mcp status`
+  (not a failure);
+- **Doctor**: each check with its status and detail.
+
+`osa health` runs only when the panel opens or **Refresh health** is pressed,
+never on a poll tick, and results are not cached on the server. A section that
+reports an error (for example MCP while the gateway is unreachable, or a
+stopped sandbox) shows the error text while the other sections stay visible.
+The panel only reads: it has no control that changes configuration,
+providers, or the sandbox, and every value reaches the page as text.
+
+The header status line (CLI and gateway) adds a link, "doctor checks fail for
+SANDBOX", when the last opened panel of a project had a failing doctor check;
+it opens that panel with its last result and never runs `osa health` itself.
 
 ### Resolve actions
 
@@ -85,6 +117,46 @@ changed (files, branch, rescue folder), "nothing changed" with `osa`'s message
 when it refused, or the error text when it failed. The project's rows are
 re-read at once, so a cleared `retained` or `parked` badge disappears without
 waiting for the next poll. In read-only mode none of these controls exist.
+
+## Rules view and egress denials
+
+Egress is deny-by-default, so a sandbox's network denials are the evidence
+behind a rule proposal. The **Rules** view of a sandbox lists its pending
+proposals and, under each one, the denials that proposal would allow; denials
+that match no pending proposal are listed under **Denied, no proposal**.
+
+- **Source.** One bounded read per refresh:
+  `openshell logs NAME --since WINDOW --source sandbox -n 5000` (20 s timeout).
+  The dashboard parses the OCSF shorthand denial lines,
+  `… [OCSF ] [ocsf] NET:… [SEV] DENIED <binary>(<pid>) -> <host>:<port> [reason:…]`
+  and `… DENIED <host> [reason:…]`, and ignores every other line.
+- **Window.** Last 15 minutes, last hour (default), or last 6 hours, picked in
+  the view. The window is a fixed choice; no free text reaches the CLI.
+- **Groups.** Denials are grouped by destination host, port (absent for a
+  DNS-stage refusal), and binary, each with a count, first and last time seen,
+  and the distinct `reason` values.
+- **Matching.** A group matches a proposal when its host equals one of the
+  proposal's endpoint hosts (case-insensitive), its port is absent or equal to
+  that endpoint's port, and, when both name binaries, its binary is one of the
+  proposal's. One group can match several proposals.
+- **When it reads.** Only when the Rules view opens, the window changes, or
+  **Refresh denials** is pressed; never on a poll tick. A read is reused for the
+  same sandbox and window for 30 seconds; **Refresh denials** bypasses that.
+  Proposals are matched fresh on every request, so an approval or rejection
+  moves its denials at once.
+- **Badges.** The inventory row and the project row show **N denied**, the
+  number of groups with no pending proposal from the last read, with its age.
+  They show nothing until a read has happened; a badge never triggers one.
+- **Limits and errors.** A read that returns 5000 lines says so, since older
+  denials in the window were cut. A `DENIED` OCSF line in a layout the parser
+  does not know (including non-`NET:` classes such as L7 `HTTP:` events) is
+  counted as unparsed and up to five are shown raw, so a format change shows up
+  instead of an empty view. A failed read shows the CLI's error text; the
+  proposals stay listed.
+
+The denial section has no control that writes policy: approving or rejecting
+stays on the proposals, and a denial with no proposal is not turned into a
+rule from the browser.
 
 ## Scripts
 
@@ -139,13 +211,15 @@ needs `token=` as it already does):
 |---|---|
 | `GET /` | Page shell with the session bootstrap. Off loopback: `GET /?token=T` |
 | `GET /api/doctor` | CLI presence, gateway reachability, read-only state |
-| `GET /api/sandboxes` | Sandbox inventory (`name`, `phase`, labels, notes) |
+| `GET /api/sandboxes` | Sandbox inventory (`name`, `phase`, labels, notes, and `denials`: `{unmatched, window, readAt}` from the last denials read, or `null`) |
 | `GET /api/sandboxes/:name` | Detail: policy source/revision, providers, revision list |
 | `GET /api/sandboxes/:name/policy?view=base\|full` | Base or effective policy |
 | `GET /api/sandboxes/:name/rules?status=pending` | Rule proposals parsed from `rule get` |
+| `GET /api/sandboxes/:name/denials?window=15m\|1h\|6h[&refresh=1]` | `{denials: {window, capped, unparsed, unparsedSamples, readAt, groups: [{host, port, binary, count, firstSeen, lastSeen, reasons, matches}]}}`, `matches` holding the chunk ids of the pending proposals each group matches. Requires `X-Dashboard-Token`, in read-only mode too. 400 for another window; cached 30 s per sandbox and window unless `refresh=1` |
 | `GET /events/logs?name=:name&token=:token` | SSE log stream (ring-buffer replay, heartbeat comments). Requires the page's session token |
-| `GET /api/projects[?refresh=1][&path=P]` | Registry entries with `pending`, `orphan`, `note`, `fingerprintResult`, `checkedAt`, `busy`, and per-row `osaError`; `refresh=1` drops the host-change cache. With `path`, only the rows registered at host path `P`, and only that path is checked or dropped |
+| `GET /api/projects[?refresh=1][&path=P]` | Registry entries with `pending`, `orphan`, `note`, `fingerprintResult`, `checkedAt`, `busy`, `idle` (from the cached quick status, or `null`), and per-row `osaError`; `refresh=1` drops the host-change cache. With `path`, only the rows registered at host path `P`, and only that path is checked or dropped |
 | `GET /api/projects/:sandbox/status` | `osa status <host_path> --json`, narrowed to that sandbox; 404 for a sandbox not in the registry |
+| `GET /api/projects/:sandbox/health` | `{health}`: `osa health <sandbox> --json` (idle stop, MCP readiness, doctor checks); 404 for a sandbox not in the registry, 504 after 30 s. Not cached |
 | `GET /api/projects/:sandbox/patch` | The retained patch `{name, size, truncated, text}`. Requires `X-Dashboard-Token`, in read-only mode too |
 
 Project routes accept GET only, except the resolve route below, which accepts
@@ -193,6 +267,9 @@ The dashboard is a local operator tool, not a hardened service. What it does:
   as a `token` query parameter (the browser's `EventSource` cannot send
   headers) and returns 403 without spawning a log process. Read-only mode
   still requires it, but continues to reject every mutation.
+- **Denials require the token too.** Denial groups carry log content (host
+  names, binary paths), so `GET /api/sandboxes/:name/denials` requires
+  `X-Dashboard-Token` in both modes and returns 403 before any CLI call.
 - **Read-only mode** for shared or demo machines: every mutation returns 403.
 - **Defense in depth in the browser.** The page carries a strict CSP
   (`script-src 'self'`, `default-src 'none'`), and the frontend renders gateway
@@ -207,8 +284,8 @@ The dashboard is a local operator tool, not a hardened service. What it does:
 - **No host bind mounts.** The dashboard only shells out to `openshell` and
   `osa`, and only with argv arrays (never through a shell). The only `osa`
   commands it can run are `status PATH --json`, `status PATH --quick --json`,
-  and `resolve SANDBOX ACTION --json` with `--yes` for `drop` and `discard`
-  only; one allowlist check in `src/projects.ts` refuses every other argv.
+  `health SANDBOX --json`, and `resolve SANDBOX ACTION --json` with `--yes`
+  for `drop` and `discard` only; one allowlist check in `src/projects.ts` refuses every other argv.
 - **Project writes go through `osa resolve` only.** The dashboard itself never
   creates, modifies, or deletes a file in the osa state root or a registered
   host project. The resolve route is the only project route that is not GET.
@@ -305,6 +382,13 @@ are rendered the same way.
 - **`rule get` has no JSON output mode.** The dashboard parses the CLI's stable
   field-per-line table (covered by tests); a future CLI JSON mode can replace
   that parser behind `src/openshell.ts`.
+- **Egress denials come from the log shorthand only.** `openshell logs` has no
+  JSON mode, so denials are parsed from its OCSF shorthand lines. The OCSF JSON
+  export would be easier to parse, but its files live in the sandbox
+  supervisor's filesystem, which `openshell sandbox exec` cannot read, so the
+  CLI's log output is the only source the dashboard can reach. Gateway-side
+  `CONFIG:*` events and L7 events are not grouped (L7 denials count as
+  unparsed), and denials are not kept across reads or restarts.
 - Policy editing stays file-based; the dashboard is view-only for policy.
 - No multi-user support or remote gateway support in v1; the only authentication
   is the single shared session token, required for everything on a
@@ -320,10 +404,13 @@ bun run scripts/browser-check.ts   # real headless Chrome against the stubs
 Tests put `test/stub` first on `PATH` (or set `DASHBOARD_OPENSHELL_BIN`) and
 never touch a real gateway; the browser check uses the same stubs and a
 throwaway Chrome profile. `test/stub/openshell` records argv, returns pinned
-v0.1.2 JSON shapes, simulates lifecycle state, and can emit timed log lines.
-`test/stub/osa` answers `status PATH [--quick] --json` (with `busy` when the
-fixture says so) and `resolve SANDBOX ACTION --json [--yes]` from a JSON
-fixture, logs argv, and can succeed, refuse (exit 2), fail (exit 3), answer
+v0.1.2 JSON shapes, simulates lifecycle state, can emit timed log lines, and
+answers a one-shot `logs --since` read with a denial fixture (real and upstream
+shapes, IPv6, ANSI color, an unknown layout, a markup host) or a failure.
+`test/stub/osa` answers `status PATH [--quick] --json` (with `busy` and
+`idle` when the fixture says so), `health SANDBOX --json` (built-in reports:
+all ok, a failing MCP gate, unsupported MCP, a partial error, markup in a
+detail), and `resolve SANDBOX ACTION --json [--yes]` from a JSON fixture, logs argv, and can succeed, refuse (exit 2), fail (exit 3), answer
 slowly, hang, or print invalid JSON. `test/state-fixture.ts`
 builds a throwaway state root with every registry and marker shape the
 Projects view handles, and a conformance test checks the dashboard's reader

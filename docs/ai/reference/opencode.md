@@ -15,10 +15,10 @@ already has the shared procedure. This page is an index: the ordered path is
 [`docs/ai/playbooks/opencode.md`](../playbooks/opencode.md), the pinned run is
 [`docs/ai/verification/opencode.md`](../verification/opencode.md),
 and shared behavior lives in [`docs/helper.md`](../../helper.md),
-[`docs/providers.md`](../../providers.md),
-[`docs/mcp-migration.md`](../../mcp-migration.md), and
-[`docs/ai/environment-playbook.md`](../environment-playbook.md). This page is
-an index, not a procedure, so `Verified` says `not yet verified`.
+[`docs/providers.md`](../../providers.md), and
+[`docs/ai/environment-playbook.md`](../environment-playbook.md); MCP gates are
+in [`docs/helper.md#mcp-status`](../../helper.md#mcp-status). This page is an
+index, not a procedure, so `Verified` says `not yet verified`.
 
 ## Config paths
 
@@ -85,8 +85,9 @@ OpenCode traps (commands are in [Phase 6](../playbooks/opencode.md#phase-6--run-
 `opencode-oss mcp status` compares the host `~/.config/opencode/opencode.json`
 `mcp` key with the sandbox's `/sandbox/.config/opencode/opencode.json`, using
 `maki-oss mcp status`'s gates (sandbox, provider `opencode-mcp-<name>`,
-endpoint, local runtime); `doctor` prints the table. The mapping is in
-[`docs/mcp-migration.md`](../../mcp-migration.md).
+endpoint, local runtime); `doctor` prints the table. The gate vocabulary is in
+[`docs/helper.md`](../../helper.md#mcp-status); the store shape is in
+[`docs/ai/environment-playbook.md`](../environment-playbook.md).
 
 - The base image declares no MCP servers; a missing server points to a store
   built `FROM opencode-agent:local`.

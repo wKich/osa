@@ -39,7 +39,7 @@ Never relax the security invariants listed at the end.
 ## Inputs
 
 - A macOS (Apple Silicon) or Linux host with network access.
-- The repository URL to clone in Phase 3.
+- The repository URL, `https://github.com/wKich/osa.git`, cloned in Phase 3.
 - The shell you use (zsh-family or fish) to choose the agent-specific shell
   integration path there.
 - A model API key is not needed on this page. The agent playbook states the
@@ -56,16 +56,22 @@ expected:
 ```sh
 docker version --format '{{.Server.Version}}'
 openshell status
+git --version
+curl --version
+uname -s
 uname -m
+uname -r
 ```
 
 ### Verify
 
 Expected: when a tool is present, the engine prints `28.0` or later;
-`openshell status` shows `Status: Connected`; `uname -m` is `arm64` or
-`x86_64`. An absent command means the matching step in Phase 2 installs it; a
-present tool whose version or status does not match is a mismatch — fix it in
-Phase 2 rather than skipping ahead.
+`openshell status` shows `Status: Connected`; `git` and `curl` report a version
+(or are installed in Phase 2); `uname -s` is `Darwin` or `Linux`; `uname -m` is
+`arm64` or `x86_64`. On Linux, `uname -r` is 6.2 or later for Landlock ABI v3;
+macOS hosts ignore the kernel line. An absent command means the matching step
+in Phase 2 installs it; a present tool whose version or status does not match
+is a mismatch — fix it in Phase 2 rather than skipping ahead.
 
 ### Stop if
 
@@ -79,8 +85,7 @@ continuing into agent-specific steps.
 
 #### Host preconditions
 
-Two things a bare host must supply that no step below installs; check them
-first.
+These host preconditions are not installed by a step below; check them first.
 
 **macOS — Homebrew.** The engine step installs through `brew`:
 
@@ -101,6 +106,10 @@ id -nG | tr ' ' '\n' | grep -qx docker
 
 An empty result means the group is missing — installing the engine package
 does not grant it. Rootless-engine users can skip this check.
+
+**`git` and `curl`.** Both are used by Phase 3 and the OpenShell installer.
+macOS supplies them with the Command Line Tools; on Linux install them from
+your package manager if the Phase 1 checks were empty.
 
 #### Container engine (Docker Engine 28+ or OrbStack)
 
@@ -156,7 +165,7 @@ disconnected after a restart. Report the failing command and its output.
 Clone this repository and work from its root:
 
 ```sh
-git clone <repository-url> osa
+git clone https://github.com/wKich/osa.git osa
 cd osa
 ```
 
@@ -176,16 +185,19 @@ Maki-specific sequence. Claude Code and Codex have no fish plugin.
 ### Verify
 
 ```sh
-command -v osa
+for helper in osa maki-oss opencode-oss claude-oss codex-oss; do
+  command -v "$helper"
+done
 ```
 
-Expected: `command -v osa` resolves to this repository's `bin/osa`.
+Expected: each command resolves to this repository's `bin/`; `osa` is the
+read-only reporter, and the other four are the agent front-ends.
 
 ### Stop if
 
-The shared command resolves to another installation or not at all. Report which
-path and shell failed; do not mix shell-specific integration steps into this
-shared check.
+A helper resolves to another installation or not at all. Report which path and
+shell failed; do not mix shell-specific integration steps into this shared
+check.
 
 ## Handoff
 
@@ -209,6 +221,8 @@ sandbox, and run steps. Do not improvise those steps from this file.
 
 ## See also
 
+- [`docs/ai/quickstart.md`](quickstart.md) — the one-page path from a clean
+  host through the first verified session.
 - [`docs/ai/onboarding.md`](onboarding.md) — choose Maki, OpenCode, Claude
   Code, or Codex and continue from this path.
 - [`docs/ai/document-contract.md`](document-contract.md) — page shape used by

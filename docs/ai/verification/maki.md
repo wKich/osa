@@ -12,10 +12,23 @@
 ## Scope
 
 Run these checks after [`docs/setup-guide.md`](../../setup-guide.md) sections
-5–6, with a sandbox created as shown there. The examples assume the sandbox is
-named `maki` and the provider is `maki-anthropic`; for OpenRouter, substitute
+5–6 (raw path) or after the agent playbook Phase 5 (helper path). The examples
+assume the provider is `maki-anthropic`; for OpenRouter, substitute
 `OPENROUTER_API_KEY` and `maki-openrouter`. Every `exec` command uses
 `--no-login-shell` so sandbox login files cannot change the result.
+
+Set the sandbox name once. Choose one line: the raw setup-guide sandbox is
+`maki`; the helper path uses the name printed by `maki-oss status`.
+
+```sh
+SANDBOX=maki
+# helper path:
+# SANDBOX=$(maki-oss status | sed -n 's/^Sandbox:[[:space:]]*//p')
+test -n "$SANDBOX"
+```
+
+Checks 1-6 use `"$SANDBOX"`. Checks 7-9 create and use their own helper sandbox
+names.
 
 The recorded run for this repository is in
 [`docs/verification-log.md`](../../verification-log.md).
@@ -40,7 +53,7 @@ the checks below remain the historical 0.6.4 run.
 ### Run
 
 ```sh
-openshell sandbox exec -n maki --no-login-shell -- \
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- \
   /usr/bin/curl -sS --max-time 15 https://example.com
 ```
 
@@ -54,7 +67,7 @@ The refusal also appears in the sandbox log (check 6).
 ### Stop if
 
 The request succeeds or returns HTTP content. Report the command and output and
-the effective policy (`openshell policy get maki --full`); do not add
+the effective policy (`openshell policy get "$SANDBOX" --full`); do not add
 `example.com` or a wildcard rule to make it pass.
 
 ## Check 2 — Placeholder-only credential
@@ -62,14 +75,14 @@ the effective policy (`openshell policy get maki --full`); do not add
 ### Run
 
 ```sh
-openshell sandbox exec -n maki --no-login-shell -- printenv ANTHROPIC_API_KEY
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- printenv ANTHROPIC_API_KEY
 ```
 
 ### Verify
 
 Expected: output is a gateway-issued placeholder, not a key: a revision-scoped
 token ending in `_ANTHROPIC_API_KEY` (for example
-`v3789022262450335270_ANTHROPIC_API_KEY`). It must never start with `sk-ant-`
+`v<digits>_ANTHROPIC_API_KEY`). It must never start with `sk-ant-`
 or otherwise contain the real key. An empty value means the provider was
 attached after the process started; `sandbox exec` starts a new process, so
 verify the attachment with check 5 first.
@@ -85,11 +98,11 @@ not echo the value; rotate the key before continuing.
 ### Run
 
 ```sh
-openshell sandbox exec -n maki --no-login-shell -- ls /Users
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- ls /Users
 ```
 
 ```sh
-openshell sandbox exec -n maki --no-login-shell -- touch /usr/probe
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- touch /usr/probe
 ```
 
 ### Verify
@@ -111,8 +124,8 @@ do not add a bind mount or widen the filesystem policy to make a path writable.
 ### Run
 
 ```sh
-openshell policy get maki --base
-openshell policy get maki --full
+openshell policy get "$SANDBOX" --base
+openshell policy get "$SANDBOX" --full
 ```
 
 ### Verify
@@ -148,7 +161,7 @@ policy to fix it.
 ### Run
 
 ```sh
-openshell sandbox provider list maki
+openshell sandbox provider list "$SANDBOX"
 ```
 
 ### Verify
@@ -167,7 +180,7 @@ line.
 ### Run
 
 ```sh
-openshell logs maki --since 5m --source sandbox
+openshell logs "$SANDBOX" --since 5m --source sandbox
 ```
 
 ### Verify
@@ -372,7 +385,7 @@ store and set the helper's `image` setting to the derived tag:
 maki-oss image build
 docker build -t maki-agent:reference examples/environments/reference
 # set image = "maki-agent:reference" in the helper config
-maki-oss rm --yes       # the old sandbox keeps its old image
+maki-oss rm --yes       # ask the user first; --yes is for the confirmed run
 maki-oss up
 ```
 
@@ -392,14 +405,12 @@ maki-oss provider attach mcp-context7
 ```
 
 **Expected:** `Provider profile lint passed.`, `Imported 1 provider profile.`,
-`Provider 'maki-context7' created.`, then `Provider 'mcp-context7' attached`.
-(The profile's id and the provider instance name differ; use the name printed
-by `maki-oss provider list` in the next step if you chose `--name`.)
+`Provider 'mcp-context7' created.`, then `Provider 'mcp-context7' attached`.
 
 #### 8c. Confirm the endpoint entered the effective policy
 
 ```sh
-openshell policy get maki --full
+openshell policy get "$SANDBOX" --full
 ```
 
 **Expected:** a `_provider_mcp_context7` entry with `host: mcp.context7.com`,
@@ -415,7 +426,7 @@ maki-oss mcp status
 **Expected:** one line per server with every gate satisfied and exit code 0:
 
 ```text
-MCP readiness for sandbox 'maki':
+MCP readiness for sandbox '<sandbox>':
   context7: sandbox=ok provider=ok endpoint=ok transport=http
 ```
 
@@ -509,7 +520,7 @@ maki-oss mcp status
 runtime gate:
 
 ```text
-MCP readiness for sandbox 'maki':
+MCP readiness for sandbox '<sandbox>':
   context7: sandbox=ok provider=ok endpoint=ok transport=http
   synthetic: sandbox=ok runtime=ok provider=ok transport=stdio
 ```

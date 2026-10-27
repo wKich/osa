@@ -12,8 +12,9 @@
 
 Maki-specific paths and differences for a reader who already has the shared
 procedure. This page is an index: shared behavior lives in `docs/helper.md`,
-provider profiles in `docs/providers.md`, MCP in `docs/mcp-migration.md`, and
-the environment store in `docs/ai/environment-playbook.md`. It has not been run
+provider profiles in `docs/providers.md`, MCP gates in
+`docs/helper.md#mcp-status`, and the environment store in
+`docs/ai/environment-playbook.md`. It has not been run
 as a separate procedure; each linked page carries its own verified results.
 
 ## Config paths
@@ -44,8 +45,9 @@ provider placeholder.
 
 Global servers live in `~/.config/maki/mcp.toml` under `mcp.<name>`;
 project-local servers live in `.maki/mcp.toml` and need folder trust. A stdio
-server's runtime must be installed in the environment image. The file mapping,
-tool-name check, and readiness table are in `docs/mcp-migration.md`.
+server's runtime must be installed in the environment image. The readiness
+table is in [`docs/helper.md`](../../helper.md#mcp-status); the store shape is
+in [`docs/ai/environment-playbook.md`](../environment-playbook.md).
 
 ## Store
 
@@ -71,9 +73,9 @@ are in `docs/ai/environment-playbook.md`; the worked example is
 ## See also
 
 - [`docs/ai/playbooks/maki.md`](../playbooks/maki.md) — the Maki sandbox path.
-- [`docs/helper.md`](../../helper.md) — `maki-oss` commands, settings, and sync.
+- [`docs/helper.md`](../../helper.md) — `maki-oss` commands, settings, sync,
+  and MCP readiness gates.
 - [`docs/providers.md`](../../providers.md) — the `maki-*` profile catalog.
-- [`docs/mcp-migration.md`](../../mcp-migration.md) — MCP definitions and status.
 - [`docs/ai/environment-playbook.md`](../environment-playbook.md) — the store.
 - [`docs/ai/verification/maki.md`](../verification/maki.md) — isolation
   checklist.

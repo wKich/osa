@@ -1,5 +1,9 @@
 # Dogfooding: migrating this machine's credentials
 
+> **Historical record.** This is the 2026-10-18 dogfood run, not part of current
+> onboarding. Current onboarding keeps the agent you already run; use the
+> same-agent migration matrix in [`docs/ai/onboarding.md`](ai/onboarding.md).
+
 A worked procedure for moving **every** credential a host already holds in Maki
 or OpenCode into OpenShell providers, and for keeping them in sync afterwards.
 It is the audit → classify → migrate → verify loop run against a real machine,

@@ -120,8 +120,8 @@ argument) and all four checksum values, or the build fails. See
 
 Expected: `codex-oss image build` builds `codex-agent:local`;
 `docker run --rm codex-agent:local codex --version` prints
-`codex-cli 0.164.0`; and `codex-oss doctor` reports the image as `ok` (the
-provider checks are completed in Phase 2).
+`codex-cli 0.164.0`. The provider checks in `codex-oss doctor` are completed in
+Phase 2.
 
 ### Stop if
 
@@ -317,17 +317,23 @@ not attach a broader policy to fix it.
 
 ### Run
 
-Execute the boundary checks in
-[`docs/ai/verification/codex.md`](../verification/codex.md) with the Codex
-substitutions: sandbox `"$SANDBOX"` (under the helper, take the name from
-`codex-oss status`), provider `codex-chatgpt`, the profile's credential
-variable `CODEX_CHATGPT_TOKEN`, and the agent binary `/usr/local/bin/codex`.
-Also run `id -u` and `id -g` in the sandbox and expect `1500`. Then, from the
-project directory, check MCP readiness:
+The verification page records the observations. These are the executable
+helper checks. Set `SANDBOX` to the name `codex-oss status` prints, then run:
 
 ```sh
+SANDBOX=$(codex-oss status | sed -n 's/^Sandbox:[[:space:]]*//p')
+test -n "$SANDBOX"
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- id
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- /usr/bin/curl -sS --max-time 15 https://example.com
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- printenv CODEX_CHATGPT_TOKEN
+openshell policy get "$SANDBOX" --full
 codex-oss mcp status
 ```
+
+Expected: uid/gid 1500; the curl exits 7; the token variable is a placeholder,
+not the ChatGPT token; the effective policy has only
+`chatgpt.com/backend-api/codex/**` bound to `/usr/local/bin/codex`;
+`codex-oss mcp status` exits 0 or reports each missing server.
 
 `mcp status` compares the `[mcp_servers.<name>]` tables in the host's Codex
 config (`$CODEX_HOME/config.toml`, else `~/.codex/config.toml`) with those in
@@ -341,12 +347,11 @@ isolation failure. Details are in
 
 ### Verify
 
-Expected: every boundary check in
-[`docs/ai/verification/codex.md`](../verification/codex.md) reports its stated
-result (uid 1500, a denied non-profile host, no host paths, the provider-only
-effective policy, and no credential value); `codex-oss mcp status` exits 0
-when the host declares no MCP server, or reports each missing server without
-changing the sandbox.
+Expected: the helper checks above pass and the recorded observations in
+[`docs/ai/verification/codex.md`](../verification/codex.md) match (uid 1500, a
+denied non-profile host, no host paths, the provider-only effective policy, and
+no credential value); `codex-oss mcp status` exits 0 when the host declares no
+MCP server, or reports each missing server without changing the sandbox.
 
 ### Stop if
 
@@ -450,11 +455,13 @@ codex-oss status
 codex-oss rm --yes
 ```
 
-Bare `codex-oss` and `codex-oss run` collect the sandbox changes as a patch on
-exit and apply it only when the sandbox baseline still matches the host;
-`--no-sync` opts out. A retained patch never blocks the next session. On exit
-both session kinds also run the same network-proposal check as `maki-oss`.
-`codex-oss rm` asks for confirmation unless `--yes` is passed.
+Ask the user before deleting the sandbox; `--yes` is only for a non-interactive
+run after that confirmation. Bare `codex-oss` and `codex-oss run` collect the
+sandbox changes as a patch on exit and apply it only when the sandbox baseline
+still matches the host; `--no-sync` opts out. A retained patch never blocks the
+next session. On exit both session kinds also run the same network-proposal
+check as `maki-oss`. `codex-oss rm` asks for confirmation unless `--yes` is
+passed.
 
 Raw fallback:
 

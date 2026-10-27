@@ -9,6 +9,8 @@ work in this repository must preserve it.
 
 Start here:
 
+- `docs/ai/quickstart.md` — the one-page setup path for a clean host: choose
+  the agent you already run, prepare the host, build, run, and verify.
 - `docs/ai/onboarding.md` — choose the agent you already run, then follow the
   same-agent path for Maki, OpenCode, Claude Code, or Codex.
 - `docs/ai/host-playbook.md` — provision the shared host tooling (engine,

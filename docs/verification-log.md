@@ -780,7 +780,7 @@ $ openshell sandbox exec -n maki --no-login-shell -- id
 uid=1500(sandbox) gid=1500(sandbox) groups=1500(sandbox)
 
 $ openshell sandbox exec -n maki --no-login-shell -- printenv ANTHROPIC_API_KEY
-v3789022262450335270_ANTHROPIC_API_KEY
+<gateway-issued placeholder ending in _ANTHROPIC_API_KEY>
 
 $ openshell sandbox exec -n maki --no-login-shell -- ls /Users
 ls: cannot access '/Users': No such file or directory

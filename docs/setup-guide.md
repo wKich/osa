@@ -13,6 +13,11 @@ credentials in the sandbox environment, and deny-by-default egress. Every
 configuration block points at a canonical file under [`examples/`](../examples/);
 this guide never duplicates them.
 
+> **This is the raw Maki path.** The helper path (`maki-oss`) is separate and
+> creates its own `mk-<project>-<hash>` sandbox. Do not mix the two in one
+> project. For the current one-page setup, start with the
+> [quickstart](ai/quickstart.md).
+
 ## Before you start
 
 This guide starts from a clone of this repository, with the helper on `PATH`:
@@ -20,11 +25,12 @@ This guide starts from a clone of this repository, with the helper on `PATH`:
 ```sh
 git clone https://github.com/wKich/osa.git
 cd osa
-export PATH="$PWD/bin:$PATH"
+export PATH="$PWD/bin:$PATH"        # persist in ~/.zshrc or config.fish
 ```
 
-The README's [Install](../README.md#install) performs the same clone and
-`PATH` step; if you have already done it, start at section 1.
+The README's [Install (Maki path)](../README.md#install-maki-path) performs the
+same clone, build, and `PATH` step; if you have already done it, start at
+section 1.
 
 ## 1. The isolation model
 
@@ -59,6 +65,7 @@ advisor, policy prover, and the rest) is defined in
 | Docker Engine 28+ | `docker version --format '{{.Server.Version}}'` | `28.0` or later |
 | OpenShell CLI + gateway | `openshell status` | `Status: Connected`, version `0.1.5` |
 | Host platform | `uname -m` | `arm64` on Apple Silicon; Linux amd64/arm64 also supported |
+| `git` and `curl` | `git --version`; `curl --version` | both resolve |
 
 **Docker Desktop settings (macOS):** OpenShell needs containers to reach the
 host-local gateway.
@@ -143,18 +150,17 @@ environment variable, and its endpoint are listed in the curated catalog
 below. The catalog, the credential-store mapping, and the wizard reference live
 in [`docs/providers.md`](providers.md). MCP server profiles (`mcp-context7`,
 `mcp-synthetic`) are set up through the environment-image step in §3 and
-[`docs/mcp-migration.md`](mcp-migration.md) instead.
+[`docs/ai/environment-playbook.md`](ai/environment-playbook.md) instead.
 
-The fastest path takes a key you already hold — including the ones Maki and
-OpenCode keep in their own stores — and does the profile lint/import and
-provider creation for you:
+The manual path below uses the raw commands. The helper can perform the same
+host-side setup without creating a sandbox, if you prefer it:
 
 ```sh
 maki-oss provider setup                 # interactive picker
 maki-oss provider setup --from maki --credential opencode-go --yes
 ```
 
-The manual equivalent, using Anthropic or OpenRouter as the example. Import the
+The raw equivalent, using Anthropic or OpenRouter as the example. Import the
 profile once per gateway (lint first — it validates the schema without
 registering):
 
@@ -246,32 +252,23 @@ Policy notes:
   narrow rule for review if one turns out to be missing (see
   [`docs/ai/references.md`](ai/references.md) for upstream links).
 
-Once the project sandbox exists, check what is ready:
-
-```sh
-maki-oss mcp status
-```
-
-The gate-by-gate checklist for getting a server ready — and the failures it
-reports — lives in [`docs/mcp-migration.md`](mcp-migration.md). A missing server
-or runtime points at the environment-image build and the environment playbook,
-not at a base `maki-oss image build`.
+This raw sandbox is not the helper's project sandbox, so `maki-oss mcp status`
+does not target it. MCP readiness is a helper-path check; the gate-by-gate
+checklist is in [`docs/helper.md`](helper.md#mcp-status), and a missing server
+or runtime points at the environment-image build and
+[`docs/ai/environment-playbook.md`](ai/environment-playbook.md), not at a base
+`maki-oss image build`. For the helper path, use the
+[quickstart](ai/quickstart.md).
 
 ## 6. Run Maki
 
-**Helper shortcut (recommended).** `maki-oss` wraps the whole flow. After the
-one-time `maki-oss provider setup` (which remembers the provider) and
-`maki-oss image build`, running `maki-oss` inside a project creates or starts
-its sandbox, refreshes the disposable project workspace when the host tree
-moved, attaches remembered providers, launches Maki, and on exit collects the
-sandbox changes as a patch. The patch is applied only when the project's
-safety check passes; a clean repository is fast-forwarded, a dirty or moved
-host keeps a review branch, and conflicts retain the patch without touching
-project files (`--no-sync` opts out). A retained patch does not block the
-next session; a parked workspace refuses it until you download or discard the
-changes. `maki-oss status` shows the state. `maki-oss run "<prompt>"` is the
-headless variant. The raw OpenShell commands below remain the reference for
-what the helper does.
+**This guide stays on the raw path.** The helper (`maki-oss`) is a separate
+path: it creates its own `mk-<project>-<hash>` sandbox, uploads or refreshes the
+workspace, and syncs a patch on exit. Do not run the helper in the same project
+after creating the raw `maki` sandbox; use the
+[quickstart](ai/quickstart.md) or the
+[Maki playbook](ai/playbooks/maki.md) for that path. The raw OpenShell commands
+below remain the reference for what the helper does.
 
 **Interactive** (the command in section 5): after creation you are attached to
 Maki. To return later, `openshell sandbox connect maki`.
@@ -349,8 +346,7 @@ defined once in [`docs/glossary.md`](glossary.md).
   the `maki-oss provider setup` wizard, and custom profiles, and
   [`docs/migrating-providers.md`](migrating-providers.md) migrates credentials
   from Maki and OpenCode stores.
-- The `add-maki-oss-fish-helper` change builds a `maki-oss` CLI on top of
-  these examples; the `add-openshell-bun-dashboard` change visualizes the same
-  gateway.
+- The `maki-oss` helper and the Bun dashboard are built on these examples;
+  the helper is documented in [`docs/helper.md`](helper.md).
 - For agent-driven setup, use
   [`docs/ai/playbooks/maki.md`](ai/playbooks/maki.md).

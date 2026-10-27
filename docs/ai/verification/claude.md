@@ -11,6 +11,10 @@
 
 ## Scope
 
+> **Record, not checklist.** The commands below are recorded and abridged.
+> The executable helper checks are in
+> [the playbook Phase 5](../playbooks/claude.md#phase-5--run-the-isolation-checks).
+
 The canonical Claude Code verification record. It reorganizes the verification
 table from [`claude-oss/README.md`](../../../claude-oss/README.md) into
 `## Check` blocks; it is not a new run, and no observed result is carried

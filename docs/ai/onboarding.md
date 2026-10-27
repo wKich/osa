@@ -36,6 +36,10 @@ Replace both placeholders and send the block to a coding agent on the host.
 ```text
 Onboard the coding agent I already run into an osa OpenShell sandbox.
 
+If this host already has an osa clone, ask me for its path. Otherwise clone
+https://github.com/wKich/osa.git into a directory I choose (ask me before
+writing), then work from that repository root.
+
 Project: <absolute path to my project>
 My host agent: <Maki | OpenCode | Claude Code | Codex>
 
@@ -57,7 +61,7 @@ the guide.
 
 | Need | Start here |
 |---|---|
-| Setup on a bare host | P0-P1, then the shared [host playbook](host-playbook.md), then the user's agent playbook from [Phase map](#phase-map) |
+| Setup on a bare host | Start with the shared [host playbook](host-playbook.md) (P0-P2), then the user's agent playbook from [Phase map](#phase-map) |
 | Put a helper or agent binary on `PATH` | [Add a binary](#add-a-binary) |
 | Create or inspect an OpenShell sandbox | P4-P5 and the matching agent page |
 | Migrate configs: MCP, settings, skills, commands, plugins | [Same-agent migration matrix](#same-agent-migration-matrix) |
@@ -67,6 +71,8 @@ the guide.
 
 ## Inputs
 
+- The repository URL is `https://github.com/wKich/osa.git`; clone it when the
+  host does not already have the repository.
 - The project path, or "empty workspace" when there is no project.
 - The host agent and how it is invoked: `maki`, `opencode`, `claude`, or
   `codex`. For Codex, also the host `codex` CLI used once for the ChatGPT
@@ -81,20 +87,23 @@ the guide.
 
 ## Phase map
 
-The canonical phases are shared. The gate is the same for every agent; the
-agent columns name the command or page for that front-end.
+The canonical gate for every phase is defined once in
+[`document-contract.md`](document-contract.md#phase-ids). This table only routes
+the phase to each agent's command and page; if a cell and the contract disagree,
+the contract wins. `P0` is read-only: record what is present and its version;
+an absent tool on a bare host is expected and is installed in `P1`.
 
-| Phase | Gate | Maki (`maki-oss`) | OpenCode (`opencode-oss`) | Claude (`claude-oss`) | Codex (`codex-oss`) |
-|---|---|---|---|---|---|
-| P0 Preflight / audit | Every required host tool is present and reports a usable version. | Read the host and config; shared preflight from [host playbook](host-playbook.md) Phase 1; optional host `maki --version` from [agent playbook](playbooks/maki.md) Phase 0 (the image-pinned binary is authoritative). | Read the host and config; shared preflight from [host playbook](host-playbook.md) Phase 1; no host OpenCode CLI is needed ([OpenCode playbook](playbooks/opencode.md) Inputs). | Read the host and config; shared preflight from [host playbook](host-playbook.md) Phase 1; the API-key/image path needs no host Claude Code CLI, but the subscription-token path creates the token on the host with `claude setup-token` ([Claude playbook](playbooks/claude.md) Inputs). | Read the host and config; shared preflight from [host playbook](host-playbook.md) Phase 1; `codex --version` from [Codex playbook](playbooks/codex.md) Phase 0. |
-| P1 Host tools | The engine, OpenShell CLI and gateway, and any host-only agent CLI are installed; image-baked CLIs are verified at P3. | Install engine and OpenShell from [host playbook](host-playbook.md) Phase 2; the host Maki CLI is optional and the image-pinned binary is authoritative ([Maki playbook](playbooks/maki.md) Phase 0). | Install engine and OpenShell from [host playbook](host-playbook.md) Phase 2; the OpenCode CLI comes from the image at P3; [OpenCode playbook](playbooks/opencode.md) Phase 1. | Install engine and OpenShell from [host playbook](host-playbook.md) Phase 2; the Claude Code CLI comes from the image at P3; [Claude playbook](playbooks/claude.md) Phase 1. | Install engine and OpenShell from [host playbook](host-playbook.md) Phase 2; install the host `codex` CLI for the one-time login from [Codex playbook](playbooks/codex.md) Phase 0; the sandbox CLI comes from the image at P3. |
-| P2 Repository + helper | The repository and helper resolve, and the shell is prepared. | Clone the repo and put `bin/` on `PATH` from [host playbook](host-playbook.md) Phase 3; verify `command -v maki-oss`; [agent playbook](playbooks/maki.md) Shell preparation. | Clone the repo and put `bin/` on `PATH` from [host playbook](host-playbook.md) Phase 3; verify `command -v opencode-oss`. | Clone the repo and put `bin/` on `PATH` from [host playbook](host-playbook.md) Phase 3; verify `command -v claude-oss`. | Clone the repo and put `bin/` on `PATH` from [host playbook](host-playbook.md) Phase 3; verify `command -v codex-oss`. |
-| P3 Image | The agent image builds, reports the pinned agent version, and the post-build diagnostic passes. | `maki-oss image build` (`maki-agent:local`), then `maki-oss doctor`; verify with `docker run --rm maki-agent:local maki --version`; [agent playbook](playbooks/maki.md) Phase 1. | `opencode-oss image build` (`opencode-agent:local`), then `opencode-oss doctor`; verify with `docker run --rm opencode-agent:local opencode --version`; [OpenCode playbook](playbooks/opencode.md) Phase 1. | `claude-oss image build` (`claude-agent:local`), then `claude-oss doctor`; verify with `docker run --rm claude-agent:local claude --version`; [Claude playbook](playbooks/claude.md) Phase 1. | `codex-oss image build` (`codex-agent:local`), then `codex-oss doctor`; verify with `docker run --rm codex-agent:local codex --version`; [Codex playbook](playbooks/codex.md) Phase 1. |
-| P4 Provider | The provider profile is imported and the provider is created. | `maki-oss provider setup`; [agent playbook](playbooks/maki.md) Phase 2. | `opencode-oss provider setup`; [OpenCode playbook](playbooks/opencode.md) Phase 2. | `claude-oss provider setup`; create a subscription token on the host only when needed; [Claude playbook](playbooks/claude.md) Phase 2. | `codex-oss provider setup`; host-only ChatGPT login; [Codex playbook](playbooks/codex.md) Phase 2. |
-| P5 Sandbox | The sandbox reaches `Ready` with the chosen policy and provider. | `maki-oss up`; [agent playbook](playbooks/maki.md) Phases 3-4. | `opencode-oss up`; [OpenCode playbook](playbooks/opencode.md) Phases 3-4. | `claude-oss up`; [Claude playbook](playbooks/claude.md) Phases 3-4. | `codex-oss up`; [Codex playbook](playbooks/codex.md) Phases 3-4. |
-| P6 Verify | Every isolation check reports its expected result. | `maki-oss mcp status` and [verification](verification/maki.md); [agent playbook](playbooks/maki.md) Phase 5. | `opencode-oss mcp status` and [verification](verification/opencode.md); [OpenCode playbook](playbooks/opencode.md) Phase 5. | `claude-oss mcp status` and [verification](verification/claude.md); [Claude playbook](playbooks/claude.md) Phase 5. | `codex-oss mcp status` and [verification](verification/codex.md); [Codex playbook](playbooks/codex.md) Phase 5. |
-| P7 Run | The smoke test and the real task complete through the sandbox. | `maki-oss` or `maki-oss run "<task>"`; [agent playbook](playbooks/maki.md) Phase 6. | `opencode-oss` or `opencode-oss run "<task>"`; [OpenCode playbook](playbooks/opencode.md) Phase 6. | `claude-oss` or `claude-oss run "<task>"`; [Claude playbook](playbooks/claude.md) Phase 6. | `codex-oss` or `codex-oss run "<task>"`; [Codex playbook](playbooks/codex.md) Phase 6. |
-| P8 Report | Results are collected, the sandbox is cleaned up, and the user has a summary. | Collect the patch, then `maki-oss status`; [agent playbook](playbooks/maki.md) Phase 7. | Collect the patch, then `opencode-oss status`; [OpenCode playbook](playbooks/opencode.md) Phase 7. | Collect the patch, then `claude-oss status`; [Claude playbook](playbooks/claude.md) Phase 7. | Collect the patch, then `codex-oss status`; [Codex playbook](playbooks/codex.md) Phase 7. |
+| Phase | Maki (`maki-oss`) | OpenCode (`opencode-oss`) | Claude (`claude-oss`) | Codex (`codex-oss`) |
+|---|---|---|---|---|
+| P0 Preflight / audit | [host playbook](host-playbook.md) Phase 1; optional `maki --version` | host playbook Phase 1 | host playbook Phase 1 | host playbook Phase 1; `codex --version` |
+| P1 Host tools | host playbook Phase 2 | host playbook Phase 2 | host playbook Phase 2 | host playbook Phase 2; install host `codex` |
+| P2 Repository + helper | host playbook Phase 3; [Shell preparation](playbooks/maki.md#shell-preparation); `command -v maki-oss` | host playbook Phase 3; `command -v opencode-oss` | host playbook Phase 3; `command -v claude-oss` | host playbook Phase 3; `command -v codex-oss` |
+| P3 Image | `maki-oss image build` ([Phase 1](playbooks/maki.md)) | `opencode-oss image build` ([Phase 1](playbooks/opencode.md)) | `claude-oss image build` ([Phase 1](playbooks/claude.md)) | `codex-oss image build` ([Phase 1](playbooks/codex.md)) |
+| P4 Provider | `maki-oss provider setup`; `doctor` ([Phase 2](playbooks/maki.md)) | `opencode-oss provider setup`; `doctor` ([Phase 2](playbooks/opencode.md)) | `claude-oss provider setup`; `doctor`; host token only when needed ([Phase 2](playbooks/claude.md)) | `codex-oss provider setup`; `doctor`; host-only ChatGPT login ([Phase 2](playbooks/codex.md)) |
+| P5 Sandbox | `maki-oss up` ([Phases 3-4](playbooks/maki.md)) | `opencode-oss up` ([Phases 3-4](playbooks/opencode.md)) | `claude-oss up` ([Phases 3-4](playbooks/claude.md)) | `codex-oss up` ([Phases 3-4](playbooks/codex.md)) |
+| P6 Verify | `maki-oss mcp status` and [verification](verification/maki.md) ([Phase 5](playbooks/maki.md)) | `opencode-oss mcp status` and [verification](verification/opencode.md) ([Phase 5](playbooks/opencode.md)) | `claude-oss mcp status` and [verification](verification/claude.md) ([Phase 5](playbooks/claude.md)) | `codex-oss mcp status` and [verification](verification/codex.md) ([Phase 5](playbooks/codex.md)) |
+| P7 Run | `maki-oss` or `maki-oss run "<task>"` ([Phase 6](playbooks/maki.md)) | `opencode-oss` or `opencode-oss run "<task>"` ([Phase 6](playbooks/opencode.md)) | `claude-oss` or `claude-oss run "<task>"` ([Phase 6](playbooks/claude.md)) | `codex-oss` or `codex-oss run "<task>"` ([Phase 6](playbooks/codex.md)) |
+| P8 Report | collect the patch, then `maki-oss status` ([Phase 7](playbooks/maki.md)) | collect the patch, then `opencode-oss status` ([Phase 7](playbooks/opencode.md)) | collect the patch, then `claude-oss status` ([Phase 7](playbooks/claude.md)) | collect the patch, then `codex-oss status` ([Phase 7](playbooks/codex.md)) |
 
 `P1` covers the shared host tools plus any host-only agent CLI: the host
 `codex` CLI for the one-time ChatGPT login, and, optionally, a host `maki` CLI.
@@ -288,6 +297,8 @@ These are the same rules as `AGENTS.md`; restate them, never relax them.
 
 ## See also
 
+- [`docs/ai/quickstart.md`](quickstart.md) — the one-page setup path for a
+  human or an agent starting from a clean host.
 - [`docs/ai/host-playbook.md`](host-playbook.md) — the shared host path,
   P0-P2.
 - [`docs/ai/playbooks/maki.md`](playbooks/maki.md) — the Maki agent path,

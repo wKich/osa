@@ -11,6 +11,10 @@
 
 ## Scope
 
+> **Record, not checklist.** The commands below are recorded and abridged.
+> The executable helper checks are in
+> [the playbook Phase 5](../playbooks/opencode.md#phase-5--run-the-isolation-checks).
+
 The canonical OpenCode verification record. It reorganizes the verification
 tables from [`opencode-oss/README.md`](../../../opencode-oss/README.md) into
 `## Check` blocks; it is not a new run, and no observed result is carried

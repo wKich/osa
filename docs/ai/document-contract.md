@@ -7,14 +7,15 @@ mechanical parts; this page explains why they exist.
 ## Phase IDs
 
 The canonical phases are shared by every agent. Local phase numbers may stay
-different; the router maps them to these IDs.
+different; the router maps them to these IDs. If a router or playbook restates
+a gate and differs, this table wins.
 
 | ID | Phase | Gate |
 |---|---|---|
-| P0 | Preflight / audit | Every required host tool is present and reports a usable version. |
+| P0 | Preflight / audit | Presence and versions are recorded. A missing tool on a bare host is expected and is installed in P1. |
 | P1 | Host tools | The engine, OpenShell CLI and gateway, and any host-only agent CLI are installed; a CLI baked into the image is verified at P3. |
-| P2 | Repository + helper | The repository and helper resolve, and the shell is prepared. |
-| P3 | Image | The agent image builds, reports the pinned agent version, and the post-build diagnostic passes. |
+| P2 | Repository + helper | The repository is cloned and the chosen agent's helper resolves; `osa` is the shared reporter. |
+| P3 | Image | The agent image builds and reports the pinned agent version. |
 | P4 | Provider | The provider profile is imported and the provider is created. |
 | P5 | Sandbox | The sandbox reaches `Ready` with the chosen policy and provider. |
 | P6 | Verify | Every isolation check reports its expected result. |

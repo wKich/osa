@@ -1,5 +1,10 @@
 # Migrating MCP servers from OpenCode to Maki
 
+> **Historical cross-agent guide.** Onboarding now keeps the agent you already
+> run; a cross-agent switch is out of scope. This page is kept as the record of
+> the 2026-10-19 OpenCode-to-Maki MCP migration. For a same-agent setup, use
+> [`docs/ai/environment-playbook.md`](ai/environment-playbook.md).
+
 A checklist for copying the `mcp` block of OpenCode's global config into
 Maki's global `mcp.toml`, so a host that ran OpenCode keeps the same MCP
 servers in Maki. This is server configuration only — model credentials are a

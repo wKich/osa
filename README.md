@@ -19,8 +19,21 @@ sees opaque placeholders that OpenShell's proxy resolves only at approved
 endpoints.
 
 The commands below show the Maki path. `opencode-oss`, `claude-oss`, and
-`codex-oss` follow the same helper pattern; choose your path in the
-[onboarding guide](docs/ai/onboarding.md).
+`codex-oss` follow the same helper pattern; the one-page
+[quickstart](docs/ai/quickstart.md) has a row per agent, and the
+[onboarding guide](docs/ai/onboarding.md) routes the full setup.
+
+## Choose your agent
+
+| You run | Helper | Build | Provider setup | Host CLI |
+|---|---|---|---|---|
+| Maki | `maki-oss` | `maki-oss image build` | `maki-oss provider setup` | optional |
+| OpenCode | `opencode-oss` | `opencode-oss image build` | `opencode-oss provider setup` | none |
+| Claude Code | `claude-oss` | `claude-oss image build` | `claude-oss provider setup` | `claude` for a subscription token |
+| Codex | `codex-oss` | `codex-oss image build` | `codex-oss provider setup` | `codex` for the ChatGPT login |
+
+New here? Start with the [quickstart](docs/ai/quickstart.md). It covers the
+host prerequisites, the first run, and the verification page.
 
 ## Let your agent set it up
 
@@ -28,28 +41,34 @@ Send this to the coding agent you already run:
 
 ```text
 Set up osa for the coding agent I already run. Do not switch to a different
-agent. Read AGENTS.md and docs/ai/onboarding.md, audit my host and configuration
-first, show me the plan, and ask before changing anything. Complete the setup
-through the verification page and finish with the report. Never ask me to paste
-a secret.
+agent.
+
+If this host already has an osa clone, ask me for its path. Otherwise clone
+https://github.com/wKich/osa.git into a directory I choose (ask me before
+writing), then work from that repository root. Read AGENTS.md and
+docs/ai/onboarding.md there, audit my host and configuration first, show me the
+plan, and ask before changing anything. Complete the setup through the
+verification page and finish with the report. Never ask me to paste a secret.
 ```
 
 The full prompt, with the phase map, migration matrix, and report format, is in
 [`docs/ai/onboarding.md`](docs/ai/onboarding.md).
 
-## Install
+## Install (Maki path)
 
-If you prefer to do it yourself:
+If you prefer to do it yourself, the commands below build the Maki base. Use
+the [quickstart](docs/ai/quickstart.md) for OpenCode, Claude Code, or Codex.
 
-Prerequisites: OpenShell CLI with a running gateway (`openshell status`),
-Docker Engine 28+, and optionally `jq` and `fish`.
+Prerequisites: OpenShell CLI v0.1.5 with a running gateway (`openshell status`),
+Docker Engine 28+, `git`, `curl`, and optionally `jq` and `fish`. On a bare
+host, start with the [host playbook](docs/ai/host-playbook.md).
 
 ```sh
 git clone https://github.com/wKich/osa.git
 cd osa
 ./bin/maki-oss image build  # build the sandbox image
 ./bin/maki-oss doctor       # verify the built image and host
-export PATH="$PWD/bin:$PATH"
+export PATH="$PWD/bin:$PATH"  # add to ~/.zshrc or config.fish
 ```
 
 `image build` builds the generic base: the agent runtime and safety baseline,
@@ -60,10 +79,11 @@ environment image on top of it — see
 [`docs/ai/environment-playbook.md`](docs/ai/environment-playbook.md) and the
 [reference store](examples/environments/reference/README.md).
 
-Fish users can install the plugin with [fisher](https://github.com/jorgebucaran/fisher)
-instead — it bundles the function and completions.
+Maki and OpenCode users can install the fish plugin with
+[fisher](https://github.com/jorgebucaran/fisher) instead — it bundles the
+function and completions. Claude Code and Codex have no fish plugin.
 
-## Quick start
+## Quick start (Maki)
 
 ```sh
 maki-oss provider setup     # once per machine: wizard for any provider
@@ -81,8 +101,9 @@ next session; a parked workspace (collection failed or `--no-sync`) refuses it
 until you download or discard the changes. After the one-time `provider
 setup`, a project needs no further setup.
 
-Each project folder gets its own sandbox, named `mk-<project>-<hash>` (the
-`origin` repository name, or the folder name, plus a short hash of the
+Each project folder gets its own sandbox: `mk-<project>-<hash>` for Maki, and
+`oc-`, `cc-`, or `cx-` in place of `mk-` for OpenCode, Claude Code, and Codex
+(the `origin` repository name, or the folder name, plus a short hash of the
 folder's path), so git worktrees never share one. Host state for every
 project lives in `~/.local/state/osa/`; `osa projects` lists them all, and
 `osa status --json` reports one project for scripts and the dashboard. See
@@ -126,21 +147,25 @@ sandboxes by hand is a chore. osa gives you:
   deny-by-default egress. Break-ins stay inside the box.
 - 🔑 **Zero credential exposure** — keys live in OpenShell provider profiles
   on the host; the sandbox only ever sees placeholders.
-- 🧩 **Any provider** — a `provider setup` wizard plus a curated profile
-  catalog, with a migration guide for keys currently stored in Maki or
-  OpenCode.
+- 🧩 **Any provider for Maki and OpenCode** — a `provider setup` wizard plus a
+  curated profile catalog, with a migration guide for keys currently stored in
+  Maki or OpenCode. Claude Code uses an Anthropic API key or a subscription
+  token; Codex uses a ChatGPT plan login.
 - 🔄 **Safe file sync** — refresh a disposable workspace from the host when it
   moved, then collect a patch on exit and apply it only when the baseline still
   matches. Your project directory stays the source of truth; conflicts keep a
   patch for review, and uncollected sandbox output parks the workspace instead
   of being overwritten.
-- 🐟 **Fish-native** — a fisher-compatible plugin with completions, plus a
-  plain POSIX `sh` helper for everyone else.
+- 🐟 **Fish-native for Maki and OpenCode** — a fisher-compatible plugin with
+  completions, plus a plain POSIX `sh` helper for everyone else. Claude Code
+  and Codex have no fish plugin.
 - 📊 **Dashboard** — a minimal [Bun](https://bun.sh) web UI
   ([`dashboard/`](dashboard/)) to monitor and manage your OpenShell sandboxes.
 
 ## Guides
 
+- [`docs/ai/quickstart.md`](docs/ai/quickstart.md) — the one-page setup path:
+  choose your agent, prepare the host, build, run, and verify.
 - [`docs/ai/onboarding.md`](docs/ai/onboarding.md) — keep your coding agent
   (Maki, OpenCode, Claude Code, or Codex) and move it into an OpenShell
   sandbox.
@@ -162,6 +187,9 @@ sandboxes by hand is a chore. osa gives you:
   isolation checklist with exact commands and expected output; the OpenCode,
   Claude, and Codex records sit beside it.
 - [`docs/glossary.md`](docs/glossary.md) — shared vocabulary for these docs.
+- [`docs/helper.md`](docs/helper.md) — `maki-oss`, `opencode-oss`,
+  `claude-oss`, and `codex-oss` commands, sync states, and the project
+  registry.
 - [`opencode-oss/README.md`](opencode-oss/README.md) — run OpenCode itself
   natively in a sandbox (image, profiles, policy, verification summary).
 - [`claude-oss/README.md`](claude-oss/README.md) — run Claude Code natively in

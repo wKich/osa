@@ -69,7 +69,8 @@ Every profile below names only `/usr/local/bin/maki` (the path used by
 The two `mcp-*` profiles back MCP servers rather than model calls and are not
 in `catalog.tsv`, so the wizard does not resolve them from a stored slug — set
 them up with `maki-oss provider setup --profile examples/providers/<id>.yaml
---env <VAR> --yes`. See [`docs/mcp-migration.md`](mcp-migration.md).
+--env <VAR> --yes`. See
+[`docs/ai/environment-playbook.md`](ai/environment-playbook.md).
 
 The wizard resolves a stored credential to its profile through
 `catalog.tsv`, including aliases such as `opencode:zai-coding-plan` and
@@ -179,7 +180,7 @@ Inside the sandbox, confirm the placeholder (never the value):
 
 ```sh
 openshell sandbox exec -n maki --no-login-shell -- printenv OPENCODE_API_KEY
-# v3789022262450335270_OPENCODE_API_KEY   (a placeholder, never the key)
+# ..._OPENCODE_API_KEY   (a placeholder, never the key)
 ```
 
 `make lint-profiles` lints every `examples/providers/*.yaml` with the real

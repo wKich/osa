@@ -67,14 +67,11 @@ reads the Maki credential store directly and the sandbox runs the image-pinned
 binary. If the host CLI is missing and you want it anyway, install it with the
 Maki install script listed in [`docs/ai/references.md`](../references.md).
 
-Then choose the provider (decision point A):
+Then record the provider decision (decision point A) without changing anything.
+Phase 2 performs the setup:
 
-- If `maki-oss` is available, prefer the wizard: run `maki-oss provider setup`
-  (interactive) or `maki-oss provider setup --from maki --credential <slug>
-  --yes` for a credential already in a store. It imports the curated profile
-  and creates the provider, so skip Phase 2's raw provider commands; Phase 1
-  still builds the image.
-- Otherwise map an exported key to its curated profile:
+- If `maki-oss` is available, Phase 2 uses the wizard.
+- Otherwise record which exported key maps to which curated profile:
   - `ANTHROPIC_API_KEY` → `examples/providers/maki-anthropic.yaml`, type
     `maki-anthropic`
   - `OPENROUTER_API_KEY` → `examples/providers/maki-openrouter.yaml`, type
@@ -85,8 +82,8 @@ Then choose the provider (decision point A):
     `examples/providers/`; use the catalog table in `docs/providers.md` to
     pick between plans (for example Z.AI coding vs standard).
 - If no key is available, stop and ask the user to export one or to run
-  `maki-oss provider setup`. Do not accept a key pasted into the conversation,
-  and do not put a key on a command line.
+  `maki-oss provider setup` in Phase 2. Do not accept a key pasted into the
+  conversation, and do not put a key on a command line.
 
 OAuth-only credentials (for example a ChatGPT or xAI OAuth login) are not
 usable here; report that and point at `docs/migrating-providers.md` instead of
@@ -96,8 +93,9 @@ extracting tokens.
 
 Expected: Docker `28.0` or later; `openshell status` shows
 `Status: Connected`; `uname -m` is a supported architecture (`arm64` or
-`x86_64`). If you ran the optional host check, it prints `maki 0.6.5` (the
-image pin); its absence is not a failure.
+`x86_64`). If you ran the optional host check, record its version; a different
+host version is not a failure because the image-pinned binary at P3 is
+authoritative. Its absence is also not a failure.
 
 ### Stop if
 
@@ -242,12 +240,13 @@ openshell provider create --name maki-anthropic --type maki-anthropic --from-exi
 ```sh
 openshell profile describe maki-anthropic
 openshell provider list
+maki-oss doctor
 ```
 
 Expected: the profile shows the provider's endpoint and binary
 (`api.anthropic.com:443` and `/usr/local/bin/maki` for this example); the
 provider list names the instance and exposes credential key names only (never
-values).
+values); `maki-oss doctor` reports the image and provider checks as `ok`.
 
 ### Stop if
 
@@ -385,11 +384,16 @@ rule. Report both outputs; do not attach a broader policy to fix it.
 Execute every check in [`docs/ai/verification/maki.md`](../verification/maki.md)
 and record each command and output.
 
+Set `SANDBOX` to the name printed by `maki-oss status`, then use `"$SANDBOX"` in
+place of the raw `maki` name in checks 1-6. Checks 7-9 already create and use
+helper sandbox names. The helper equivalent of `openshell policy get` is
+`maki-oss policy show --full`.
+
 ### Verify
 
 Expected: every check in
 [`docs/ai/verification/maki.md`](../verification/maki.md) reports its stated
-result.
+result with `SANDBOX` set to the project sandbox name.
 
 ### Stop if
 
@@ -445,8 +449,9 @@ maki-oss status
 maki-oss rm --yes
 ```
 
-The session already collected a patch at exit; `maki-oss rm` asks for
-confirmation unless `--yes` is passed.
+Ask the user before deleting the sandbox; `--yes` is only for a non-interactive
+run after that confirmation. The session already collected a patch at exit;
+`maki-oss rm` asks for confirmation unless `--yes` is passed.
 
 Raw fallback:
 

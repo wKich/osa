@@ -3203,6 +3203,11 @@ test_asset_agent_onboarding() {
         || bad "README.md lacks the short agent setup prompt"
     grep -Fq 'docs/ai/onboarding.md' "$CASE/readme-prompt" \
         || bad "README.md setup prompt does not link the full prompt"
+    # The prompt must bootstrap the repository: the user may not have a clone.
+    grep -Fq 'https://github.com/wKich/osa.git' "$CASE/readme-prompt" \
+        || bad "README.md setup prompt lacks the clone URL"
+    grep -Fq 'https://github.com/wKich/osa.git' "$guide" \
+        || bad "onboarding prompt lacks the clone URL"
 
     # P2 prepares the repository and shell; P3 owns the image, P4 the provider.
     p2=$(grep -F '| P2 ' "$guide" | sed -n '1p')

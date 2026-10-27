@@ -95,8 +95,8 @@ Without the matching checksums the build fails rather than skipping the check.
 
 Expected: `claude-oss image build` prints `Built image 'claude-agent:local'.`;
 `docker run --rm claude-agent:local claude --version` prints
-`2.1.308 (Claude Code)`; and `claude-oss doctor` reports the image as `ok` (the
-provider and model checks are completed in Phase 2).
+`2.1.308 (Claude Code)`. The provider and model checks in `claude-oss doctor`
+are completed in Phase 2.
 
 ### Stop if
 
@@ -165,11 +165,15 @@ custom profile; keep the `claude-` prefix.
 ```sh
 openshell profile describe claude-anthropic-oauth
 openshell provider list
+claude-oss doctor
 ```
 
 Expected: the profile shows `api.anthropic.com:443` and
 `/usr/local/bin/claude`; the provider list names `claude-anthropic-oauth` and
-exposes credential key names only, never values.
+exposes credential key names only, never values; `claude-oss doctor` reports
+the image and provider checks as `ok` and warns if both credential kinds are
+attached (a model warning is acceptable when you have not set a default
+model).
 
 ### Stop if
 
@@ -297,18 +301,26 @@ not attach a broader policy to fix it.
 
 ### Run
 
-Execute the boundary checks in
-[`docs/ai/verification/claude.md`](../verification/claude.md) with the Claude
-substitutions: sandbox `"$SANDBOX"` (under the helper, take the name from
-`claude-oss status`), provider `claude-anthropic` or
-`claude-anthropic-oauth`, the profile's credential variable
-(`ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`), and the agent binary
-`/usr/local/bin/claude`. Also run `id -u` and `id -g` in the sandbox and expect
-`1500`. Then, from the project directory, check MCP readiness:
+The verification page records the observations. These are the executable
+helper checks. Set `SANDBOX` to the name `claude-oss status` prints, then run:
 
 ```sh
+SANDBOX=$(claude-oss status | sed -n 's/^Sandbox:[[:space:]]*//p')
+test -n "$SANDBOX"
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- id
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- /usr/bin/curl -sS --max-time 15 https://example.com
+# run only the line for the credential kind you attached:
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- printenv ANTHROPIC_API_KEY
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- printenv CLAUDE_CODE_OAUTH_TOKEN
+openshell policy get "$SANDBOX" --full
 claude-oss mcp status
 ```
+
+Expected: uid/gid 1500; the curl exits 7; the attached credential variable is a
+placeholder rather than the host value (the other variable is unset); the
+effective policy has only `api.anthropic.com:443` bound to
+`/usr/local/bin/claude`; `claude-oss mcp status` exits 0 or reports each missing
+server.
 
 `mcp status` compares the servers under `mcpServers` in the host's Claude Code
 user config (`$CLAUDE_CONFIG_DIR/.claude.json` when that is set, else
@@ -322,12 +334,11 @@ environment-store task, not an isolation failure. Details are in
 
 ### Verify
 
-Expected: every boundary check in
-[`docs/ai/verification/claude.md`](../verification/claude.md) reports its
-stated result (uid 1500, a denied non-profile host, no host paths, the
-provider-only effective policy, and no credential value); `claude-oss mcp
-status` exits 0 when the host declares no MCP server, or reports each missing
-server without changing the sandbox.
+Expected: the helper checks above pass and the recorded observations in
+[`docs/ai/verification/claude.md`](../verification/claude.md) match (uid 1500,
+a denied non-profile host, no host paths, the provider-only effective policy,
+and no credential value); `claude-oss mcp status` exits 0 when the host declares
+no MCP server, or reports each missing server without changing the sandbox.
 
 ### Stop if
 
@@ -429,11 +440,13 @@ claude-oss status
 claude-oss rm --yes
 ```
 
-Bare `claude-oss` and `claude-oss run` collect the sandbox changes as a patch
-on exit and apply it only when the sandbox baseline still matches the host;
-`--no-sync` opts out. A retained patch never blocks the next session. On exit
-both session kinds also run the same network-proposal check as `maki-oss`.
-`claude-oss rm` asks for confirmation unless `--yes` is passed.
+Ask the user before deleting the sandbox; `--yes` is only for a non-interactive
+run after that confirmation. Bare `claude-oss` and `claude-oss run` collect the
+sandbox changes as a patch on exit and apply it only when the sandbox baseline
+still matches the host; `--no-sync` opts out. A retained patch never blocks the
+next session. On exit both session kinds also run the same network-proposal
+check as `maki-oss`. `claude-oss rm` asks for confirmation unless `--yes` is
+passed.
 
 Raw fallback:
 

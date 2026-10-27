@@ -34,8 +34,8 @@ around a failed check by weakening isolation.
 OpenCode-specific configuration, sessions, MCP, and store details are in
 [`docs/ai/reference/opencode.md`](../reference/opencode.md). Shared helper
 behavior is in [`docs/helper.md`](../../helper.md), provider profiles in
-[`docs/providers.md`](../../providers.md), and MCP in
-[`docs/mcp-migration.md`](../../mcp-migration.md).
+[`docs/providers.md`](../../providers.md), and MCP gates in
+[`docs/helper.md#mcp-status`](../../helper.md#mcp-status).
 
 ## Inputs
 
@@ -91,9 +91,8 @@ Without the matching checksums the build fails rather than skipping the check.
 
 Expected: `opencode-oss image build` prints
 `Built image 'opencode-agent:local'.`; `docker run --rm opencode-agent:local
-opencode --version` prints `opencode v2.1.4`; and
-`opencode-oss doctor` reports the image as `ok` (the provider and model
-checks are completed in Phase 2).
+opencode --version` prints `opencode v2.1.4`. The provider and model checks in
+`opencode-oss doctor` are completed in Phase 2.
 
 ### Stop if
 
@@ -152,11 +151,14 @@ curated profile falls through to a generated custom profile; keep the
 ```sh
 openshell profile describe opencode-synthetic
 openshell provider list
+opencode-oss doctor
 ```
 
 Expected: the profile shows `api.synthetic.new:443` and
 `/usr/local/bin/opencode`; the provider list names `opencode-synthetic` and
-exposes credential key names only, never values.
+exposes credential key names only, never values; `opencode-oss doctor` reports
+the image and provider checks as `ok` (a model warning is acceptable when you
+have not set a default model).
 
 ### Stop if
 
@@ -281,17 +283,24 @@ not attach a broader policy to fix it.
 
 ### Run
 
-Execute every check in
-[`docs/ai/verification/opencode.md`](../verification/opencode.md) with the
-OpenCode substitutions: sandbox `"$SANDBOX"` (under the helper, take the name
-from `opencode-oss status`), provider `opencode-synthetic`, the profile's
-credential variable (`SYNTHETIC_API_KEY`), and the agent binary
-`/usr/local/bin/opencode`. Then, from the project directory, check MCP
-readiness:
+The verification page records the observations. These are the executable
+helper checks. Set `SANDBOX` to the name `opencode-oss status` prints, then run:
 
 ```sh
+SANDBOX=$(opencode-oss status | sed -n 's/^Sandbox:[[:space:]]*//p')
+test -n "$SANDBOX"
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- id
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- /usr/bin/curl -sS --max-time 15 https://example.com
+openshell sandbox exec -n "$SANDBOX" --no-login-shell -- printenv SYNTHETIC_API_KEY
+openshell policy get "$SANDBOX" --full
 opencode-oss mcp status
 ```
+
+Expected: uid/gid 1500; the curl exits 7; the environment value is a
+placeholder, not the host key; the effective policy has only the model endpoint
+bound to `/usr/local/bin/opencode`; `opencode-oss mcp status` exits 0 or reports
+each missing server. Substitute the credential variable if you chose another
+profile.
 
 `mcp status` compares the servers enabled under the host's `mcp` key with the
 sandbox's `/sandbox/.config/opencode/opencode.json`. The base image declares
@@ -299,16 +308,16 @@ no MCP server, so a server present only on the host is reported
 `sandbox=missing` with the `FROM opencode-agent:local` fix, and the command
 exits 3; that is an environment-store task, not an isolation failure. Details
 are in [`docs/ai/reference/opencode.md`](../reference/opencode.md#mcp)
-and [`docs/mcp-migration.md`](../../mcp-migration.md).
+and [`docs/ai/environment-playbook.md`](../environment-playbook.md).
 
 ### Verify
 
-Expected: every check in
-[`docs/ai/verification/opencode.md`](../verification/opencode.md) reports its
-stated result (uid 1500, a denied non-profile host, no host paths, the
-provider-only effective policy, and no credential value); `opencode-oss mcp
-status` exits 0 when the host declares no MCP server, or reports each missing
-server without changing the sandbox.
+Expected: the helper checks above pass and the recorded observations in
+[`docs/ai/verification/opencode.md`](../verification/opencode.md) match (uid
+1500, a denied non-profile host, no host paths, the provider-only effective
+policy, and no credential value); `opencode-oss mcp status` exits 0 when the
+host declares no MCP server, or reports each missing server without changing
+the sandbox.
 
 ### Stop if
 
@@ -398,10 +407,12 @@ opencode-oss status
 opencode-oss rm --yes
 ```
 
-Bare `opencode-oss` and `opencode-oss run` collect the sandbox changes as a
-patch on exit and apply it only when the sandbox baseline still matches the
-host; `--no-sync` opts out. A retained patch never blocks the next session.
-`opencode-oss rm` asks for confirmation unless `--yes` is passed.
+Ask the user before deleting the sandbox; `--yes` is only for a non-interactive
+run after that confirmation. Bare `opencode-oss` and `opencode-oss run` collect
+the sandbox changes as a patch on exit and apply it only when the sandbox
+baseline still matches the host; `--no-sync` opts out. A retained patch never
+blocks the next session. `opencode-oss rm` asks for confirmation unless `--yes`
+is passed.
 
 Raw fallback:
 
@@ -474,8 +485,9 @@ Never relax these to make a command work:
   command reference.
 - [`docs/providers.md`](../../providers.md) — provider profile catalog and
   setup flags.
-- [`docs/mcp-migration.md`](../../mcp-migration.md) — MCP definitions and
-  status.
+- [`docs/mcp-migration.md`](../../mcp-migration.md) — historical
+  OpenCode-to-Maki MCP migration record; use the environment playbook for a
+  same-agent setup.
 - [`opencode-oss/README.md`](../../../opencode-oss/README.md) — the
   subproject, raw path, and verification summary.
 - [`docs/ai/references.md`](../references.md) — upstream documentation index.

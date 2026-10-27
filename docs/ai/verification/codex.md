@@ -11,6 +11,10 @@
 
 ## Scope
 
+> **Record, not checklist.** The commands below are recorded and abridged.
+> The executable helper checks are in
+> [the playbook Phase 5](../playbooks/codex.md#phase-5--run-the-isolation-checks).
+
 The canonical Codex verification record. It reorganizes the recorded run from
 [`codex-oss/README.md`](../../../codex-oss/README.md) into `## Check` blocks; it
 is not a new run, and no observed result is carried forward from a later

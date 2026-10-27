@@ -49,10 +49,13 @@ From a clone of this repository:
 ./bin/maki-oss doctor          # verify the built image and host
 ```
 
+The same `image build` and `doctor` subcommands exist on `opencode-oss`,
+`claude-oss`, and `codex-oss`; substitute the front-end you use.
+
 Either run `./bin/maki-oss` directly or put the repository's `bin/` on `PATH`:
 
 ```sh
-export PATH="$PWD/bin:$PATH"
+export PATH="$PWD/bin:$PATH"   # add to ~/.zshrc or config.fish
 maki-oss help
 ```
 
@@ -301,8 +304,9 @@ maki-oss --no-sync   # leave changes in the sandbox only
 
 The sandbox is the source of the agent's work; the host decides whether that
 work applies. The helper keeps an external git directory at
-`<workdir parent>/.maki-oss/git` inside the sandbox, outside the project
-workdir. At upload time it commits the uploaded tree as `refs/maki-oss/base`.
+`<workdir parent>/.<front-end>-oss/git` inside the sandbox, outside the project
+workdir (for example `.maki-oss/git`). At upload time it commits the uploaded
+tree as `refs/<front-end>/base` (for example `refs/maki-oss/base`).
 On exit it commits the workdir and emits
 `git diff --binary --full-index base result` as a patch. `.git` never crosses
 the boundary: OpenShell's git-aware upload skips the host `.git`, and the
@@ -749,7 +753,7 @@ was built is silently absent in the sandbox. `mcp status` names it as
 [`docs/ai/environment-playbook.md`](ai/environment-playbook.md) as the fix. The
 base image declares no MCP servers, so a server is added by building and
 selecting an environment image, not by rebuilding the base — see
-[`docs/mcp-migration.md`](mcp-migration.md) §4.
+[`docs/ai/environment-playbook.md`](ai/environment-playbook.md).
 
 An OAuth-gated server reports its provider as missing until the host-side login
 has been handed to the gateway; the sandbox receives only a placeholder, never
@@ -1037,9 +1041,12 @@ surprises:
   [`evidence/known-defects.md`](../openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/known-defects.md)
   and belong to a later change; Maki's own TUI (the default) is unaffected.
 
-## Manual verification
+## Manual verification (historical)
 
-A full dry run against a real OpenShell 0.1.2 gateway (macOS 26.5, Apple
+This records an earlier run against OpenShell 0.1.2 and Maki 0.6.0. The
+current pins are OpenShell v0.1.5 and Maki 0.6.5; current runs are in
+[`docs/verification-log.md`](verification-log.md). A full dry run against a real
+OpenShell 0.1.2 gateway (macOS 26.5, Apple
 Silicon, Docker Engine 29.4.0 via OrbStack, `maki-agent:local` built from
 Maki 0.6.0) produced:
 

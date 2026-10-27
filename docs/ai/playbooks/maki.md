@@ -12,6 +12,9 @@
 | Reference | `docs/ai/reference/maki.md` |
 | Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
 
+> `Covers: P0-P8` — P0-P2 are the shared host phases plus the optional host Maki
+> check; the image-pinned binary at P3 is authoritative.
+
 > **Maki path; return to onboarding for OpenCode, Claude, or Codex** — [open the
 > onboarding guide](../onboarding.md).
 
@@ -20,6 +23,14 @@
 Ordered, executable steps for a coding agent. Run every command from the
 repository root. After each phase, run its verification and stop on a
 mismatch — do not work around a failed check by weakening isolation.
+
+The `maki-oss` helper is the primary path. The raw `docker` and `openshell`
+commands are a fallback for debugging the boundary or explicit control.
+
+**Choose one path.** Run the helper for the whole pass, or the raw commands for
+the whole pass. Do not mix them in one run: the helper's sandbox is
+`mk-<project>-<hash>`, while the raw fallback creates a separate sandbox named
+`maki`. If the helper created the sandbox, skip the raw create step.
 
 If a denial blocks the task, read `docs/setup-guide.md` §8 and
 `docs/ai/references.md` before changing anything. Never relax an invariant
@@ -31,6 +42,9 @@ listed at the end of this file.
   or OpenCode credential store.
 - The project path to upload (optional; skip the upload steps to work in an
   empty workspace).
+- No host `maki` CLI is required. The helper path runs the binary pinned by
+  `examples/maki-image/Dockerfile` inside the sandbox; a host install is
+  optional and for host-side inspection only.
 
 ## Phase 0 — Preflight
 
@@ -39,14 +53,19 @@ listed at the end of this file.
 ```sh
 docker version --format '{{.Server.Version}}'
 openshell status
-maki --version
 uname -m
 ```
 
-The host Maki CLI is checked here even though sessions run the binary baked
-into the image. If `maki --version` is missing, install it with the Maki install
-script listed in [`docs/ai/references.md`](../references.md), then re-check.
-The image pin stays authoritative for sandbox runs.
+Optional host check, for a user who wants to inspect the host installation:
+
+```sh
+maki --version   # optional; the image pin is authoritative
+```
+
+A missing host `maki` does not stop the helper path: `maki-oss provider setup`
+reads the Maki credential store directly and the sandbox runs the image-pinned
+binary. If the host CLI is missing and you want it anyway, install it with the
+Maki install script listed in [`docs/ai/references.md`](../references.md).
 
 Then choose the provider (decision point A):
 
@@ -76,16 +95,15 @@ extracting tokens.
 ### Verify
 
 Expected: Docker `28.0` or later; `openshell status` shows
-`Status: Connected`; `maki --version` prints `maki 0.6.5` (the version pinned
-by `examples/maki-image/Dockerfile`); `uname -m` is a supported architecture
-(`arm64` or `x86_64`).
+`Status: Connected`; `uname -m` is a supported architecture (`arm64` or
+`x86_64`). If you ran the optional host check, it prints `maki 0.6.5` (the
+image pin); its absence is not a failure.
 
 ### Stop if
 
-A preflight command mismatches, the host Maki CLI cannot be installed at the
-pinned version, no usable key is available, or the only credential is
-OAuth-only. Ask the user for an exported key or a store credential; do not
-extract tokens or accept a key in the conversation.
+A preflight command mismatches, no usable key is available, or the only
+credential is OAuth-only. Ask the user for an exported key or a store
+credential; do not extract tokens or accept a key in the conversation.
 
 ## Shell preparation
 
@@ -145,18 +163,23 @@ Report which path or shell failed; do not mix the two shell paths.
 
 ### Run
 
+Helper path:
+
 ```sh
-docker build --build-arg MAKI_VERSION=0.6.5 -t maki-agent:local examples/maki-image
+./bin/maki-oss image build
+./bin/maki-oss doctor
 docker run --rm maki-agent:local maki --version
 IMAGE=maki-agent:local
 REPO_ROOT=$(pwd)
 ```
 
-Or use the helper's thin wrapper for the build, then verify with the helper:
+Raw fallback:
 
 ```sh
-./bin/maki-oss image build
-./bin/maki-oss doctor
+docker build --build-arg MAKI_VERSION=0.6.5 -t maki-agent:local examples/maki-image
+docker run --rm maki-agent:local maki --version
+IMAGE=maki-agent:local
+REPO_ROOT=$(pwd)
 ```
 
 The base image is agent-only: no MCP servers, no MCP-specific runtime, and no
@@ -193,10 +216,19 @@ as current.
 
 ### Run
 
-If Phase 0 used `maki-oss provider setup`, the lint, import, and provider
-creation already happened; run the verification commands below. Otherwise
-substitute the profile file, type, and provider name chosen in Phase 0; the
-example uses `maki-anthropic`:
+Helper path:
+
+```sh
+./bin/maki-oss provider setup
+```
+
+The wizard lints and imports the curated profile and creates or updates the
+provider. Without a terminal, name the credential instead of waiting for
+prompts: `--from STORE --credential SLUG --yes`, `--env VAR`, or `--file PATH`
+— the full flag table is in [`docs/providers.md`](../../providers.md).
+
+Raw fallback. Substitute the profile file, type, and provider name chosen in
+Phase 0; the example uses `maki-anthropic`:
 
 ```sh
 PROVIDER=maki-anthropic
@@ -204,17 +236,6 @@ openshell profile lint -f examples/providers/maki-anthropic.yaml
 openshell profile import -f examples/providers/maki-anthropic.yaml --global
 openshell provider create --name maki-anthropic --type maki-anthropic --from-existing
 ```
-
-Or run the helper wizard, which lints and imports the curated profile and
-creates the provider:
-
-```sh
-./bin/maki-oss provider setup
-```
-
-Without a terminal, name the credential instead of waiting for prompts:
-`--from STORE --credential SLUG --yes`, `--env VAR`, or `--file PATH` — the
-full flag table is in [`docs/providers.md`](../../providers.md).
 
 ### Verify
 
@@ -273,20 +294,46 @@ the template policy.
 
 Decision point C — is there a project to upload?
 
-Before uploading, make the project a git repo with its dependency directories
-gitignored. `openshell sandbox upload` applies `.gitignore` filtering only
-inside a git work tree and warns when it uploads everything, so an un-ignored
-`.venv`, `node_modules`, or `target` directory is copied into the sandbox at
-full size — a macOS `.venv` round-tripped 491 MB of useless, non-executable
-files into a Linux sandbox once. The session patch does not bring ignored files
-back, but the upload still pays for them in time and disk. Ignore the
-dependency directories so the upload carries only the source.
+Helper path, from the project directory:
 
 ```sh
 cd "$PROJECT_PATH"
-git init
-printf '.venv/\nnode_modules/\ntarget/\n__pycache__/\n' >>.gitignore
-git add -A && git commit -qm init
+maki-oss up
+```
+
+`maki-oss up` creates or starts the project sandbox with the configured image,
+policy, and provider. The first session uploads the workspace; `up` does not.
+The helper names its sandbox `mk-<project>-<hash>`, and it records a dirty baseline,
+so an uncommitted project needs no preparation.
+
+Raw fallback. Do not run this after `maki-oss up`: the raw path creates a
+separate sandbox named `maki`.
+
+Before the raw upload, prepare the project with consent. `openshell sandbox
+upload` applies `.gitignore` filtering only inside a git work tree and warns
+when it uploads everything, so an un-ignored `.venv`, `node_modules`, or
+`target` directory is copied into the sandbox at full size — a macOS `.venv`
+round-tripped 491 MB of useless, non-executable files into a Linux sandbox
+once. The session patch does not bring ignored files back, but the upload still
+pays for them in time and disk.
+
+- If the project is already a git repository, add or verify the ignore entries
+  and show the diff; do not commit.
+- If it is not a git repository, ask the user before `git init`; then add the
+  ignore entries. Do not commit.
+- Never stage or commit `.env` or another secret file; `.env` stays ignored.
+
+```sh
+cd "$PROJECT_PATH"
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  # Append only the missing entries; .env must stay ignored.
+  for entry in .venv/ node_modules/ target/ __pycache__/ .env; do
+    grep -qxF "$entry" .gitignore 2>/dev/null || printf '%s\n' "$entry" >>.gitignore
+  done
+  git status --short .gitignore
+else
+  echo 'not a git repository: ask before git init, then rerun this block'
+fi
 ```
 
 ```sh
@@ -315,10 +362,13 @@ Phases 6-7 use `$WORKDIR`; without a project it is `/sandbox/project`.
 
 ```sh
 openshell sandbox list
-openshell policy get maki --full
+maki-oss status                    # helper path: the mk-<project>-<hash> sandbox
+maki-oss policy show --full        # helper path: effective policy
+openshell policy get maki --full   # raw path: the maki sandbox
 ```
 
-Expected: the sandbox reaches `Ready`; the effective policy contains
+Expected: the sandbox (`mk-<project>-<hash>` under the helper, `maki` on the raw
+path) reaches `Ready`; the effective policy contains
 `/usr/local/bin/maki -> api.anthropic.com:443` contributed by the provider
 (`_provider_*` rule). A missing provider rule means the provider attachment
 failed.
@@ -350,7 +400,18 @@ do not weaken isolation to continue.
 
 ### Run
 
-Smoke test first (cheap, proves model access end to end):
+Helper path, smoke test first:
+
+```sh
+cd "$PROJECT_PATH"
+maki-oss run "Reply with OK."
+maki-oss                              # interactive session
+```
+
+Then run the real task the same way: pass the user's task text in place of the
+smoke-test string. The helper prints Maki's JSON unchanged and syncs on exit.
+
+Raw fallback, in the raw `maki` sandbox (cheap smoke test first):
 
 ```sh
 openshell sandbox exec -n maki --workdir "$WORKDIR" --no-login-shell -- \
@@ -358,20 +419,9 @@ openshell sandbox exec -n maki --workdir "$WORKDIR" --no-login-shell -- \
 ```
 
 Then run the real task the same way: pass the user's task text as the argument
-to `-p` in place of the smoke-test string.
-
-`sandbox exec` starts a new process, so it picks up the current provider
-placeholders. Use `--output-format json` for machine-readable results.
-
-#### Helper shortcut
-
-If `maki-oss` is available (from this repository), it performs Phases 2–7 —
-except cleanup — in one command per project. The one-time setup and the
-everyday session loop are in [`## Daily driver`](#daily-driver) below.
-
-The helper still uses provider profiles and the minimal policy, and never
-relaxes the invariants below. Use the raw commands when you need explicit
-control or are debugging the boundary itself.
+to `-p` in place of the smoke-test string. `sandbox exec` starts a new process,
+so it picks up the current provider placeholders. Use `--output-format json`
+for machine-readable results.
 
 ### Verify
 
@@ -387,25 +437,39 @@ the policy decision; do not retry with a broader rule.
 
 ### Run
 
+Helper path, from the project directory:
+
+```sh
+cd "$PROJECT_PATH"
+maki-oss status
+maki-oss rm --yes
+```
+
+The session already collected a patch at exit; `maki-oss rm` asks for
+confirmation unless `--yes` is passed.
+
+Raw fallback:
+
 ```sh
 openshell sandbox download maki "$WORKDIR" ./project-out
 openshell sandbox delete maki
 ```
 
 Downloads are limited to paths inside the sandbox working directory — keep
-results under `/sandbox`. When the project was run through `maki-oss`, the
-session already collected a patch at exit; this download is the explicit
-full-copy escape hatch, not the default sync path.
+results under `/sandbox`. The raw download is the explicit full-copy escape
+hatch, not the default sync path.
 
 ### Verify
 
 ```sh
-ls ./project-out
+ls ./project-out        # raw path
 openshell sandbox list
+maki-oss status         # helper path: Exists: no
 ```
 
-Expected: `./project-out` contains the downloaded project files, and the
-sandbox list no longer names `maki`.
+Expected: `./project-out` contains the downloaded project files, the sandbox
+list no longer names `maki`, and under the helper `maki-oss status` reports
+`Exists: no`.
 
 ### Stop if
 
@@ -417,13 +481,13 @@ state.
 
 This is the everyday Maki loop once the one-time setup and the phases above
 have been verified. The raw commands in Phases 6-7 remain the explicit-control
-path.
+path; do not mix the two paths in one run.
 
 ### Run
 
 **Once per machine** (completed in Shell preparation and Phases 1-2; listed
-here only to keep it separate from the loop): `maki-oss doctor`,
-`maki-oss image build`, an optional environment-store build,
+here only to keep it separate from the loop): `maki-oss image build`,
+`maki-oss doctor`, an optional environment-store build,
 `maki-oss provider setup`, and setting `image` when a derived environment image
 is used.
 
@@ -518,7 +582,7 @@ action; do not start a new sandbox to fix a report.
 - [`docs/ai/verification/maki.md`](../verification/maki.md) — isolation
   checklist used by Phase 5.
 - [`docs/helper.md`](../../helper.md) — `maki-oss` command reference and the
-  helper shortcut.
+  helper session flow.
 - [`docs/ai/references.md`](../references.md) — upstream documentation index.
 - [`docs/ai/document-contract.md`](../document-contract.md) — page shape used by
   this playbook.

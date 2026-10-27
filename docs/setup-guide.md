@@ -13,6 +13,19 @@ credentials in the sandbox environment, and deny-by-default egress. Every
 configuration block points at a canonical file under [`examples/`](../examples/);
 this guide never duplicates them.
 
+## Before you start
+
+This guide starts from a clone of this repository, with the helper on `PATH`:
+
+```sh
+git clone https://github.com/wKich/osa.git
+cd osa
+export PATH="$PWD/bin:$PATH"
+```
+
+The README's [Install](../README.md#install) performs the same clone and
+`PATH` step; if you have already done it, start at section 1.
+
 ## 1. The isolation model
 
 Maki runs in an OpenShell sandbox — a Docker container (or MicroVM) whose
@@ -44,7 +57,7 @@ advisor, policy prover, and the rest) is defined in
 | Requirement | Check | Expected |
 |---|---|---|
 | Docker Engine 28+ | `docker version --format '{{.Server.Version}}'` | `28.0` or later |
-| OpenShell CLI + gateway | `openshell status` | `Status: Connected`, version `0.1.5` or later |
+| OpenShell CLI + gateway | `openshell status` | `Status: Connected`, version `0.1.5` |
 | Host platform | `uname -m` | `arm64` on Apple Silicon; Linux amd64/arm64 also supported |
 
 **Docker Desktop settings (macOS):** OpenShell needs containers to reach the
@@ -60,7 +73,8 @@ uses the `docker` CLI and does not depend on which engine provides it.
 **Install OpenShell** (CLI, policy prover, and a local gateway in one step):
 
 ```sh
-curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh | sh
+curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh \
+  | OPENSHELL_VERSION=v0.1.5 sh
 openshell status
 ```
 
@@ -119,17 +133,6 @@ tag. For a store of your own, follow
 [`docs/ai/environment-playbook.md`](ai/environment-playbook.md); never edit
 `examples/maki-image/` for a personal choice.
 
-Once a project sandbox exists, check what is ready:
-
-```sh
-maki-oss mcp status
-```
-
-The gate-by-gate checklist for getting a server ready — and the failures it
-reports — lives in [`docs/mcp-migration.md`](mcp-migration.md). A missing server
-or runtime points at the environment-image build and the environment playbook,
-not at a base `maki-oss image build`.
-
 ## 4. Model access through a provider profile
 
 Any provider works: OpenShell binds credentials to endpoint hosts regardless of
@@ -165,16 +168,21 @@ openshell profile lint -f examples/providers/maki-openrouter.yaml
 openshell profile import -f examples/providers/maki-openrouter.yaml --global
 ```
 
-Create the provider instance from the key in your host environment:
+Create the provider instance from the key in your host environment, without
+putting the value on the command line:
 
 ```sh
 # Anthropic
-ANTHROPIC_API_KEY=<your-key> \
-  openshell provider create --name maki-anthropic --type maki-anthropic --from-existing
+printf 'Anthropic API key: '
+read -rs ANTHROPIC_API_KEY
+export ANTHROPIC_API_KEY
+openshell provider create --name maki-anthropic --type maki-anthropic --from-existing
 
 # or OpenRouter
-OPENROUTER_API_KEY=<your-key> \
-  openshell provider create --name maki-openrouter --type maki-openrouter --from-existing
+printf 'OpenRouter API key: '
+read -rs OPENROUTER_API_KEY
+export OPENROUTER_API_KEY
+openshell provider create --name maki-openrouter --type maki-openrouter --from-existing
 ```
 
 For any other provider substitute its profile file, type, and environment
@@ -237,6 +245,17 @@ Policy notes:
 - Denied requests appear in the sandbox log; the policy advisor can draft a
   narrow rule for review if one turns out to be missing (see
   [`docs/ai/references.md`](ai/references.md) for upstream links).
+
+Once the project sandbox exists, check what is ready:
+
+```sh
+maki-oss mcp status
+```
+
+The gate-by-gate checklist for getting a server ready — and the failures it
+reports — lives in [`docs/mcp-migration.md`](mcp-migration.md). A missing server
+or runtime points at the environment-image build and the environment playbook,
+not at a base `maki-oss image build`.
 
 ## 6. Run Maki
 

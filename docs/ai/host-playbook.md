@@ -27,8 +27,8 @@ Ordered, executable steps for any coding agent that starts from a bare macOS
 (Apple Silicon) or Linux machine. This page covers the shared P0-P2 work —
 preflight, host tooling, and a working repository and shell — and ends there.
 It is the same for Maki, OpenCode, Claude Code, and Codex; choose the agent in
-[`docs/ai/onboarding.md`](onboarding.md), whose playbook owns the
-agent-specific part of P1-P2 and all of P3-P8.
+[`docs/ai/onboarding.md`](onboarding.md), whose playbook owns any host-only
+agent CLI, the agent-specific shell integration, and P3-P8.
 
 Work from the repository root once the repository exists (Phase 3). After each
 phase, run its `### Verify` block and **stop on a mismatch** — report the
@@ -190,10 +190,10 @@ shared check.
 ## Handoff
 
 This playbook ends with a working repository and shell. Choose the agent in
-[`docs/ai/onboarding.md`](onboarding.md); the agent's playbook owns the
-agent-specific part of P1-P2 and all of P3-P8 — the agent CLI, image,
-provider, shell integration, sandbox, and run steps. Do not improvise those
-steps from this file.
+[`docs/ai/onboarding.md`](onboarding.md); the agent's playbook owns any
+host-only agent CLI (the Codex login, the optional host Maki check), the
+agent-specific shell integration, and all of P3-P8 — the image, provider,
+sandbox, and run steps. Do not improvise those steps from this file.
 
 ## Invariants (never relax these to make a command work)
 

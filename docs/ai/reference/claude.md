@@ -13,8 +13,9 @@
 The Claude Code path: Claude-specific paths and differences. The ordered path
 is [the playbook](../playbooks/claude.md), the pinned run is
 [the verification page](../verification/claude.md);
-shared behavior is in [helper](../../helper.md), [providers](../../providers.md),
-and the [environment playbook](../environment-playbook.md). This is an index,
+and the [environment playbook](../environment-playbook.md); the
+[provider catalog](../../providers.md) is Maki-scoped, and the Claude profiles
+and their setup are in this page. This is an index,
 not a procedure, so `Verified` says `not yet verified`.
 
 ## Config paths

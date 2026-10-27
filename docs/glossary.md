@@ -11,27 +11,36 @@ reference pack.
   environment prefix, and config path are unchanged by the repository rename.
 - **opencode-oss** — the OpenCode front-end command (`bin/opencode-oss`),
   likewise unchanged.
+- **claude-oss** — the Claude Code front-end command (`bin/claude-oss`), with
+  the `CLAUDE_OSS_` prefix.
+- **codex-oss** — the Codex front-end command (`bin/codex-oss`), with the
+  `CODEX_OSS_` prefix.
 - **Gateway** — the OpenShell control plane that runs on a host or cluster and
   manages sandboxes, policies, providers, and access.
 - **Sandbox** — the isolated workload environment (Docker container or MicroVM)
   that OpenShell creates to run an agent such as Maki.
-- **Base image** — `maki-agent:local`, built by `maki-oss image build`: the
-  pinned Maki runtime, non-root sandbox identity, filesystem/Landlock settings,
-  folder trust, YOLO mode, and the deny rules that protect the baked
+- **Base image** — the agent-only image built by the matching helper's
+  `image build`: `maki-agent:local` (Maki), `opencode-agent:local` (OpenCode),
+  `claude-agent:local` (Claude Code), or `codex-agent:local` (Codex). It
+  carries the pinned agent runtime, the non-root sandbox identity, the
+  filesystem/Landlock settings, and the baked deny rules that protect the
   configuration. It declares no MCP servers, installs no MCP-specific runtime,
-  and sets no personal UI preference.
+  and sets no personal UI preference. Maki's base also pre-answers folder trust
+  and starts every session in YOLO mode.
 - **Environment store** — a user-owned Docker build context, outside this
-  repository, whose `Dockerfile` builds `FROM` the base image. It carries the
-  user's MCP configuration, runtime and package installs, skills, plugins, and
-  personal preferences. It contains no credential value; the repository ships
-  only the opt-in reference store at `examples/environments/reference/`.
+  repository, whose `Dockerfile` builds `FROM` the selected agent's base image.
+  It carries the user's MCP configuration, runtime and package installs, skills,
+  plugins, and personal preferences. It contains no credential value; the
+  repository ships only the opt-in reference store at
+  `examples/environments/reference/`.
 - **Derived image** — the tag produced by building an environment store (for
   example `maki-agent:reference`). The helper selects it through the existing
-  `image` setting; `maki-oss image build` still builds only the base.
+  `image` setting; the matching `image build` still builds only the base.
 - **Global, project-local, and credential state** — global environment content
   lives in the environment store and its derived image; project-local agent
-  configuration (`.maki/`, `.opencode/`) travels with the uploaded project; and
-  credentials plus egress stay in OpenShell provider profiles.
+  configuration (for example `.maki/`, `.opencode/`, `.claude/`, or Codex's
+  `AGENTS.md`) travels with the uploaded project; and credentials plus egress
+  stay in OpenShell provider profiles.
 - **Supervisor** — the OpenShell runtime process that starts and watches the
   sandbox workload, mediates DNS and TCP, and enforces policy at the boundary.
 - **Base policy** — the sandbox's own policy, before attached providers
@@ -105,7 +114,8 @@ reference pack.
 - **Project layer** — the agent-neutral part of the helpers (in
   `lib/oss-core.sh` and `lib/osa-state.sh`) that binds host project folders
   to sandboxes and syncs them, between the agent front-ends (`maki-oss`,
-  `opencode-oss`) and the `openshell` CLI. `osa` reports on it.
+  `opencode-oss`, `claude-oss`, `codex-oss`) and the `openshell` CLI. `osa`
+  reports on it.
 - **State root** — `~/.local/state/osa/`, where every front-end keeps its
   registry entries and session state.
 - **Project registry** — one entry per project folder and agent,
@@ -113,7 +123,8 @@ reference pack.
   sandbox name and ID, and the host fingerprint. An entry whose folder is
   gone is an **orphan**.
 - **Agent tag** — the two-letter agent code in registry entries and default
-  sandbox names: `mk` (Maki) and `oc` (OpenCode).
+  sandbox names: `mk` (Maki), `oc` (OpenCode), `cc` (Claude Code), and `cx`
+  (Codex).
 - **State contract** — the registry entries and `pending` markers, published
   as versioned flat TOML for other tools to read without writing.
 - **Host fingerprint** — a cheap marker of a git project's host state
@@ -122,11 +133,13 @@ reference pack.
   without hashing the tree.
 - **Template** — a reusable sandbox workload definition (image, resources,
   settings) that `openshell sandbox create --template` can instantiate.
-- **MCP config** — Maki's table of MCP servers: `~/.config/maki/mcp.toml` on the
-  host, and `/sandbox/.config/maki/mcp.toml` in the sandbox baked from an
-  environment image. The sandbox never reads the host's file, so changing the
-  server set means rebuilding the environment store and selecting its derived
-  image. The base image's file declares zero servers.
+- **MCP config** — the selected agent's table of MCP servers: Maki's
+  `~/.config/maki/mcp.toml` and `/sandbox/.config/maki/mcp.toml`, OpenCode's
+  `opencode.json` `mcp` key, Claude Code's `.claude.json` `mcpServers`, or
+  Codex's `[mcp_servers.<name>]` tables. The host file is never read by the
+  sandbox; the baked copy comes from an environment image. Changing the server
+  set therefore means rebuilding the environment store and selecting its
+  derived image. Each base image declares zero servers.
 - **MCP readiness** — the per-server report printed by `maki-oss mcp status`
   and, as an informational section, by `maki-oss doctor`: for each server
   whether it is present in the sandbox's MCP config, its provider is attached,

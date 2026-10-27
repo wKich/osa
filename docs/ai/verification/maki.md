@@ -31,6 +31,10 @@ checks 8-9 record the MCP smoke tests added before that run; check 7 records the
 2026-10-26 sync pass, which used `maki-agent:personal`; its Maki version is not
 recorded. No result below is carried forward from a later version.
 
+The current image pin is Maki 0.6.5 (`examples/maki-image/Dockerfile`). No 0.6.5
+isolation run has been recorded, so nothing on this page is a 0.6.5 measurement;
+the checks below remain the historical 0.6.4 run.
+
 ## Check 1 — Denied egress
 
 ### Run

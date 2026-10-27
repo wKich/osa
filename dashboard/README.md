@@ -19,8 +19,8 @@ through the `openshell` CLI and project state from the osa state root.
   values; it invokes the CLI, which holds its own credentials.
 - A gateway reachable from this host. Remote gateways are out of scope for v1.
 - For the Projects view: the `osa` command (the repository's `bin/osa` is used
-  by default) and the projects registered by `maki-oss`, `opencode-oss`, or
-  `claude-oss`.
+  by default) and the projects registered by `maki-oss`, `opencode-oss`,
+  `claude-oss`, or `codex-oss`.
 
 ## Quick start
 

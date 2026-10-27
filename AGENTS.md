@@ -18,8 +18,16 @@ Start here:
   reference store under `examples/environments/reference/`.
 - `docs/ai/playbooks/maki.md` — ordered, executable steps to build the image,
   load provider profiles, create a sandbox, and run Maki.
+- `docs/ai/playbooks/opencode.md` — ordered, executable steps for the OpenCode
+  path, whose CLI is image-baked.
+- `docs/ai/playbooks/claude.md` — ordered, executable steps for the Claude Code
+  path, including the host-created subscription token.
 - `docs/ai/playbooks/codex.md` — ordered, executable steps for the Codex path,
   including the host-only ChatGPT login and gateway refresh.
+- `docs/helper.md` — the shared helper command reference, sync states, and the
+  project registry.
+- `docs/providers.md` — the Maki provider catalog and `provider setup` wizard;
+  the other agents' provider setup lives in their playbooks.
 - `docs/ai/references.md` — curated upstream documentation (OpenShell, Maki,
   OpenCode, Claude Code, and Codex), the only index of external documentation
   links in this repository.

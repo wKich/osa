@@ -125,7 +125,8 @@ build. The full layout is in
 - [`docs/ai/playbooks/opencode.md`](../playbooks/opencode.md) — the ordered OpenCode path.
 - [`opencode-oss/README.md`](../../../opencode-oss/README.md) — raw path and verification summary.
 - [`docs/helper.md`](../../helper.md) — shared helper commands and sync.
-- [`docs/providers.md`](../../providers.md) — shared provider forms.
+- [`docs/providers.md`](../../providers.md) — the Maki provider catalog; the
+  OpenCode profiles and their setup are above.
 - [`docs/ai/environment-playbook.md`](../environment-playbook.md) — the store.
 - [`docs/ai/verification/opencode.md`](../verification/opencode.md) — isolation
   checklist.

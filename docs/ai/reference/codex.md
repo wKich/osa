@@ -229,5 +229,6 @@ plugins have no recorded same-agent path, so report one by name. See the
 - [`docs/ai/verification/codex.md`](../verification/codex.md) — the
   verification record.
 - [`docs/helper.md`](../../helper.md) — shared helper commands and sync.
-- [`docs/providers.md`](../../providers.md) — shared provider forms.
+- [`docs/providers.md`](../../providers.md) — the Maki provider catalog; the
+  Codex profile and its setup are above.
 - [`docs/ai/references.md`](../references.md) — upstream documentation index.

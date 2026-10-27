@@ -22,16 +22,33 @@ The commands below show the Maki path. `opencode-oss`, `claude-oss`, and
 `codex-oss` follow the same helper pattern; choose your path in the
 [onboarding guide](docs/ai/onboarding.md).
 
+## Let your agent set it up
+
+Send this to the coding agent you already run:
+
+```text
+Set up osa for the coding agent I already run. Do not switch to a different
+agent. Read AGENTS.md and docs/ai/onboarding.md, audit my host and configuration
+first, show me the plan, and ask before changing anything. Complete the setup
+through the verification page and finish with the report. Never ask me to paste
+a secret.
+```
+
+The full prompt, with the phase map, migration matrix, and report format, is in
+[`docs/ai/onboarding.md`](docs/ai/onboarding.md).
+
 ## Install
 
+If you prefer to do it yourself:
+
 Prerequisites: OpenShell CLI with a running gateway (`openshell status`),
-Docker Engine 28+ (or Podman), and optionally `jq` and `fish`.
+Docker Engine 28+, and optionally `jq` and `fish`.
 
 ```sh
 git clone https://github.com/wKich/osa.git
 cd osa
-./bin/maki-oss doctor       # verify prerequisites
 ./bin/maki-oss image build  # build the sandbox image
+./bin/maki-oss doctor       # verify the built image and host
 export PATH="$PWD/bin:$PATH"
 ```
 
@@ -134,8 +151,11 @@ sandboxes by hand is a chore. osa gives you:
   a personal environment (MCP servers, runtimes, preferences) on the base image.
 - [`docs/setup-guide.md`](docs/setup-guide.md) — clean machine to a running
   sandboxed Maki, step by step.
-- [`docs/providers.md`](docs/providers.md) — any-provider catalog, the
-  `provider setup` wizard, and custom profiles.
+- [`docs/providers.md`](docs/providers.md) — the Maki provider catalog, the
+  `provider setup` wizard, and custom profiles; provider setup for the other
+  agents is in the [OpenCode](docs/ai/playbooks/opencode.md),
+  [Claude Code](docs/ai/playbooks/claude.md), and
+  [Codex](docs/ai/playbooks/codex.md) playbooks.
 - [`docs/migrating-providers.md`](docs/migrating-providers.md) — move keys out
   of Maki and OpenCode stores, and the OAuth limitation.
 - [`docs/ai/verification/maki.md`](docs/ai/verification/maki.md) — the Maki

@@ -14,6 +14,13 @@ write a credential into the sandbox environment with `openshell sandbox create
 --env` or `--env-from`: both bypass the placeholder, and the helper refuses
 credential-like names on either path.
 
+**Scope: this page is the Maki provider catalog.** Every profile below binds
+`/usr/local/bin/maki` and is used by `maki-oss`. OpenCode (`opencode-oss`),
+Claude Code (`claude-oss`), and Codex (`codex-oss`) have their own provider
+setup and profiles in their playbooks and references:
+[OpenCode](ai/playbooks/opencode.md), [Claude Code](ai/playbooks/claude.md),
+and [Codex](ai/playbooks/codex.md).
+
 Upstream reference: the Maki provider docs and the OpenShell profile docs are
 indexed, with the versions this repository was verified against, in
 [`docs/ai/references.md`](ai/references.md). The machine-readable mapping from

@@ -12,9 +12,9 @@ different; the router maps them to these IDs.
 | ID | Phase | Gate |
 |---|---|---|
 | P0 | Preflight / audit | Every required host tool is present and reports a usable version. |
-| P1 | Host tools | The engine, OpenShell CLI and gateway, and agent CLI are installed. |
-| P2 | Repository + helper | The repository, helper preflight, image, and provider profile exist. |
-| P3 | Image | The agent image builds and reports the pinned agent version. |
+| P1 | Host tools | The engine, OpenShell CLI and gateway, and any host-only agent CLI are installed; a CLI baked into the image is verified at P3. |
+| P2 | Repository + helper | The repository and helper resolve, and the shell is prepared. |
+| P3 | Image | The agent image builds, reports the pinned agent version, and the post-build diagnostic passes. |
 | P4 | Provider | The provider profile is imported and the provider is created. |
 | P5 | Sandbox | The sandbox reaches `Ready` with the chosen policy and provider. |
 | P6 | Verify | Every isolation check reports its expected result. |
@@ -106,6 +106,11 @@ Fenced code blocks are ignored when headings are checked, so a template or an
 example cannot satisfy the requirement for a real section.
 
 ## Templates
+
+`Covers: P3-P8` is the playbook default because the shared host playbook owns
+`P0-P2`. A playbook with a host-only preflight (for example the Codex login or
+the optional host Maki check) MAY declare `P0-P8` and SHALL explain the extra
+host phase in its metadata note or `Scope`.
 
 ### Router
 

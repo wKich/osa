@@ -1,13 +1,14 @@
 # osa: the sandbox helper
 
-`bin/maki-oss`, `bin/opencode-oss`, and `bin/claude-oss` are POSIX sh workflow
-layers over the OpenShell CLI for Maki, OpenCode, and Claude Code. They create
-one sandbox per project, move files in and out without bind mounts, run the
-agent headless or interactively, and encode the safety rules from the
-[setup guide](setup-guide.md) so they are not retyped per project. Each
-agent's path is in its playbook — [Maki](ai/playbooks/maki.md),
-[OpenCode](ai/playbooks/opencode.md), and
-[Claude Code](ai/playbooks/claude.md) — with configuration differences in the
+`bin/maki-oss`, `bin/opencode-oss`, `bin/claude-oss`, and `bin/codex-oss` are
+POSIX sh workflow layers over the OpenShell CLI for Maki, OpenCode, Claude Code,
+and Codex. They create one sandbox per project, move files in and out without
+bind mounts, run the agent headless or interactively, and encode the safety
+rules from the [setup guide](setup-guide.md) so they are not retyped per
+project. Each agent's path is in its playbook — [Maki](ai/playbooks/maki.md),
+[OpenCode](ai/playbooks/opencode.md),
+[Claude Code](ai/playbooks/claude.md), and
+[Codex](ai/playbooks/codex.md) — with configuration differences in the
 matching reference under `ai/reference/`.
 
 Bare `maki-oss` (no subcommand) is the one-command session: it ensures the
@@ -36,15 +37,16 @@ Prerequisites:
 | Requirement | Check |
 |---|---|
 | OpenShell CLI and a running gateway | `openshell status` |
-| Docker Engine 28+ (or Podman) | `docker version` |
+| Docker Engine 28+ | `docker version` |
+| `podman` (optional alternative engine) | `engine = "podman"` in the config; the helper checks `podman version` the same way |
 | `jq` (optional, better parsing) | `jq --version` |
 | `fish` (optional, for the plugin) | `fish --version` |
 
 From a clone of this repository:
 
 ```sh
-./bin/maki-oss doctor          # verify prerequisites
 ./bin/maki-oss image build     # build maki-agent:local from examples/maki-image
+./bin/maki-oss doctor          # verify the built image and host
 ```
 
 Either run `./bin/maki-oss` directly or put the repository's `bin/` on `PATH`:
@@ -75,6 +77,8 @@ The helper is a shared core plus one front-end per agent:
   identity and defaults, and defines the OpenCode session argv and TUI.
 - `bin/claude-oss` is the Claude Code front-end. It sets the `CLAUDE_OSS_`
   identity and defaults, and defines the Claude Code session argv and TUI.
+- `bin/codex-oss` is the Codex front-end. It sets the `CODEX_OSS_` identity and
+  defaults, and defines the Codex session argv and TUI.
 - `lib/oss-core.sh` is the agent-neutral core: config, OpenShell wrappers,
   safety checks, the session ensure and patch sync, idle stop, policy and
   provider commands, the project registry, and argument parsing. The
@@ -103,6 +107,12 @@ key. The file is parsed as data and never sourced: it accepts
 `key = "value"` lines, `#` comments, and blank lines, and an unknown key is a
 hard error that names the file and the key. Values are single-line quoted
 strings; `providers` is a comma-separated list.
+
+The table below is the **Maki defaults** (`MAKI_OSS_` prefix,
+`~/.config/maki-oss/`). Each agent reference lists its own prefix, paths, and
+defaults: [OpenCode](ai/reference/opencode.md),
+[Claude Code](ai/reference/claude.md), and
+[Codex](ai/reference/codex.md).
 
 | Key | Environment | Default | Meaning |
 |---|---|---|---|
@@ -783,7 +793,8 @@ maki-oss help
 
 ## Shared state and the project registry
 
-Every front-end (`maki-oss`, `opencode-oss`) keeps its state under one root,
+Every front-end (`maki-oss`, `opencode-oss`, `claude-oss`, and `codex-oss`)
+keeps its state under one root,
 `${XDG_STATE_HOME:-$HOME/.local/state}/osa/`:
 
 ```
@@ -928,8 +939,8 @@ internal, not part of the state contract.
 ```sh
 # One-time machine setup (any provider, including keys already stored by
 # Maki or OpenCode).
-maki-oss doctor
 maki-oss image build
+maki-oss doctor
 # Optional: build a derived environment image (MCP servers, runtimes,
 # preferences) and set `image` to its tag; see the environment playbook.
 docker build -t maki-agent:reference examples/environments/reference
@@ -976,7 +987,8 @@ fisher install ./fish
 ```
 
 Both install the plugin's functions (`maki-oss` and `opencode-oss`) plus
-completions. The wrapper locates the helper via `$MAKI_OSS_BIN`, then the
+completions. Only Maki and OpenCode have fish plugins; `claude-oss` and
+`codex-oss` do not. The wrapper locates the helper via `$MAKI_OSS_BIN`, then the
 source repository (symlink install), then `maki-oss` on `PATH`. Fisher copies
 plugin files into the fish config directory, so with fisher put the
 repository's `bin/` on `PATH` or set

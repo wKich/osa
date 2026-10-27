@@ -3195,6 +3195,84 @@ test_asset_agent_onboarding() {
         || bad "AGENTS.md does not link docs/ai/onboarding.md"
     grep -Fq 'docs/ai/onboarding.md' "$ROOT/README.md" \
         || bad "README.md does not link docs/ai/onboarding.md"
+
+    # The short README prompt is the first human entry and links the full one.
+    awk '/^## Let your agent set it up/{f=1;next} /^## /{f=0} f' \
+        "$ROOT/README.md" > "$CASE/readme-prompt"
+    grep -Fq 'Let your agent set it up' "$ROOT/README.md" \
+        || bad "README.md lacks the short agent setup prompt"
+    grep -Fq 'docs/ai/onboarding.md' "$CASE/readme-prompt" \
+        || bad "README.md setup prompt does not link the full prompt"
+
+    # P2 prepares the repository and shell; P3 owns the image, P4 the provider.
+    p2=$(grep -F '| P2 ' "$guide" | sed -n '1p')
+    p3=$(grep -F '| P3 ' "$guide" | sed -n '1p')
+    p4=$(grep -F '| P4 ' "$guide" | sed -n '1p')
+    case $p2 in
+        *'image build'*|*'provider setup'*)
+            bad "onboarding P2 owns image or provider work" ;;
+    esac
+    case $p3 in
+        *'image build'*) ;;
+        *) bad "onboarding P3 does not own image build" ;;
+    esac
+    case $p4 in
+        *'provider setup'*) ;;
+        *) bad "onboarding P4 does not own provider setup" ;;
+    esac
+
+    # Preparation in the user's repository never commits and names a dirty tree.
+    for pb in maki opencode claude codex; do
+        file=$ROOT/docs/ai/playbooks/$pb.md
+        if grep -Fq 'git add -A' "$file" || grep -Fq 'git commit' "$file"; then
+            bad "$pb playbook commits the user's tree"
+        fi
+        grep -Fq 'dirty baseline' "$file" \
+            || bad "$pb playbook lacks the dirty-baseline consent note"
+    done
+
+    # The helper path comes before the raw sandbox create in every playbook.
+    for pb in maki opencode claude codex; do
+        case $pb in
+            maki) helper='maki-oss up' ;;
+            opencode) helper='opencode-oss up' ;;
+            claude) helper='claude-oss up' ;;
+            codex) helper='codex-oss up' ;;
+        esac
+        file=$ROOT/docs/ai/playbooks/$pb.md
+        h=$(grep -n -F "$helper" "$file" | sed -n '1s/:.*//p')
+        r=$(grep -n -F 'openshell sandbox create' "$file" | sed -n '1s/:.*//p')
+        if [ -z "$h" ] || [ -z "$r" ] || [ "$h" -ge "$r" ]; then
+            bad "$pb playbook shows the raw create before the helper path"
+        fi
+    done
+
+    # A first run builds the image before a diagnostic that needs it.
+    awk '/^## Install/{f=1} f&&/^## /&&!/^## Install/{f=0} f' \
+        "$ROOT/README.md" > "$CASE/readme-install"
+    awk '/^## Install/{f=1} f&&/^## /&&!/^## Install/{f=0} f' \
+        "$ROOT/docs/helper.md" > "$CASE/helper-install"
+    awk '/^## Cookbook/{f=1} f&&/^## /&&!/^## Cookbook/{f=0} f' \
+        "$ROOT/docs/helper.md" > "$CASE/helper-cookbook"
+    awk '/^## Daily driver/{f=1} f&&/^## /&&!/^## Daily driver/{f=0} f' \
+        "$ROOT/docs/ai/playbooks/maki.md" > "$CASE/maki-daily"
+    for spec in readme-install helper-install helper-cookbook maki-daily; do
+        b=$(grep -n -F 'image build' "$CASE/$spec" | sed -n '1s/:.*//p')
+        d=$(grep -n -F 'doctor' "$CASE/$spec" | sed -n '1s/:.*//p')
+        if [ -z "$b" ] || [ -z "$d" ] || [ "$b" -ge "$d" ]; then
+            bad "$spec lists doctor before image build"
+        fi
+    done
+
+    # Shared references name all four front-ends; Codex skills have one target.
+    for ref in docs/helper.md docs/providers.md docs/glossary.md dashboard/README.md; do
+        for agent in Maki OpenCode Claude Codex; do
+            grep -Fiq "$agent" "$ROOT/$ref" \
+                || bad "$ref does not name $agent"
+        done
+    done
+    grep -Fq '/sandbox/.agents/skills/' "$guide" \
+        || bad "onboarding does not name the Codex skills destination"
 }
 
 # The placeholder prefix is never written in this repository. OpenShell's proxy

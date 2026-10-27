@@ -230,15 +230,27 @@ image, policy, and provider. The first session uploads the workspace; `up`
 does not. With no project, run the same command from an empty directory you
 own.
 
-Raw fallback. Make the project a git repository with its dependency
-directories gitignored before uploading; `openshell sandbox upload` applies
-`.gitignore` filtering only inside a git work tree:
+Raw fallback. Prepare the project with consent before uploading; the helper
+path records a dirty baseline, so it needs no preparation. `openshell sandbox
+upload` applies `.gitignore` filtering only inside a git work tree:
+
+- If the project is already a git repository, add or verify the ignore entries
+  and show the diff; do not commit.
+- If it is not a git repository, ask the user before `git init`; then add the
+  entries. Do not commit.
+- Never stage or commit `.env` or another secret file; `.env` stays ignored.
 
 ```sh
 cd "$PROJECT_PATH"
-git init
-printf '.venv/\nnode_modules/\ntarget/\n__pycache__/\n' >>.gitignore
-git add -A && git commit -qm init
+if git rev-parse --git-dir >/dev/null 2>&1; then
+  # Append only the missing entries; .env must stay ignored.
+  for entry in .venv/ node_modules/ target/ __pycache__/ .env; do
+    grep -qxF "$entry" .gitignore 2>/dev/null || printf '%s\n' "$entry" >>.gitignore
+  done
+  git status --short .gitignore
+else
+  echo 'not a git repository: ask before git init, then rerun this block'
+fi
 ```
 
 ```sh

@@ -31,6 +31,36 @@
 //     }
 //   }
 //
+// `images --json` answers from the fixture's `images` array, else the built-in
+// IMAGE_FIXTURES (present, missing, error with markup, configured); a tag the
+// stub built since is reported present. `image build TAG` follows the
+// fixture's `build` key, by tag or `default`:
+//
+//   "build": { "mk": { "mode": "lines", "lines": 3, "interval": 0.05,
+//                      "exit": 0, "text": "Step" } }
+//
+//   mode lines        prints `lines` lines (default 3) every `interval` s
+//                     (default 0.05), alternating stdout and stderr, then
+//                     exits `exit` (default 0); exit 0 marks the tag built
+//   mode sleep        prints one line, then waits until SIGTERM (exit 143)
+//   mode ignore-term  prints one line and ignores SIGTERM (only SIGKILL ends it)
+//
+// `providers --json` answers from the fixture's `providers` array, else the
+// built-in PROVIDER_FIXTURES (a stdin agent with curated and custom profiles,
+// a note with markup, a gateway error, and a login agent); a provider the
+// stub created since is added to its agent's gateway list. `provider setup
+// TAG --profile ID [--name N] [--attach S] [--yes] --json` reads stdin to EOF,
+// appends `{"argv": [...], "bytes": N}` to STUB_OSA_STDIN_LOG (the byte
+// count, never the value), and follows the fixture's `setup` key, by profile
+// or `default`:
+//
+//   "setup": { "maki-deepseek": { "mode": "created", "delay": 0.5 } }
+//
+//   mode created (default), updated (default with --yes), refused (exit 2),
+//   failed (exit 3 after create, attach failed), usage (exit 1), slow (sleeps
+//   `delay` s, default 30, then created), echo-secret (created, with the
+//   received credential in the message and on stderr)
+//
 // A path missing from the fixture (or a missing mode) answers `[]`, like osa
 // for an unregistered path; a quick entry reports `busy` and `idle` as the
 // fixture gives them, and `idle` is `{"state": "none", ...}` when it gives
@@ -45,8 +75,13 @@
 //                     "hang": never answer (until killed)
 //                     "invalid-json": exit 0 with non-JSON output
 //   STUB_OSA_DELAY    seconds to wait before answering
+//   STUB_OSA_STDIN_LOG  file receiving each provider setup's argv and stdin
+//                     byte count, one JSON object per line
+//   STUB_OSA_STATE    directory for built tags and created providers
+//                     (default: next to STUB_OSA_FIXTURE)
 
-import { appendFileSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 const args = process.argv.slice(2);
 const env = process.env;
@@ -159,6 +194,273 @@ const HEALTH_FIXTURES: Record<string, unknown> = {
     },
   },
 };
+
+/** Built-in `osa images --json` answers: present, missing, markup in an error, configured. */
+const IMAGE_FIXTURES = [
+  {
+    agent: "mk",
+    image: "maki-agent:local",
+    engine: "docker",
+    present: true,
+    id: "sha256:1111",
+    created: "2026-10-26T10:00:00Z",
+    configured: null,
+    error: null,
+  },
+  {
+    agent: "oc",
+    image: "opencode-agent:local",
+    engine: "docker",
+    present: false,
+    id: null,
+    created: null,
+    configured: null,
+    error: null,
+  },
+  {
+    agent: "cc",
+    image: "claude-agent:local",
+    engine: "docker",
+    present: false,
+    id: null,
+    created: null,
+    configured: null,
+    error: { message: "image inspect failed (exit status 1): <img src=x onerror=alert(1)>" },
+  },
+  {
+    agent: "cx",
+    image: "codex-agent:local",
+    engine: "docker",
+    present: true,
+    id: "sha256:4444",
+    created: "2026-10-25T09:00:00Z",
+    configured: "codex-env:me",
+    error: null,
+  },
+];
+
+/** Built-in `osa providers --json` answers. */
+const PROVIDER_FIXTURES = [
+  {
+    agent: "mk",
+    setup: "stdin",
+    command: "maki-oss provider setup",
+    profiles: [
+      { id: "maki-anthropic", env: "ANTHROPIC_API_KEY", source: "curated", note: "Anthropic API key" },
+      { id: "maki-deepseek", env: "DEEPSEEK_API_KEY", source: "curated", note: "DeepSeek API key" },
+      { id: "maki-acme", env: "ACME_API_KEY", source: "custom", note: null },
+    ],
+    gateway: ["maki-anthropic"],
+    remembered: ["maki-anthropic"],
+  },
+  {
+    agent: "oc",
+    setup: "stdin",
+    command: "opencode-oss provider setup",
+    profiles: [
+      { id: "opencode-deepseek", env: "DEEPSEEK_API_KEY", source: "curated", note: "<img src=x onerror=alert(1)> key" },
+    ],
+    gateway: [],
+    remembered: [],
+  },
+  {
+    agent: "cc",
+    setup: "stdin",
+    command: "claude-oss provider setup",
+    profiles: [
+      { id: "claude-anthropic", env: "ANTHROPIC_API_KEY", source: "curated", note: "Anthropic API key, billed per call" },
+    ],
+    gateway: { error: { message: "cannot list providers; is the gateway running? Try 'claude-oss doctor'" } },
+    remembered: [],
+  },
+  {
+    agent: "cx",
+    setup: "login",
+    command: "codex-oss provider setup",
+    profiles: [
+      { id: "codex-chatgpt", env: "CODEX_CHATGPT_TOKEN", source: "curated", note: "ChatGPT plan login, refreshed by the gateway" },
+    ],
+    gateway: [],
+    remembered: [],
+  },
+];
+
+const AGENT_TAGS = ["mk", "oc", "cc", "cx"];
+const KEBAB = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+/** `provider setup TAG --profile ID [--name N] [--attach S] [--yes] --json`, or null. */
+function setupArgs(argv: string[]): { agent: string; profile: string; name: string | null; attach: string | null; yes: boolean } | null {
+  if (argv[0] !== "provider" || argv[1] !== "setup" || !AGENT_TAGS.includes(argv[2] ?? "")) return null;
+  if (argv[3] !== "--profile" || !KEBAB.test(argv[4] ?? "")) return null;
+  let index = 5;
+  let name: string | null = null;
+  let attach: string | null = null;
+  let yes = false;
+  if (argv[index] === "--name") {
+    name = argv[index + 1] ?? "";
+    if (!KEBAB.test(name)) return null;
+    index += 2;
+  }
+  if (argv[index] === "--attach") {
+    attach = argv[index + 1] ?? "";
+    if (!attach) return null;
+    index += 2;
+  }
+  if (argv[index] === "--yes") {
+    yes = true;
+    index += 1;
+  }
+  if (argv[index] !== "--json" || index + 1 !== argv.length) return null;
+  return { agent: argv[2]!, profile: argv[4]!, name, attach, yes };
+}
+
+const stateDir = env.STUB_OSA_STATE || (env.STUB_OSA_FIXTURE ? join(dirname(env.STUB_OSA_FIXTURE), "stub-osa-state") : "");
+
+function stateFiles(prefix: string): string[] {
+  if (!stateDir || !existsSync(stateDir)) return [];
+  return readdirSync(stateDir)
+    .filter((name) => name.startsWith(prefix))
+    .map((name) => name.slice(prefix.length));
+}
+
+function markState(name: string): void {
+  if (!stateDir) return;
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(join(stateDir, name), "");
+}
+
+function readFixture(): Record<string, any> {
+  return env.STUB_OSA_FIXTURE && existsSync(env.STUB_OSA_FIXTURE)
+    ? JSON.parse(readFileSync(env.STUB_OSA_FIXTURE, "utf8"))
+    : {};
+}
+
+if (args.length === 2 && args[0] === "images" && args[1] === "--json") {
+  const built = stateFiles("built-");
+  const images = (readFixture().images ?? IMAGE_FIXTURES).map((image: Record<string, any>) =>
+    built.includes(image.agent)
+      ? { ...image, present: true, id: "sha256:built", created: "2026-10-27T12:00:00Z", error: null }
+      : image,
+  );
+  process.stdout.write(`${JSON.stringify(images)}\n`);
+  process.exit(0);
+}
+
+if (args.length === 3 && args[0] === "image" && args[1] === "build" && AGENT_TAGS.includes(args[2]!)) {
+  const tag = args[2]!;
+  const builds = readFixture().build ?? {};
+  const plan = builds[tag] ?? builds.default ?? {};
+  const mode = plan.mode ?? "lines";
+  const text = plan.text ?? "Step";
+  if (mode === "sleep" || mode === "ignore-term") {
+    process.on("SIGTERM", () => {
+      if (mode === "sleep") {
+        process.stdout.write("stub osa: build cancelled\n");
+        process.exit(143);
+      }
+    });
+    process.stdout.write(`${text} 1: building ${tag}\n`);
+    setInterval(() => {}, 1000);
+    await new Promise(() => {});
+  }
+  const count = plan.lines ?? 3;
+  const interval = (plan.interval ?? 0.05) * 1000;
+  for (let index = 1; index <= count; index += 1) {
+    const line = `${text} ${index}/${count}: building ${tag}\n`;
+    if (index % 2 === 0) process.stderr.write(line);
+    else process.stdout.write(line);
+    if (interval > 0) await Bun.sleep(interval);
+  }
+  const exit = plan.exit ?? 0;
+  if (exit === 0) markState(`built-${tag}`);
+  process.exit(exit);
+}
+
+if (args.length === 2 && args[0] === "providers" && args[1] === "--json") {
+  const providers = (readFixture().providers ?? PROVIDER_FIXTURES).map((entry: Record<string, any>) => {
+    const created = stateFiles(`provider-${entry.agent}-`);
+    if (!Array.isArray(entry.gateway) || created.length === 0) return entry;
+    return { ...entry, gateway: [...new Set([...entry.gateway, ...created])] };
+  });
+  process.stdout.write(`${JSON.stringify(providers)}\n`);
+  process.exit(0);
+}
+
+const setup = setupArgs(args);
+if (setup) {
+  const input = await new Response(Bun.stdin.stream()).text();
+  if (env.STUB_OSA_STDIN_LOG) {
+    appendFileSync(env.STUB_OSA_STDIN_LOG, `${JSON.stringify({ argv: args, bytes: new TextEncoder().encode(input).length })}\n`);
+  }
+  const plans = readFixture().setup ?? {};
+  const plan = plans[setup.profile] ?? plans.default ?? {};
+  let mode: string = plan.mode ?? (setup.yes ? "updated" : "created");
+  const provider = setup.name ?? setup.profile;
+  const result = (fields: Record<string, unknown>) =>
+    `${JSON.stringify({
+      ok: false,
+      agent: setup.agent,
+      provider,
+      profile: setup.profile,
+      outcome: "refused",
+      attached: null,
+      remembered: false,
+      steps: [],
+      message: "",
+      ...fields,
+    })}\n`;
+  if (mode === "slow") {
+    await Bun.sleep((plan.delay ?? 30) * 1000);
+    mode = "created";
+  } else if (plan.delay) {
+    await Bun.sleep(plan.delay * 1000);
+  }
+  const steps = (outcome: string) => ["linted", "imported", outcome, "remembered", ...(setup.attach ? ["attached"] : [])];
+  switch (mode) {
+    case "refused":
+      process.stderr.write(`maki-oss: provider '${provider}' already exists; pass --yes to update its credential\n`);
+      process.stdout.write(result({ message: `provider '${provider}' already exists; pass --yes to update its credential; nothing changed` }));
+      process.exit(2);
+    case "usage":
+      process.stdout.write(result({ message: "provider setup --stdin read an empty credential; nothing changed" }));
+      process.exit(1);
+    case "failed":
+      markState(`provider-${setup.agent}-${provider}`);
+      process.stderr.write("stub: attach timed out waiting for the supervisor\n");
+      process.stdout.write(
+        result({
+          outcome: "failed",
+          remembered: true,
+          steps: ["linted", "imported", "created", "remembered"],
+          message: `created ${provider} and remembered it; attach to '${setup.attach ?? "?"}' failed: stub: attach timed out waiting for the supervisor`,
+        }),
+      );
+      process.exit(3);
+    case "echo-secret":
+      markState(`provider-${setup.agent}-${provider}`);
+      process.stderr.write(`stub osa: received ${input}\n`);
+      process.stdout.write(
+        result({ ok: true, outcome: "created", remembered: true, steps: steps("created"), attached: setup.attach, message: `created ${provider} with ${input}` }),
+      );
+      process.exit(0);
+    default: {
+      const outcome = mode === "updated" ? "updated" : "created";
+      markState(`provider-${setup.agent}-${provider}`);
+      const what = outcome === "created" ? `created ${provider}` : `updated the credential of ${provider}`;
+      process.stdout.write(
+        result({
+          ok: true,
+          outcome,
+          remembered: true,
+          steps: steps(outcome),
+          attached: setup.attach,
+          message: `${what} and remembered it${setup.attach ? `, attached to ${setup.attach}` : ""}`,
+        }),
+      );
+      process.exit(0);
+    }
+  }
+}
 
 const quick = args[0] === "status" && args.length === 4 && args[2] === "--quick" && args[3] === "--json";
 const health = args[0] === "health" && args.length === 3 && args[2] === "--json";

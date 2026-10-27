@@ -12,6 +12,8 @@ export interface PageOptions {
   readOnly: boolean;
   refreshMs: number;
   config: DashboardConfig;
+  /** True on a loopback bind, where provider setup is offered. */
+  loopback?: boolean;
 }
 
 function escapeScriptJson(value: unknown): string {
@@ -23,6 +25,7 @@ export function renderPage(options: PageOptions): string {
     token: options.token,
     readOnly: options.readOnly,
     refreshMs: options.refreshMs,
+    loopback: options.loopback !== false,
     defaults: {
       image: options.config.image,
       policy: options.config.policy,
@@ -96,6 +99,12 @@ export function renderPage(options: PageOptions): string {
   .patch-add { color: #1a7f37; background: rgba(40, 160, 80, .12); }
   .patch-del { color: #c44; background: rgba(200, 80, 80, .12); }
   .patch-hunk { color: #6f42c1; }
+  #build-log { max-height: 24rem; overflow: auto; border: 1px solid rgba(128, 128, 128, .4); padding: .4rem; margin: .4rem 0; }
+  .build-status { margin: .3rem 0; }
+  .wizard { border-top: 1px dashed rgba(128, 128, 128, .5); margin-top: .5rem; padding-top: .5rem; }
+  .wizard select, .wizard input { font: inherit; }
+  .setup-outcome { margin-top: .4rem; }
+  code.command { border: 1px solid rgba(128, 128, 128, .4); padding: 0 .3rem; }
 </style>
 </head>
 <body>
@@ -104,6 +113,7 @@ export function renderPage(options: PageOptions): string {
   <nav class="tabs">
     <button id="tab-projects" type="button">Projects</button>
     <button id="tab-sandboxes" type="button">Sandboxes</button>
+    <button id="tab-setup" type="button">Setup</button>
     <button id="attention" class="attention" type="button" hidden></button>
   </nav>
   <div id="status" class="muted">loading…</div>

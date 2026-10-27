@@ -154,9 +154,11 @@ pending_kind() { # SESSION_DIR
     printf '%s' "$pk_kind"
 }
 
-# Prints S as a JSON string literal.
+# Prints S as a JSON string literal. Newlines become \n and carriage returns
+# are dropped, so multi-line gateway text stays one valid literal.
 json_str() { # S
-    printf '"%s"' "$(printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g')"
+    printf '"%s"' "$(printf '%s' "$1" | tr -d '\r' | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g' \
+        | awk 'NR > 1 { printf "\\n" } { printf "%s", $0 }')"
 }
 
 # Session and resolve exclusion. Files under sessions/<sandbox>/locks/ are

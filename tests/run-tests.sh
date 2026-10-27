@@ -133,6 +133,12 @@ new_case() {
     STUB_MAKI_SCRIPT=
     STUB_EXEC_SCRIPT_FAIL=
     GIT_TRACE_LOG=
+    ATTACH_FAIL=
+    IMAGE_INSPECT=
+    BUILD_MODE=
+    BUILD_PID_FILE=
+    BUILD_SIGNAL_LOG=
+    ENGINE_EXIT=
     RC=0
 }
 
@@ -164,6 +170,11 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         STUB_POLICY_FULL="${POLICY_FULL:-}" \
         STUB_JSON_COMPACT="${JSON_COMPACT:-0}" \
         STUB_CREATE_RACE="${CREATE_RACE:-0}" \
+        STUB_ATTACH_FAIL="${ATTACH_FAIL:-0}" \
+        STUB_IMAGE_INSPECT="${IMAGE_INSPECT:-}" \
+        STUB_BUILD_MODE="${BUILD_MODE:-}" \
+        STUB_BUILD_PID_FILE="${BUILD_PID_FILE:-}" \
+        STUB_BUILD_SIGNAL_LOG="${BUILD_SIGNAL_LOG:-}" \
         MAKI_OSS_SANDBOX_NAME="${ENV_NAME:-$NAME_PIN}" \
         MAKI_OSS_TUI="${ENV_TUI:-}" \
         MAKI_OSS_TIMEOUT="${ENV_TIMEOUT:-}" \
@@ -7059,17 +7070,21 @@ assert_json_array() { # COUNT
 }
 
 test_osa_usage() {
-    begin "osa offers projects, status, health, resolve, and help, and rejects anything else"
+    begin "osa offers its commands and rejects anything else"
     new_case osa-usage
     run_osa help
     assert_rc 0
     assert_out_has "projects"
     assert_out_has "status"
     assert_out_has "health SANDBOX"
+    assert_out_has "providers [--agent TAG]"
+    assert_out_has "images [--json]"
     assert_out_has "resolve"
+    assert_out_has "provider setup TAG --profile ID"
+    assert_out_has "image build TAG"
     run_osa up
     assert_rc 1
-    assert_err_has "projects, status, health, resolve, help"
+    assert_err_has "projects, status, health, providers, images, resolve, provider setup, image build, help"
     run_osa projects --quick
     assert_rc 1
 }
@@ -7251,11 +7266,586 @@ test_osa_read_only() {
     assert_rc 0
     run_osa health maki-myproject --json
     assert_rc 0
-    for osa_verb in create start stop delete upload download maki; do
+    run_osa providers --json
+    assert_rc 0
+    run_osa images --json
+    assert_rc 0
+    for osa_verb in create start stop delete upload download maki update attach import build tag rmi; do
         assert_log_line_missing "$osa_verb"
     done
     state_snapshot >"$CASE/after.txt"
     cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "osa changed a file under the state root"
+}
+
+# ---------------------------------------------------------------------------
+# Non-interactive provider setup (specs/helper-cli: "Generic credential
+# sources", "Profile resolution and generation"; specs/osa-project-layer: "osa
+# lists providers and setup profiles", "osa sets up a provider from stdin").
+# ---------------------------------------------------------------------------
+
+# Writes TEXT (printf %b: `\n` is a newline) to the case's stdin file and
+# prints its path.
+stdin_file() { # TEXT
+    printf '%b' "$1" >"$CASE/stdin.txt"
+    printf '%s' "$CASE/stdin.txt"
+}
+
+# Asserts that no gateway mutation was recorded.
+assert_no_mutation() {
+    for anm_verb in import create update attach; do
+        assert_log_line_missing "$anm_verb"
+    done
+}
+
+assert_log_empty() { # WHY
+    if [ -s "$LOG" ]; then
+        bad "$1: $(tr '\n' ' ' <"$LOG")"
+    fi
+}
+
+# Prints each recorded invocation as one space-joined line.
+log_invocations() {
+    awk '$0 == "---" { if (line != "") print line; line = ""; next }
+        { line = (line == "" ? $0 : line " " $0) }
+        END { if (line != "") print line }' "$LOG" 2>/dev/null
+}
+
+assert_invocation() { # LINE
+    if ! log_invocations | grep -Fxq -- "$1"; then
+        bad "no recorded invocation: $1"
+    fi
+}
+
+# Prints jq FILTER over stdout (empty without jq).
+out_value() { # FILTER
+    jq -r "$1" "$OUT" 2>/dev/null
+}
+
+have_jq() { command -v jq >/dev/null 2>&1; }
+
+test_provider_setup_stdin() {
+    begin "provider setup --stdin creates the provider without a prompt"
+    new_case setup-stdin
+    CREDENTIAL_ENV=DEEPSEEK_API_KEY
+    CREDENTIAL_LOG=$CASE/credential-env.log
+    run_maki_with_input "$(stdin_file 'fixture-stdin-key\n')" provider setup --stdin --profile maki-deepseek
+    assert_rc 0
+    assert_invocation "provider create --name maki-deepseek --type maki-deepseek --from-existing --global-profile"
+    assert_credential_env fixture-stdin-key
+    assert_secret_absent fixture-stdin-key
+    assert_out_missing "[y/N]"
+    assert_out_missing "Default model"
+
+    begin "provider setup --stdin refuses empty, multi-line, and oversized input"
+    for pss_input in '' '\n' 'fixture-line-a\nfixture-line-b\n'; do
+        reset_log
+        run_maki_with_input "$(stdin_file "$pss_input")" provider setup --stdin --profile maki-deepseek
+        assert_rc 1
+        assert_log_empty "invalid stdin reached the gateway"
+    done
+    assert_err_missing fixture-line
+    head -c 65537 /dev/zero | tr '\0' k >"$CASE/big.txt"
+    reset_log
+    run_maki_with_input "$CASE/big.txt" provider setup --stdin --profile maki-deepseek
+    assert_rc 1
+    assert_err_has "at most 65536 bytes"
+    assert_log_empty "an oversized credential reached the gateway"
+    head -c 65536 /dev/zero | tr '\0' k >"$CASE/max.txt"
+    run_maki_with_input "$CASE/max.txt" provider setup --stdin --profile maki-deepseek --yes
+    assert_rc 0
+
+    begin "provider setup --stdin needs --profile and takes no second source"
+    reset_log
+    run_maki_with_input "$(stdin_file 'fixture-k')" provider setup --stdin
+    assert_rc 1
+    assert_err_has "needs --profile"
+    run_maki_with_input "$(stdin_file 'fixture-k')" provider setup --stdin --env X --profile maki-deepseek
+    assert_rc 1
+    assert_err_has "one credential source"
+    assert_log_empty "a usage error reached the gateway"
+
+    begin "MAKI_OSS_INTERACTIVE=1 does not bring prompts back under --stdin"
+    new_case setup-stdin-interactive
+    seed_sandbox maki-project Ready
+    INTERACTIVE=1
+    run_maki_with_input "$(stdin_file 'fixture-k\n')" provider setup --stdin --profile maki-deepseek
+    assert_rc 0
+    assert_out_missing "[y/N]"
+    assert_out_missing "Default model"
+    assert_log_line_missing attach
+    reset_log
+    run_maki_with_input "$(stdin_file 'fixture-k\n')" provider setup --stdin --profile maki-deepseek
+    assert_rc 1
+    assert_err_has "already exists"
+    assert_out_missing "[y/N]"
+    assert_no_mutation
+}
+
+test_provider_setup_profile_id() {
+    begin "provider setup --profile takes a curated or a generated profile id"
+    new_case setup-profile-id
+    run_maki_with_input "$(stdin_file 'fixture-id-key')" provider setup --stdin --profile maki-deepseek
+    assert_rc 0
+    assert_log_line "$ROOT/examples/providers/maki-deepseek.yaml"
+    mkdir -p "$XDG_CONFIG_HOME/maki-oss/profiles"
+    write_fixture_profile "$XDG_CONFIG_HOME/maki-oss/profiles/my-generated.yaml" my-generated GEN_KEY
+    reset_log
+    run_maki_with_input "$(stdin_file 'fixture-id-key')" provider setup --stdin --profile my-generated
+    assert_rc 0
+    assert_log_line "$XDG_CONFIG_HOME/maki-oss/profiles/my-generated.yaml"
+    assert_invocation "provider create --name my-generated --type my-generated --from-existing --global-profile"
+
+    begin "provider setup refuses an unsafe or unknown profile id before the gateway"
+    for psp_id in ../x no-such-profile; do
+        reset_log
+        run_maki_with_input "$(stdin_file 'fixture-id-key')" provider setup --stdin --profile "$psp_id"
+        assert_rc 1
+        assert_log_empty "profile id '$psp_id' reached the gateway"
+    done
+}
+
+test_providers_json_front_ends() {
+    begin "__providers-json reports setup, profiles, gateway, and remembered"
+    new_case providers-json
+    seed_remembered_provider maki-stub
+    mkdir -p "$XDG_CONFIG_HOME/maki-oss/profiles"
+    write_fixture_profile "$XDG_CONFIG_HOME/maki-oss/profiles/my-custom.yaml" my-custom MY_CUSTOM_KEY
+    printf 'id: broken-one\n' >"$XDG_CONFIG_HOME/maki-oss/profiles/broken-one.yaml"
+    run_maki __providers-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '.setup + " " + .command')" = "stdin maki-oss provider setup" ] \
+            || bad "setup: $(out_value '.setup + " " + .command')"
+        [ "$(out_value '.profiles[] | select(.id == "maki-deepseek") | [.env, .source, .note] | join("|")')" \
+            = "DEEPSEEK_API_KEY|curated|DeepSeek API key" ] \
+            || bad "maki-deepseek: $(out_value '.profiles[] | select(.id == "maki-deepseek")')"
+        [ "$(out_value '.profiles[] | select(.id == "my-custom") | [.env, .source, (.note | tostring)] | join("|")')" \
+            = "MY_CUSTOM_KEY|custom|null" ] \
+            || bad "my-custom: $(out_value '.profiles[] | select(.id == "my-custom")')"
+        [ "$(out_value '.profiles[] | select(.id == "broken-one") | [(.env | tostring), .note] | join("|")')" \
+            = "null|unreadable profile" ] \
+            || bad "broken-one: $(out_value '.profiles[] | select(.id == "broken-one")')"
+        [ "$(out_value '[.profiles[] | select(.id == "template")] | length')" = 0 ] \
+            || bad "the template is listed as a profile"
+        [ "$(out_value '.gateway | index("maki-stub") != null')" = true ] \
+            || bad "gateway: $(out_value '.gateway')"
+        [ "$(out_value '.remembered | join(",")')" = maki-stub ] \
+            || bad "remembered: $(out_value '.remembered')"
+    fi
+
+    begin "__providers-json keeps profiles and reports a gateway error"
+    GATEWAY_DOWN=1
+    run_maki __providers-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '.gateway.error.message | type')" = string ] \
+            || bad "gateway: $(out_value '.gateway')"
+        [ "$(out_value '(.profiles | length) > 0')" = true ] || bad "profiles missing with the gateway down"
+        [ "$(out_value '.remembered | join(",")')" = maki-stub ] || bad "remembered missing with the gateway down"
+    fi
+    GATEWAY_DOWN=
+
+    begin "__providers-json reads each front-end's catalog note column"
+    oc_case providers-json-oc
+    run_oc __providers-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '.setup')" = stdin ] || bad "oc setup: $(out_value '.setup')"
+        [ "$(out_value '.profiles[] | select(.id == "opencode-deepseek") | .note')" = "DeepSeek API key" ] \
+            || bad "oc note: $(out_value '.profiles[] | select(.id == "opencode-deepseek")')"
+    fi
+    cc_case providers-json-cc
+    run_cc __providers-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '.profiles[] | select(.id == "claude-anthropic") | .note')" = "Anthropic API key, billed per call" ] \
+            || bad "cc note: $(out_value '.profiles[] | select(.id == "claude-anthropic")')"
+    fi
+    cx_case providers-json-cx
+    run_cx __providers-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '.setup + " " + .command')" = "login codex-oss provider setup" ] \
+            || bad "cx setup: $(out_value '.setup + " " + .command')"
+    fi
+}
+
+test_provider_setup_program() {
+    begin "__provider-setup creates, attaches, and prints only JSON on stdout"
+    new_case provider-setup-program
+    seed_sandbox mk-demo-1a2b Ready
+    CREDENTIAL_ENV=DEEPSEEK_API_KEY
+    CREDENTIAL_LOG=$CASE/credential-env.log
+    run_maki_with_input "$(stdin_file 'fixture-program-key')" --name mk-demo-1a2b \
+        __provider-setup --profile maki-deepseek --attach --json
+    assert_rc 0
+    [ "$(wc -l <"$OUT" | tr -d ' ')" = 1 ] || bad "stdout is not one line: $(cat "$OUT")"
+    assert_err_has "Linting profile"
+    if have_jq; then
+        [ "$(out_value '[.ok, .outcome, .attached, .remembered] | map(tostring) | join(" ")')" \
+            = "true created mk-demo-1a2b true" ] || bad "result: $(cat "$OUT")"
+        [ "$(out_value '.steps | join(",")')" = linted,imported,created,remembered,attached ] \
+            || bad "steps: $(out_value '.steps')"
+    fi
+    assert_credential_env fixture-program-key
+    assert_secret_absent fixture-program-key
+
+    begin "__provider-setup refuses an existing provider without --yes and updates with it"
+    reset_log
+    run_maki_with_input "$(stdin_file 'fixture-program-key')" __provider-setup --profile maki-deepseek --json
+    assert_rc 2
+    assert_out_has '"outcome":"refused"'
+    assert_no_mutation
+    run_maki_with_input "$(stdin_file 'fixture-program-key')" __provider-setup --profile maki-deepseek --yes --json
+    assert_rc 0
+    assert_out_has '"outcome":"updated"'
+    assert_invocation "provider update maki-deepseek --from-existing"
+    assert_log_line_missing attach
+
+    begin "__provider-setup refuses an attach to a missing sandbox before any change"
+    new_case provider-setup-missing
+    run_maki_with_input "$(stdin_file 'fixture-program-key')" --name mk-gone-0000 \
+        __provider-setup --profile maki-deepseek --attach --json
+    assert_rc 2
+    assert_out_has '"outcome":"refused"'
+    assert_out_has "not on the gateway"
+    assert_no_mutation
+
+    begin "__provider-setup reports the completed steps when the attach fails"
+    new_case provider-setup-attach-fail
+    seed_sandbox mk-demo-1a2b Ready
+    ATTACH_FAIL=1
+    run_maki_with_input "$(stdin_file 'fixture-program-key')" --name mk-demo-1a2b \
+        __provider-setup --profile maki-deepseek --attach --json
+    assert_rc 3
+    if have_jq; then
+        [ "$(out_value '[.ok, .outcome, .attached] | map(tostring) | join(" ")')" = "false failed null" ] \
+            || bad "result: $(cat "$OUT")"
+        [ "$(out_value '.steps | join(",")')" = linted,imported,created,remembered ] \
+            || bad "steps: $(out_value '.steps')"
+    fi
+    assert_out_has "created maki-deepseek and remembered it; attach to 'mk-demo-1a2b' failed: stub: attach of maki-deepseek timed out waiting for the supervisor"
+    assert_secret_absent fixture-program-key
+
+    begin "__provider-setup --probe refuses a login agent and passes a stdin agent"
+    cx_case provider-setup-probe
+    run_cx __provider-setup --probe --json
+    assert_rc 2
+    assert_out_has '"outcome":"refused"'
+    assert_out_has '"command":"codex-oss provider setup"'
+    assert_log_empty "the probe contacted the gateway"
+    run_maki __provider-setup --probe --json
+    assert_rc 0
+    [ ! -s "$OUT" ] || bad "a passing probe printed: $(cat "$OUT")"
+}
+
+run_osa_with_input() { # STDIN_FILE ARGS...
+    osa_rc=0
+    (
+        MAKI=$OSA
+        run_maki_with_input "$@"
+        exit "$RC"
+    ) || osa_rc=$?
+    RC=$osa_rc
+}
+
+test_osa_providers() {
+    begin "osa providers lists every agent or one, and refuses an unknown tag"
+    new_case osa-providers
+    run_osa providers --json
+    assert_rc 0
+    assert_json_array 4
+    if have_jq; then
+        [ "$(out_value '[.[].agent] | join(",")')" = mk,oc,cc,cx ] || bad "agents: $(out_value '[.[].agent]')"
+        [ "$(out_value '.[] | select(.agent == "cx") | .setup')" = login ] || bad "cx is not a login agent"
+    fi
+    run_osa providers --agent mk --json
+    assert_rc 0
+    assert_json_array 1
+    if have_jq; then
+        [ "$(out_value '.[0].profiles[] | select(.id == "maki-deepseek") | .env + " " + .source')" \
+            = "DEEPSEEK_API_KEY curated" ] || bad "maki-deepseek: $(cat "$OUT")"
+    fi
+    run_osa providers
+    assert_rc 0
+    assert_out_has "mk (maki-oss): setup stdin"
+    assert_out_has "run 'codex-oss provider setup' in a terminal"
+    run_osa providers --agent zz --json
+    assert_rc 1
+    run_osa providers extra
+    assert_rc 1
+
+    begin "osa providers exits 0 with a gateway error object per agent"
+    GATEWAY_DOWN=1
+    run_osa providers --json
+    assert_rc 0
+    assert_json_array 4
+    if have_jq; then
+        [ "$(out_value '[.[] | .gateway.error.message | type] | unique | join(",")')" = string ] \
+            || bad "gateway: $(out_value '[.[].gateway]')"
+        [ "$(out_value 'all(.[]; (.profiles | length) > 0)')" = true ] || bad "profiles missing"
+    fi
+}
+
+test_osa_provider_setup() {
+    begin "osa provider setup creates and attaches from stdin, which osa never reads"
+    new_case osa-provider-setup
+    seed_registry_entry mk-demo-1a2b mk "$CASE/project"
+    seed_registry_entry oc-demo-1a2b oc "$CASE/project"
+    seed_sandbox mk-demo-1a2b Ready
+    CREDENTIAL_ENV=DEEPSEEK_API_KEY
+    CREDENTIAL_LOG=$CASE/credential-env.log
+    run_osa_with_input "$(stdin_file 'sk-test-osa-fixture')" provider setup mk --profile maki-deepseek \
+        --attach mk-demo-1a2b --json
+    assert_rc 0
+    assert_invocation "profile lint -f $ROOT/examples/providers/maki-deepseek.yaml"
+    assert_invocation "provider create --name maki-deepseek --type maki-deepseek --from-existing --global-profile"
+    assert_invocation "sandbox provider attach mk-demo-1a2b maki-deepseek --wait"
+    assert_out_has '"outcome":"created"'
+    assert_out_has '"attached":"mk-demo-1a2b"'
+    # The probe runs with stdin closed and osa execs the front-end, so the
+    # front-end reads the whole key: any byte osa consumed would be missing.
+    assert_credential_env sk-test-osa-fixture
+    assert_secret_absent sk-test-osa-fixture
+
+    begin "osa provider setup needs --yes for an existing provider"
+    reset_log
+    run_osa_with_input "$(stdin_file 'sk-test-osa-fixture')" provider setup mk --profile maki-deepseek \
+        --attach mk-demo-1a2b --json
+    assert_rc 2
+    assert_out_has '"outcome":"refused"'
+    assert_log_line_missing update
+    assert_log_line_missing attach
+
+    begin "osa provider setup validates the tag, ids, and sandbox before the front-end"
+    reset_log
+    run_osa_with_input "$(stdin_file 'sk-test-osa-fixture')" provider setup mk --profile maki-deepseek \
+        --attach oc-demo-1a2b --json
+    assert_rc 1
+    assert_err_has "belongs to agent 'oc'"
+    run_osa_with_input "$(stdin_file 'sk-test-osa-fixture')" provider setup mk --profile maki-deepseek \
+        --attach mk-nowhere-0000
+    assert_rc 1
+    run_osa_with_input "$(stdin_file 'k')" provider setup zz --profile maki-deepseek
+    assert_rc 1
+    run_osa_with_input "$(stdin_file 'k')" provider setup mk --profile ../x
+    assert_rc 1
+    run_osa_with_input "$(stdin_file 'k')" provider setup mk --profile maki-deepseek --name Bad_Name
+    assert_rc 1
+    run_osa_with_input "$(stdin_file 'k')" provider setup mk
+    assert_rc 1
+    run_osa_with_input "$(stdin_file 'k')" provider remove mk
+    assert_rc 1
+    assert_log_empty "a refused osa provider setup reached the gateway"
+
+    begin "osa provider setup refuses a login agent and names its command"
+    run_osa_with_input "$(stdin_file 'k')" provider setup cx --profile codex-chatgpt --json
+    assert_rc 2
+    assert_out_has "codex-oss provider setup"
+    assert_log_empty "a login agent's setup reached the gateway"
+
+    begin "osa provider setup reports the steps when the attach fails"
+    new_case osa-provider-setup-fail
+    seed_registry_entry mk-demo-1a2b mk "$CASE/project"
+    seed_sandbox mk-demo-1a2b Ready
+    ATTACH_FAIL=1
+    run_osa_with_input "$(stdin_file 'sk-test-osa-fixture')" provider setup mk --profile maki-deepseek \
+        --attach mk-demo-1a2b --json
+    assert_rc 3
+    assert_out_has '"outcome":"failed"'
+    assert_out_has "created maki-deepseek and remembered it; attach to 'mk-demo-1a2b' failed"
+    assert_out_has '"steps":["linted","imported","created","remembered"]'
+    assert_secret_absent sk-test-osa-fixture
+}
+
+# Asserts the credential is in no argv, output, or file under the state and
+# config roots.
+assert_secret_nowhere() { # VALUE
+    assert_secret_absent "$1"
+    if grep -rFq -- "$1" "$HOME/.local/state" "$XDG_CONFIG_HOME" 2>/dev/null; then
+        bad "a file under the state or config root holds the credential"
+    fi
+}
+
+test_provider_setup_secret_scan() {
+    begin "no setup path leaks the credential to argv, output, state, or config"
+    new_case setup-secret-scan
+    pss_secret=FIXTURE-SECRET-7c1e9b
+    seed_registry_entry mk-demo-1a2b mk "$CASE/project"
+    seed_sandbox mk-demo-1a2b Ready
+    run_maki_with_input "$(stdin_file "$pss_secret\n")" provider setup --stdin --profile maki-deepseek
+    assert_rc 0
+    assert_secret_nowhere "$pss_secret"
+    run_maki_with_input "$(stdin_file "$pss_secret")" provider setup --stdin --profile maki-deepseek
+    assert_rc 1
+    assert_secret_nowhere "$pss_secret"
+    run_maki_with_input "$(stdin_file "$pss_secret")" provider setup --stdin --profile maki-deepseek --yes
+    assert_rc 0
+    assert_secret_nowhere "$pss_secret"
+    run_maki_with_input "$(stdin_file "$pss_secret\n$pss_secret\n")" provider setup --stdin --profile maki-deepseek --yes
+    assert_rc 1
+    assert_secret_nowhere "$pss_secret"
+    run_osa_with_input "$(stdin_file "$pss_secret")" provider setup mk --profile maki-deepseek \
+        --name maki-second --attach mk-demo-1a2b --json
+    assert_rc 0
+    assert_secret_nowhere "$pss_secret"
+    run_osa_with_input "$(stdin_file "$pss_secret")" provider setup mk --profile maki-deepseek --json
+    assert_rc 2
+    assert_secret_nowhere "$pss_secret"
+    ATTACH_FAIL=1
+    run_osa_with_input "$(stdin_file "$pss_secret")" provider setup mk --profile maki-deepseek \
+        --name maki-third --attach mk-demo-1a2b --json
+    assert_rc 3
+    assert_secret_nowhere "$pss_secret"
+    ATTACH_FAIL=
+    PROFILE_LINT_EXIT=1
+    run_osa_with_input "$(stdin_file "$pss_secret")" provider setup mk --profile maki-deepseek \
+        --name maki-fourth --json
+    assert_rc 2
+    assert_secret_nowhere "$pss_secret"
+    PROFILE_LINT_EXIT=
+    GATEWAY_DOWN=1
+    run_osa_with_input "$(stdin_file "$pss_secret")" provider setup mk --profile maki-deepseek \
+        --name maki-fifth --json
+    assert_rc 2
+    assert_secret_nowhere "$pss_secret"
+    GATEWAY_DOWN=
+    run_osa_with_input "$(stdin_file '')" provider setup mk --profile maki-deepseek --name maki-sixth --json
+    assert_rc 1
+    assert_secret_nowhere "$pss_secret"
+}
+
+# ---------------------------------------------------------------------------
+# Base images (specs/osa-project-layer: "osa reports and builds base images").
+# ---------------------------------------------------------------------------
+
+test_image_build_forwards_term() {
+    begin "image build forwards SIGTERM to the engine and leaves no engine process"
+    new_case image-build-term
+    BUILD_MODE='sleep'
+    BUILD_PID_FILE=$CASE/build.pid
+    BUILD_SIGNAL_LOG=$CASE/build-signal.log
+    (
+        run_maki image build
+        printf '%s' "$RC" >"$CASE/rc"
+    ) &
+    ibt_bg=$!
+    ibt_i=0
+    while [ ! -s "$BUILD_PID_FILE.sleep" ] && [ "$ibt_i" -lt 100 ]; do
+        sleep 0.1
+        ibt_i=$((ibt_i + 1))
+    done
+    if [ ! -s "$BUILD_PID_FILE.sleep" ]; then
+        bad "the stub engine never started"
+        kill "$ibt_bg" 2>/dev/null || :
+        return
+    fi
+    ibt_engine=$(cat "$BUILD_PID_FILE")
+    ibt_sleep=$(cat "$BUILD_PID_FILE.sleep")
+    # The engine's parent is the front-end; signal it alone.
+    ibt_front=$(ps -o ppid= -p "$ibt_engine" | tr -d ' ')
+    kill -TERM "$ibt_front"
+    wait "$ibt_bg" || :
+    [ "$(cat "$CASE/rc" 2>/dev/null)" != 0 ] || bad "the front-end exited 0 after SIGTERM"
+    grep -Fqx TERM "$BUILD_SIGNAL_LOG" 2>/dev/null || bad "the engine did not receive SIGTERM"
+    sleep 0.2
+    if kill -0 "$ibt_engine" 2>/dev/null || kill -0 "$ibt_sleep" 2>/dev/null; then
+        bad "an engine process from the build remains"
+        kill "$ibt_engine" "$ibt_sleep" 2>/dev/null || :
+    fi
+}
+
+test_image_json() {
+    begin "__image-json reports a present, missing, or configured base image"
+    new_case image-json
+    run_maki __image-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '[.agent, .image, .engine, .present, .id, (.configured | tostring), (.error | tostring)] | map(tostring) | join(" ")')" \
+            = "mk maki-agent:local docker true sha256:stub null null" ] || bad "present: $(cat "$OUT")"
+    fi
+    IMAGE_INSPECT=missing
+    run_maki __image-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '[.present, (.error | tostring)] | map(tostring) | join(" ")')" = "false null" ] \
+            || bad "missing: $(cat "$OUT")"
+    fi
+    IMAGE_INSPECT=error
+    run_maki __image-json
+    assert_rc 0
+    if have_jq; then
+        out_value '.error.message' | grep -q 'permission denied' || bad "inspect failure: $(cat "$OUT")"
+    fi
+    IMAGE_INSPECT=
+    mkdir -p "$XDG_CONFIG_HOME/maki-oss"
+    printf 'image = "maki-env:me"\n' >"$XDG_CONFIG_HOME/maki-oss/config.toml"
+    run_maki __image-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '.image + " " + .configured')" = "maki-agent:local maki-env:me" ] \
+            || bad "configured: $(cat "$OUT")"
+    fi
+    printf 'engine = "no-such-engine"\n' >"$XDG_CONFIG_HOME/maki-oss/config.toml"
+    run_maki __image-json
+    assert_rc 0
+    assert_out_has "container engine 'no-such-engine' not found on PATH"
+    assert_log_line_missing build
+    oc_case image-json-oc
+    run_oc __image-json
+    assert_rc 0
+    assert_out_has '"image":"opencode-agent:local"'
+}
+
+test_osa_images() {
+    begin "osa images reports every agent with no build and no gateway call"
+    new_case osa-images
+    IMAGE_INSPECT=missing
+    run_osa images --json
+    assert_rc 0
+    assert_json_array 4
+    if have_jq; then
+        [ "$(out_value '[.[] | .agent + ":" + (.present | tostring)] | join(",")')" \
+            = "mk:false,oc:false,cc:false,cx:false" ] || bad "images: $(cat "$OUT")"
+    fi
+    if log_invocations | grep -v '^image inspect ' | grep -q .; then
+        bad "osa images ran more than image inspect: $(log_invocations | grep -v '^image inspect ')"
+    fi
+    run_osa images
+    assert_rc 0
+    assert_out_has "maki-agent:local"
+    assert_out_has "missing; run 'osa image build mk'"
+
+    begin "osa image build streams the front-end's build and passes its status through"
+    reset_log
+    BUILD_MODE=lines
+    run_osa image build oc
+    assert_rc 0
+    assert_out_has "step 1/3"
+    assert_out_has "step 3/3"
+    assert_invocation "build -t opencode-agent:local $ROOT/opencode-oss/image"
+    oib_rc=0
+    (
+        STUB_ENGINE_EXIT=5
+        export STUB_ENGINE_EXIT
+        run_osa image build oc
+        exit "$RC"
+    ) || oib_rc=$?
+    [ "$oib_rc" -eq 2 ] || bad "a failed build exited $oib_rc, not the front-end's 2"
+
+    begin "osa image build refuses extra arguments and unknown tags before the engine"
+    reset_log
+    run_osa image build mk --maki-version 1.2.3
+    assert_rc 1
+    run_osa image build zz
+    assert_rc 1
+    run_osa image build
+    assert_rc 1
+    run_osa image build mk mk
+    assert_rc 1
+    run_osa image list
+    assert_rc 1
+    assert_log_empty "a refused image build reached the engine"
 }
 
 # ---------------------------------------------------------------------------
@@ -7576,7 +8166,7 @@ test_resolve_dispatch_refusals() {
     assert_out_has "resolve SANDBOX ACTION"
     run_osa up
     assert_rc 1
-    assert_err_has "projects, status, health, resolve, help"
+    assert_err_has "projects, status, health, providers, images, resolve, provider setup, image build, help"
     run_osa resolve
     assert_rc 1
     run_osa resolve maki-x frobnicate
@@ -8405,6 +8995,9 @@ run_test test_osa_projects
 run_test test_osa_status_quick
 run_test test_osa_status_full
 run_test test_osa_read_only
+run_test test_osa_providers
+run_test test_osa_provider_setup
+run_test test_osa_images
 run_test test_idle_state
 run_test test_osa_quick_idle
 run_test test_health_json_maki
@@ -8466,6 +9059,8 @@ run_test test_doctor_mcp_section_informational
 run_test test_doctor_mcp_none_configured
 run_test test_image_build_argv
 run_test test_image_build_ignores_configured_image
+run_test test_image_build_forwards_term
+run_test test_image_json
 run_test test_asset_environment_split
 run_test test_status_list_logs
 run_test test_start_stop
@@ -8492,6 +9087,11 @@ run_test test_provider_setup_usage_errors
 run_test test_provider_setup_sigint
 run_test test_provider_setup_custom_validation
 run_test test_provider_setup_no_jq
+run_test test_provider_setup_stdin
+run_test test_provider_setup_profile_id
+run_test test_providers_json_front_ends
+run_test test_provider_setup_program
+run_test test_provider_setup_secret_scan
 run_test test_run_model_flag
 run_test test_run_timeout_flag
 run_test test_maki_resume

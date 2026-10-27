@@ -53,6 +53,8 @@
 #   STUB_EXEC_SCRIPT_FAIL substring; an internal `sh -c` script containing it
 #                         fails as a sandbox error (simulates collection or
 #                         baseline failures)
+#   STUB_ATTACH_FAIL      "1" makes `sandbox provider attach` fail with a
+#                         gateway error after the sandbox check
 
 set -eu
 
@@ -449,6 +451,11 @@ case $command_name in
                         provider_name=${2:-}
                         if [ ! -e "$sandboxes/$sandbox_name" ]; then
                             printf 'stub: sandbox %s not found\n' "$sandbox_name" >&2
+                            exit 1
+                        fi
+                        if [ "${STUB_ATTACH_FAIL:-0}" = 1 ]; then
+                            # Wrapped over two lines behind gutters, as openshell does.
+                            printf 'Error:   × stub: attach of %s timed out waiting\n  │ for the supervisor\n' "$provider_name" >&2
                             exit 1
                         fi
                         if [ -n "$state" ]; then

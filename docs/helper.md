@@ -200,6 +200,10 @@ MAKI_VERSION=0.6.1 maki-oss image build
 maki-oss image build --engine podman
 ```
 
+The engine runs as a child of the front-end, which forwards `SIGTERM` and
+`SIGINT` to it as `SIGTERM`, so Ctrl-C or a signal sent to the front-end alone
+(as `osa image build` and the dashboard send) stops the engine's build too.
+
 ### init / up
 
 Creates the project's sandbox when it does not exist, or starts it when it is
@@ -693,6 +697,9 @@ interactive custom generation into
 `${XDG_CONFIG_HOME:-$HOME/.config}/maki-oss/profiles/`. Every profile is
 linted before `profile import --global`, and the provider is created when
 absent or updated with `provider update --from-existing` when present.
+`--profile` also takes a profile id (a curated profile, or one generated
+earlier), and `--stdin` reads the key from standard input with no prompt at
+all; see [`docs/providers.md`](providers.md#standard-input---stdin).
 Attachment (`sandbox provider attach --wait`) is offered at the end, or forced
 with `--attach`.
 
@@ -709,11 +716,12 @@ maki-oss provider setup --file ~/creds.json --field api_key \
     --profile examples/providers/maki-deepseek.yaml --yes
 maki-oss provider setup --env DEEPSEEK_API_KEY \
     --profile examples/providers/maki-deepseek.yaml --yes
+pass show deepseek | maki-oss provider setup --stdin --profile maki-deepseek
 ```
 
 Flags: `--from maki|opencode`, `--credential SLUG`, `--file PATH`,
-`--field PATH`, `--env VAR`, `--profile FILE`, `--name NAME`, `--yes`,
-`--attach` / `--no-attach`. OAuth store entries are listed as `(oauth)` and
+`--field PATH`, `--env VAR`, `--stdin`, `--profile FILE|ID`, `--name NAME`,
+`--yes`, `--attach` / `--no-attach`. OAuth store entries are listed as `(oauth)` and
 refused with guidance. Without the flags needed to complete the flow on a
 non-TTY stdin, the command exits non-zero before any gateway mutation, like
 `rm`. `MAKI_OSS_INTERACTIVE=1` treats piped stdin as interactive so scripted
@@ -852,12 +860,21 @@ it. A plain folder, or a host without git, records none.
 
 ## osa
 
-`osa` reports on the projects every front-end has registered and resolves
-their pending sync output. `projects`, `status`, and `health` are read-only:
-they never create, start, stop, delete, upload to, or download from a
-sandbox, never launch an agent, and never write the state root. `resolve` is the only
-command that changes anything. No `osa` command creates, stops, or deletes a
-sandbox or launches an agent; only `resolve rescue` may start a stopped one.
+`osa` reports on the projects every front-end has registered, resolves
+their pending sync output, and sets up providers and base images.
+`projects`, `status`, `health`, `providers`, and `images` are read-only: they
+never create, start, stop, delete, upload to, or download from a sandbox,
+never launch an agent, never create, update, or attach a provider, never
+build, tag, or remove an image, and never write the state root. `resolve`,
+`provider setup`, and `image build` are the only commands that change
+anything, and `image build` changes only the agent's local base image tag. No
+`osa` command creates, stops, or deletes a sandbox or launches an agent; only
+`resolve rescue` may start a stopped one, and only `provider setup` may
+attach a provider to one. `projects`, `status --quick`, and `images` never
+contact the gateway.
+
+Agent tags: `mk` (`maki-oss`), `oc` (`opencode-oss`), `cc` (`claude-oss`),
+`cx` (`codex-oss`).
 
 ```sh
 osa projects                 # every project, with its pending kind
@@ -866,6 +883,8 @@ osa status                   # this folder, one entry per agent
 osa status ~/code/app --json
 osa status --quick --json    # no gateway, no tree hash
 osa health SANDBOX           # idle stop, MCP readiness, doctor checks
+osa providers --json         # setup profiles and providers per agent
+osa images                   # each agent's base image, present or missing
 ```
 
 `osa projects` lists each entry's agent, sandbox, pending kind (`retained`,
@@ -994,6 +1013,112 @@ whose PID is no longer running is removed and ignored. If a reused PID makes
 a lock look live, check the PID the error names and, when no such session or
 resolve runs, delete `sessions/<sandbox>/locks/` by hand. The lock files are
 internal, not part of the state contract.
+
+### osa providers
+
+```sh
+osa providers                     # per agent, as text
+osa providers --agent mk --json   # one agent; a one-element JSON array
+```
+
+`osa providers` asks each front-end (or only `--agent TAG`) what provider
+setup can do, and prints one JSON array with one object per agent. It reads
+the profile directories and the config, and lists the gateway's providers
+read-only; it changes nothing.
+
+```json
+[{"agent": "mk", "setup": "stdin", "command": "maki-oss provider setup",
+  "profiles": [{"id": "maki-deepseek", "env": "DEEPSEEK_API_KEY",
+                "source": "curated", "note": "DeepSeek API key"}],
+  "gateway": ["maki-deepseek"], "remembered": ["maki-deepseek"]}]
+```
+
+- **`setup`** is `stdin` when `osa provider setup` can configure the agent,
+  or `login` when its setup is a login on the host that needs a terminal
+  (`codex-oss`); `command` is the terminal command either way.
+- **`profiles`** lists the front-end's curated profiles (`source`
+  `curated`) and the profiles the custom flow generated (`custom`), each
+  with its id, credential environment variable, and the catalog note when
+  there is one. A profile whose variable cannot be read is listed with
+  `env` `null` and the note `unreadable profile`.
+- **`gateway`** lists the provider names the gateway reports, or is
+  `{"error": {"message": ...}}` when the gateway cannot be listed; the
+  command still exits `0`.
+- **`remembered`** lists the providers in that agent's config.
+
+An unknown tag is a usage error. The output never contains a credential.
+
+### osa provider setup
+
+```sh
+pass show deepseek | osa provider setup mk --profile maki-deepseek \
+    --attach mk-app-1a2b --json
+```
+
+`osa provider setup TAG --profile ID [--name NAME] [--attach SANDBOX] [--yes]
+[--json]` configures a provider for agent `TAG` from a credential on standard
+input, with no prompt. `osa` checks the tag, that the profile id and name are
+kebab-case, and that `--attach` names a registered sandbox of the same agent,
+before it starts the front-end. It then runs the front-end's internal
+`__provider-setup` with stdin passed through: `osa` itself never reads the
+credential. The front-end resolves the profile id (as
+[`--profile ID`](providers.md#profile-ids) does), reads the credential (as
+[`--stdin`](providers.md#standard-input---stdin) does), lints the profile and
+imports it when the gateway lacks it, creates the provider (`NAME`, default
+the profile id), remembers it in the agent's config, and with `--attach`
+attaches it to the sandbox with `--wait`. Without `--attach` nothing is
+attached.
+
+- An existing provider is refused unless `--yes` is given, which updates its
+  credential with `provider update --from-existing`.
+- `--attach` to a sandbox that is not on the gateway is refused before any
+  change.
+- An agent whose setup is `login` (`cx`) is refused before stdin is read,
+  and the result names the terminal command.
+
+Exit codes: `0` done, `1` usage error, `2` refused before any change, `3`
+failed after a change started. All notes go to stderr. With `--json`, stdout
+is exactly one object:
+
+```json
+{"ok":false,"agent":"mk","provider":"maki-deepseek","profile":"maki-deepseek","outcome":"failed","attached":null,"remembered":true,"steps":["linted","imported","created","remembered"],"message":"created maki-deepseek and remembered it; attach to 'mk-app-1a2b' failed: ..."}
+```
+
+`outcome` is `created`, `updated`, `refused`, or `failed`; `steps` names the
+steps that completed (`linted`, `imported`, `created` or `updated`,
+`remembered`, `attached`). The credential never appears in an argument, a
+file, the output, or the result.
+
+### osa images / osa image build
+
+```sh
+osa images              # one line per agent
+osa images --json       # one JSON array, nothing else on stdout
+osa image build mk      # build maki-agent:local, streaming the engine output
+```
+
+`osa images` asks each front-end for its base image: the tag `image build`
+produces (the configured `image` never changes it), the container engine,
+whether the tag exists in the engine's local store (`image inspect`, with its
+id and creation time), and the image sessions use when the config's `image`
+names another one, such as a derived environment. A missing engine, or an
+inspect failure other than "no such image", is reported as that agent's
+`error`. It never builds, tags, or removes an image and never contacts the
+gateway.
+
+```json
+[{"agent":"mk","image":"maki-agent:local","engine":"docker","present":true,"id":"sha256:...","created":"2026-10-27T10:00:00Z","configured":"maki-env:me","error":null}]
+```
+
+`osa image build TAG` runs that front-end's `image build` with its default
+tag and version: anything after the tag, such as `--maki-version`, is a usage
+error. The output streams as the engine produces it, stdin is closed, and the
+exit status is `0` when the image was built, `1` for a usage error, and the
+front-end's status otherwise (`2` for a failed build). `osa` execs the
+front-end, so a `SIGTERM` or `SIGINT` sent to the `osa` process reaches the
+front-end, which stops the engine's build and exits non-zero. Building an
+environment store stays a terminal step; see
+[`docs/ai/environment-playbook.md`](ai/environment-playbook.md).
 
 ## Cookbook: two commands per project
 

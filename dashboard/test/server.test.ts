@@ -665,6 +665,7 @@ describe("page assets and DOM safety", () => {
     const names = [...moduleAllowlist()];
     expect(names).toContain("main.js");
     expect(names).toContain("dom.js");
+    for (const name of ["images.js", "providers.js", "setup.js"]) expect(names).toContain(name);
     for (const name of names) {
       const response = await fetch(`${base(handle)}/app/${name}`);
       expect(response.status).toBe(200);

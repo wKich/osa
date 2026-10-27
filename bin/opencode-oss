@@ -148,6 +148,9 @@ OSS_TMP_PREFIX=opencode-oss              # /tmp/opencode-oss-stop, temp file nam
 OSS_CONFIG_EXAMPLE=docs/ai/reference/opencode.md  # named in a generated config header
 OSS_PROFILES_DIR=$repo_root/opencode-oss/providers
 OSS_CATALOG_FILE=$OSS_PROFILES_DIR/stores.tsv
+OSS_NOTE_CATALOG=$OSS_PROFILES_DIR/catalog.tsv  # profile notes for osa providers:
+OSS_NOTE_ID_COLUMN=1                     #   the profile-id column
+OSS_NOTE_COLUMN=5                        #   the note column
 OSS_CUSTOM_PROFILE_PREFIX=opencode-      # default id for a custom profile
 OSS_AGENT_NAME=OpenCode                  # named in generated profiles
 OSS_AGENT_PROCESS=opencode               # in-sandbox process the idle stop waits on
@@ -371,7 +374,7 @@ cmd_image_build() {
     fi
     # The base build never uses the configured `image`: that may name a derived
     # environment, and tagging the base with it would overwrite the environment.
-    image=$(resolve_setting "$opt_image" "$(env_setting IMAGE)" "" "$DEFAULT_IMAGE")
+    image=$(base_image_tag)
     set -- build
     if [ -n "$opt_opencode_version" ]; then
         set -- "$@" --build-arg "OPENCODE_VERSION=$opt_opencode_version"
@@ -379,7 +382,7 @@ cmd_image_build() {
     set -- "$@" -t "$image" "$context"
     say "Building image '$image' with $engine..."
     image_build_rc=0
-    "$engine" "$@" || image_build_rc=$?
+    run_forwarding_signals "$engine" "$@" || image_build_rc=$?
     if [ "$image_build_rc" -ne 0 ]; then
         if [ -n "$opt_opencode_version" ]; then
             err "the Dockerfile verifies a pinned sha512 per architecture; a new"

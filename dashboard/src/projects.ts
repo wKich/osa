@@ -12,10 +12,14 @@
 // readiness, and doctor checks on request only (dashboard-health design D4);
 // the idle state on each row comes from the quick status already cached.
 //
-// The one write is `osa resolve SANDBOX ACTION --json` for a registered
-// sandbox: nothing here creates, modifies, or deletes a file itself, and the
-// runner refuses every `osa` argv except the two `status … --json` shapes,
-// `health SANDBOX --json`, and that one `resolve` shape.
+// The writes are `osa resolve SANDBOX ACTION --json` for a registered
+// sandbox, `osa provider setup …` with the credential on stdin
+// (dashboard-provider-wizard), and `osa image build TAG` (dashboard-image-build):
+// nothing here creates, modifies, or deletes a file itself, and the runner
+// refuses every `osa` argv except the two `status … --json` shapes,
+// `health SANDBOX --json`, `providers --json`, `images --json`, that one
+// `resolve` shape, the `provider setup` shape (only through `runWithStdin`),
+// and `image build TAG` (only through `spawnBuild`).
 
 import {
   closeSync,
@@ -51,7 +55,18 @@ export function isResolveAction(value: unknown): value is ResolveAction {
 }
 
 /** Sandbox names the front-ends generate; anything else is never joined into a path. */
-const SANDBOX_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+export const SANDBOX_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** The agent tags `osa` knows. */
+export const AGENT_TAGS = ["mk", "oc", "cc", "cx"] as const;
+export type AgentTag = (typeof AGENT_TAGS)[number];
+
+export function isAgentTag(value: unknown): value is AgentTag {
+  return typeof value === "string" && (AGENT_TAGS as readonly string[]).includes(value);
+}
+
+/** Profile ids and provider names: lowercase kebab-case, as the helper checks them. */
+export const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export type PendingKind = "" | "retained" | "parked";
 export type FingerprintResult = "changed" | "unchanged" | "unknown";
@@ -286,13 +301,62 @@ export function resolveArgv(sandbox: string, action: ResolveAction): string[] {
   return args;
 }
 
+export interface ProviderSetupFields {
+  agent: AgentTag;
+  profile: string;
+  name?: string;
+  attach?: string;
+  replace?: boolean;
+}
+
+/**
+ * `osa provider setup TAG --profile ID [--name N] [--attach S] [--yes] --json`
+ * from validated fields (dashboard-provider-wizard design D1); `--yes` only
+ * when `replace` is true.
+ */
+export function providerSetupArgv(fields: ProviderSetupFields): string[] {
+  const args = ["provider", "setup", fields.agent, "--profile", fields.profile];
+  if (fields.name) args.push("--name", fields.name);
+  if (fields.attach) args.push("--attach", fields.attach);
+  if (fields.replace === true) args.push("--yes");
+  args.push("--json");
+  return args;
+}
+
+/** The provider setup shape, checked position by position. */
+export function isProviderSetupArgv(args: readonly string[]): boolean {
+  if (args[0] !== "provider" || args[1] !== "setup" || !isAgentTag(args[2])) return false;
+  if (args[3] !== "--profile" || !KEBAB.test(args[4] ?? "")) return false;
+  let index = 5;
+  if (args[index] === "--name") {
+    if (!KEBAB.test(args[index + 1] ?? "")) return false;
+    index += 2;
+  }
+  if (args[index] === "--attach") {
+    if (!SANDBOX_NAME.test(args[index + 1] ?? "")) return false;
+    index += 2;
+  }
+  if (args[index] === "--yes") index += 1;
+  return args[index] === "--json" && args.length === index + 1;
+}
+
+/** `image build TAG` for a known agent tag, and nothing else (dashboard-image-build design D4). */
+export function isImageBuildArgv(args: readonly string[]): boolean {
+  return args.length === 3 && args[0] === "image" && args[1] === "build" && isAgentTag(args[2]);
+}
+
 /**
  * The only `osa` argv shapes the dashboard may spawn: `status PATH --json` and
  * `status PATH --quick --json`, with PATH absolute so it cannot read as an
- * option, and `resolve SANDBOX ACTION --json` plus `--yes` for drop and
- * discard only, with SANDBOX a generated sandbox name.
+ * option, `health SANDBOX --json`, `providers --json`, `images --json`,
+ * `resolve SANDBOX ACTION --json` plus `--yes` for drop and discard only,
+ * with SANDBOX a generated sandbox name, the provider setup shape, and
+ * `image build TAG`.
  */
 export function isAllowedOsaArgv(args: readonly string[]): boolean {
+  if (args.length === 2 && (args[0] === "providers" || args[0] === "images")) return args[1] === "--json";
+  if (args[0] === "provider") return isProviderSetupArgv(args);
+  if (args[0] === "image") return isImageBuildArgv(args);
   if (args[0] === "health") {
     return args.length === 3 && SANDBOX_NAME.test(args[1] ?? "") && args[2] === "--json";
   }
@@ -351,15 +415,45 @@ export class OsaRunner {
     return parseJson(stdout, argv);
   }
 
-  /** Spawns `osa` with an argv array (no shell); any exit code is a result. */
+  /**
+   * Spawns `osa` with an argv array (no shell); any exit code is a result.
+   * Refuses the provider setup shape (it needs `runWithStdin`) and the image
+   * build shape (it streams through `spawnBuild`).
+   */
   async run(args: string[], timeoutMs: number): Promise<Result<OsaOutput>> {
-    if (!isAllowedOsaArgv(args)) {
+    if (!isAllowedOsaArgv(args) || isProviderSetupArgv(args) || isImageBuildArgv(args)) {
       return fail("invalid_request", `refusing to run osa ${args.join(" ")}`);
     }
+    return this.collect(args, "ignore", null, timeoutMs);
+  }
+
+  /**
+   * Spawns the provider setup shape, and only that, with `input` written to
+   * its stdin, which is then closed (dashboard-provider-wizard design D3).
+   * The input never reaches argv, the environment, or a file.
+   */
+  async runWithStdin(args: string[], input: string, timeoutMs: number): Promise<Result<OsaOutput>> {
+    if (!isProviderSetupArgv(args)) {
+      return fail("invalid_request", `refusing to run osa ${args.join(" ")} with stdin`);
+    }
+    return this.collect(args, "pipe", input, timeoutMs);
+  }
+
+  /**
+   * Spawns `osa image build TAG`, and only that, with stdout and stderr piped
+   * for streaming (dashboard-image-build design D3). The caller owns the child.
+   */
+  spawnBuild(args: string[]): Result<BunSubprocess> {
+    if (!isImageBuildArgv(args)) {
+      return fail("invalid_request", `refusing to run osa ${args.join(" ")}`);
+    }
+    return this.spawn(args, "ignore");
+  }
+
+  private spawn(args: string[], stdin: "ignore" | "pipe"): Result<BunSubprocess> {
     const argv = [this.binary, ...args];
-    let proc: ReturnType<typeof Bun.spawn>;
     try {
-      proc = Bun.spawn({ cmd: argv, env: this.env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      return { ok: true, value: Bun.spawn({ cmd: argv, env: this.env, stdin, stdout: "pipe", stderr: "pipe" }) };
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       const code = (cause as { code?: string } | undefined)?.code;
@@ -368,6 +462,18 @@ export class OsaRunner {
       }
       return fail("spawn", `failed to start osa: ${message}`, { detail: message, argv });
     }
+  }
+
+  private async collect(
+    args: string[],
+    stdin: "ignore" | "pipe",
+    input: string | null,
+    timeoutMs: number,
+  ): Promise<Result<OsaOutput>> {
+    const argv = [this.binary, ...args];
+    const spawned = this.spawn(args, stdin);
+    if (!spawned.ok) return spawned;
+    const proc = spawned.value;
 
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -381,6 +487,16 @@ export class OsaRunner {
     // Read the pipes alongside the exit so a large output cannot block the child.
     const stdoutText = proc.stdout ? new Response(proc.stdout).text() : Promise.resolve("");
     const stderrText = proc.stderr ? new Response(proc.stderr).text() : Promise.resolve("");
+    if (input !== null && proc.stdin) {
+      // A child that exits before reading closes the pipe; its exit code is
+      // the result, so a failed write is not an error of its own.
+      try {
+        proc.stdin.write(input);
+        await proc.stdin.end();
+      } catch {
+        // See above.
+      }
+    }
     let exitCode: number;
     try {
       exitCode = await proc.exited;
@@ -393,6 +509,11 @@ export class OsaRunner {
     const [stdout, stderr] = await Promise.all([stdoutText, stderrText]);
     return { ok: true, value: { exitCode, stdout, stderr, argv } };
   }
+}
+
+/** Parses osa's JSON stdout; a parse failure is `invalid_json` with the start of the output. */
+export function parseOsaJson(stdout: string, argv: string[]): Result<unknown> {
+  return parseJson(stdout, argv);
 }
 
 function parseJson(stdout: string, argv: string[]): Result<unknown> {

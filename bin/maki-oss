@@ -491,7 +491,7 @@ cmd_image_build() {
     fi
     # The base build never uses the configured `image`: that may name a derived
     # environment, and tagging the base with it would overwrite the environment.
-    image=$(resolve_setting "$opt_image" "${MAKI_OSS_IMAGE:-}" "" "$DEFAULT_IMAGE")
+    image=$(base_image_tag)
     version=$opt_maki_version
     if [ -z "$version" ]; then
         version=${MAKI_VERSION:-}
@@ -503,7 +503,7 @@ cmd_image_build() {
     set -- "$@" -t "$image" "$context"
     say "Building image '$image' with $engine..."
     image_build_rc=0
-    "$engine" "$@" || image_build_rc=$?
+    run_forwarding_signals "$engine" "$@" || image_build_rc=$?
     if [ "$image_build_rc" -ne 0 ]; then
         die_dep "image build failed (exit status $image_build_rc)"
     fi

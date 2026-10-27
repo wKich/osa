@@ -146,6 +146,9 @@ OSS_TMP_PREFIX=codex-oss                 # /tmp/codex-oss-stop, temp file names
 OSS_CONFIG_EXAMPLE=docs/codex-oss.md     # named in a generated config header
 OSS_PROFILES_DIR=$repo_root/codex-oss/providers
 OSS_CATALOG_FILE=$OSS_PROFILES_DIR/stores.tsv
+OSS_NOTE_CATALOG=$OSS_PROFILES_DIR/catalog.tsv  # profile notes for osa providers:
+OSS_NOTE_ID_COLUMN=1                     #   the profile-id column
+OSS_NOTE_COLUMN=4                        #   the note column
 OSS_CUSTOM_PROFILE_PREFIX=codex-         # default id for a custom profile
 OSS_AGENT_NAME=Codex                     # named in generated profiles
 OSS_AGENT_PROCESS=codex                  # in-sandbox process the idle stop waits on
@@ -639,7 +642,7 @@ cmd_image_build() {
     fi
     # The base build never uses the configured `image`: that may name a derived
     # environment, and tagging the base with it would overwrite the environment.
-    image=$(resolve_setting "$opt_image" "$(env_setting IMAGE)" "" "$DEFAULT_IMAGE")
+    image=$(base_image_tag)
     set -- build
     if [ -n "$opt_codex_version" ]; then
         set -- "$@" --build-arg "CODEX_VERSION=$opt_codex_version"
@@ -647,7 +650,7 @@ cmd_image_build() {
     set -- "$@" -t "$image" "$context"
     say "Building image '$image' with $engine..."
     image_build_rc=0
-    "$engine" "$@" || image_build_rc=$?
+    run_forwarding_signals "$engine" "$@" || image_build_rc=$?
     if [ "$image_build_rc" -ne 0 ]; then
         if [ -n "$opt_codex_version" ]; then
             err "the Dockerfile verifies a pinned sha256 per architecture for both"

@@ -9,7 +9,9 @@
 // rule approve/reject, egress denials beside the proposals, and the Projects view (registry list, attention
 // counter, patch viewer, full status) and its resolve actions (Apply with the
 // touched-file list, refusal, typed Drop, Rescue, busy rows, read-only) and the
-// idle countdown and Health panel over a state-root fixture and the stub osa.
+// idle countdown and Health panel over a state-root fixture and the stub osa,
+// and the Setup tab: base image builds with a live log, and the provider
+// wizard with its credential handling.
 //
 // No npm dependencies. Skips (exit 0) when no Chrome/Chromium binary is found.
 //
@@ -655,8 +657,199 @@ async function runChecks(): Promise<void> {
   await projectsJourney();
   await resolveJourney();
   await healthJourney();
+  await imageJourney();
+  await providerJourney();
 
   check(pageErrors.length === 0, `no page exceptions or console errors (${pageErrors.join("; ")})`);
+}
+
+// ---------------------------------------------------------------------------
+// Images (dashboard-image-build): build a missing image with streamed lines,
+// Build disabled while one runs, replay after a reload, Cancel, a failed
+// build's status, markup as text, and no Build control in read-only mode
+// ---------------------------------------------------------------------------
+
+async function imageJourney(): Promise<void> {
+  const answers = JSON.parse(readFileSync(osaAnswers, "utf8")) as Record<string, any>;
+  answers.build = {
+    oc: { lines: 30, interval: 0.1 },
+    mk: { mode: "sleep" },
+    cc: { lines: 2, interval: 0.05, exit: 5, text: "<img src=x onerror=window.__pwned=3>" },
+  };
+  writeFileSync(osaAnswers, JSON.stringify(answers));
+  const row = (agent: string) => `document.querySelector('#images-table tr[data-agent="${agent}"]')`;
+  const buildButton = (agent: string) => `${row(agent)}.querySelector("button")`;
+  const logText = `(document.getElementById("build-log") ? document.getElementById("build-log").textContent : "")`;
+  const statusText = `(document.getElementById("build-status") ? document.getElementById("build-status").textContent : "")`;
+  const openSetup = async (cdp: Cdp) => {
+    await clickButton(cdp, "Setup");
+    await waitFor(cdp, `document.querySelectorAll("#images-table tbody tr").length === 4`, "image rows");
+  };
+
+  const page = await openPage(mainUrl);
+  let cdp = page.cdp;
+  await openSetup(cdp);
+  check(
+    (await cdp.evaluate(`${row("oc")}.textContent.includes("missing") && ${row("cx")}.textContent.includes("sessions use codex-env:me")`)) === true,
+    "the Images section shows a missing image and a configured session image",
+  );
+  await cdp.evaluate(`${buildButton("oc")}.click()`);
+  await waitFor(cdp, `${logText}.includes("Step 2/30: building oc")`, "streamed build lines");
+  check(true, "Build streams the output into the log as it arrives");
+  check(
+    (await cdp.evaluate(`(() => {
+      const buttons = [...document.querySelectorAll("#images-table button")];
+      return buttons.length === 4 && buttons.every((b) => b.disabled && b.title === "a build is running");
+    })()`)) === true,
+    "every Build button is disabled while a build runs",
+  );
+  check(
+    (await cdp.evaluate(`[...document.querySelectorAll("button")].some((b) => b.textContent === "Cancel build")`)) === true,
+    "Cancel appears while a build runs",
+  );
+
+  // Reload mid-build: the new page replays from the first line, then follows.
+  await cdp.send("Page.reload");
+  await Bun.sleep(300);
+  await waitFor(cdp, `document.readyState === "complete"`, "reload");
+  await openSetup(cdp);
+  await waitFor(cdp, `${logText}.startsWith("Step 1/30: building oc")`, "replay after reload");
+  check(true, "a reload mid-build replays the log from the first line");
+  await waitFor(cdp, `${statusText}.endsWith("succeeded")`, "build success", 15_000);
+  check((await cdp.evaluate(`${logText}.includes("Step 30/30: building oc")`)) === true, "live lines follow the replay");
+  await waitFor(cdp, `${row("oc")}.textContent.includes("present")`, "row refreshed after the build");
+  check(true, "after the build the row shows the image as present without user action");
+
+  // Cancel.
+  await cdp.evaluate(`${buildButton("mk")}.click()`);
+  await waitFor(cdp, `${logText}.includes("Step 1: building mk")`, "sleeping build");
+  await clickButton(cdp, "Cancel build");
+  await waitFor(cdp, `${statusText}.endsWith("cancelled")`, "cancelled status");
+  check(true, "Cancel ends the build with a cancelled result");
+
+  // A failed build, with markup in its output.
+  await cdp.evaluate(`${buildButton("cc")}.click()`);
+  await waitFor(cdp, `${statusText}.endsWith("failed (exit 5)")`, "failed status");
+  check(true, "a failed build shows its exit status");
+  check(
+    (await cdp.evaluate(`${logText}.includes("<img src=x onerror=window.__pwned=3>")`)) === true &&
+      (await cdp.evaluate(`document.querySelectorAll("#app img").length === 0 && window.__pwned === undefined`)) === true,
+    "markup in build output renders as text",
+  );
+  await closePage(page.id, cdp);
+
+  const readOnly = await openPage(readOnlyUrl);
+  cdp = readOnly.cdp;
+  await openSetup(cdp);
+  check(
+    (await cdp.evaluate(`document.querySelectorAll("#images-table button").length === 0 && ![...document.querySelectorAll("button")].some((b) => b.textContent === "Cancel build")`)) === true,
+    "read-only mode has no Build or Cancel control",
+  );
+  await closePage(readOnly.id, cdp);
+}
+
+// ---------------------------------------------------------------------------
+// Providers (dashboard-provider-wizard): Configure from a sandbox with no
+// provider, create and attach with the outcome and a refreshed list, the
+// credential gone from the field and storage, a taken name needing Replace,
+// the Codex terminal command, markup as text, and no wizard in read-only mode
+// ---------------------------------------------------------------------------
+
+async function providerJourney(): Promise<void> {
+  const secret = "sk-browser-fixture-5e8a";
+  const card = (agent: string) => `document.querySelector('[data-providers="${agent}"]')`;
+  const wizard = `document.querySelector('form[data-wizard="mk"]')`;
+  const field = (name: string) => `${wizard}.querySelector('[name="${name}"]')`;
+  const submit = `[...${wizard}.querySelectorAll("button")].find((b) => b.textContent === "Set up provider")`;
+  const setValue = (selector: string, value: string, event = "input") =>
+    `(() => { const node = ${selector}; node.value = ${JSON.stringify(value)}; node.dispatchEvent(new Event(${JSON.stringify(event)})); return true; })()`;
+
+  const page = await openPage(mainUrl);
+  const cdp = page.cdp;
+  await waitFor(cdp, `document.querySelectorAll("#projects-table tbody tr").length >= 1`, "projects for providers");
+  await clickButton(cdp, "Sandboxes");
+  await waitFor(cdp, `document.getElementById("inventory-table") !== null`, "inventory for providers");
+  await clickButton(cdp, SANDBOX.retained);
+  await waitFor(cdp, `document.getElementById("configure-providers") !== null`, "Configure link");
+  check(true, "a registered sandbox with no provider offers Configure");
+  await cdp.evaluate(`document.getElementById("configure-providers").click()`);
+  await waitFor(cdp, `${wizard} !== null`, "wizard from Configure");
+  check(
+    (await cdp.evaluate(`${field("attach")}.value === ${JSON.stringify(SANDBOX.retained)}`)) === true,
+    "Configure opens the wizard with the agent and sandbox selected",
+  );
+
+  await cdp.evaluate(setValue(field("profile"), "maki-deepseek", "change"));
+  check((await cdp.evaluate(`${field("provider-name")}.value`)) === "maki-deepseek", "the name defaults to the profile id");
+  await cdp.evaluate(setValue(field("credential"), secret));
+  await cdp.evaluate(`${submit}.click()`);
+  await waitFor(cdp, `document.querySelector('[data-outcome="notice"]') !== null`, "setup outcome");
+  check(
+    (await cdp.evaluate(`document.querySelector('[data-outcome="notice"]').textContent`) as string).includes(
+      `Created provider maki-deepseek and attached it to ${SANDBOX.retained}`,
+    ),
+    "create with attach shows the outcome",
+  );
+  await waitFor(cdp, `${card("mk")}.textContent.includes("maki-anthropic, maki-deepseek")`, "refreshed provider list", 5000);
+  check(true, "the provider list refreshes with no further page action");
+  check(
+    (await cdp.evaluate(`[...document.querySelectorAll("input[data-credential]")].every((input) => input.value === "")`)) === true,
+    "the credential field is empty afterwards",
+  );
+  check(
+    (await cdp.evaluate(`(() => {
+      const values = [];
+      for (const store of [localStorage, sessionStorage]) {
+        for (let i = 0; i < store.length; i += 1) values.push(store.getItem(store.key(i)));
+      }
+      return values.every((value) => !String(value).includes(${JSON.stringify(secret)}));
+    })()`)) === true,
+    "no browser storage holds the credential",
+  );
+  const setupCall = (existsSync(osaLog) ? readFileSync(osaLog, "utf8") : "")
+    .split("\n")
+    .filter((line) => line.startsWith('["provider","setup"'));
+  check(
+    setupCall.length === 1 &&
+      setupCall[0] === JSON.stringify(["provider", "setup", "mk", "--profile", "maki-deepseek", "--attach", SANDBOX.retained, "--json"]) &&
+      !readFileSync(osaLog, "utf8").includes(secret),
+    "the server ran one osa provider setup with the attach and no credential in argv",
+  );
+
+  // A taken name keeps submit disabled until Replace is checked.
+  await cdp.evaluate(setValue(field("credential"), secret));
+  await cdp.evaluate(setValue(field("provider-name"), "maki-anthropic"));
+  check(
+    (await cdp.evaluate(`${submit}.disabled && !${field("replace")}.closest("label").hidden`)) === true,
+    "a taken name keeps submit disabled and offers Replace",
+  );
+  await cdp.evaluate(`(() => { const box = ${field("replace")}; box.checked = true; box.dispatchEvent(new Event("change")); return true; })()`);
+  check((await cdp.evaluate(`${submit}.disabled`)) === false, "checking Replace enables submit");
+  await clickButton(cdp, "Cancel");
+  await waitFor(cdp, `${wizard} === null`, "wizard closed");
+  check(
+    (await cdp.evaluate(`[...document.querySelectorAll("input[data-credential]")].every((input) => input.value === "")`)) === true,
+    "Cancel clears the credential",
+  );
+
+  check(
+    (await cdp.evaluate(`${card("cx")}.textContent.includes("codex-oss provider setup") && ${card("cx")}.querySelector("input[type=password]") === null && ![...${card("cx")}.querySelectorAll("button")].some((b) => b.textContent === "Set up")`)) === true,
+    "the Codex card shows the terminal command and no credential field",
+  );
+  check(
+    (await cdp.evaluate(`${card("oc")}.textContent.includes("<img src=x onerror=alert(1)> key") && document.querySelectorAll("#app img").length === 0`)) === true,
+    "a markup note renders as text",
+  );
+  await closePage(page.id, cdp);
+
+  const readOnly = await openPage(readOnlyUrl);
+  await clickButton(readOnly.cdp, "Setup");
+  await waitFor(readOnly.cdp, `${card("mk")} !== null`, "read-only provider cards");
+  check(
+    (await readOnly.cdp.evaluate(`document.querySelectorAll("form.wizard, input[data-credential]").length === 0 && ![...document.querySelectorAll("button")].some((b) => b.textContent === "Set up")`)) === true,
+    "read-only mode has no provider wizard",
+  );
+  await closePage(readOnly.id, readOnly.cdp);
 }
 
 // ---------------------------------------------------------------------------
@@ -1210,8 +1403,8 @@ try {
   debugPort = await waitForDebugPort();
   await Promise.race([
     runChecks(),
-    Bun.sleep(120_000).then(() => {
-      throw new Error("browser-check watchdog: 120s exceeded");
+    Bun.sleep(240_000).then(() => {
+      throw new Error("browser-check watchdog: 240s exceeded");
     }),
   ]);
 } catch (error) {

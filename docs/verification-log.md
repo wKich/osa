@@ -1625,3 +1625,102 @@ from the session's `armed` line and falls back to the setting only when there
 is none. A second session then showed the same deadline in the row and the
 panel (`2026-10-27T04:51:53Z`, period 120 s). The scratch sandbox was removed
 with `maki-oss rm --yes`.
+
+## Non-interactive provider setup — 2026-10-27
+
+`add-provider-setup-noninteractive`, on this host (gateway `openshell`,
+`https://localhost:17670`, Docker). `make test` passed (262 tests) and
+`openspec validate add-provider-setup-noninteractive --strict` passed.
+
+A real Synthetic key was piped from Maki's store; it never appeared in an
+argument or in the output:
+
+```sh
+$ jq -r .api_key ~/.local/state/maki/auth/synthetic.json \
+    | bin/osa provider setup mk --profile maki-synthetic --name maki-synthetic-stdin \
+        --attach mk-resolve-dem-cbfc --json        # exit 3
+{"ok":false,...,"outcome":"failed","attached":null,"remembered":true,
+ "steps":["linted","created","remembered"],"message":"created maki-synthetic-stdin and remembered it; attach to 'mk-resolve-dem-cbfc' failed: ..."}
+```
+
+The gateway refused the attach (`provider attachment failed (The system is
+not in a state required for the operation's execution)`), most likely because
+`maki-synthetic`, which binds the same `SYNTHETIC_API_KEY`, was already
+attached. The run exited 3 with the completed steps, as specified. It found
+one defect, fixed afterwards: the message kept only the last line of
+openshell's wrapped error (`failed:   │ operation's execution)`). The front-end
+now joins the whole error into one line, and the stub's attach failure wraps
+its error the same way as a regression test.
+
+Updating the attached provider instead succeeded:
+
+```sh
+$ jq -r .api_key ~/.local/state/maki/auth/synthetic.json \
+    | bin/osa provider setup mk --profile maki-synthetic --attach mk-resolve-dem-cbfc --yes --json
+{"ok":true,"agent":"mk","provider":"maki-synthetic","profile":"maki-synthetic","outcome":"updated",
+ "attached":"mk-resolve-dem-cbfc","remembered":true,"steps":["linted","updated","remembered","attached"],...}
+```
+
+A headless session in that sandbox then used the credential:
+
+```sh
+$ maki-oss run --name mk-resolve-dem-cbfc --model synthetic/hf:zai-org/GLM-5.3 \
+    --timeout 150 --no-sync "Reply with exactly the word: pong"
+{"type":"result","subtype":"success","is_error":false,...,"result":"pong",...}
+```
+
+Note: because setup remembers a provider before it attaches, the failed first
+run left `maki-synthetic-stdin` in `providers` in the config, and the next
+session failed while attaching it. The entry was removed by hand before the
+session above. The parked workspace that `--no-sync` left was cleared with
+`osa resolve mk-resolve-dem-cbfc discard --yes`. The `maki-synthetic-stdin`
+provider is still on the gateway.
+
+## Dashboard image builds — 2026-10-27
+
+`dashboard-image-build`, on this host (Docker under OrbStack). `make test`
+passed (262 tests), `cd dashboard && bun test` passed (198), the browser
+check passed (101, including the image journey), and
+`openspec validate dashboard-image-build --strict` passed.
+
+The dashboard ran on loopback (`bun run src/main.ts --port 8799`) and was
+driven through its routes:
+
+- `POST /api/images/cc/build` returned 202. `GET /events/build` streamed 53
+  lines (`Building image 'claude-agent:local' with docker...`, the BuildKit
+  steps) and then `done` with `exitCode: 0`. Every layer was cached, so the
+  build took 0.5 s and `claude-agent:local` kept its id and creation time.
+- `POST /api/images/oc/build`, then `POST /api/images/build/cancel` 0.25 s
+  later while `docker build -t opencode-agent:local …/opencode-oss/image` was
+  running. The stream ended with `ERROR: failed to build: failed to solve:
+  Canceled: context canceled` and `opencode-oss: image build failed (exit
+  status 130)`, and `done` reported `cancelled: true, exitCode: 2`. Three
+  seconds later `pgrep` found no `docker build`, `opencode-oss image build`,
+  or `osa image build` process, and `docker ps` showed nothing from the build.
+  `opencode-agent:local` was still present and unchanged.
+
+## Dashboard provider wizard — 2026-10-27
+
+`dashboard-provider-wizard`, on this host, with `add-provider-setup-noninteractive`
+applied. `cd dashboard && bun test` passed (198), the browser check passed
+(101, including the provider journey), and
+`openspec validate dashboard-provider-wizard --strict` passed.
+
+In a desktop browser on `http://127.0.0.1:8799`: Setup tab, Maki card, Set up.
+Profile `maki-synthetic`, name `maki-synthetic`, the real Synthetic key pasted,
+attach `mk-resolve-dem-cbfc`, Replace existing credential checked. The wizard
+showed:
+
+```
+Updated the credential of provider maki-synthetic and attached it to mk-resolve-dem-cbfc.
+updated the credential of maki-synthetic and remembered it, attached to mk-resolve-dem-cbfc
+```
+
+The dashboard server's output did not contain the key. A session in that
+sandbox then used the credential:
+
+```sh
+$ maki-oss run --name mk-resolve-dem-cbfc --model synthetic/hf:zai-org/GLM-5.3 \
+    --timeout 150 "Reply with exactly the word: pong"
+... "result":"pong" ...
+```

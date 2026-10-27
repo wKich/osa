@@ -23,7 +23,16 @@
 //     (host source code) requires the session token in both modes;
 //   - the one project write is POST /api/projects/:sandbox/resolve, behind the
 //     same mutation guard, which runs exactly one `osa resolve` for a
-//     registered sandbox with a fixed argv.
+//     registered sandbox with a fixed argv;
+//   - POST /api/images/:agent/build runs one `osa image build TAG` at a time
+//     behind the mutation guard; the build outlives the browser, its output
+//     streams over `/events/build` (token in the URL, as with logs), and
+//     POST /api/images/build/cancel stops it;
+//   - POST /api/providers/setup is the one route that receives a secret: it
+//     is refused off loopback before the body is read, then needs the
+//     mutation guard, a JSON body under 70 KiB, and valid fields; the
+//     credential goes only to the stdin of one `osa provider setup` child and
+//     is redacted from everything osa prints.
 
 import { loadConfig, type DashboardConfig } from "./config.ts";
 import { DenialCache, matchDenials, scanDenials } from "./egress.ts";
@@ -36,13 +45,18 @@ import {
   type Result,
 } from "./openshell.ts";
 import { renderPage } from "./page.ts";
-import { ProjectService, type ProjectServiceOptions, type ServiceResult } from "./projects.ts";
+import { BuildHub, type BuildHubOptions } from "./builds.ts";
+import { isAgentTag, ProjectService, type ProjectServiceOptions, type ServiceResult } from "./projects.ts";
+import { ProviderService } from "./providers.ts";
 import { readdirSync } from "node:fs";
 import { join } from "node:path";
 
 export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_PORT = 8787;
 export const REFRESH_MS = 3000;
+export const IMAGES_TIMEOUT_MS = 20_000;
+/** The largest provider setup body read, in bytes. */
+export const SETUP_BODY_LIMIT = 70 * 1024;
 
 const HTML_HEADERS = {
   "content-type": "text/html; charset=utf-8",
@@ -80,6 +94,9 @@ export interface DashboardServerOptions {
   clientOptions?: OpenShellClientOptions;
   projects?: ProjectService;
   projectOptions?: ProjectServiceOptions;
+  builds?: BuildHub;
+  buildOptions?: BuildHubOptions;
+  providers?: ProviderService;
 }
 
 export interface DashboardHandle {
@@ -89,6 +106,8 @@ export interface DashboardHandle {
   readOnly: boolean;
   /** Live log hubs, retained only while a stream is active. */
   hubCount(): number;
+  /** The image build hub. */
+  builds: BuildHub;
   stop(): void;
 }
 
@@ -170,6 +189,38 @@ const SSE_HEADERS = {
   connection: "keep-alive",
 };
 
+/**
+ * Reads at most `limit` bytes of a request body, counting as it reads, so a
+ * chunked body cannot exceed the limit either. Null when it is larger.
+ */
+async function readLimited(request: Request, limit: number): Promise<string | null> {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > limit) {
+      try {
+        await reader.cancel();
+      } catch {
+        // The client may already be gone.
+      }
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 interface CreateBody {
   name?: unknown;
   image?: unknown;
@@ -205,6 +256,9 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
   const hubs = new Map<string, LogHub>();
   const modules = moduleAllowlist();
   const projects = options.projects ?? new ProjectService(options.projectOptions);
+  const builds = options.builds ?? new BuildHub(projects.runner, options.buildOptions);
+  const providerService =
+    options.providers ?? new ProviderService({ stateRoot: projects.stateRoot, runner: projects.runner });
   const denials = new DenialCache();
 
   // Host names this server answers to. Port 0 binds resolve to `listenPort`
@@ -260,6 +314,21 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
     return new Response(subscription.stream, { headers: SSE_HEADERS });
   };
 
+  // The build stream: token in the URL, read-only mode too, like logs.
+  const serveBuild = (url: URL, request: Request): Response => {
+    const provided = url.searchParams.get("token") ?? "";
+    if (!provided || !tokensEqual(provided, token)) {
+      return forbidden("forbidden", "missing or invalid session token");
+    }
+    const subscription = builds.subscribe();
+    if (request.signal.aborted) {
+      subscription.unsubscribe();
+    } else {
+      request.signal.addEventListener("abort", () => subscription.unsubscribe());
+    }
+    return new Response(subscription.stream, { headers: SSE_HEADERS });
+  };
+
   const hasToken = (request: Request): boolean => {
     const provided = request.headers.get("x-dashboard-token") ?? "";
     return Boolean(provided) && tokensEqual(provided, token);
@@ -294,6 +363,101 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
     const reply = await projects.resolve(sandbox, action);
     const status = reply.status ?? errorStatus(reply.body.error as OpenShellError);
     return json(reply.body, status);
+  };
+
+  // GET /api/images, GET /api/images/build, POST /api/images/:agent/build,
+  // POST /api/images/build/cancel (dashboard-image-build design D4).
+  const handleImages = async (request: Request, segments: string[]): Promise<Response> => {
+    const method = request.method.toUpperCase();
+    if (segments.length === 2) {
+      if (method !== "GET") return methodNotAllowed("GET", "the image list is read-only");
+      const result = await projects.runner.runJson(["images", "--json"], IMAGES_TIMEOUT_MS);
+      if (!result.ok) return errorResponse(result.error);
+      if (!Array.isArray(result.value)) {
+        return errorResponse({ kind: "invalid_json", message: "osa images did not return an array" });
+      }
+      return json({ images: result.value });
+    }
+    if (segments.length === 3 && segments[2] === "build") {
+      if (method !== "GET") return methodNotAllowed("GET", "the build summary is read-only");
+      return json({ build: builds.summary() });
+    }
+    if (segments.length === 4 && segments[2] === "build" && segments[3] === "cancel") {
+      if (method !== "POST") return methodNotAllowed("POST", "cancel accepts POST only");
+      const denied = guardMutation(request);
+      if (denied) return denied;
+      if (!builds.cancel()) return json({ error: { kind: "idle", message: "no build is running" } }, 409);
+      return json({ build: builds.summary() });
+    }
+    if (segments.length === 4 && segments[3] === "build") {
+      if (method !== "POST") return methodNotAllowed("POST", "build accepts POST only");
+      const denied = guardMutation(request);
+      if (denied) return denied;
+      const agent = segments[2];
+      if (!isAgentTag(agent)) {
+        return errorResponse({ kind: "invalid_request", message: "agent must be one of mk, oc, cc, cx" }, 400);
+      }
+      const started = builds.start(agent);
+      if (started.ok) return json({ build: started.build }, 202);
+      if (started.kind === "busy") return json({ error: { kind: "busy", message: started.message } }, 409);
+      return errorResponse({ kind: started.kind, message: started.message });
+    }
+    return json({ error: { kind: "not_found", message: "unknown route" } }, 404);
+  };
+
+  // GET /api/providers, POST /api/providers/setup (dashboard-provider-wizard
+  // design D1, D2).
+  const handleProviders = async (request: Request, segments: string[]): Promise<Response> => {
+    const method = request.method.toUpperCase();
+    if (segments.length === 2) {
+      if (method !== "GET") return methodNotAllowed("GET", "the provider list is read-only");
+      const result = await providerService.list();
+      if (!result.ok) return errorResponse(result.error);
+      return json({ providers: result.value });
+    }
+    if (segments.length !== 3 || segments[2] !== "setup") {
+      return json({ error: { kind: "not_found", message: "unknown route" } }, 404);
+    }
+    if (method !== "POST") return methodNotAllowed("POST", "provider setup accepts POST only");
+    // 1. Off loopback the body (the credential) is never read.
+    if (remote) {
+      return forbidden(
+        "loopback_only",
+        "provider setup is available only when the dashboard is bound to loopback",
+      );
+    }
+    // 2. Read-only mode and the token.
+    const denied = guardMutation(request);
+    if (denied) return denied;
+    // 3. JSON only.
+    const type = (request.headers.get("content-type") ?? "").split(";")[0]!.trim().toLowerCase();
+    if (type !== "application/json") {
+      return json({ error: { kind: "unsupported_media_type", message: "request body must be application/json" } }, 415);
+    }
+    // 4. A declared length within the limit, and a body that stays within it.
+    const tooLarge = (): Response =>
+      json({ error: { kind: "too_large", message: `request body must be at most ${SETUP_BODY_LIMIT} bytes` } }, 413);
+    const length = Number(request.headers.get("content-length") ?? "NaN");
+    if (!Number.isInteger(length) || length < 0 || length > SETUP_BODY_LIMIT) return tooLarge();
+    const text = await readLimited(request, SETUP_BODY_LIMIT);
+    if (text === null) return tooLarge();
+    // 5. Fields; an error names the field, never its value.
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      return errorResponse({ kind: "invalid_request", message: "request body must be JSON" }, 400);
+    }
+    const validation = providerService.validate(body);
+    if (!validation.ok) {
+      return json({ error: { kind: "invalid_request", field: validation.field, message: validation.message } }, 400);
+    }
+    // 6. One setup at a time.
+    if (providerService.busy()) {
+      return json({ error: { kind: "busy", message: "a provider setup is already running" } }, 409);
+    }
+    const reply = await providerService.setup(validation.request);
+    return json(reply.body, reply.status);
   };
 
   // GET /api/projects, /api/projects/:sandbox/status|health|patch
@@ -335,6 +499,8 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
     }
 
     if (segments[1] === "projects") return handleProjects(request, segments);
+    if (segments[1] === "images") return handleImages(request, segments);
+    if (segments[1] === "providers") return handleProviders(request, segments);
 
     if (method === "GET" && segments.length === 2 && segments[1] === "doctor") {
       const result = await client.doctor();
@@ -516,7 +682,7 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
               return forbidden("forbidden", "missing or invalid session token");
             }
           }
-          return new Response(renderPage({ token, readOnly, refreshMs: REFRESH_MS, config }), {
+          return new Response(renderPage({ token, readOnly, refreshMs: REFRESH_MS, config, loopback: !remote }), {
             headers: HTML_HEADERS,
           });
         }
@@ -535,6 +701,9 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
         }
         if (method === "GET" && segments[0] === "events" && segments[1] === "logs") {
           return serveLogs(url, request);
+        }
+        if (method === "GET" && segments[0] === "events" && segments[1] === "build" && segments.length === 2) {
+          return serveBuild(url, request);
         }
         return json({ error: { kind: "not_found", message: "unknown route" } }, 404);
       } catch (cause) {
@@ -555,9 +724,11 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
     token,
     readOnly,
     hubCount: () => hubs.size,
+    builds,
     stop: () => {
       for (const hub of hubs.values()) hub.stop();
       hubs.clear();
+      builds.stop();
       server.stop(true);
     },
   };

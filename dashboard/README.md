@@ -3,8 +3,9 @@
 A minimal local web dashboard for osa and [OpenShell](https://docs.nvidia.com/openshell):
 the projects every agent front-end has registered with their sync state and
 `osa resolve` actions for their pending work, sandbox inventory and lifecycle, live logs over Server-Sent Events, read-only
-policy inspection, and rule-proposal review, without replacing `openshell term`
-or the CLIs.
+policy inspection, rule-proposal review, and a Setup tab that sets up
+providers and builds base images, without replacing `openshell term` or the
+CLIs.
 
 Bun + TypeScript, **zero npm dependencies**, no build step, no database, no
 daemon: one command starts a loopback-only server that reads gateway JSON
@@ -15,8 +16,10 @@ through the `openshell` CLI and project state from the osa state root.
 - **Bun ≥ 1.2** (developed and tested against 1.4.2). Check with `bun --version`.
 - **`openshell` CLI ≥ 0.1.2** on `PATH`, installed and authenticated against
   the gateway you want to inspect (`openshell status` should report
-  `connected`). The dashboard never reads, stores, or forwards credential
-  values; it invokes the CLI, which holds its own credentials.
+  `connected`). The dashboard never reads or stores credential values; the
+  one it forwards is a provider credential you type into the Setup tab's
+  wizard, which goes only to `osa provider setup`'s stdin (see
+  [Provider setup](#provider-setup)).
 - A gateway reachable from this host. Remote gateways are out of scope for v1.
 - For the Projects view: the `osa` command (the repository's `bin/osa` is used
   by default) and the projects registered by `maki-oss`, `opencode-oss`, or
@@ -31,7 +34,8 @@ bun run start        # http://127.0.0.1:8787
 ```
 
 Open the printed URL. The page opens on **Projects**; the **Sandboxes** tab
-holds the gateway inventory. Both lists refresh every 3 seconds; per-sandbox
+holds the gateway inventory, and the **Setup** tab sets up providers and
+builds base images. Both lists refresh every 3 seconds; per-sandbox
 views (`Logs`, `Policy`, `Rules`) stream or fetch on demand.
 
 ## Projects view
@@ -117,6 +121,56 @@ changed (files, branch, rescue folder), "nothing changed" with `osa`'s message
 when it refused, or the error text when it failed. The project's rows are
 re-read at once, so a cleared `retained` or `parked` badge disappears without
 waiting for the next poll. In read-only mode none of these controls exist.
+
+## Setup tab
+
+### Provider setup
+
+The **Providers** section lists, for each agent `osa providers --json`
+reports, the providers on the gateway, the providers remembered in that
+agent's config, and the profiles setup can use, each with its id, credential
+variable, source (`curated` or `custom`), and catalog note. When the gateway
+cannot be listed, the profiles and remembered providers still show, with the
+gateway error. The section loads when the tab opens and after each setup; it
+is never polled.
+
+**Set up** opens a wizard inside the agent's card: pick a profile, name the
+provider (the profile id by default), paste the credential into the password
+field, and optionally pick one of the agent's registered sandboxes that is on
+the gateway to attach the provider to. When the name is already on the
+gateway, the submit control stays disabled until **Replace existing
+credential** is checked; only then does the server add `--yes`. The wizard
+shows the outcome (created or updated, attached or not; "nothing changed"
+with `osa`'s message for a refusal; the completed steps for a failure), and
+the provider list and the inventory refresh at once. For an agent whose setup
+is a login on the host (Codex), the card shows the terminal command instead
+of a wizard. A registered sandbox's detail view that shows no attached
+provider offers **Configure**, which opens the wizard with its agent and
+sandbox selected. In read-only mode there is no wizard, and on a non-loopback
+bind the card says that setup is available only on loopback.
+
+The credential is read from the field when you submit and sent in that one
+request; the field is cleared after the request, on Cancel, and when the page
+is hidden, and the page never keeps it in state or browser storage. See
+[Security notes](#security-notes-and-threat-model).
+
+### Images
+
+The **Images** section shows each agent's base image from `osa images
+--json`: the tag `image build` produces, whether it exists locally and when it
+was created, the engine, the image sessions use when the config names another
+one (a derived environment), and any error. **Build** runs
+`osa image build <agent>`; the log below the table streams its output as it
+arrives, with a status line (running for mm:ss, then succeeded, failed with
+the exit status, or cancelled). One build runs at a time: while one runs,
+every Build button is disabled and **Cancel build** stops it (SIGTERM, which
+the front-end forwards to the engine, then SIGKILL after 10 seconds). A build
+keeps running when the page closes; opening the tab again replays its log
+from the first line (up to 5000 lines; older lines are noted as dropped) and
+follows it. When a build ends, the table refreshes. A build is cancelled after
+60 minutes. Rebuilding a tag does not change running sandboxes. In read-only
+mode there is no Build or Cancel control. Environment stores stay a terminal
+step.
 
 ## Rules view and egress denials
 
@@ -221,6 +275,10 @@ needs `token=` as it already does):
 | `GET /api/projects/:sandbox/status` | `osa status <host_path> --json`, narrowed to that sandbox; 404 for a sandbox not in the registry |
 | `GET /api/projects/:sandbox/health` | `{health}`: `osa health <sandbox> --json` (idle stop, MCP readiness, doctor checks); 404 for a sandbox not in the registry, 504 after 30 s. Not cached |
 | `GET /api/projects/:sandbox/patch` | The retained patch `{name, size, truncated, text}`. Requires `X-Dashboard-Token`, in read-only mode too |
+| `GET /api/providers` | `{providers}`: `osa providers --json` (per agent: `setup`, `command`, `profiles`, `gateway`, `remembered`); 504 after 20 s. Not cached |
+| `GET /api/images` | `{images}`: `osa images --json` (per agent: `image`, `engine`, `present`, `id`, `created`, `configured`, `error`); 504 after 20 s. Not cached |
+| `GET /api/images/build` | `{build}`: the current or last build's `{id, agent, startedAt, finishedAt, exitCode, cancelled, reason, dropped}`, or `null` |
+| `GET /events/build?token=:token` | SSE build stream: `start` (the build summary), then `line` events replaying the ring and following live, then `done` (the summary with `exitCode`, `cancelled`, `reason`); `none` when no build has run. Requires the page's session token |
 
 Project routes accept GET only, except the resolve route below, which accepts
 POST only; any other method returns 405 and runs nothing.
@@ -234,6 +292,9 @@ read-only mode:
 | `POST /api/sandboxes/:name/start` \| `/stop` \| `/delete` | Lifecycle |
 | `POST /api/sandboxes/:name/rules/:chunkId/approve` | Approve a pending proposal |
 | `POST /api/sandboxes/:name/rules/:chunkId/reject` | Reject with required `{reason}` |
+| `POST /api/images/:agent/build` | Runs `osa image build <agent>` for `mk`, `oc`, `cc`, or `cx` with no other argument: 202 `{build}`, 400 for another agent, 409 while any build runs (nothing spawned) |
+| `POST /api/images/build/cancel` | Cancels the running build: 200 `{build}`, 409 when nothing runs |
+| `POST /api/providers/setup` | `{agent, profile, name?, attach?, replace?, credential}`: runs `osa provider setup <agent> --profile <profile> [--name <name>] [--attach <sandbox>] [--yes] --json` with the credential on stdin, `--yes` only for `replace: true`. Refused off loopback (403 `loopback_only`, before the body is read); then 403 without the token or in read-only mode, 415 for a non-JSON body, 413 for a body over 70 KiB, 400 naming the invalid field, 409 while another setup runs. Returns `osa`'s `{ok, agent, provider, profile, outcome, attached, remembered, steps, message}` plus `exitCode`: 200 for exit 0, 409 for exit 2 (refused, nothing changed), 400 for exit 1, 502 for exit 3 (with the completed `steps`), 504 after 120 s. Every copy of the credential in `osa`'s output is replaced with `[redacted]` |
 | `POST /api/projects/:sandbox/resolve` | `{action}`, one of `apply`, `branch`, `drop`, `rescue`, `discard`: runs `osa resolve <sandbox> <action> --json`, with `--yes` added by the server for `drop` and `discard`. Returns `osa`'s `{sandbox, action, ok, changed, message}` plus `exitCode`: 200 for exit 0, 409 for exit 2 (refused, nothing changed). 400 for an unknown action, 404 for a sandbox not in the registry, 409 while a resolve for that sandbox runs, 502 for exit 3 or unparsable output (stderr in `error.detail`), 504 after 60 s (120 s for `rescue`) |
 
 CLI failures return a structured body
@@ -277,28 +338,68 @@ The dashboard is a local operator tool, not a hardened service. What it does:
   contain no HTML sink identifiers, enforced by a test. Only the module names
   found in `src/app/` at startup are served; no URL path reaches the file
   system.
-- **No secrets through the dashboard.** It never reads or stores credential
-  values, and it adds no `--env` values; provider credentials stay with the
-  CLI and OpenShell's provider profiles. The API responses contain gateway
-  metadata only.
+- **Secrets only through provider setup.** (This replaces the earlier promise
+  that no secret passes through the dashboard.) The dashboard never reads or
+  stores credential values, and it adds no `--env` values. The one secret it
+  handles is a provider credential typed into the Setup tab's wizard: the
+  browser sends it to `127.0.0.1` in the body of one same-origin request to
+  `POST /api/providers/setup`, and the server writes it to the stdin of one
+  `osa provider setup` child and closes the pipe. It never goes into an
+  argument, an environment variable, a file, a log line, a cache, a URL, a
+  response, or an error message; every copy of it in `osa`'s output is
+  replaced with `[redacted]` before anything is parsed or returned. The route
+  is refused off loopback before the body is read, needs the token, is
+  refused in read-only mode, takes only a JSON body under 70 KiB, and runs
+  one setup at a time. Otherwise the API responses contain gateway metadata
+  only.
 - **No host bind mounts.** The dashboard only shells out to `openshell` and
   `osa`, and only with argv arrays (never through a shell). The only `osa`
   commands it can run are `status PATH --json`, `status PATH --quick --json`,
-  `health SANDBOX --json`, and `resolve SANDBOX ACTION --json` with `--yes`
-  for `drop` and `discard` only; one allowlist check in `src/projects.ts` refuses every other argv.
+  `health SANDBOX --json`, `providers --json`, `images --json`,
+  `resolve SANDBOX ACTION --json` with `--yes` for `drop` and `discard` only,
+  `provider setup TAG --profile ID [--name N] [--attach SANDBOX] [--yes]
+  --json` built from validated fields (and only with the credential on
+  stdin), and `image build TAG` with nothing after the tag; one allowlist
+  check in `src/projects.ts` refuses every other argv.
+- **Image builds use the repository's own build contexts.** The only client
+  input that reaches `osa image build` is the agent tag, chosen from four;
+  there are no build arguments, tag overrides, bind mounts, secrets, or
+  `--env` values. Build output carries no credential and is gated by the
+  token like logs.
 - **Project writes go through `osa resolve` only.** The dashboard itself never
   creates, modifies, or deletes a file in the osa state root or a registered
   host project. The resolve route is the only project route that is not GET.
 
-Threat model. The dashboard guards three assets:
+Threat model. The dashboard guards four assets:
 
-1. **The gateway**: mutating sandboxes and approving rules. Unchanged from v1.
+1. **The gateway**: mutating sandboxes and approving rules, and creating,
+   updating, and attaching providers through `osa provider setup`.
 2. **Host project trees and git refs**, newly writable: **Apply** writes the
    patch's files into the working tree, and **Branch** creates an
    `osa/<sandbox>-<timestamp>` ref.
 3. **The osa state root**, newly writable: **Drop** clears the marker and moves
    the patch into `dropped/`, **Rescue** adds a `rescue-<timestamp>/` folder,
    and **Discard** replaces the sandbox workspace and clears the marker.
+4. **Provider credentials in transit**: a credential typed into the wizard,
+   from the browser to the `osa provider setup` child. Its guards:
+   - loopback only: off loopback the route is refused before the body is
+     read, so the credential never crosses a network in plain HTTP;
+   - the session token in `X-Dashboard-Token` and read-only refusal;
+   - stdin-only handoff: the credential goes to the child's stdin and
+     nowhere else, never into argv, the environment, a file, a log, or a
+     response;
+   - redaction: every copy of it in `osa`'s output becomes `[redacted]`
+     before the server parses or returns that output;
+   - no storage on the page: the field disables autocomplete and spell
+     checking, the value is read at submit time and cleared afterwards, on
+     Cancel, and on `pagehide`, and it is never kept in page state,
+     `localStorage`, `sessionStorage`, or a cookie.
+
+   Residual risk: a local process that can read the token (from the loopback
+   page) can also submit a setup, but it gains nothing it could not already
+   do with `openshell` as the same user. The credential sits in the input and
+   the browser's memory until the field is cleared, the same exposure as a
+   password manager filling a form.
 
 The main risks are (1) another local process reaching the loopback port and
 (2) a browser tricking the operator's session into requests. The host writes
@@ -411,7 +512,14 @@ shapes, IPv6, ANSI color, an unknown layout, a markup host) or a failure.
 `idle` when the fixture says so), `health SANDBOX --json` (built-in reports:
 all ok, a failing MCP gate, unsupported MCP, a partial error, markup in a
 detail), and `resolve SANDBOX ACTION --json [--yes]` from a JSON fixture, logs argv, and can succeed, refuse (exit 2), fail (exit 3), answer
-slowly, hang, or print invalid JSON. `test/state-fixture.ts`
+slowly, hang, or print invalid JSON. It also answers `images --json`
+(present, missing, an error with markup, a configured image), a streaming
+`image build TAG` (timed lines on stdout and stderr, a chosen exit status, or
+a build that waits for SIGTERM or ignores it), `providers --json` (a stdin
+agent with curated and custom profiles, a markup note, a gateway error, a
+login agent), and `provider setup …` (created, updated, refused, failed after
+create, usage, slow, and a mode that echoes the credential to test
+redaction); it records each setup's stdin byte count, never the value. `test/state-fixture.ts`
 builds a throwaway state root with every registry and marker shape the
 Projects view handles, and a conformance test checks the dashboard's reader
 against the real `bin/osa projects --json` over it.

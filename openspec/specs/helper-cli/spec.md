@@ -160,7 +160,7 @@ The helper SHALL accept `--continue`, `--resume <ID>`, and `--session-id <ID>` o
 
 ### Requirement: Project transfer in and out
 
-`maki-oss upload [path] [dest]` SHALL copy local files into the sandbox using `openshell sandbox upload` and SHALL NOT create a bind mount or any other host filesystem exposure. When the destination is the project workspace, upload SHALL refresh the tracked tree: it SHALL upload the current host tree and SHALL remove tracked files that the previous refresh placed in the workspace but the current host tree no longer contains, while preserving gitignored sandbox-local artifacts. Upload SHALL refuse when the workspace is parked unless `--discard` is passed; `maki-oss upload --discard` SHALL discard the parked output and refresh, while keeping patch files on disk. Upload SHALL warn, without refusing, when a retained patch is unapplied. On success it SHALL record the new baseline and synced pair and SHALL keep the retained patch available for review. `maki-oss download [path] [dest]` SHALL copy files from the sandbox workspace to an explicit host destination.
+`maki-oss upload [path] [dest]` SHALL copy local files into the sandbox using `openshell sandbox upload` and SHALL NOT create a bind mount or any other host filesystem exposure. When the destination is the project workspace and no explicit path is given, or the explicit path is the workspace root `.`, upload SHALL refresh the tracked tree: it SHALL upload the current host tree and SHALL remove tracked files that the previous refresh placed in the workspace but the current host tree no longer contains, while preserving gitignored sandbox-local artifacts. When an explicit path other than `.` is given, upload SHALL copy only that path to the requested destination, MUST NOT substitute the current directory, and MUST NOT prune or refresh the full tree. Upload SHALL refuse to copy when the workspace is parked. A full workspace refresh with `--discard` SHALL discard the parked output and proceed, while keeping patch files on disk. A partial copy into a parked workspace SHALL be refused even with `--discard`; `--discard` applies only to a full refresh. Upload SHALL warn, without refusing, when a retained patch is unapplied. Only a full workspace refresh SHALL record the new baseline and synced pair; a partial copy-in MUST NOT alter the recorded baseline, host manifest, synced pair, or project fingerprint, and SHALL leave the workspace classification to the normal freshness check. `maki-oss download [path] [dest]` SHALL copy files from the sandbox workspace to an explicit host destination.
 
 #### Scenario: Upload never mounts
 - **WHEN** the user runs `maki-oss upload .`
@@ -179,8 +179,8 @@ The helper SHALL accept `--continue`, `--resume <ID>`, and `--session-id <ID>` o
 - **THEN** no upload is recorded and the error names the `--discard` and download commands
 
 #### Scenario: Upload discards a parked workspace
-- **WHEN** the workspace is parked and the user runs `maki-oss upload --discard`
-- **THEN** the refresh proceeds, the parked state is cleared, and existing patch files remain on disk
+- **WHEN** the workspace is parked and the user runs `maki-oss upload . --discard`
+- **THEN** the full refresh proceeds, the parked state is cleared, and existing patch files remain on disk
 
 #### Scenario: Upload warns about a retained patch
 - **WHEN** a retained patch is unapplied and the user runs `maki-oss upload`
@@ -190,6 +190,17 @@ The helper SHALL accept `--continue`, `--resume <ID>`, and `--session-id <ID>` o
 - **WHEN** the user runs `maki-oss upload ./dist /sandbox/project/dist`
 - **THEN** only that path is copied and no tracked-file pruning is attempted
 
+#### Scenario: Explicit path with the default destination copies only that path
+- **WHEN** the user runs `maki-oss upload ./notes.txt` with no destination
+- **THEN** `notes.txt` is copied into the workspace, another file in the current directory is not uploaded, and no full-tree refresh or synced pair is recorded
+
+#### Scenario: Partial upload does not claim the workspace is current
+- **WHEN** a full refresh was recorded, the host later edits a tracked file, and the user copies one path into the workspace
+- **THEN** the next status or session still sees the host change and does not treat the workspace as clean
+
+#### Scenario: Partial copy-in does not clear a parked marker
+- **WHEN** the workspace is parked and the user runs `maki-oss upload ./dist --discard`
+- **THEN** the helper refuses the copy with the parked-workspace error, the parked marker remains, and only a full `maki-oss upload --discard` can replace the workspace
 ### Requirement: Secret hygiene
 The helper SHALL refuse to pass sandbox environment variables whose names contain a credential-like underscore-separated segment (`TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL`, `API_KEY`, `ACCESS_KEY`, or `SECRET_KEY`) on every command that can create a sandbox, including `up`, bare `maki-oss`, `maki-oss maki`, and `maki-oss run`, and SHALL direct the user to `maki-oss provider add`. The check MUST run before any gateway mutation. Passing `--allow-env KEY` SHALL override the refusal for that key only.
 

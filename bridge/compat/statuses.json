@@ -59,7 +59,7 @@
     { "route": "GET /api/pty/{ptyID}", "status": "served-faked", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/src/spec-answers.ts" },
     { "route": "GET /api/pty/{ptyID}/connect", "status": "served-faked", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/src/spec-answers.ts" },
     { "route": "GET /api/reference", "status": "served-faked", "scope": "reachable", "blockedBy": "none", "evidence": "bridge/test/boot-surface.test.ts", "fakeReason": "references are `@` aliases declared in OpenCode config documents, and the bridge has none (`GET /api/config` is an empty list); Maki has no alias concept at v0.6.5, so the empty list is the true set" },
-    { "route": "GET /api/session", "status": "served-live", "scope": "reachable", "blockedBy": "none", "evidence": "openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/api-check.log" },
+    { "route": "GET /api/session", "status": "served-live", "scope": "reachable", "blockedBy": "none", "evidence": "bridge/test/model-switch.test.ts" },
     { "route": "GET /api/session/active", "status": "served-live", "scope": "reachable", "blockedBy": "none", "evidence": "bridge/test/session-active.test.ts", "feature": "session-active-live" },
     { "route": "GET /api/session/{sessionID}", "status": "served-live", "scope": "reachable", "blockedBy": "none", "evidence": "bridge/test/fixtures/bridge-requests.jsonl" },
     { "route": "GET /api/session/{sessionID}/context", "status": "served-faked", "scope": "out-of-scope", "blockedBy": "none", "evidence": "bridge/src/spec-answers.ts" },

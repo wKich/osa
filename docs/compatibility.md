@@ -36,7 +36,7 @@ Statuses: `served-live` (real state behind the route), `served-faked` (answered 
 | `GET /api/model` | `served-live` | live — `model-catalog-live` | [`bridge/test/model-catalog.test.ts`](../bridge/test/model-catalog.test.ts) |
 | `GET /api/project` | `served-live` | live — `project-identity-live` | [`bridge/test/sandbox-git.test.ts`](../bridge/test/sandbox-git.test.ts) |
 | `GET /api/provider` | `served-live` | live — `model-catalog-live` | [`bridge/test/model-catalog.test.ts`](../bridge/test/model-catalog.test.ts) |
-| `GET /api/session` | `served-live` | live | [`openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/api-check.log`](../openspec/changes/archive/2026-10-21-add-opencode-tui-bridge/evidence/api-check.log) |
+| `GET /api/session` | `served-live` | live | [`bridge/test/model-switch.test.ts`](../bridge/test/model-switch.test.ts) |
 | `GET /api/session/active` | `served-live` | live — `session-active-live` | [`bridge/test/session-active.test.ts`](../bridge/test/session-active.test.ts) |
 | `GET /api/session/{sessionID}` | `served-live` | live | [`bridge/test/fixtures/bridge-requests.jsonl`](../bridge/test/fixtures/bridge-requests.jsonl) |
 | `GET /api/session/{sessionID}/inbox` | `served-live` | live — `session-inbox-held` | [`bridge/test/inbox.test.ts`](../bridge/test/inbox.test.ts) |

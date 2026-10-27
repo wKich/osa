@@ -1724,3 +1724,35 @@ $ maki-oss run --name mk-resolve-dem-cbfc --model synthetic/hf:zai-org/GLM-5.3 \
     --timeout 150 "Reply with exactly the word: pong"
 ... "result":"pong" ...
 ```
+
+## osa dashboard — 2026-10-27
+
+`add-osa-dashboard-command`, on this host (macOS, Bun 1.4.2). `make test`
+passed (264), `cd dashboard && bun test` passed (206), `make lint` and
+`make lint-docs` passed, and
+`openspec validate add-osa-dashboard-command --strict` passed.
+
+From `$HOME`, `osa dashboard --open` printed
+`OpenShell dashboard listening on http://127.0.0.1:8787` and no
+`could not open a browser` note, so `open` exited 0. `ps` showed the same PID
+as `bun run /Users/ki/Projects/experiments/osa/dashboard/src/main.ts --open`
+(the `exec` replaced `osa`), with
+`DASHBOARD_OSA_BIN=/Users/ki/Projects/experiments/osa/bin/osa` in its
+environment. `GET /` served the page, which opens on Projects; that the
+browser tab showed it was not checked from this session.
+
+With the server running, a full status and a resolve of `cc-osa-cb62` (nothing
+pending, so it was refused with exit 2 and changed nothing) spawned:
+
+```
+/bin/sh /Users/ki/Projects/experiments/osa/bin/osa status /Users/ki/Projects/experiments/osa --json
+/bin/sh /Users/ki/Projects/experiments/osa/bin/osa resolve cc-osa-cb62 apply --json
+/bin/sh /Users/ki/Projects/experiments/osa/bin/osa status /Users/ki/Projects/experiments/osa --quick --json
+```
+
+Ctrl-C: `osa dashboard --port 8788` was started from `$HOME` in its own process
+group, and SIGINT was sent to the group (what a terminal Ctrl-C does). Bun
+exited on the signal (status -2), and `pgrep` then found no dashboard `bun`
+process. A job started with `&` from a non-interactive shell ignores SIGINT,
+as it inherits that disposition, so a plain `kill -INT` to such a job is not
+a valid check.

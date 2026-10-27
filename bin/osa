@@ -14,6 +14,8 @@
 # front-end: `resolve` (its `__resolve`), `provider setup` (its
 # `__provider-setup`, with stdin passed through unread), and `image build`
 # (its `image build`, which changes only the local base image tag).
+# `dashboard` changes nothing itself: it replaces this process with the
+# repository's Bun dashboard, which acts only through osa and the gateway.
 #
 # POSIX sh. See docs/helper.md for the full reference.
 
@@ -60,6 +62,9 @@ Commands:
                                     Set up a provider for agent TAG from a
                                     credential read on stdin, never prompted
   image build TAG                   Build agent TAG's base image
+  dashboard [--port N] [--host ADDR] [--token T] [--read-only] [--open]
+                                    Run the web dashboard in the foreground
+                                    (needs Bun >= 1.2.0; Ctrl-C stops it)
   help                              Show this help
 
 Agent tags: mk (maki-oss), oc (opencode-oss), cc (claude-oss), cx (codex-oss).
@@ -78,6 +83,28 @@ Only resolve, provider setup, and image build change anything. Exit codes
 for resolve and provider setup: 0 done, 1 usage error, 2 refused before any
 change, 3 failed during the action. image build exits 0 when the image was
 built, 1 for a usage error, and the front-end's status otherwise.
+dashboard exits 1 for a usage error, 2 when Bun or the dashboard files are
+missing, and with the dashboard's status otherwise.
+EOF
+}
+
+dashboard_usage() {
+    cat <<'EOF'
+Usage: osa dashboard [--port N] [--host ADDR] [--token T] [--read-only] [--open]
+
+Runs <repo>/dashboard/src/main.ts with Bun in the foreground; Ctrl-C stops
+it. The flags pass to the dashboard unchanged, which validates them, and the
+DASHBOARD_* environment variables still apply, except DASHBOARD_OSA_BIN,
+which is always set to this osa.
+
+  --port N     Port to listen on (default: 8787)
+  --host ADDR  Address to bind (default: 127.0.0.1); off loopback needs --token
+  --token T    Session token for mutating routes
+  --read-only  Reject every mutating route and hide the controls
+  --open       Open the page in the default browser once listening (loopback)
+
+Exit codes: 1 usage error, 2 Bun or the dashboard missing, otherwise the
+dashboard's status.
 EOF
 }
 
@@ -502,7 +529,82 @@ opt_profile=
 opt_name=
 opt_attach=
 
-COMMANDS='projects, status, health, providers, images, resolve, provider setup, image build, help'
+COMMANDS='projects, status, health, providers, images, resolve, provider setup, image build, dashboard, help'
+
+EX_DEP=2 # the front-ends' missing-dependency status (lib/oss-core.sh)
+OSA_BUN_MIN=1.2.0
+BUN_INSTALL_URL=https://bun.sh
+
+# Prints MAJOR MINOR PATCH for a version string, or fails when it does not
+# start with MAJOR.MINOR. A missing patch is 0; any suffix is ignored.
+version_triple() { # VERSION
+    printf '%s\n' "$1" | awk '
+        match($0, /^[0-9]+\.[0-9]+(\.[0-9]+)?/) {
+            n = split(substr($0, 1, RLENGTH), v, ".")
+            print v[1] + 0, v[2] + 0, (n == 3 ? v[3] + 0 : 0)
+            found = 1
+            exit
+        }
+        END { exit !found }'
+}
+
+# Succeeds when version A is at least version B (each MAJOR MINOR PATCH).
+version_at_least() { # A_MAJOR A_MINOR A_PATCH B_MAJOR B_MINOR B_PATCH
+    [ "$1" -gt "$4" ] && return 0
+    [ "$1" -lt "$4" ] && return 1
+    [ "$2" -gt "$5" ] && return 0
+    [ "$2" -lt "$5" ] && return 1
+    [ "$3" -ge "$6" ]
+}
+
+# osa dashboard: checks the flag shapes only (the dashboard's own parser
+# validates the values), checks the dashboard files and Bun, and replaces
+# this process with Bun so signals and the exit status belong to it.
+cmd_dashboard() { # ARGS...
+    db_expect_value=
+    for db_arg in "$@"; do
+        if [ -n "$db_expect_value" ]; then
+            db_expect_value=
+            continue
+        fi
+        case $db_arg in
+            -h|--help) dashboard_usage; exit 0 ;;
+            --port|--host|--token) db_expect_value=$db_arg ;;
+            --port=*|--host=*|--token=*|--read-only|--open) ;;
+            -*) die_usage "unknown dashboard option: $db_arg (options: --port, --host, --token, --read-only, --open)" ;;
+            *) die_usage "dashboard takes no arguments: $db_arg" ;;
+        esac
+    done
+    [ -z "$db_expect_value" ] || die_usage "option $db_expect_value requires a value"
+
+    db_main=$repo_root/dashboard/src/main.ts
+    if [ ! -f "$db_main" ]; then
+        printf '%s: dashboard not found at %s\n' "$PROGRAM" "$db_main" >&2
+        exit "$EX_DEP"
+    fi
+
+    if ! command -v bun >/dev/null 2>&1; then
+        printf '%s: the dashboard needs Bun >= %s and no bun is on PATH; install it from %s\n' \
+            "$PROGRAM" "$OSA_BUN_MIN" "$BUN_INSTALL_URL" >&2
+        exit "$EX_DEP"
+    fi
+    db_version=$(bun --version 2>/dev/null | head -n 1) || db_version=
+    if db_have=$(version_triple "$db_version"); then
+        # shellcheck disable=SC2046,SC2086  # split into three numbers on purpose
+        if ! version_at_least $db_have $(version_triple "$OSA_BUN_MIN"); then
+            printf '%s: the dashboard needs Bun >= %s, found %s; upgrade from %s\n' \
+                "$PROGRAM" "$OSA_BUN_MIN" "$db_version" "$BUN_INSTALL_URL" >&2
+            exit "$EX_DEP"
+        fi
+    else
+        printf "%s: warning: cannot read Bun's version ('%s'); the dashboard needs Bun >= %s\n" \
+            "$PROGRAM" "$db_version" "$OSA_BUN_MIN" >&2
+    fi
+
+    DASHBOARD_OSA_BIN=$script_dir/osa
+    export DASHBOARD_OSA_BIN
+    exec bun run "$db_main" "$@"
+}
 
 [ "$#" -gt 0 ] || { usage; exit 0; }
 cmd=$1
@@ -513,6 +615,7 @@ case $cmd in
         exit 0
         ;;
     projects|status|health|providers|images|resolve) ;;
+    dashboard) cmd_dashboard "$@" ;;
     provider|image)
         case ${1:-} in
             setup) [ "$cmd" = provider ] || die_usage "unknown command: $cmd ${1:-} (commands: $COMMANDS)" ;;

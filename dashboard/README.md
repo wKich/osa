@@ -28,12 +28,19 @@ through the `openshell` CLI and project state from the osa state root.
 ## Quick start
 
 ```sh
-cd dashboard
-bun install          # resolves with zero packages
-bun run start        # http://127.0.0.1:8787
+osa dashboard --open     # http://127.0.0.1:8787, opened in your browser
 ```
 
-Open the printed URL. The page opens on **Projects**; the **Sandboxes** tab
+From a checkout whose `bin/` is not on `PATH`, run `<repo>/bin/osa dashboard`.
+It works from any folder: `osa` finds the dashboard next to itself, checks
+that Bun ≥ 1.2.0 is installed (exit 2 with the install link if not), and
+replaces itself with `bun run <repo>/dashboard/src/main.ts`, so the server
+runs in the foreground and Ctrl-C stops it. The UI then uses that same `osa`
+(`DASHBOARD_OSA_BIN` is set to it). `--port`, `--host`, `--token`,
+`--read-only`, and `--open` pass through unchanged; any other argument is a
+usage error.
+
+Without `--open`, open the printed URL. The page opens on **Projects**; the **Sandboxes** tab
 holds the gateway inventory, and the **Setup** tab sets up providers and
 builds base images. Both lists refresh every 3 seconds; per-sandbox
 views (`Logs`, `Policy`, `Rules`) stream or fetch on demand.
@@ -216,7 +223,7 @@ rule from the browser.
 
 | Script | Purpose |
 |---|---|
-| `bun run start` | Start the dashboard server |
+| `bun run start` | Start the dashboard server from `dashboard/` (development; takes the same flags, e.g. `bun run start --open`) |
 | `bun run dev` | Start with `--watch` (restarts on source changes) |
 | `bun test` | Run the stub-backed test suite (no gateway, no Docker, no network) |
 | `bun run scripts/browser-check.ts` | Drive the real UI in headless Chrome against the stub (skips without Chrome) |
@@ -231,8 +238,9 @@ Priority: flag > environment variable > default.
 | `--host ADDR` | `DASHBOARD_HOST` | `127.0.0.1` | Bind address. Any non-loopback address **requires** `--token`/`DASHBOARD_TOKEN`, prints a startup warning, and then requires that token for the page and every read (see [Remote bind](#remote-bind)) |
 | `--token T` | `DASHBOARD_TOKEN` | random per start | Session token required by every mutating route; on loopback it is embedded in the served page, off loopback only in a page requested with `?token=T` |
 | `--read-only` | `DASHBOARD_READ_ONLY` | off | Rejects every mutating route with 403 and hides the controls (`1`, `true`, `yes`, `on`) |
+| `--open` | — | off | Once listening, opens `http://HOST:PORT/` in the default browser (`open` on macOS, `xdg-open` elsewhere). The URL never carries the token; off loopback nothing is opened and the server says to open the page with `?token=`. With no opener, or a failing one, it prints the URL and keeps serving |
 | — | `DASHBOARD_OPENSHELL_BIN` | `openshell` | CLI binary to invoke (tests point this at the stub) |
-| — | `DASHBOARD_OSA_BIN` | `../bin/osa`, else `osa` | `osa` binary for host-change and full status checks and resolve actions: this variable, else the repository's `bin/osa` next to the dashboard, else `osa` on `PATH` |
+| — | `DASHBOARD_OSA_BIN` | `../bin/osa`, else `osa` | `osa` binary for host-change and full status checks and resolve actions: this variable, else the repository's `bin/osa` next to the dashboard, else `osa` on `PATH`. Set by `osa dashboard` to that `osa`, overriding any inherited value |
 | — | `XDG_STATE_HOME` | `$HOME/.local/state` | Base of the osa state root (`$XDG_STATE_HOME/osa`) the Projects view reads |
 | `-h`, `--help` | — | — | Print usage |
 

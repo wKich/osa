@@ -118,8 +118,9 @@ sandboxes by hand is a chore. osa gives you:
   of being overwritten.
 - 🐟 **Fish-native** — a fisher-compatible plugin with completions, plus a
   plain POSIX `sh` helper for everyone else.
-- 📊 **Dashboard** — a minimal [Bun](https://bun.sh) web UI
-  ([`dashboard/`](dashboard/)) to monitor and manage your OpenShell sandboxes.
+- 📊 **Dashboard** — `osa dashboard --open` starts a minimal
+  [Bun](https://bun.sh) web UI ([`dashboard/`](dashboard/)) to monitor and
+  manage your projects and OpenShell sandboxes.
 
 ## Guides
 

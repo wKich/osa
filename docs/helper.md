@@ -861,7 +861,8 @@ it. A plain folder, or a host without git, records none.
 ## osa
 
 `osa` reports on the projects every front-end has registered, resolves
-their pending sync output, and sets up providers and base images.
+their pending sync output, sets up providers and base images, and starts the
+web dashboard.
 `projects`, `status`, `health`, `providers`, and `images` are read-only: they
 never create, start, stop, delete, upload to, or download from a sandbox,
 never launch an agent, never create, update, or attach a provider, never
@@ -871,7 +872,9 @@ anything, and `image build` changes only the agent's local base image tag. No
 `osa` command creates, stops, or deletes a sandbox or launches an agent; only
 `resolve rescue` may start a stopped one, and only `provider setup` may
 attach a provider to one. `projects`, `status --quick`, and `images` never
-contact the gateway.
+contact the gateway. `dashboard` changes nothing itself: it starts the
+[dashboard](../dashboard/README.md), which acts only through `osa` and the
+gateway actions its spec allows.
 
 Agent tags: `mk` (`maki-oss`), `oc` (`opencode-oss`), `cc` (`claude-oss`),
 `cx` (`codex-oss`).
@@ -885,6 +888,7 @@ osa status --quick --json    # no gateway, no tree hash
 osa health SANDBOX           # idle stop, MCP readiness, doctor checks
 osa providers --json         # setup profiles and providers per agent
 osa images                   # each agent's base image, present or missing
+osa dashboard --open         # the web UI, opened in the browser
 ```
 
 `osa projects` lists each entry's agent, sandbox, pending kind (`retained`,
@@ -1119,6 +1123,35 @@ front-end, so a `SIGTERM` or `SIGINT` sent to the `osa` process reaches the
 front-end, which stops the engine's build and exits non-zero. Building an
 environment store stays a terminal step; see
 [`docs/ai/environment-playbook.md`](ai/environment-playbook.md).
+
+### osa dashboard
+
+```sh
+osa dashboard                          # http://127.0.0.1:8787, Ctrl-C stops it
+osa dashboard --open --read-only       # open it in the browser, no controls
+osa dashboard --port 9000
+```
+
+`osa dashboard [--port N] [--host ADDR] [--token T] [--read-only] [--open]`
+runs the repository's dashboard (`<repo>/dashboard/src/main.ts`, found next
+to `osa`) with Bun in the foreground, from any folder. It replaces its own
+process with `bun run`, so Ctrl-C, signals, and the exit status belong to the
+dashboard; there is no daemon, PID file, or background process. The five
+flags pass through unchanged and in order, and the dashboard validates their
+values; `osa` checks only that `--port`, `--host`, and `--token` have a
+value. Any other argument is a usage error before anything starts.
+`DASHBOARD_OSA_BIN` is always set to this `osa`, overriding an inherited
+value, so the UI's status and resolve calls use the same checkout as the
+command; the other `DASHBOARD_*` variables pass through. `--open` opens the
+page once the server listens, on loopback only, and never puts the token in
+the opener's arguments. The command itself never contacts the gateway, writes
+under the state root, or runs another `osa` command.
+
+Exit codes: `1` usage error; `2` when Bun is not on `PATH`, its version is
+below 1.2.0 (the message names the found version, the minimum, and
+<https://bun.sh>), or the dashboard files are missing (the message names the
+expected path); otherwise the dashboard's own status. An unreadable
+`bun --version` prints a warning and starts anyway.
 
 ## Cookbook: two commands per project
 

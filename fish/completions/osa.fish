@@ -11,6 +11,7 @@ complete -c osa -n __fish_use_subcommand -a images -d 'Report each agent'\''s ba
 complete -c osa -n __fish_use_subcommand -a resolve -d 'Resolve a sandbox'\''s retained patch or parked workspace'
 complete -c osa -n __fish_use_subcommand -a provider -d 'Set up a provider from stdin (provider setup)'
 complete -c osa -n __fish_use_subcommand -a image -d 'Build an agent'\''s base image (image build)'
+complete -c osa -n __fish_use_subcommand -a dashboard -d 'Run the web dashboard in the foreground'
 complete -c osa -n __fish_use_subcommand -a help -d 'Show usage'
 
 # health SANDBOX and resolve SANDBOX ACTION: registered sandbox names, then
@@ -34,3 +35,8 @@ complete -c osa -n '__fish_seen_subcommand_from setup' -l yes -d 'Update an exis
 complete -c osa -n '__fish_seen_subcommand_from status' -l quick -d 'Skip the gateway; report the host fingerprint'
 complete -c osa -n '__fish_seen_subcommand_from resolve' -l yes -d 'Confirm drop or discard'
 complete -c osa -n '__fish_seen_subcommand_from status' -a '(__fish_complete_directories)' -d 'Project folder'
+complete -c osa -n '__fish_seen_subcommand_from dashboard' -l port -x -d 'Port to listen on (default: 8787)'
+complete -c osa -n '__fish_seen_subcommand_from dashboard' -l host -x -d 'Address to bind (default: 127.0.0.1)'
+complete -c osa -n '__fish_seen_subcommand_from dashboard' -l token -x -d 'Session token for mutating routes'
+complete -c osa -n '__fish_seen_subcommand_from dashboard' -l read-only -d 'Reject every mutating route'
+complete -c osa -n '__fish_seen_subcommand_from dashboard' -l open -d 'Open the page in the browser once listening'

@@ -7082,9 +7082,10 @@ test_osa_usage() {
     assert_out_has "resolve"
     assert_out_has "provider setup TAG --profile ID"
     assert_out_has "image build TAG"
+    assert_out_has "dashboard [--port N]"
     run_osa up
     assert_rc 1
-    assert_err_has "projects, status, health, providers, images, resolve, provider setup, image build, help"
+    assert_err_has "projects, status, health, providers, images, resolve, provider setup, image build, dashboard, help"
     run_osa projects --quick
     assert_rc 1
 }
@@ -8166,7 +8167,7 @@ test_resolve_dispatch_refusals() {
     assert_out_has "resolve SANDBOX ACTION"
     run_osa up
     assert_rc 1
-    assert_err_has "projects, status, health, providers, images, resolve, provider setup, image build, help"
+    assert_err_has "projects, status, health, providers, images, resolve, provider setup, image build, dashboard, help"
     run_osa resolve
     assert_rc 1
     run_osa resolve maki-x frobnicate
@@ -8981,6 +8982,197 @@ test_osa_health() {
     assert_out_has "error: project folder missing"
 }
 
+# ---------------------------------------------------------------------------
+# osa dashboard: an exec wrapper around the repository's Bun dashboard. A
+# per-case bun stub, ahead of tests/stub (whose bun stands in for the TUI
+# bridge), answers --version from BUN_VERSION and otherwise records its argv,
+# DASHBOARD_OSA_BIN, DASHBOARD_PORT, and working directory, then exits 0.
+
+write_dashboard_bun_stub() {
+    mkdir -p "$CASE/bun-bin"
+    cat >"$CASE/bun-bin/bun" <<'STUB'
+#!/bin/sh
+if [ "${1:-}" = --version ]; then
+    printf '%s\n' "$STUB_BUN_VERSION"
+    exit 0
+fi
+{
+    for stub_arg in "$@"; do
+        printf 'argv: %s\n' "$stub_arg"
+    done
+    printf 'DASHBOARD_OSA_BIN=%s\n' "${DASHBOARD_OSA_BIN:-}"
+    printf 'DASHBOARD_PORT=%s\n' "${DASHBOARD_PORT:-}"
+    printf 'pwd=%s\n' "$(pwd -P)"
+} >"$STUB_BUN_LOG"
+STUB
+    chmod +x "$CASE/bun-bin/bun"
+}
+
+# Runs osa dashboard with the bun stub first on PATH (PATH_OVERRIDE replaces
+# the whole PATH), BUN_VERSION as its version, DASHBOARD_ENV_OSA_BIN as the
+# inherited DASHBOARD_OSA_BIN, and OSA_CMD (default: $OSA) as the command.
+run_osa_dashboard() { # ARGS...
+    BUN_LOG=$CASE/bun.log
+    rm -f "$BUN_LOG"
+    RC=0
+    (
+        cd "${RUN_DIR:-$CASE/project}"
+        PATH="${PATH_OVERRIDE:-$CASE/bun-bin:$STUB_DIR:$PATH}" \
+        HOME="$HOME" \
+        XDG_STATE_HOME="$CASE/xdg-state" \
+        STUB_LOG="$STUB_LOG" \
+        STUB_STATE_DIR="$STUB_STATE_DIR" \
+        STUB_BUN_VERSION="${BUN_VERSION:-1.4.2}" \
+        STUB_BUN_LOG="$BUN_LOG" \
+        DASHBOARD_OSA_BIN="${DASHBOARD_ENV_OSA_BIN:-}" \
+        DASHBOARD_PORT=9123 \
+        "${OSA_CMD:-$OSA}" dashboard "$@" >"$OUT" 2>"$ERR" </dev/null
+    ) || RC=$?
+}
+
+# Checks that the bun stub received exactly `run <repo>/dashboard/src/main.ts`
+# followed by ARGS, in order.
+assert_bun_argv() { # ARGS...
+    {
+        printf 'argv: run\n'
+        printf 'argv: %s\n' "$ROOT/dashboard/src/main.ts"
+        for bun_arg in "$@"; do
+            printf 'argv: %s\n' "$bun_arg"
+        done
+    } >"$CASE/bun-argv.want"
+    if [ ! -f "$BUN_LOG" ]; then
+        bad "bun did not run: $(cat "$ERR")"
+        return
+    fi
+    grep '^argv: ' "$BUN_LOG" >"$CASE/bun-argv.got" || :
+    cmp -s "$CASE/bun-argv.want" "$CASE/bun-argv.got" \
+        || bad "bun argv: $(tr '\n' '|' <"$CASE/bun-argv.got")"
+}
+
+assert_bun_not_run() { # WHY
+    [ ! -f "$BUN_LOG" ] || bad "$1: bun ran: $(tr '\n' '|' <"$BUN_LOG")"
+}
+
+assert_bun_log_line() { # LINE
+    grep -qxF "$1" "$BUN_LOG" 2>/dev/null || bad "bun log lacks '$1': $(tr '\n' '|' <"$BUN_LOG" 2>/dev/null)"
+}
+
+test_osa_dashboard() {
+    begin "osa dashboard execs Bun on the repository's dashboard with this osa"
+    new_case osa-dashboard
+    write_dashboard_bun_stub
+    run_osa_dashboard
+    assert_rc 0
+    assert_bun_argv
+    assert_bun_log_line "DASHBOARD_OSA_BIN=$ROOT/bin/osa"
+    assert_bun_log_line "DASHBOARD_PORT=9123"
+    assert_bun_log_line "pwd=$(CDPATH='' cd -- "$CASE/project" && pwd -P)"
+
+    begin "osa dashboard passes its five flags through unchanged and in order"
+    run_osa_dashboard --port 9000 --host 127.0.0.1 --token T --read-only --open
+    assert_rc 0
+    assert_bun_argv --port 9000 --host 127.0.0.1 --token T --read-only --open
+    run_osa_dashboard --open --token=T2 --host=::1 --read-only --port=0
+    assert_rc 0
+    assert_bun_argv --open --token=T2 --host=::1 --read-only --port=0
+    run_osa_dashboard --port abc
+    assert_rc 0
+    assert_bun_argv --port abc
+
+    begin "osa dashboard rejects other arguments before starting Bun"
+    run_osa_dashboard --daemon
+    assert_rc 1
+    assert_err_has "unknown dashboard option: --daemon"
+    assert_bun_not_run "--daemon"
+    run_osa_dashboard extra
+    assert_rc 1
+    assert_bun_not_run "a positional argument"
+    run_osa_dashboard --port
+    assert_rc 1
+    assert_err_has "option --port requires a value"
+    assert_bun_not_run "--port without a value"
+    run_osa_dashboard --read-only --token
+    assert_rc 1
+    assert_bun_not_run "--token without a value"
+    run_osa_dashboard --help
+    assert_rc 0
+    assert_out_has "Usage: osa dashboard"
+    assert_bun_not_run "--help"
+
+    begin "osa dashboard exits 2 without Bun, naming the minimum and the install link"
+    mkdir -p "$CASE/nobin"
+    PATH_OVERRIDE="$CASE/nobin:/usr/bin:/bin"
+    run_osa_dashboard
+    PATH_OVERRIDE=
+    assert_rc 2
+    assert_err_has "Bun >= 1.2.0"
+    assert_err_has "https://bun.sh"
+    assert_bun_not_run "no bun"
+
+    begin "osa dashboard refuses Bun below 1.2.0 and runs at 1.2.0"
+    BUN_VERSION=1.1.30
+    run_osa_dashboard
+    assert_rc 2
+    assert_err_has "found 1.1.30"
+    assert_err_has "Bun >= 1.2.0"
+    assert_bun_not_run "Bun 1.1.30"
+    BUN_VERSION=1.2.0
+    run_osa_dashboard
+    assert_rc 0
+    assert_bun_argv
+    BUN_VERSION=1.2.0-canary.3+abc
+    run_osa_dashboard
+    assert_rc 0
+    assert_bun_argv
+
+    begin "osa dashboard warns on an unreadable Bun version and still runs"
+    BUN_VERSION=nightly
+    run_osa_dashboard --open
+    assert_rc 0
+    assert_err_has "warning: cannot read Bun's version ('nightly')"
+    assert_bun_argv --open
+    BUN_VERSION=
+
+    begin "osa dashboard overrides an inherited DASHBOARD_OSA_BIN"
+    DASHBOARD_ENV_OSA_BIN=/elsewhere/bin/osa
+    run_osa_dashboard
+    DASHBOARD_ENV_OSA_BIN=
+    assert_rc 0
+    assert_bun_log_line "DASHBOARD_OSA_BIN=$ROOT/bin/osa"
+
+    begin "osa dashboard found on PATH from / starts the same dashboard"
+    RUN_DIR=/
+    PATH_OVERRIDE="$CASE/bun-bin:$ROOT/bin:$STUB_DIR:$PATH"
+    OSA_CMD=osa
+    run_osa_dashboard --read-only
+    OSA_CMD=
+    PATH_OVERRIDE=
+    RUN_DIR=
+    assert_rc 0
+    assert_bun_argv --read-only
+    assert_bun_log_line "DASHBOARD_OSA_BIN=$ROOT/bin/osa"
+    assert_bun_log_line "pwd=/"
+}
+
+test_osa_dashboard_writes_nothing() {
+    begin "osa dashboard writes no state and makes no openshell call"
+    new_case osa-dashboard-quiet
+    write_dashboard_bun_stub
+    mkdir -p "$CASE/xdg-state"
+    find "$CASE/xdg-state" "$HOME" | sort >"$CASE/before.txt"
+    reset_log
+    run_osa_dashboard
+    assert_rc 0
+    run_osa_dashboard --port 0 --open
+    assert_rc 0
+    run_osa_dashboard --daemon
+    assert_rc 1
+    find "$CASE/xdg-state" "$HOME" | sort >"$CASE/after.txt"
+    cmp -s "$CASE/before.txt" "$CASE/after.txt" \
+        || bad "osa dashboard wrote a file: $(diff "$CASE/before.txt" "$CASE/after.txt" | tr '\n' ' ')"
+    [ ! -s "$LOG" ] || bad "osa dashboard called openshell: $(tr '\n' ' ' <"$LOG")"
+}
+
 run_test test_flat_get_helper
 run_test test_shared_state_root
 run_test test_old_state_root_ignored
@@ -9004,6 +9196,8 @@ run_test test_health_json_maki
 run_test test_health_json_front_ends
 run_test test_health_json_stopped
 run_test test_osa_health
+run_test test_osa_dashboard
+run_test test_osa_dashboard_writes_nothing
 run_test test_resolve_fixtures
 run_test test_resolve_dispatch_refusals
 run_test test_resolve_wrong_kind

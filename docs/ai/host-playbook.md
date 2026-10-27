@@ -26,7 +26,7 @@
 Ordered, executable steps for any coding agent that starts from a bare macOS
 (Apple Silicon) or Linux machine. This page covers the shared P0-P2 work —
 preflight, host tooling, and a working repository and shell — and ends there.
-It is the same for Maki, OpenCode, and Claude Code; choose the agent in
+It is the same for Maki, OpenCode, Claude Code, and Codex; choose the agent in
 [`docs/ai/onboarding.md`](onboarding.md), whose playbook owns the
 agent-specific part of P1-P2 and all of P3-P8.
 
@@ -171,7 +171,7 @@ Fish users: this page installs nothing into fish. Fish integration and the
 helper fallback variables are covered by the shared
 [Fish setup](../helper.md#fish-setup) section for both helpers; the Maki
 playbook's [`Shell preparation`](playbooks/maki.md) section is the
-Maki-specific sequence. Claude Code has no fish plugin.
+Maki-specific sequence. Claude Code and Codex have no fish plugin.
 
 ### Verify
 
@@ -209,8 +209,8 @@ steps from this file.
 
 ## See also
 
-- [`docs/ai/onboarding.md`](onboarding.md) — choose Maki, OpenCode, or Claude
-  Code and continue from this path.
+- [`docs/ai/onboarding.md`](onboarding.md) — choose Maki, OpenCode, Claude
+  Code, or Codex and continue from this path.
 - [`docs/ai/document-contract.md`](document-contract.md) — page shape used by
   this playbook.
 - [`docs/ai/playbooks/maki.md`](playbooks/maki.md) — the Maki path,
@@ -225,6 +225,10 @@ steps from this file.
   continuing P3-P8.
 - [`docs/ai/reference/claude.md`](reference/claude.md) — Claude Code
   configuration, credentials, profiles, sessions, MCP, and store shape.
+- [`docs/ai/playbooks/codex.md`](playbooks/codex.md) — the Codex path,
+  continuing P0-P8.
+- [`docs/ai/reference/codex.md`](reference/codex.md) — Codex configuration,
+  credentials, profiles, sessions, MCP, and store shape.
 - [`docs/helper.md`](../helper.md) — shared helper commands and sync states.
 - [`docs/providers.md`](../providers.md) — provider profiles and setup.
 - [`docs/ai/references.md`](references.md) — upstream documentation index.

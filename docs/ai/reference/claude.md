@@ -135,7 +135,7 @@ path. See the [environment playbook](../environment-playbook.md).
 
 ## See also
 
-- [`docs/ai/onboarding.md`](../onboarding.md) — choose Maki, OpenCode, or Claude Code.
+- [`docs/ai/onboarding.md`](../onboarding.md) — choose Maki, OpenCode, Claude Code, or Codex.
 - [`docs/ai/playbooks/claude.md`](../playbooks/claude.md) — the ordered Claude path.
 - [`claude-oss/README.md`](../../../claude-oss/README.md) — raw path and verification summary.
 - [`docs/ai/verification/claude.md`](../verification/claude.md) — isolation checklist.

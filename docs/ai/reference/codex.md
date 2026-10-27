@@ -1,47 +1,30 @@
-# codex-oss: the Codex sandbox helper
+| Field | Value |
+|---|---|
+| Doc | `reference-codex` |
+| Kind | `reference` |
+| Agent | `Codex` |
+| Covers | `P3-P8` |
+| Verified | not yet verified |
 
-`bin/codex-oss` runs OpenAI's [Codex CLI](https://github.com/openai/codex)
-inside a per-project OpenShell sandbox, the way `bin/claude-oss` runs Claude
-Code. All the front-ends are thin layers over the same core,
-`lib/oss-core.sh`, so the lifecycle, safe patch sync, policy review, idle
-stop, and the safety rules behave identically. [docs/helper.md](helper.md)
-is the reference for that shared behavior. This page covers only what
-differs.
+# Reference: Codex
 
-The security model is unchanged:
+## Scope
 
-- the sandbox is the boundary, and nothing is bind-mounted;
-- credentials reach the sandbox only through provider profiles;
-- `--env` and `--env-from` refuse credential-like names;
-- egress stays deny-by-default;
-- `rm` needs confirmation.
+The Codex path: Codex-specific paths and differences for a reader who already
+has the shared procedure. This page is an index: the ordered path is
+[the playbook](../playbooks/codex.md), the pinned run is
+[the verification page](../verification/codex.md), and shared behavior lives
+in [helper](../../helper.md), [providers](../../providers.md), and the
+[environment playbook](../environment-playbook.md). This is an index, not a
+procedure, so `Verified` says `not yet verified`.
 
-Codex never logs in inside the sandbox, and no `auth.json` ever exists
-there. The helper never reads your host's Codex login (`~/.codex`).
-
-## Install
-
-From a clone of this repository, with the Codex CLI installed on the host
-for the one-time login:
-
-```sh
-./bin/codex-oss image build      # codex-agent:local from codex-oss/image
-./bin/codex-oss provider setup   # a ChatGPT login in your browser
-./bin/codex-oss doctor
-```
-
-Put the repository's `bin/` on `PATH` to call it as `codex-oss`. Keep `lib/`
-and `codex-oss/` next to `bin/`, because the helper loads them from the
-repository root.
-
-## Configuration
+## Config paths
 
 Settings resolve the same way as for `maki-oss`: flags, then
 `CODEX_OSS_<KEY>` environment variables, then
-`${XDG_CONFIG_HOME:-$HOME/.config}/codex-oss/config.toml`, then defaults.
-The keys and the file format are the ones in
-[docs/helper.md](helper.md#configuration), plus `account_id`. Only the names
-and the defaults differ:
+`${XDG_CONFIG_HOME:-$HOME/.config}/codex-oss/config.toml`, then defaults. The
+keys and the file format are the ones in [helper](../../helper.md#configuration),
+plus `account_id`. Only the names and the defaults differ:
 
 | | `maki-oss` | `codex-oss` |
 |---|---|---|
@@ -107,9 +90,7 @@ terminal it needs `--yes`.
 `--from`, `--file`, `--field`, and `--env` are refused: no credential store
 holds a ChatGPT login.
 
-### Refresh
-
-Access tokens last 240 hours. The profile's refresh block sets
+**Refresh.** Access tokens last 240 hours. The profile's refresh block sets
 `max_lifetime: "864000s"` and `refresh_before: "300s"`, so the gateway
 refreshes about five minutes before expiry. `doctor` reports the state:
 
@@ -121,12 +102,22 @@ It warns when refresh is not configured, when the last refresh failed, when
 the token expires within 24 hours, and when the gateway refreshes
 continuously. The last one happens when the gateway records a lifetime no
 longer than the lead time. A configuration made before the profile had
-`max_lifetime` gets one hour, for example. The fix is to run
-`provider setup` again, which configures refresh fresh.
+`max_lifetime` gets one hour, for example. The fix is to run `provider setup`
+again, which configures refresh fresh.
 
 Not supported: OpenAI API keys (`OPENAI_API_KEY`, `CODEX_API_KEY`), ChatGPT
 Enterprise access tokens (`CODEX_ACCESS_TOKEN`), non-OpenAI providers, and
 any login inside the sandbox.
+
+## Profiles
+
+The shipped profile is `codex-chatgpt` under `codex-oss/providers/`. It binds
+only `chatgpt.com/backend-api/codex/**` to `/usr/local/bin/codex` and carries
+the gateway refresh block; the proxy denies every other `chatgpt.com` path.
+The example model is in [`catalog.tsv`](../../../codex-oss/providers/catalog.tsv).
+[`stores.tsv`](../../../codex-oss/providers/stores.tsv) is empty because no
+credential store holds a ChatGPT login. Do not override the provider's base
+URL in the sandbox: a different URL would leave the credential unbound.
 
 ## Sessions
 
@@ -157,9 +148,7 @@ any login inside the sandbox.
   it, and the TUI works without it.
 
 On exit, both session kinds run the same patch sync and network-proposal
-check as `maki-oss` (see [Safe session sync](helper.md#safe-session-sync)).
-
-### Model selection
+check as `maki-oss` (see [Safe session sync](../../helper.md#safe-session-sync)).
 
 The model resolves from `--model`, then `CODEX_OSS_MODEL`, then the config
 file's `model`, and reaches Codex as `-m` in both modes. A ChatGPT account
@@ -167,8 +156,6 @@ accepts the Codex models (for example `gpt-6-astra` or `gpt-5.6-terra`) and
 rejects API-only ones such as `gpt-5.5`. With no model set, Codex picks its
 default; at 0.164.0 the TUI shows `GPT-6.1-Sol`. Nothing is written to your
 project or to the sandbox config.
-
-### Session flags
 
 | Option | `run` | TUI |
 |---|---|---|
@@ -190,7 +177,7 @@ codex-oss --resume <thread_id>
 Sessions live in the sandbox under `/sandbox/.codex/sessions/`. They survive
 `stop`/`start`, but not `rm`.
 
-## MCP status
+## MCP
 
 `codex-oss mcp status` compares the `[mcp_servers.<name>]` tables in the
 host's Codex config (`$CODEX_HOME/config.toml`, else `~/.codex/config.toml`)
@@ -208,12 +195,39 @@ gate vocabulary as `maki-oss mcp status`, and expects the provider for server
   `/sandbox/.codex/config.toml`. The image has no Node, so `npx`-launched
   servers need a runtime there.
 
-## Image
+## Store
 
-`codex-agent:local` installs the native Codex binary and its companion
-`codex-code-mode-host`, which runs the agent's shell commands. Both come from
-the pinned GitHub release, each checked against its own SHA-256. The image
-has no Node or Bun, runs as uid/gid 1500, and holds no credential or login
-state. `codex-oss image build --codex-version V` passes a new version as a
-build argument. All four checksums must be bumped with it, or the build fails.
-See [`codex-oss/README.md`](../codex-oss/README.md#build-the-image).
+A store builds `FROM codex-agent:local` and copies its configuration into
+`/sandbox/.codex/config.toml` (`[mcp_servers.<name>]` tables), and may bake
+skills into `/sandbox/.agents/`. It selects its tag through the helper's
+`image` setting. Keep the managed config and rules at least as strict as the
+base image and never bake a credential. A stdio runtime belongs in the store;
+plugins have no recorded same-agent path, so report one by name. See the
+[environment playbook](../environment-playbook.md).
+
+## Differences
+
+- Native Codex binaries only: no Node or Bun, so the npm launcher and
+  `npx`-launched MCP servers need a store runtime.
+- Runs as uid/gid 1500 and holds no credential or login state.
+- `tui` is ignored; no fish plugin.
+- Profiles bind `/usr/local/bin/codex`; renaming or wrapping it breaks egress.
+- The credential is a ChatGPT plan only; there is no API-key or Enterprise
+  token path and no in-sandbox login.
+- Codex reads global config from `/sandbox/.codex/`, because `sandbox exec`
+  does not pass image `ENV`. `AGENTS.md` stays with the project, and a custom
+  `--workdir` is trusted once in the TUI.
+
+## See also
+
+- [`docs/ai/onboarding.md`](../onboarding.md) — choose Maki, OpenCode, Claude
+  Code, or Codex.
+- [`docs/ai/playbooks/codex.md`](../playbooks/codex.md) — the ordered Codex
+  path.
+- [`codex-oss/README.md`](../../../codex-oss/README.md) — raw path and
+  verification summary.
+- [`docs/ai/verification/codex.md`](../verification/codex.md) — the
+  verification record.
+- [`docs/helper.md`](../../helper.md) — shared helper commands and sync.
+- [`docs/providers.md`](../../providers.md) — shared provider forms.
+- [`docs/ai/references.md`](../references.md) — upstream documentation index.

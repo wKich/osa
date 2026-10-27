@@ -2,23 +2,24 @@
 
 **Your AI coding agent, locked in a sandbox.**
 
-`osa` is the project and repository. Its three agent front-ends keep their
-command names: `maki-oss` runs Maki, `opencode-oss` runs OpenCode, and
-`claude-oss` runs Claude Code; the read-only `osa` command reports on the
-projects they register. Earlier
+`osa` is the project and repository. Its four agent front-ends keep their
+command names: `maki-oss` runs Maki, `opencode-oss` runs OpenCode,
+`claude-oss` runs Claude Code, and `codex-oss` runs Codex; the read-only `osa`
+command reports on the projects they register. Earlier
 releases used the names `maki-openshell` and `maki-oss`, and historical
 records keep them.
 
-Run [Maki](https://maki.sh), [OpenCode](https://opencode.ai), or
-[Claude Code](https://code.claude.com) inside NVIDIA OpenShell sandboxes —
+Run [Maki](https://maki.sh), [OpenCode](https://opencode.ai),
+[Claude Code](https://code.claude.com), or
+[Codex](https://github.com/openai/codex) inside NVIDIA OpenShell sandboxes —
 fully isolated from your machine. The agent gets a real shell, your project
 files, and nothing else: filesystem access is confined with Landlock, egress is
 deny-by-default, and your model credentials never enter the sandbox. The agent
 sees opaque placeholders that OpenShell's proxy resolves only at approved
 endpoints.
 
-The commands below show the Maki path. `opencode-oss` and `claude-oss` follow
-the same helper pattern; choose your path in the
+The commands below show the Maki path. `opencode-oss`, `claude-oss`, and
+`codex-oss` follow the same helper pattern; choose your path in the
 [onboarding guide](docs/ai/onboarding.md).
 
 ## Install
@@ -124,7 +125,8 @@ sandboxes by hand is a chore. osa gives you:
 ## Guides
 
 - [`docs/ai/onboarding.md`](docs/ai/onboarding.md) — keep your coding agent
-  (Maki, OpenCode, or Claude Code) and move it into an OpenShell sandbox.
+  (Maki, OpenCode, Claude Code, or Codex) and move it into an OpenShell
+  sandbox.
 - [`docs/ai/host-playbook.md`](docs/ai/host-playbook.md) — provision the shared
   host tooling (engine, OpenShell, repository, shell) for any agent, then
   follow the agent playbook.
@@ -137,8 +139,8 @@ sandboxes by hand is a chore. osa gives you:
 - [`docs/migrating-providers.md`](docs/migrating-providers.md) — move keys out
   of Maki and OpenCode stores, and the OAuth limitation.
 - [`docs/ai/verification/maki.md`](docs/ai/verification/maki.md) — the Maki
-  isolation checklist with exact commands and expected output; the OpenCode and
-  Claude records sit beside it.
+  isolation checklist with exact commands and expected output; the OpenCode,
+  Claude, and Codex records sit beside it.
 - [`docs/glossary.md`](docs/glossary.md) — shared vocabulary for these docs.
 - [`opencode-oss/README.md`](opencode-oss/README.md) — run OpenCode itself
   natively in a sandbox (image, profiles, policy, verification summary).

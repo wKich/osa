@@ -12,7 +12,7 @@
 
 # Playbook: OpenCode
 
-> **OpenCode path; return to onboarding for Maki or Claude** — [open the
+> **OpenCode path; return to onboarding for Maki, Claude, or Codex** — [open the
 > onboarding guide](../onboarding.md).
 
 ## Scope

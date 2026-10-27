@@ -1,16 +1,16 @@
 # osa agent instructions
 
 This repository (`osa`) documents and automates running your coding agent:
-Maki, OpenCode, or Claude Code, inside NVIDIA OpenShell sandboxes. The agent
-front-ends are `maki-oss` (Maki), `opencode-oss` (OpenCode), and `claude-oss`
-(Claude Code); their command names, environment prefixes, and config paths are
-unchanged by the repository rename. The sandbox is the security boundary; all
+Maki, OpenCode, Claude Code, or Codex, inside NVIDIA OpenShell sandboxes. The
+four agent front-ends are `maki-oss` (Maki), `opencode-oss` (OpenCode),
+`claude-oss` (Claude Code), and `codex-oss` (Codex); their command names,
+environment prefixes, and config paths are unchanged by the repository rename. The sandbox is the security boundary; all
 work in this repository must preserve it.
 
 Start here:
 
 - `docs/ai/onboarding.md` — choose the agent you already run, then follow the
-  same-agent path for Maki, OpenCode, or Claude Code.
+  same-agent path for Maki, OpenCode, Claude Code, or Codex.
 - `docs/ai/host-playbook.md` — provision the shared host tooling (engine,
   OpenShell, repository, shell) for any agent; hands off to the agent playbook.
 - `docs/ai/environment-playbook.md` — compose a personal environment (MCP
@@ -18,13 +18,16 @@ Start here:
   reference store under `examples/environments/reference/`.
 - `docs/ai/playbooks/maki.md` — ordered, executable steps to build the image,
   load provider profiles, create a sandbox, and run Maki.
+- `docs/ai/playbooks/codex.md` — ordered, executable steps for the Codex path,
+  including the host-only ChatGPT login and gateway refresh.
 - `docs/ai/references.md` — curated upstream documentation (OpenShell, Maki,
-  OpenCode, and Claude Code), the only index of external documentation links
-  in this repository.
+  OpenCode, Claude Code, and Codex), the only index of external documentation
+  links in this repository.
 
 Supporting docs: `docs/setup-guide.md` (full walkthrough),
-`docs/ai/verification/maki.md` (Maki isolation checklist; the OpenCode and
-Claude pages sit beside it), `docs/glossary.md` (vocabulary),
+`docs/ai/verification/maki.md` (Maki isolation checklist; the OpenCode,
+Claude, and `docs/ai/verification/codex.md` pages sit beside it),
+`docs/glossary.md` (vocabulary),
 `docs/verification-log.md` (dry-run record), `docs/oskhs.md` (kiss
 adapter, Track B). Canonical configuration lives in
 `examples/`; docs reference those files instead of duplicating them. The base

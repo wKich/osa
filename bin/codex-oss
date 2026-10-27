@@ -16,7 +16,7 @@
 #     logs in again in a throwaway CODEX_HOME;
 #   - asks for confirmation before deleting a sandbox.
 #
-# POSIX sh. See docs/codex-oss.md for the differences from maki-oss and
+# POSIX sh. See docs/ai/reference/codex.md for the differences from maki-oss and
 # docs/helper.md for the shared behavior.
 
 set -eu
@@ -113,7 +113,7 @@ variables, then the config file below, then built-in defaults:
 provider setup writes account_id (the non-secret ChatGPT account ID that
 Codex sends with each request) to that file.
 
-See codex-oss/README.md and docs/codex-oss.md.
+See codex-oss/README.md and docs/ai/reference/codex.md.
 EOF
 }
 
@@ -140,7 +140,7 @@ OSS_ENV_PREFIX=CODEX_OSS                 # CODEX_OSS_<KEY> environment settings
 OSS_CONFIG_NAME=codex-oss                # XDG config directory name
 OSS_STATE_NAME=.codex-oss                # in-sandbox sync state directory
 OSS_TMP_PREFIX=codex-oss                 # /tmp/codex-oss-stop, temp file names
-OSS_CONFIG_EXAMPLE=docs/codex-oss.md     # named in a generated config header
+OSS_CONFIG_EXAMPLE=docs/ai/reference/codex.md     # named in a generated config header
 OSS_PROFILES_DIR=$repo_root/codex-oss/providers
 OSS_CATALOG_FILE=$OSS_PROFILES_DIR/stores.tsv
 OSS_CUSTOM_PROFILE_PREFIX=codex-         # default id for a custom profile
@@ -152,7 +152,7 @@ OSS_HOST_MCP_CONFIG=${CODEX_HOME:-${HOME:-/tmp}/.codex}/config.toml
 OSS_SANDBOX_MCP_CONFIG=/sandbox/.codex/config.toml
 OSS_MCP_PROVIDER_PREFIX=codex-mcp-       # provider name for server <name>
 OSS_MCP_FIX_IMAGE='an environment image built FROM codex-agent:local'
-OSS_MCP_FIX_DOC=docs/codex-oss.md
+OSS_MCP_FIX_DOC=docs/ai/reference/codex.md
 
 DEFAULT_IMAGE=codex-agent:local
 DEFAULT_POLICY=$repo_root/codex-oss/policies/minimal.yaml

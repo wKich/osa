@@ -5579,7 +5579,7 @@ test_cx_profiles_and_catalogs() {
     fi
     # No file under codex-oss/ or its docs spells the placeholder prefix.
     cx_needle=$(printf 'openshell:resolve'':env:')
-    if cx_hits=$(grep -rlF -- "$cx_needle" "$ROOT/codex-oss" "$ROOT/docs/codex-oss.md" 2>/dev/null); then
+    if cx_hits=$(grep -rlF -- "$cx_needle" "$ROOT/codex-oss" "$ROOT/docs/ai/reference/codex.md" 2>/dev/null); then
         bad "placeholder prefix spelled in: $cx_hits"
     fi
 }

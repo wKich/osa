@@ -9,4 +9,4 @@
 #   note        short note
 #
 # No rows: no credential store holds a ChatGPT login. codex-oss provider setup
-# logs in on the host instead (see docs/codex-oss.md).
+# logs in on the host instead (see docs/ai/reference/codex.md).

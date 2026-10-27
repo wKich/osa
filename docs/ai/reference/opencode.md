@@ -121,7 +121,7 @@ build. The full layout is in
 
 ## See also
 
-- [`docs/ai/onboarding.md`](../onboarding.md) — choose Maki, OpenCode, or Claude Code.
+- [`docs/ai/onboarding.md`](../onboarding.md) — choose Maki, OpenCode, Claude Code, or Codex.
 - [`docs/ai/playbooks/opencode.md`](../playbooks/opencode.md) — the ordered OpenCode path.
 - [`opencode-oss/README.md`](../../../opencode-oss/README.md) — raw path and verification summary.
 - [`docs/helper.md`](../../helper.md) — shared helper commands and sync.

@@ -66,8 +66,9 @@ The first session creates the project's sandbox (`cx-<directory>-<hash>`),
 uploads the project, and attaches the remembered provider. On exit, the
 helper collects the sandbox changes as a patch and applies it only when the
 sandbox baseline still matches the host. See
-[docs/codex-oss.md](../docs/codex-oss.md) for the command reference and the
-differences from `maki-oss`.
+[`docs/ai/playbooks/codex.md`](../docs/ai/playbooks/codex.md) for the ordered
+path and [`docs/ai/reference/codex.md`](../docs/ai/reference/codex.md) for the
+command reference and the differences from `maki-oss`.
 
 ## Without the helper
 
@@ -201,51 +202,10 @@ The gateway, not the sandbox, calls `auth.openai.com` to refresh the token.
 ## Verification record
 
 Codex 0.164.0, OpenShell 0.1.5, Docker on arm64 (macOS host), ChatGPT
-`prolite` plan, 2026-10-26. The gate runs are recorded in detail in
-`openspec/changes/add-codex-oss/spike.md`.
+`prolite` plan, 2026-10-26. The canonical record, including every command and
+observed result, is [`docs/ai/verification/codex.md`](../docs/ai/verification/codex.md).
 
-| Check | Command | Observed |
-|---|---|---|
-| Version pinned | `docker run --rm codex-agent:local codex --version` | `codex-cli 0.164.0` |
-| Checksum enforced | `docker build --build-arg CODEX_VERSION=0.163.0 codex-oss/image` | `/tmp/codex.tar.gz: FAILED` at `sha256sum -c`; build fails |
-| Sandbox user | `id; echo $HOME` in the image | `uid=1500(sandbox) gid=1500(sandbox)`, `/sandbox` |
-| Agent-only | `command -v node bun`, `ls -d /sandbox/.agents` in the image | nothing found |
-| Guardrails immutable | `touch /etc/codex/x`, append to `managed_config.toml` as uid 1500 | `Permission denied` |
-| Config accepted | `codex exec --strict-config` (offline) | no configuration error; only the missing token |
-| Managed layer wins | user `config.toml` and `-c` overrides redirecting the provider, then `codex doctor --json` | provider stays `chatgpt-oss` → `chatgpt.com` |
-| Profiles lint | `openshell profile lint --from codex-oss/providers` | `Provider profile lint passed.` |
-| Filesystem floor | writes to `/sandbox/x`, `/tmp/x`, `/etc/x` in a sandbox | ok, ok, `Permission denied` |
-| Opaque stand-in | `printenv CODEX_CHATGPT_TOKEN \| cut -c1-12` | a placeholder, not the token |
-| No login state | `ls -a /sandbox/.codex` after runs | no `auth.json` |
-| Headless | `codex exec --json … "Reply with the single word: ok"` | `agent_message` `ok`, `turn.completed`, exit 0 |
-| Resume | `codex exec resume … <thread_id> "What single word did you reply last time?"` | `ok` |
-| Shell commands | headless run asked to `echo hello-from-sandbox > note.txt && cat note.txt` | `command_execution` exit 0, file created |
-| Rules under bypass | headless runs asked to run `sudo -n true` and `codex login status` | `rejected: policy forbids commands starting with sudo` / `codex login` |
-| TUI | `codex --dangerously-bypass-approvals-and-sandbox` on a TTY | opens on the prompt: `permissions: YOLO mode`, `GPT-6.1-Sol default · ~/project`; no login or trust screen |
-| Path scoping | `openshell logs` | `GET /backend-api/plugins/*` denied by `L7_REQUEST deny`; `POST /backend-api/codex/responses` allowed |
-| Refresh schedule | fresh `refresh configure`, one forced `refresh rotate`, then `refresh status` every minute for two hours | `EXPIRES_AT` +240 h after the rotation, `NEXT_REFRESH` five minutes before expiry; no automatic refresh and no failure in two hours |
-| Rate limit | six small requests in three minutes | one HTTP 429 from the backend; Codex's retry recovered |
-| Helper setup | `codex-oss provider setup --yes` (browser login) | `Provider 'codex-chatgpt' created.`, `Gateway refresh configured`, `account_id` and `providers` written; no `codex-oss-login.*` left in `$TMPDIR` |
-| Helper doctor | `codex-oss doctor` | all `ok`, including `refresh: codex-chatgpt configured, expires 2026-11-05 15:34:21 UTC` |
-| Helper run | `codex-oss run "Reply with the single word: ok"` | sandbox created and project uploaded; `agent_message` `ok`, exit 0 |
-| Helper resume | `codex-oss run --resume <thread_id> "What single word did you reply last time? …"` | `ok` |
-| Patch sync | `codex-oss run` appending to `a.txt` and creating `b.txt` in a git project | `Applied sandbox changes to branch 'main'.`; commit `codex-oss: apply sandbox changes` |
-| Download | `codex-oss download /sandbox/project/b.txt ./dl/` | `from codex` |
-| Helper TUI | bare `codex-oss` on a TTY | reuses the sandbox; opens on the prompt, `permissions: YOLO mode`, no login or trust screen |
-| MCP status | `codex-oss mcp status` with a host `[mcp_servers.node_repl]` | `node_repl: sandbox=missing runtime=missing provider=missing transport=stdio`; fix names `codex-mcp-node_repl` |
-| Helper egress | `openshell logs cx-…` after runs and the TUI | only `ALLOWED POST chatgpt.com/backend-api/codex/responses` and the documented denied TUI fetch of `raw.githubusercontent.com` |
-| Registry | `osa projects` | `cx    cx-cxdemo-7cbb …` |
-| Teardown | `codex-oss rm --yes` | sandbox deleted, state archived |
-| Refresh state after setup | `openshell provider refresh status codex-chatgpt`, 2026-10-26 16:16Z | `configured`, `EXPIRES_AT 2026-11-05 15:34:21`, `NEXT_REFRESH 2026-11-05 15:29:21`, no `LAST_REFRESH`, no failure |
-| Refresh in doctor | `codex-oss doctor` | `ok    refresh: codex-chatgpt configured, expires 2026-11-05 15:34:21 UTC` |
-
-### Follow-up: first scheduled refresh
-
-The gateway's first scheduled refresh of `codex-chatgpt` falls at about
-2026-11-05 15:29 UTC, five minutes before the access token expires. By then
-OpenAI has had days to reject the original refresh token. After that time,
-`codex-oss doctor` must still report refresh `ok` with an expiry about 240 h
-later. That is the evidence that the gateway saves each rotated refresh token,
-which the spike could not prove while OpenAI still accepted the old one. If
-`doctor` reports a failed refresh instead, run `codex-oss provider setup`
-again for a new login, and record the failure here.
+The access token lasts 240 hours and the profile refreshes five minutes before
+expiry; the recorded two-hour watch saw no automatic refresh and no failure.
+The first scheduled refresh is a follow-up on the verification page, not a
+passed check.

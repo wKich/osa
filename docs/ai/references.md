@@ -1,20 +1,20 @@
 # AI reference pack: external sources
 
-Curated upstream documentation for running Maki, OpenCode, and Claude Code
-inside NVIDIA OpenShell sandboxes. This is the only index of external
+Curated upstream documentation for running Maki, OpenCode, Claude Code, and
+Codex inside NVIDIA OpenShell sandboxes. This is the only index of external
 documentation links in this repository, so `scripts/check-links.sh` can keep
 link rot in one place.
 
 **Verified against OpenShell v0.1.5, Maki v0.6.5, and OpenCode v2.1.4 on
-2026-10-25; Claude Code v2.1.308 on 2026-10-26.** Maki `v0.6.5` is pinned in
+2026-10-25; Claude Code v2.1.308 and Codex v0.164.0 on 2026-10-26.** Maki `v0.6.5` is pinned in
 `examples/maki-image/Dockerfile`; re-verify the links and version notes after
 any project publishes a release.
 
 How to use this pack:
 
-- `docs/ai/playbooks/maki.md`, `docs/ai/playbooks/opencode.md`, and
-  `docs/ai/playbooks/claude.md` are the executable paths — exact commands in
-  order.
+- `docs/ai/playbooks/maki.md`, `docs/ai/playbooks/opencode.md`,
+  `docs/ai/playbooks/claude.md`, and `docs/ai/playbooks/codex.md` are the
+  executable paths — exact commands in order.
 - This file is the lookup table when a command fails or a concept is unclear.
 - `docs/glossary.md` defines the shared vocabulary once.
 
@@ -91,6 +91,12 @@ rises, swap the text parse for JSON without changing behavior.
 | Docs index: install, CLI, sessions, and configuration | [Claude Code docs](https://code.claude.com/docs/en/overview) | v2.1.308 |
 | Authentication: API key and subscription token | [Claude Code authentication](https://code.claude.com/docs/en/authentication) | v2.1.308 |
 | Setup: binary integrity and code signing | [Claude Code setup](https://code.claude.com/docs/en/setup#binary-integrity-and-code-signing) | v2.1.308 |
+
+## Codex
+
+| Topic | Link | Verified against |
+|---|---|---|
+| Source repository used by the moved reference | [openai/codex](https://github.com/openai/codex) | v0.164.0 |
 
 ## Ponytail (project-local YAGNI ruleset)
 

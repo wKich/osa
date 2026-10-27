@@ -35,9 +35,12 @@ change moves them.
   `verification/opencode.md`.
 - **Claude:** `playbooks/claude.md`, `reference/claude.md`,
   `verification/claude.md`.
+- **Codex:** `playbooks/codex.md`, `reference/codex.md`,
+  `verification/codex.md`.
 
 The `Doc` metadata value is a stable ID, not a path: `router-onboarding`,
-`playbook-maki`, `reference-opencode`, `verification-claude`. Until an
+`playbook-maki`, `reference-opencode`, `verification-claude`. Codex uses
+`playbook-codex`, `reference-codex`, and `verification-codex`. Until an
 `align-*` change moves a page, the existing path stays and the ID does not
 change with it.
 
@@ -125,7 +128,7 @@ switching agents.
 ## Phase map
 
 The canonical `P0`-`P8` table with one column per agent, or an explicit shared
-marker for phases that apply to all three.
+marker for phases that apply to all four.
 
 ## Stop if
 

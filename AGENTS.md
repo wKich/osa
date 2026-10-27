@@ -28,6 +28,8 @@ Start here:
   including the host-only ChatGPT login and gateway refresh.
 - `docs/helper.md` — the shared helper command reference, sync states, and the
   project registry.
+- `dashboard/README.md` — the Bun dashboard: Projects and health, Setup
+  (providers and base images), Rules, and egress denials.
 - `docs/providers.md` — the Maki provider catalog and `provider setup` wizard;
   the other agents' provider setup lives in their playbooks.
 - `docs/ai/references.md` — curated upstream documentation (OpenShell, Maki,

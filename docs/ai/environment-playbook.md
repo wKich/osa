@@ -194,20 +194,33 @@ selected row's copy target exists in the image.
 
 ## Stage 4 — Build and select
 
-Build the selected agent's base, then the store, with the configured container
-engine. The Maki commands are the example; substitute the row:
+Check the selected agent's base before building anything. `osa images` reports
+each agent's base tag, engine, whether that tag exists locally, and the image
+the agent's config selects:
 
 ```sh
-maki-oss image build
-docker build -t maki-agent:my-environment ~/code/my-environment
+osa images          # or: osa images --json for scripts
 ```
 
-The other bases build the same way:
+Compare the selected row's base tag with the configured image. Build the base
+when the tag is missing or stale:
 
 ```sh
-opencode-oss image build   # opencode-agent:local
-claude-oss image build     # claude-agent:local
-codex-oss image build      # codex-agent:local
+osa image build mk   # maki-agent:local
+osa image build oc   # opencode-agent:local
+osa image build cc   # claude-agent:local
+osa image build cx   # codex-agent:local
+```
+
+`osa image build TAG` runs that front-end's `image build` with its default tag
+and streams the engine output. The dashboard's Images section builds these
+base images only; it never builds a store.
+
+Then build the store with the configured container engine. This stays a
+terminal step:
+
+```sh
+docker build -t maki-agent:my-environment ~/code/my-environment
 ```
 
 Select the derived image through the existing setting — no new command:
@@ -225,16 +238,18 @@ helper config path and environment variable from the adapter table
 **Verify:**
 
 ```sh
+osa images
 docker run --rm maki-agent:my-environment maki --version
 docker run --rm --entrypoint sh maki-agent:my-environment -c 'command -v <runtime>'
 maki-oss status
 ```
 
 Substitute each runtime the store installs for `<runtime>` (the reference store
-uses `bun`). Expected: the same agent version as the selected base; every
-runtime resolves; the selected helper's `status` reports the configured image
-tag. Existing sandboxes keep their old image until they are deleted and
-recreated.
+uses `bun`). Expected: `osa images` still reports the base tag as present, with
+the derived tag as the configured image; the same agent version as the selected
+base; every runtime resolves; the selected helper's `status` reports the
+configured image tag. Existing sandboxes keep their old image until they are
+deleted and recreated.
 
 ## Stage 5 — Verify the boundary
 
@@ -297,6 +312,7 @@ End with a short report any human can act on:
 Agent: <agent>
 Store: <path or tag>
 Base image: <base image>
+Base check: <osa images: base tag; present or missing; configured image>
 Classified: <n> portable config, <n> package/runtime, <n> credential, <n> project-local
 Provider setup: <agent-specific provider setup for each credential>
 Unsupported: <name — reason> (or "none")

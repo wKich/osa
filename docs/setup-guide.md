@@ -342,6 +342,10 @@ defined once in [`docs/glossary.md`](glossary.md).
 
 - Keep the dry-run record current: after changing an example, re-run the checks
   and update [`docs/verification-log.md`](verification-log.md).
+- Browse the shared surface: `osa dashboard --open` opens the Projects, Setup,
+  and Rules views; `osa health <sandbox>` prints the read-only idle-stop,
+  MCP-readiness, and doctor report for one sandbox. See
+  [`dashboard/README.md`](../dashboard/README.md).
 - Pick any provider: [`docs/providers.md`](providers.md) covers the catalog,
   the `maki-oss provider setup` wizard, and custom profiles, and
   [`docs/migrating-providers.md`](migrating-providers.md) migrates credentials

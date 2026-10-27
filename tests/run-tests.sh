@@ -3412,6 +3412,33 @@ test_asset_agent_onboarding() {
     done
     grep -Fq '/sandbox/.agents/skills/' "$guide" \
         || bad "onboarding does not name the Codex skills destination"
+
+    # The shared operator surface stays discoverable from the setup path.
+    for file in "$ROOT/README.md" "$ROOT/docs/ai/quickstart.md"; do
+        for landmark in 'osa dashboard' 'osa health' 'dashboard/README.md'; do
+            grep -Fq "$landmark" "$file" \
+                || bad "${file#"$ROOT"/} lacks the shared landmark: $landmark"
+        done
+    done
+    for pb in maki opencode claude codex; do
+        file=$ROOT/docs/ai/playbooks/$pb.md
+        for landmark in 'osa dashboard' 'osa health' 'dashboard/README.md'; do
+            grep -Fq "$landmark" "$file" \
+                || bad "$pb playbook lacks the shared landmark: $landmark"
+        done
+    done
+    grep -Fq 'osa images' "$ROOT/docs/ai/environment-playbook.md" \
+        || bad "environment playbook lacks osa images"
+    grep -Fq 'osa image build' "$ROOT/docs/ai/environment-playbook.md" \
+        || bad "environment playbook lacks osa image build"
+    for file in "$ROOT/docs/ai/playbooks/maki.md" \
+        "$ROOT/docs/ai/playbooks/opencode.md" \
+        "$ROOT/docs/ai/playbooks/claude.md" \
+        "$ROOT/docs/ai/playbooks/codex.md" "$ROOT/docs/setup-guide.md"; do
+        if grep -Fq 'KEY=' "$file"; then
+            bad "${file#"$ROOT"/} puts a credential in argv"
+        fi
+    done
 }
 
 # The placeholder prefix is never written in this repository. OpenShell's proxy

@@ -95,7 +95,18 @@ host-only ChatGPT login in `provider setup`. Never paste a credential into the
 chat, and never authenticate inside the sandbox. A model warning from `doctor`
 is acceptable until you choose a default model.
 
-### 5. Run in a project
+### 5. Optional: open the dashboard
+
+```sh
+osa dashboard --open
+```
+
+The Setup tab lists providers and base images (provider setup still runs the
+same stdin handoff); Projects opens each project's health panel and egress
+denials and offers resolve actions for pending work. It is optional: every
+command works without it. See [`dashboard/README.md`](../../dashboard/README.md).
+
+### 6. Run in a project
 
 ```sh
 cd ~/code/myproject
@@ -106,7 +117,7 @@ The first session uploads the project; on exit the helper collects a patch and
 applies it only when the project's safety check passes. A clean repository is
 fast-forwarded; a dirty or moved host keeps a review branch or a patch.
 
-### 6. Verify once
+### 7. Verify once
 
 Run the helper checks in your agent's playbook Phase 5 and compare the
 observations with the verification page:
@@ -116,7 +127,7 @@ observations with the verification page:
 - [`playbooks/claude.md`](playbooks/claude.md) + [`verification/claude.md`](verification/claude.md)
 - [`playbooks/codex.md`](playbooks/codex.md) + [`verification/codex.md`](verification/codex.md)
 
-### 7. Daily use
+### 8. Daily use
 
 ```sh
 maki-oss                            # interactive session
@@ -124,6 +135,8 @@ maki-oss run "fix the failing tests" # headless
 maki-oss status                     # sandbox and sync state
 maki-oss stop                       # park it
 osa projects                        # every registered project
+osa health <sandbox>                # idle stop, MCP readiness, doctor
+osa dashboard --open                # the web UI
 ```
 
 Full command reference: [`docs/helper.md`](../helper.md).

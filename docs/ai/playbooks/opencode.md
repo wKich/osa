@@ -125,9 +125,21 @@ PROVIDER=opencode-synthetic
 MODEL=synthetic/hf:zai-org/GLM-5.3
 ```
 
-Without a terminal, the non-interactive forms are `--from STORE --credential
-SLUG --yes`, `--env VAR`, and `--file PATH`; the full table is in
-[`docs/providers.md`](../../providers.md).
+The interactive wizard remains the human path. Without a terminal, name the
+credential instead of waiting for prompts:
+
+```sh
+pass show <entry> | ./bin/opencode-oss provider setup --stdin --profile <id>
+pass show <entry> | osa provider setup oc --profile <id> --attach <sandbox> --json
+```
+
+`--stdin` reads the key from the pipe and needs `--profile`; `osa provider
+setup` passes the same stdin handoff and can attach in one step (the dashboard
+uses this form). The other non-interactive sources are
+`--from STORE --credential SLUG --yes`, `--env VAR`, and `--file PATH`; the full
+table is in [`docs/providers.md`](../../providers.md). The credential stays on
+stdin or in an environment variable populated outside the recorded command;
+never write it in the command.
 
 Raw fallback for the Synthetic profile:
 
@@ -310,6 +322,11 @@ exits 3; that is an environment-store task, not an isolation failure. Details
 are in [`docs/ai/reference/opencode.md`](../reference/opencode.md#mcp)
 and [`docs/ai/environment-playbook.md`](../environment-playbook.md).
 
+After the checks, `osa health "$SANDBOX"` reports the same idle-stop,
+MCP-readiness, and doctor results without starting the sandbox, and
+`osa dashboard --open` shows that health panel together with the project's
+egress denials and pending work.
+
 ### Verify
 
 Expected: the helper checks above pass and the recorded observations in
@@ -483,6 +500,8 @@ Never relax these to make a command work:
   checklist used by Phase 5.
 - [`docs/helper.md`](../../helper.md) — `opencode-oss` and shared helper
   command reference.
+- [`dashboard/README.md`](../../../dashboard/README.md) — the dashboard's
+  Projects and health panels, Setup, Rules, and egress denials.
 - [`docs/providers.md`](../../providers.md) — provider profile catalog and
   setup flags.
 - [`docs/mcp-migration.md`](../../mcp-migration.md) — historical

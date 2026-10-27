@@ -105,8 +105,10 @@ Each project folder gets its own sandbox: `mk-<project>-<hash>` for Maki, and
 `oc-`, `cc-`, or `cx-` in place of `mk-` for OpenCode, Claude Code, and Codex
 (the `origin` repository name, or the folder name, plus a short hash of the
 folder's path), so git worktrees never share one. Host state for every
-project lives in `~/.local/state/osa/`; `osa projects` lists them all, and
-`osa status --json` reports one project for scripts and the dashboard. See
+project lives in `~/.local/state/osa/`; `osa projects` lists them all,
+`osa status --json` reports one project for scripts and the dashboard, and
+`osa health <sandbox>` reports one sandbox's idle stop, MCP readiness, and
+doctor checks. `osa dashboard --open` starts the web UI. See
 [Shared state and the project registry](docs/helper.md#shared-state-and-the-project-registry).
 
 ## What do I send the agent?
@@ -191,6 +193,9 @@ sandboxes by hand is a chore. osa gives you:
 - [`docs/helper.md`](docs/helper.md) — `maki-oss`, `opencode-oss`,
   `claude-oss`, and `codex-oss` commands, sync states, and the project
   registry.
+- [`dashboard/README.md`](dashboard/README.md) — the Bun dashboard: Projects
+  and health panels, Setup (providers and base images), Rules, and egress
+  denials.
 - [`opencode-oss/README.md`](opencode-oss/README.md) — run OpenCode itself
   natively in a sandbox (image, profiles, policy, verification summary).
 - [`claude-oss/README.md`](claude-oss/README.md) — run Claude Code natively in

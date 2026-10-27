@@ -177,7 +177,9 @@ before any sandbox work and name `provider setup`.
 `--from`, `--file`, `--field`, and `--env` are refused because no credential
 store holds a ChatGPT login. There is no API-key or Enterprise-token path:
 `--with-api-key` and `--with-access-token` are unsupported. Never set a
-provider base-URL override in the sandbox.
+provider base-URL override in the sandbox. Codex has no non-interactive stdin
+form either: its provider setup is this host-only terminal login, and the
+dashboard shows that command instead of a setup wizard.
 
 ### Verify
 
@@ -344,6 +346,11 @@ only on the host is reported `sandbox=missing` with the `FROM codex-agent:local`
 fix, and the command exits 3; that is an environment-store task, not an
 isolation failure. Details are in
 [`docs/ai/reference/codex.md`](../reference/codex.md#mcp).
+
+After the checks, `osa health "$SANDBOX"` reports the same idle-stop,
+MCP-readiness, and doctor results without starting the sandbox, and
+`osa dashboard --open` shows that health panel together with the project's
+egress denials and pending work.
 
 ### Verify
 
@@ -535,6 +542,8 @@ Never relax these to make a command work:
   checklist and canonical verification record.
 - [`docs/helper.md`](../../helper.md) — `codex-oss` and shared helper command
   reference.
+- [`dashboard/README.md`](../../../dashboard/README.md) — the dashboard's
+  Projects and health panels, Setup, Rules, and egress denials.
 - [`docs/providers.md`](../../providers.md) — provider profile catalog and
   setup flags.
 - [`codex-oss/README.md`](../../../codex-oss/README.md) — the subproject, raw

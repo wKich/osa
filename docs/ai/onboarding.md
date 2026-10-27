@@ -99,9 +99,9 @@ an absent tool on a bare host is expected and is installed in `P1`.
 | P1 Host tools | host playbook Phase 2 | host playbook Phase 2 | host playbook Phase 2 | host playbook Phase 2; install host `codex` |
 | P2 Repository + helper | host playbook Phase 3; [Shell preparation](playbooks/maki.md#shell-preparation); `command -v maki-oss` | host playbook Phase 3; `command -v opencode-oss` | host playbook Phase 3; `command -v claude-oss` | host playbook Phase 3; `command -v codex-oss` |
 | P3 Image | `maki-oss image build` ([Phase 1](playbooks/maki.md)) | `opencode-oss image build` ([Phase 1](playbooks/opencode.md)) | `claude-oss image build` ([Phase 1](playbooks/claude.md)) | `codex-oss image build` ([Phase 1](playbooks/codex.md)) |
-| P4 Provider | `maki-oss provider setup`; `doctor` ([Phase 2](playbooks/maki.md)) | `opencode-oss provider setup`; `doctor` ([Phase 2](playbooks/opencode.md)) | `claude-oss provider setup`; `doctor`; host token only when needed ([Phase 2](playbooks/claude.md)) | `codex-oss provider setup`; `doctor`; host-only ChatGPT login ([Phase 2](playbooks/codex.md)) |
+| P4 Provider | `maki-oss provider setup` (or `--stdin --profile ID`); `doctor` ([Phase 2](playbooks/maki.md)) | `opencode-oss provider setup` (or `--stdin --profile ID`); `doctor` ([Phase 2](playbooks/opencode.md)) | `claude-oss provider setup` (or `--stdin --profile ID`); `doctor`; host token only when needed ([Phase 2](playbooks/claude.md)) | `codex-oss provider setup`; `doctor`; host-only ChatGPT login, no stdin form ([Phase 2](playbooks/codex.md)) |
 | P5 Sandbox | `maki-oss up` ([Phases 3-4](playbooks/maki.md)) | `opencode-oss up` ([Phases 3-4](playbooks/opencode.md)) | `claude-oss up` ([Phases 3-4](playbooks/claude.md)) | `codex-oss up` ([Phases 3-4](playbooks/codex.md)) |
-| P6 Verify | `maki-oss mcp status` and [verification](verification/maki.md) ([Phase 5](playbooks/maki.md)) | `opencode-oss mcp status` and [verification](verification/opencode.md) ([Phase 5](playbooks/opencode.md)) | `claude-oss mcp status` and [verification](verification/claude.md) ([Phase 5](playbooks/claude.md)) | `codex-oss mcp status` and [verification](verification/codex.md) ([Phase 5](playbooks/codex.md)) |
+| P6 Verify | `osa health <sandbox>`; `maki-oss mcp status` and [verification](verification/maki.md) ([Phase 5](playbooks/maki.md)) | `osa health <sandbox>`; `opencode-oss mcp status` and [verification](verification/opencode.md) ([Phase 5](playbooks/opencode.md)) | `osa health <sandbox>`; `claude-oss mcp status` and [verification](verification/claude.md) ([Phase 5](playbooks/claude.md)) | `osa health <sandbox>`; `codex-oss mcp status` and [verification](verification/codex.md) ([Phase 5](playbooks/codex.md)) |
 | P7 Run | `maki-oss` or `maki-oss run "<task>"` ([Phase 6](playbooks/maki.md)) | `opencode-oss` or `opencode-oss run "<task>"` ([Phase 6](playbooks/opencode.md)) | `claude-oss` or `claude-oss run "<task>"` ([Phase 6](playbooks/claude.md)) | `codex-oss` or `codex-oss run "<task>"` ([Phase 6](playbooks/codex.md)) |
 | P8 Report | collect the patch, then `maki-oss status` ([Phase 7](playbooks/maki.md)) | collect the patch, then `opencode-oss status` ([Phase 7](playbooks/opencode.md)) | collect the patch, then `claude-oss status` ([Phase 7](playbooks/claude.md)) | collect the patch, then `codex-oss status` ([Phase 7](playbooks/codex.md)) |
 
@@ -109,6 +109,14 @@ an absent tool on a bare host is expected and is installed in `P1`.
 `codex` CLI for the one-time ChatGPT login, and, optionally, a host `maki` CLI.
 A CLI baked into the image (OpenCode, Claude Code, and the sandbox Maki and
 Codex binaries) is verified at `P3`, not installed on the host.
+
+`P4` keeps the wizard as the human path. Scripted and dashboard setup use
+`--stdin` with `--profile ID` on the agent's helper, or
+`osa provider setup TAG --profile ID`, which passes the credential to the same
+stdin handoff; the value never appears in argv or shell history. Codex is the
+terminal-only exception: `codex-oss provider setup` is a host ChatGPT login,
+has no `--stdin` form, and the dashboard shows that command instead of a
+wizard.
 
 Local numbering stays where it is. This table maps the shared host playbook and
 the Maki, OpenCode, Claude, and Codex agent playbooks to the canonical IDs.
@@ -124,6 +132,37 @@ the Maki, OpenCode, Claude, and Codex agent playbooks to the canonical IDs.
 | P6 | - | Phase 5 | Phase 5 | Phase 5 | Phase 5 |
 | P7 | - | Phase 6 | Phase 6 | Phase 6 | Phase 6 |
 | P8 | - | Phase 7 | Phase 7 | Phase 7 | Phase 7 |
+
+## Shared operator surface
+
+The shared `osa` command spans every front-end. None of these is a phase or a
+setup gate; use them beside the agent path.
+
+```sh
+osa dashboard --open                  # web UI: Projects, Setup, Rules
+osa health <sandbox>                  # idle stop, MCP readiness, doctor checks
+osa providers                         # setup profiles and providers per agent
+osa provider setup TAG --profile ID   # credential on stdin, no prompt
+osa images                            # each agent's base image, present or missing
+osa image build TAG                   # build an agent's base image
+```
+
+- **Dashboard boundary.** `osa dashboard` binds loopback by default; a
+  non-loopback bind requires an explicit token. The session token gates
+  mutations and sensitive reads (patches, denials, streams), and `--read-only`
+  refuses every mutation. The dashboard is not a credential store: a provider
+  credential typed into the Setup wizard travels only to `osa provider setup`'s
+  stdin handoff, which redacts it from the result. Codex shows its terminal
+  login command instead of a wizard. Details:
+  [`dashboard/README.md`](../../dashboard/README.md).
+- **Health is read-only.** `osa health <sandbox>` reports the same idle-stop,
+  MCP-readiness, and doctor results as `status`, `mcp status`, and `doctor`,
+  and never starts a sandbox.
+- **Images.** `osa images` reports each agent's base tag, engine, presence, and
+  configured image; `osa image build TAG` builds only that base. The dashboard
+  Images section builds base images only; an environment-store build stays a
+  terminal `docker build` (see the
+  [environment playbook](environment-playbook.md)).
 
 ## Same-agent migration matrix
 
@@ -327,6 +366,10 @@ These are the same rules as `AGENTS.md`; restate them, never relax them.
 - [`docs/ai/verification/codex.md`](verification/codex.md) — the Codex
   verification record.
 - [`docs/helper.md`](../helper.md) — shared helper commands and sync states.
+- [`docs/helper.md#osa-health`](../helper.md#osa-health) — the health report
+  the shared surface and dashboard use.
+- [`dashboard/README.md`](../../dashboard/README.md) — the dashboard's
+  Projects, Setup, and Rules views, its flags, and its security boundary.
 - [`docs/providers.md`](../providers.md) — provider profiles and setup.
 - [`docs/migrating-providers.md`](../migrating-providers.md) — provider
   credential stores and the OAuth limitation.

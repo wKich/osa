@@ -5,8 +5,9 @@ the same words are used consistently in `docs/`, `examples/`, and the AI
 reference pack.
 
 - **osa** — the project and repository. It hosts the agent front-ends and the
-  `osa` command, which reports on every project and resolves pending sync
-  output with `osa resolve`.
+  `osa` command, which reports on every project, resolves pending sync output
+  with `osa resolve`, and exposes the shared surface: `health`, `providers`,
+  `images`, and `dashboard`.
 - **maki-oss** — the Maki front-end command (`bin/maki-oss`). Its command,
   environment prefix, and config path are unchanged by the repository rename.
 - **opencode-oss** — the OpenCode front-end command (`bin/opencode-oss`),
@@ -81,6 +82,24 @@ reference pack.
   which forces every outbound connection through OpenShell's proxy.
 - **OCSF** — Open Cybersecurity Schema Framework, the structured event format
   OpenShell uses for its policy and activity log lines.
+- **Egress denial** — an OCSF `DENIED` log line from a sandbox's network
+  policy: a binary's connection to a host and port that no rule allows. The
+  dashboard's Rules view groups denials by destination and binary and matches
+  them to pending rule proposals; denials matching no proposal are listed
+  separately. Deny-by-default makes a denial the evidence for one narrow rule,
+  not a reason to widen the policy.
+- **Dashboard** — the optional local Bun web UI started by `osa dashboard`
+  (loopback by default). Projects lists the registered projects with pending
+  work and the Health panel; Sandboxes holds gateway inventory and lifecycle;
+  Setup configures providers and builds base images; Rules reviews rule
+  proposals and egress denials. It is not a credential store: a provider
+  credential reaches it only through the Setup wizard's stdin handoff,
+  mutations and sensitive reads need the session token, and `--read-only`
+  refuses every mutation. See [`dashboard/README.md`](../dashboard/README.md).
+- **Project health** — the read-only report `osa health SANDBOX` prints for one
+  registered sandbox: idle-stop state and deadline, per-server MCP readiness,
+  and doctor checks. It never starts the sandbox and prints no credential; the
+  dashboard's Health panel renders the same three sections.
 - **Policy advisor** — the optional OpenShell feature that turns denied
   requests into reviewable network-rule proposals through the in-sandbox
   `policy.local` API.

@@ -220,10 +220,22 @@ Helper path:
 ./bin/maki-oss provider setup
 ```
 
-The wizard lints and imports the curated profile and creates or updates the
-provider. Without a terminal, name the credential instead of waiting for
-prompts: `--from STORE --credential SLUG --yes`, `--env VAR`, or `--file PATH`
-— the full flag table is in [`docs/providers.md`](../../providers.md).
+The wizard is the human path: it lints and imports the curated profile and
+creates or updates the provider. Without a terminal, name the credential
+instead of waiting for prompts:
+
+```sh
+pass show <entry> | ./bin/maki-oss provider setup --stdin --profile <id>
+pass show <entry> | osa provider setup mk --profile <id> --attach <sandbox> --json
+```
+
+`--stdin` reads the key from the pipe and needs `--profile`; `osa provider
+setup` passes the same stdin handoff and can attach in one step (the dashboard
+uses this form). The other non-interactive sources are
+`--from STORE --credential SLUG --yes`, `--env VAR`, and `--file PATH` — the
+full flag table is in [`docs/providers.md`](../../providers.md). The credential
+stays on stdin or in an environment variable populated outside the recorded
+command; never write it in the command.
 
 Raw fallback. Substitute the profile file, type, and provider name chosen in
 Phase 0; the example uses `maki-anthropic`:
@@ -505,6 +517,8 @@ maki-oss run "fix the failing tests"  # headless variant
 maki-oss status                       # project sandbox state
 maki-oss stop                         # park the sandbox
 maki-oss rm                           # delete it (prompts; --yes non-interactive)
+osa health <sandbox>                  # idle stop, MCP readiness, doctor checks
+osa dashboard --open                  # web UI: Projects, Setup, Rules
 ```
 
 Bare `maki-oss` creates or reuses the project sandbox, refreshes the disposable
@@ -588,6 +602,8 @@ action; do not start a new sandbox to fix a report.
   checklist used by Phase 5.
 - [`docs/helper.md`](../../helper.md) — `maki-oss` command reference and the
   helper session flow.
+- [`dashboard/README.md`](../../../dashboard/README.md) — the dashboard's
+  Projects and health panels, Setup, Rules, and egress denials.
 - [`docs/ai/references.md`](../references.md) — upstream documentation index.
 - [`docs/ai/document-contract.md`](../document-contract.md) — page shape used by
   this playbook.

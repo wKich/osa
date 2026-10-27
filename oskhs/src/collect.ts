@@ -6,7 +6,7 @@
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { tail } from "./exec.ts";
+import { checkAbort, RoundAborted, tail } from "./exec.ts";
 import { OUT_DIR, checkSubdir, checkTaskId, worktreePath } from "./names.ts";
 import { download, sandboxSh, type Ctx } from "./openshell.ts";
 import { StageError } from "./result.ts";
@@ -35,6 +35,7 @@ export interface CollectSpec {
   baseTip: string; // host object id the worktree started from
   prerequisites: string[]; // host object ids synced this round
   commitMessage?: string; // for leftovers; default names the task
+  signal?: AbortSignal; // the round's: checked before each step, kills the running call
 }
 
 export const hostBranch = (taskId: string) => `oskhs/${checkTaskId(taskId)}`;
@@ -88,9 +89,13 @@ export function parseNameStatus(text: string): FileChanges {
   return files;
 }
 
-async function git(ctx: Ctx, repo: string, args: string[], stdin?: string) {
-  const out = await ctx.run(["git", "-C", repo, ...args], stdin === undefined ? {} : { stdin });
-  if (out.code !== 0) throw new StageError("collect", out.code, tail(out.stderr));
+async function git(ctx: Ctx, repo: string, args: string[], signal?: AbortSignal) {
+  checkAbort(signal);
+  const out = await ctx.run(["git", "-C", repo, ...args], { signal });
+  if (out.code !== 0) {
+    checkAbort(signal);
+    throw new StageError("collect", out.code, tail(out.stderr));
+  }
   return out.stdout.trim();
 }
 
@@ -98,10 +103,15 @@ export async function collectChanges(ctx: Ctx, spec: CollectSpec): Promise<Chang
   const id = checkTaskId(spec.taskId);
   const name = `${id}-${checkSubdir(spec.key)}.bundle`;
   const out = `${OUT_DIR}/${name}`;
+  checkAbort(spec.signal);
   const ran = await sandboxSh(ctx, spec.sandbox, COLLECT_SCRIPT, [worktreePath(id, spec.key), id, out, spec.baseTip, ...(spec.commitMessage ? [spec.commitMessage] : [])], {
     stdin: spec.prerequisites.join("\n") + "\n",
+    signal: spec.signal,
   });
-  if (ran.code !== 0) throw new StageError("collect", ran.code, tail(ran.stderr));
+  if (ran.code !== 0) {
+    checkAbort(spec.signal);
+    throw new StageError("collect", ran.code, tail(ran.stderr));
+  }
   const { head, tree, mode } = parseCollectOutput(ran.stdout);
   ctx.log(`collect ${id}/${spec.key}: head ${head.slice(0, 12)} tree ${tree.slice(0, 12)} (${mode})`);
   if (mode === "none") return null;
@@ -110,28 +120,34 @@ export async function collectChanges(ctx: Ctx, spec: CollectSpec): Promise<Chang
   let bundleBytes = 0;
   if (mode === "known") {
     // the head is an ancestor of something the host sent; it must exist here
-    const type = await git(ctx, spec.repo, ["cat-file", "-t", head]).catch(() => "");
+    const type = await git(ctx, spec.repo, ["cat-file", "-t", head], spec.signal).catch((e) => {
+      if (e instanceof RoundAborted) throw e;
+      return "";
+    });
     if (type !== "commit") throw new StageError("collect", 1, `head ${head} is not a commit the host has`);
-    await git(ctx, spec.repo, ["update-ref", ref, head]);
+    await git(ctx, spec.repo, ["update-ref", ref, head], spec.signal);
   } else {
     const dir = await mkdtemp(join(tmpdir(), "oskhs-collect-"));
     try {
-      const got = await download(ctx, spec.sandbox, out, dir);
-      if (got.code !== 0) throw new StageError("collect", got.code, tail(got.stderr + got.stdout));
+      const got = await download(ctx, spec.sandbox, out, dir, { signal: spec.signal });
+      if (got.code !== 0) {
+        checkAbort(spec.signal);
+        throw new StageError("collect", got.code, tail(got.stderr + got.stdout));
+      }
       const file = join(dir, name);
       bundleBytes = (await stat(file)).size;
-      await git(ctx, spec.repo, ["bundle", "verify", "-q", file]);
-      const heads = (await git(ctx, spec.repo, ["bundle", "list-heads", file])).split("\n").filter(Boolean);
+      await git(ctx, spec.repo, ["bundle", "verify", "-q", file], spec.signal);
+      const heads = (await git(ctx, spec.repo, ["bundle", "list-heads", file], spec.signal)).split("\n").filter(Boolean);
       if (heads.length !== 1 || heads[0] !== `${head} refs/heads/task-${id}`) {
         throw new StageError("collect", 1, `bundle advertises unexpected refs: ${heads.join(", ")}`);
       }
-      await git(ctx, spec.repo, ["-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags", file, `+refs/heads/task-${id}:${ref}`]);
+      await git(ctx, spec.repo, ["-c", "fetch.fsckObjects=true", "fetch", "-q", "--no-tags", file, `+refs/heads/task-${id}:${ref}`], spec.signal);
     } finally {
       await rm(dir, { recursive: true, force: true });
       await sandboxSh(ctx, spec.sandbox, 'rm -f "$1"', [out]);
     }
   }
-  const commits = Number(await git(ctx, spec.repo, ["rev-list", "--count", `${spec.baseTip}..${head}`]));
-  const files = parseNameStatus(await git(ctx, spec.repo, ["diff", "--name-status", "-M", spec.baseTip, head]));
+  const commits = Number(await git(ctx, spec.repo, ["rev-list", "--count", `${spec.baseTip}..${head}`], spec.signal));
+  const files = parseNameStatus(await git(ctx, spec.repo, ["diff", "--name-status", "-M", spec.baseTip, head], spec.signal));
   return { branch: hostBranch(id), head, base: spec.baseTip, commits, bundleBytes, files };
 }

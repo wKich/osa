@@ -9,7 +9,9 @@ export async function request(path, options) {
     init.headers["content-type"] = "application/json";
     init.body = JSON.stringify(options.body);
   }
-  if (options && options.token) init.headers["x-dashboard-token"] = state.token || "";
+  // Always sent: a non-loopback dashboard requires it on reads too, and it is
+  // harmless on loopback.
+  if (state.token) init.headers["x-dashboard-token"] = state.token;
   const response = await fetch(path, init);
   let data = null;
   try {

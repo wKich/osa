@@ -6,7 +6,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { tail } from "./exec.ts";
+import { checkAbort, RoundAborted, tail } from "./exec.ts";
 import { repoDir, workspacePath, worktreePath } from "./names.ts";
 import { sandboxSh, type Ctx } from "./openshell.ts";
 import { interpretRun, StageError, type RoundResult } from "./result.ts";
@@ -147,6 +147,7 @@ export async function runRound(ctx: Ctx, spec: RoundSpec): Promise<RoundOutcome>
     if (result.kind !== "answer" || !spec.collect) return { result, repos };
     // collected before the worktrees (and their branches) are removed
     for (const [i, repo] of spec.repos.entries()) {
+      checkAbort(spec.signal); // a cancel after one repository's collect stops the next
       const tips = repos[i]!.sync!.tips;
       repos[i]!.changes = await collectChanges(ctx, {
         repo: repo.hostRepo,
@@ -156,10 +157,12 @@ export async function runRound(ctx: Ctx, spec: RoundSpec): Promise<RoundOutcome>
         baseTip: tips[`refs/heads/${repo.base}`]!,
         prerequisites: [...new Set(Object.values(tips))],
         commitMessage: spec.commitMessage?.(result.text),
+        signal: spec.signal,
       });
     }
     return { result, repos };
   } catch (err) {
+    if (err instanceof RoundAborted) return { result: { kind: "failed", stage: "collect", exitCode: 0, stderr: "aborted" }, repos };
     if (err instanceof StageError) return { result: { kind: "failed", stage: err.stage, exitCode: err.exitCode, stderr: err.stderr }, repos };
     throw err;
   } finally {

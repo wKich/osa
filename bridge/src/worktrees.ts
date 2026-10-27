@@ -41,6 +41,21 @@ export class ProjectWorktrees {
     return roots.some((root) => directory === root || directory.startsWith(`${root}/`));
   }
 
+  /** the most specific known root (the checkout or a linked worktree) holding a
+   * sandbox directory; undefined for a host directory or any unknown path */
+  rootOf(directory: string): string | undefined {
+    let best: string | undefined;
+    for (const root of [this.checkout, ...this.entries.keys()]) {
+      if ((directory === root || directory.startsWith(`${root}/`)) && (best === undefined || root.length > best.length)) best = root;
+    }
+    return best;
+  }
+
+  /** the checkout a session-scoped read of `directory` runs in: its root, else the main checkout */
+  checkoutFor(directory: string): string {
+    return this.rootOf(directory) ?? this.checkout;
+  }
+
   /** rediscover the checkout and its linked worktrees (`git worktree list --porcelain`);
    * true when the set changed */
   async refresh(): Promise<boolean> {

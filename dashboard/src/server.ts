@@ -3,6 +3,13 @@
 //
 // Safety model (see the change design):
 //   - loopback bind by default; any other host requires an explicit token;
+//   - the `Host` header is checked on every request (DNS rebinding): a
+//     loopback bind accepts only loopback names, a concrete bind also its own
+//     address, a wildcard bind any name;
+//   - on a non-loopback bind the page (`?token=`), the streams (`?token=`),
+//     and every API route (`X-Dashboard-Token`) require the token, so an
+//     unauthenticated response never carries the token or any data; the
+//     loopback bind keeps the open page and reads;
 //   - mutating routes require the session token in `X-Dashboard-Token`, which
 //     also blocks cross-site form posts;
 //   - the log stream requires the same token as a `token` query parameter
@@ -84,6 +91,27 @@ export function isLoopbackHost(host: string): boolean {
   return host === "127.0.0.1" || host === "::1" || host === "localhost";
 }
 
+function isWildcardHost(host: string): boolean {
+  return host === "0.0.0.0" || host === "::" || host === "[::]" || host === "";
+}
+
+/** Host name of a `Host` header value, lowercased, with brackets kept for IPv6. */
+function splitHostHeader(value: string): { name: string; port: string } | null {
+  const text = value.trim().toLowerCase();
+  if (!text) return null;
+  if (text.startsWith("[")) {
+    const end = text.indexOf("]");
+    if (end === -1) return null;
+    const rest = text.slice(end + 1);
+    if (rest && !/^:\d*$/.test(rest)) return null;
+    return { name: text.slice(0, end + 1), port: rest.slice(1) };
+  }
+  const colon = text.indexOf(":");
+  if (colon === -1) return { name: text, port: "" };
+  if (text.indexOf(":", colon + 1) !== -1) return null;
+  return { name: text.slice(0, colon), port: text.slice(colon + 1) };
+}
+
 function mintToken(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
@@ -163,12 +191,28 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
     );
   }
 
+  const remote = !isLoopbackHost(hostname);
+  const wildcard = isWildcardHost(hostname);
   const token = explicitToken ?? mintToken();
+  let listenPort = requestedPort;
   const config = options.config ?? loadConfig();
   const client = options.client ?? new OpenShellClient(options.clientOptions);
   const hubs = new Map<string, LogHub>();
   const modules = moduleAllowlist();
   const projects = options.projects ?? new ProjectService(options.projectOptions);
+
+  // Host names this server answers to. Port 0 binds resolve to `listenPort`
+  // once Bun.serve has returned.
+  const ownHost = hostname.includes(":") && !hostname.startsWith("[") ? `[${hostname}]` : hostname;
+  const allowedHosts = new Set(["127.0.0.1", "localhost", "[::1]"]);
+  if (remote && !wildcard) allowedHosts.add(ownHost.toLowerCase());
+
+  const hostAllowed = (request: Request): boolean => {
+    const parsed = splitHostHeader(request.headers.get("host") ?? "");
+    if (!parsed) return false;
+    if (parsed.port && parsed.port !== String(listenPort)) return false;
+    return wildcard || allowedHosts.has(parsed.name);
+  };
 
   const guardMutation = (request: Request): Response | null => {
     if (readOnly) {
@@ -274,6 +318,12 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
 
   const handleApi = async (request: Request, segments: string[]): Promise<Response> => {
     const method = request.method.toUpperCase();
+
+    // Off loopback every API route, reads included, needs the token before any
+    // gateway or `osa` command can run.
+    if (remote && !hasToken(request)) {
+      return forbidden("forbidden", "missing or invalid session token");
+    }
 
     if (segments[1] === "projects") return handleProjects(request, segments);
 
@@ -414,7 +464,18 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
         const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
         const method = request.method.toUpperCase();
 
+        if (!hostAllowed(request)) {
+          return forbidden("forbidden_host", "host header is not allowed for this dashboard");
+        }
         if (method === "GET" && (segments.length === 0 || segments[0] === "index.html")) {
+          // Off loopback the page embeds the token only for a request that
+          // already knows it.
+          if (remote) {
+            const provided = url.searchParams.get("token") ?? "";
+            if (!provided || !tokensEqual(provided, token)) {
+              return forbidden("forbidden", "missing or invalid session token");
+            }
+          }
           return new Response(renderPage({ token, readOnly, refreshMs: REFRESH_MS, config }), {
             headers: HTML_HEADERS,
           });
@@ -445,6 +506,8 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
       }
     },
   });
+
+  listenPort = server.port;
 
   return {
     port: server.port,

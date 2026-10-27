@@ -2651,17 +2651,32 @@ cmd_run() {
     exit "$run_rc"
 }
 
+# Two jobs, split by source and destination. A full refresh (no path, or `.`,
+# at the workspace destination) mirrors the host tree and is the only upload
+# that records a baseline, manifest, synced pair, or fingerprint. Anything
+# else is a plain `sandbox upload SRC DEST` copy that writes no sync state, so
+# a partial copy never makes the workspace look current.
 cmd_upload() {
     [ "$#" -le 2 ] || die_usage "usage: $PROGRAM upload [--discard] [LOCAL_PATH] [SANDBOX_DEST]"
     require_openshell
     name=$(resolved_name)
     require_sandbox "$name"
     src=${1:-.}
-    dest=${2:-$(resolved_workdir)}
     workdir=$(resolved_workdir)
+    dest=${2:-$workdir}
+    upload_full=0
+    case $src in
+        .|./)
+            if [ "$dest" = "$workdir" ]; then
+                upload_full=1
+            fi
+            ;;
+    esac
     upload_state=$(session_state_dir "$name")
-    if ! (umask 077 && mkdir -p "$upload_state" && chmod 700 "$upload_state" 2>/dev/null); then
-        warn "cannot create the session state directory $upload_state"
+    if [ "$upload_full" -eq 1 ]; then
+        if ! (umask 077 && mkdir -p "$upload_state" && chmod 700 "$upload_state" 2>/dev/null); then
+            warn "cannot create the session state directory $upload_state"
+        fi
     fi
     upload_patch=
     upload_kind=
@@ -2676,27 +2691,32 @@ cmd_upload() {
             fi
         fi
     fi
-    if [ "$upload_kind" = parked ] && [ "$opt_discard" -eq 0 ]; then
+    # A plain copy into unrecovered output could destroy it, so --discard
+    # only applies to a full refresh.
+    if [ "$upload_kind" = parked ] && { [ "$opt_discard" -eq 0 ] || [ "$upload_full" -eq 0 ]; }; then
         err "the workspace is parked; download its changes or pass --discard to replace them"
         err "  download: $PROGRAM download $workdir ./DEST"
         err "  discard:  $PROGRAM upload --discard"
+        if [ "$upload_full" -eq 0 ] && [ "$opt_discard" -eq 1 ]; then
+            err "--discard replaces the whole workspace; a copy of '$src' cannot use it"
+        fi
         exit "$EX_USAGE"
     fi
-    sync_name=$name
-    sync_workdir=$workdir
-    sync_state_dir=$upload_state
-    sync_sandbox_id=$(sandbox_id "$name")
-    sync_sandbox_tree=
-    sync_probe_ok=0
-    sync_pending_patch=$upload_patch
-    sync_pending_kind=$upload_kind
-    sync_pending_result_tree=$(flat_value "$upload_state/pending" result_tree)
-    synced_host_tree=$(read_baseline "$upload_state/synced" host_tree)
-    synced_sandbox_tree=$(read_baseline "$upload_state/synced" sandbox_tree)
-    capture_host_baseline "$upload_state"
-    if [ "$dest" = "$workdir" ]; then
+    if [ "$upload_full" -eq 1 ]; then
+        sync_name=$name
+        sync_workdir=$workdir
+        sync_state_dir=$upload_state
+        sync_sandbox_id=$(sandbox_id "$name")
+        sync_sandbox_tree=
+        sync_probe_ok=0
+        sync_pending_patch=$upload_patch
+        sync_pending_kind=$upload_kind
+        sync_pending_result_tree=$(flat_value "$upload_state/pending" result_tree)
+        synced_host_tree=$(read_baseline "$upload_state/synced" host_tree)
+        synced_sandbox_tree=$(read_baseline "$upload_state/synced" sandbox_tree)
+        capture_host_baseline "$upload_state"
         refresh_sandbox_workspace "$name" "$workdir" "$upload_state"
-        say "Uploaded '$src' to '$name:$dest'."
+        say "Refreshed '$name:$dest' from the host directory."
     else
         set -- sandbox upload
         if [ "$opt_no_git_ignore" -eq 1 ]; then
@@ -2704,14 +2724,7 @@ cmd_upload() {
         fi
         set -- "$@" "$name" "$src" "$dest"
         run_gateway "$@"
-        say "Uploaded '$src' to '$name:$dest'."
-        if upload_tree=$(sandbox_script "$name" "$workdir" "$SANDBOX_INIT_SCRIPT" 2>/dev/null); then
-            record_host_manifest "$upload_state"
-            write_synced_marker "$upload_state" "$bl_tree" "$upload_tree" "$sync_sandbox_id"
-            note "Recorded a new sandbox baseline for '$name'."
-        else
-            warn "uploaded, but could not record the sandbox baseline for '$name'"
-        fi
+        say "Copied '$src' to '$name:$dest' (no workspace refresh or baseline recorded)."
     fi
     if [ "$upload_kind" = parked ] && [ "$opt_discard" -eq 1 ]; then
         rm -f "$upload_state/pending"
@@ -2737,6 +2750,114 @@ cmd_download() {
     fi
     run_gateway sandbox download "$name" "$spath" "$dest"
     say "Downloaded '$name:$spath' to '$dest'."
+}
+
+# ---------------------------------------------------------------------------
+# Fish plugin: symlink install without fisher. Shared by every front-end that
+# ships a fish plugin; the entries come from $PROGRAM, so the link-safety
+# rules live in one place. functions/__oss_run.fish is the resolver both
+# front-end functions call.
+# ---------------------------------------------------------------------------
+
+fish_plugin_home() {
+    printf '%s/fish' "${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}"
+}
+
+fish_plugin_entries() {
+    printf '%s\n' functions/__oss_run.fish "functions/$PROGRAM.fish" "completions/$PROGRAM.fish"
+}
+
+# True when another front-end's function link into this repository remains,
+# so the shared resolver must stay.
+fish_shared_in_use() { # FISH_HOME
+    for fsu_link in "$1"/functions/*.fish; do
+        [ -L "$fsu_link" ] || continue
+        case $fsu_link in
+            */__oss_run.fish|*/"$PROGRAM".fish) continue ;;
+        esac
+        case $(readlink "$fsu_link") in
+            "$repo_root"/fish/functions/*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+cmd_fish_install() {
+    [ "$#" -eq 0 ] || die_usage "fish install takes no arguments"
+    fish_home=$(fish_plugin_home)
+    failed=0
+    fish_changed=0
+    for entry in $(fish_plugin_entries); do
+        src=$repo_root/fish/$entry
+        dest=$fish_home/$entry
+        if [ ! -e "$src" ]; then
+            err "missing plugin file: $src"
+            failed=1
+            continue
+        fi
+        if [ -L "$dest" ]; then
+            target=$(readlink "$dest")
+            if [ "$target" = "$src" ]; then
+                say "already installed: $dest"
+            else
+                case $target in
+                    "$repo_root"/*)
+                        ln -sfn "$src" "$dest"
+                        say "relinked: $dest"
+                        fish_changed=1
+                        ;;
+                    *)
+                        err "skipped $dest: existing symlink points outside this repository"
+                        failed=1
+                        ;;
+                esac
+            fi
+        elif [ -e "$dest" ]; then
+            err "skipped $dest: file exists and was not installed by $PROGRAM"
+            failed=1
+        else
+            mkdir -p -- "$(dirname -- "$dest")"
+            ln -s "$src" "$dest"
+            say "linked: $dest -> $src"
+            fish_changed=1
+        fi
+    done
+    if [ "$failed" -ne 0 ]; then
+        exit "$EX_USAGE"
+    fi
+    if [ "$fish_changed" -eq 0 ]; then
+        say "Fish plugin already installed."
+    else
+        say "Fish plugin installed; open a new fish session to use it."
+    fi
+}
+
+cmd_fish_uninstall() {
+    [ "$#" -eq 0 ] || die_usage "fish uninstall takes no arguments"
+    fish_home=$(fish_plugin_home)
+    for entry in $(fish_plugin_entries); do
+        dest=$fish_home/$entry
+        if [ -L "$dest" ]; then
+            target=$(readlink "$dest")
+            case $target in
+                "$repo_root"/*)
+                    if [ "$entry" = functions/__oss_run.fish ] && fish_shared_in_use "$fish_home"; then
+                        say "kept (still used by another front-end): $dest"
+                    else
+                        rm -f "$dest"
+                        say "removed: $dest"
+                    fi
+                    ;;
+                *)
+                    say "skipped (not installed by $PROGRAM): $dest"
+                    ;;
+            esac
+        elif [ -e "$dest" ]; then
+            say "skipped (not a symlink from this repository): $dest"
+        else
+            say "not installed: $dest"
+        fi
+    done
 }
 
 # ---------------------------------------------------------------------------

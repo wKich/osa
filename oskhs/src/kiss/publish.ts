@@ -3,6 +3,7 @@
 // request shaped like kiss's own (GitLabAgent + GitlabService), assigned to
 // the token's user so kiss's GitLabMRTaskSource tracks it.
 import { randomUUID } from "node:crypto";
+import { checkAbort, RoundAborted } from "../exec.ts";
 import type { Changes } from "../collect.ts";
 import type { Ctx } from "../openshell.ts";
 import { GitLab, type GitLabConfig } from "./gitlab.ts";
@@ -21,6 +22,7 @@ export interface PublishRepo {
   projectPath: string;
   target: string; // the merge request's target branch
   changes: Changes;
+  branchName?: string | null; // this repository's existing MR branch: force-updated as is; absent → a newly chosen one
 }
 
 export interface PublishInput {
@@ -34,7 +36,7 @@ export interface PublishInput {
   source?: string | null;
   fields: Record<string, string>; // the [RESULT] fields
   repos: PublishRepo[];
-  branch?: string; // the task's existing MR branch: pushed to as is (kiss force-pushes), no new name
+  signal?: AbortSignal; // the round's: no push or MR starts once it aborts
 }
 
 export const fallbackBranch = () => `kiss-agent/${randomUUID().slice(0, 8)}`;
@@ -62,13 +64,17 @@ export function mrLabels(field: string | undefined): string[] {
 export const commitTitle = (fields: Record<string, string>, taskId: string) => fields.Title?.trim() || `oskhs: changes from task ${taskId}`;
 
 export async function publish(input: PublishInput): Promise<MRRecord[]> {
-  const api = new GitLab(input.gitlab);
-  const branch =
-    input.branch ??
-    (await chooseBranch(input.taskBranchName, input.fields.Branch, async (b) => {
-      for (const r of input.repos) if (await api.branchExists(r.projectPath, b)) return true;
-      return false;
-    }));
+  const { signal } = input;
+  checkAbort(signal);
+  const api = new GitLab(input.gitlab, signal);
+  // a repository with an MR keeps its own branch; the others share one new name
+  const fresh = input.repos.filter((r) => !r.branchName);
+  const newBranch = fresh.length
+    ? await chooseBranch(input.taskBranchName, input.fields.Branch, async (b) => {
+        for (const r of fresh) if (await api.branchExists(r.projectPath, b)) return true;
+        return false;
+      })
+    : undefined;
   const me = await api.currentUser();
   const reviewer = input.authorUsername ? await api.userId(input.authorUsername.replace(/^@/, "")) : null;
   const title = commitTitle(input.fields, input.taskId);
@@ -79,11 +85,15 @@ export async function publish(input: PublishInput): Promise<MRRecord[]> {
   const records: MRRecord[] = [];
   for (const repo of input.repos) {
     const step = (what: string) => `${repo.projectPath}: ${what}`;
+    const branch = (repo.branchName || newBranch)!;
+    checkAbort(signal);
     try {
-      await pushBranch(input.ctx, input.gitlab, mirrorPath(input.mirrorDir, repo.projectPath), repo.projectPath, `refs/heads/${repo.changes.branch}`, branch, !!input.branch);
+      await pushBranch(input.ctx, input.gitlab, mirrorPath(input.mirrorDir, repo.projectPath), repo.projectPath, `refs/heads/${repo.changes.branch}`, branch, !!repo.branchName, signal);
     } catch (err) {
+      if (err instanceof RoundAborted) throw err;
       throw new Error(step(`push of ${branch} failed: ${err instanceof Error ? err.message : String(err)}`));
     }
+    checkAbort(signal); // an in-flight push may have completed; no MR starts after the abort
     try {
       const reviewerIds = reviewer && (await api.isMember(repo.projectPath, reviewer)) ? [reviewer] : undefined;
       const mr =
@@ -92,6 +102,7 @@ export async function publish(input: PublishInput): Promise<MRRecord[]> {
       records.push({ projectPath: repo.projectPath, mrUrl: mr.web_url, mrIid: mr.iid, branchName: branch });
       input.ctx.log(`MR !${mr.iid} for ${repo.projectPath} (${branch} → ${repo.target})`);
     } catch (err) {
+      if (err instanceof RoundAborted) throw err;
       throw new Error(step(`merge request failed: ${err instanceof Error ? err.message : String(err)}`));
     }
   }

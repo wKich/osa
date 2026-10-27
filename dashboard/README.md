@@ -102,8 +102,8 @@ Priority: flag > environment variable > default.
 | Flag | Environment | Default | Behavior |
 |---|---|---|---|
 | `--port N` | `DASHBOARD_PORT` | `8787` | Listen port |
-| `--host ADDR` | `DASHBOARD_HOST` | `127.0.0.1` | Bind address. Any non-loopback address **requires** `--token`/`DASHBOARD_TOKEN` and prints a startup warning |
-| `--token T` | `DASHBOARD_TOKEN` | random per start | Session token embedded in the served page and required by every mutating route |
+| `--host ADDR` | `DASHBOARD_HOST` | `127.0.0.1` | Bind address. Any non-loopback address **requires** `--token`/`DASHBOARD_TOKEN`, prints a startup warning, and then requires that token for the page and every read (see [Remote bind](#remote-bind)) |
+| `--token T` | `DASHBOARD_TOKEN` | random per start | Session token required by every mutating route; on loopback it is embedded in the served page, off loopback only in a page requested with `?token=T` |
 | `--read-only` | `DASHBOARD_READ_ONLY` | off | Rejects every mutating route with 403 and hides the controls (`1`, `true`, `yes`, `on`) |
 | — | `DASHBOARD_OPENSHELL_BIN` | `openshell` | CLI binary to invoke (tests point this at the stub) |
 | — | `DASHBOARD_OSA_BIN` | `../bin/osa`, else `osa` | `osa` binary for host-change and full status checks and resolve actions: this variable, else the repository's `bin/osa` next to the dashboard, else `osa` on `PATH` |
@@ -131,11 +131,13 @@ starting point.
 
 ## API
 
-Read routes (no token required on loopback):
+Read routes (no token required on loopback; on a non-loopback bind every
+route below needs `X-Dashboard-Token`, `/` needs `?token=`, and the stream
+needs `token=` as it already does):
 
 | Route | Returns |
 |---|---|
-| `GET /` | Page shell with the session bootstrap |
+| `GET /` | Page shell with the session bootstrap. Off loopback: `GET /?token=T` |
 | `GET /api/doctor` | CLI presence, gateway reachability, read-only state |
 | `GET /api/sandboxes` | Sandbox inventory (`name`, `phase`, labels, notes) |
 | `GET /api/sandboxes/:name` | Detail: policy source/revision, providers, revision list |
@@ -170,17 +172,27 @@ screen.
 The dashboard is a local operator tool, not a hardened service. What it does:
 
 - **Loopback by default.** `127.0.0.1` only. Binding elsewhere is possible but
-  requires an explicit token and prints a warning; there is no TLS in v1, so
-  for remote access prefer an SSH tunnel to the loopback port.
+  requires an explicit token, prints a warning, and switches on token-gated
+  reads (below); there is no TLS in v1, so for remote access prefer an SSH
+  tunnel to the loopback port.
+- **`Host` is validated on every request, in both modes.** A loopback bind
+  accepts only `127.0.0.1`, `localhost`, and `[::1]` (with the bound port or no
+  port); any other `Host`, including a DNS name an attacker has rebound to
+  `127.0.0.1`, gets 403 before the page or any API route. A concrete
+  non-loopback bind also accepts its own address. A wildcard bind
+  (`0.0.0.0`, `::`) cannot list the machine's names, so it accepts any `Host`
+  and relies on the token; bind a concrete address if you want rebinding
+  protection there.
 - **Session token on mutations and streams.** A random token is minted at
-  startup unless `--token` is given, embedded in the served page, and required
-  as `X-Dashboard-Token`. Cross-site form posts cannot set that header, and no
-  CORS headers are served, so a malicious page cannot read responses either.
+  startup unless `--token` is given and required as `X-Dashboard-Token`.
+  Cross-site form posts cannot set that header, and no CORS headers are
+  served, so a malicious page cannot read responses either. On loopback the
+  token is embedded in the served page; off loopback see
+  [Remote bind](#remote-bind).
 - **Log streams require the page token.** `GET /events/logs` checks the token
   as a `token` query parameter (the browser's `EventSource` cannot send
   headers) and returns 403 without spawning a log process. Read-only mode
-  still mints a read token so the page can stream logs, but it continues to
-  reject every mutation.
+  still requires it, but continues to reject every mutation.
 - **Read-only mode** for shared or demo machines: every mutation returns 403.
 - **Defense in depth in the browser.** The page carries a strict CSP
   (`script-src 'self'`, `default-src 'none'`), and the frontend renders gateway
@@ -229,6 +241,32 @@ sit behind the same guards as every other mutation, plus their own:
   before Apply. These guard against slips, not attackers; the token is the
   security guard.
 
+### Remote bind
+
+Loopback and non-loopback binds differ on purpose. On loopback (the default)
+the page embeds the token, reads are open, and mutations require the header: a
+local process can read the token from the same page, so requiring it earlier
+would add friction and no security. Off loopback the token is the only thing
+between the network and your projects, so:
+
+- `GET /` requires `?token=<token>`; only then is the bootstrap, including the
+  token, rendered. Open `http://HOST:PORT/?token=<token>` once; the page then
+  sends the token as `X-Dashboard-Token` on its API calls and as `token=` on its
+  log stream.
+- every `/api/...` route, reads included (`/api/doctor`, `/api/sandboxes`,
+  `/api/projects`, policy, rules, status, patch), requires `X-Dashboard-Token`;
+  `/events/logs` requires `?token=`.
+- an unauthenticated request gets 403 with a generic body: no token, no
+  project, sandbox, policy, rule, log, or host-path data, and no `openshell` or
+  `osa` command runs. The static `/app/*.js` modules stay open; they contain
+  code only, and the browser loads them without the token.
+- `--read-only` keeps refusing every mutation, with or without the token, and
+  still requires the token for the page, reads, and logs.
+
+The token travels in the URL query for the page and stream, and there is no
+TLS, so use an SSH tunnel to a loopback bind for anything beyond a trusted
+network.
+
 **What read-only mode guarantees**: no host writes at all. Every project route
 is GET, the resolve route answers 403, and the page shows no resolve control.
 `DASHBOARD_READ_ONLY=1` (or `--read-only`) is the setting for any shared or
@@ -268,7 +306,9 @@ are rendered the same way.
   field-per-line table (covered by tests); a future CLI JSON mode can replace
   that parser behind `src/openshell.ts`.
 - Policy editing stays file-based; the dashboard is view-only for policy.
-- No authentication, multi-user support, or remote gateway support in v1.
+- No multi-user support or remote gateway support in v1; the only authentication
+  is the single shared session token, required for everything on a
+  non-loopback bind and for mutations, streams, and patches on loopback.
 
 ## Testing
 

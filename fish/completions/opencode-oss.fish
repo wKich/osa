@@ -9,7 +9,7 @@ complete -c opencode-oss -n __fish_use_subcommand -a init -d 'Create or start th
 complete -c opencode-oss -n __fish_use_subcommand -a up -d 'Create or start the sandbox'
 complete -c opencode-oss -n __fish_use_subcommand -a opencode -d 'Ensure the sandbox and attach the OpenCode TUI'
 complete -c opencode-oss -n __fish_use_subcommand -a run -d 'Run OpenCode headless'
-complete -c opencode-oss -n __fish_use_subcommand -a upload -d 'Copy local files into the sandbox'
+complete -c opencode-oss -n __fish_use_subcommand -a upload -d 'Refresh the workspace, or copy a path as-is'
 complete -c opencode-oss -n __fish_use_subcommand -a download -d 'Copy files out of the sandbox'
 complete -c opencode-oss -n __fish_use_subcommand -a status -d 'Show the project sandbox'
 complete -c opencode-oss -n __fish_use_subcommand -a list -d 'List sandboxes on the gateway'
@@ -91,7 +91,13 @@ complete -c opencode-oss -s r -l resume -r -d 'Continue a specific session id'
 complete -c opencode-oss -l session-id -r -d 'Use session ID, creating it if missing'
 complete -c opencode-oss -l timeout -r -d 'run: end OpenCode inside the sandbox after SECS seconds'
 complete -c opencode-oss -l no-sync -d 'Skip collecting changes on exit'
+complete -c opencode-oss -l discard -d 'Replace a parked workspace (upload refresh) or delete it (rm)'
 complete -c opencode-oss -l idle-stop -r -d 'Stop the sandbox this long after the last session closes (0 disables)'
 
 # image build options.
 complete -c opencode-oss -l opencode-version -r -d 'OpenCode version build argument for image build'
+
+# upload options.
+complete -c opencode-oss -l no-git-ignore -d 'Upload everything, ignoring .gitignore'
+
+complete -c opencode-oss -s h -l help -d 'Show usage'

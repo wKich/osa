@@ -38,7 +38,10 @@ Commands:
                                 TUI (bare `claude-oss` does the same)
   run "<prompt>"                Ensure the sandbox, run Claude Code headless,
                                 and print its stream-json events
-  upload [PATH] [DEST]          Copy local files into the sandbox
+  upload [--discard] [PATH] [DEST]
+                                Refresh the workspace (no PATH or `.`), or copy
+                                PATH as-is (no baseline); --discard only
+                                applies to a refresh
   download [SANDBOX_PATH] DEST  Copy files from the sandbox to the host
   status                        Show this project's sandbox
   list                          List sandboxes on the gateway

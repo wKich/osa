@@ -9,7 +9,7 @@ complete -c maki-oss -n __fish_use_subcommand -a init -d 'Create or start the sa
 complete -c maki-oss -n __fish_use_subcommand -a up -d 'Create or start the sandbox'
 complete -c maki-oss -n __fish_use_subcommand -a maki -d 'Ensure the sandbox and attach Maki'
 complete -c maki-oss -n __fish_use_subcommand -a run -d 'Run Maki headless'
-complete -c maki-oss -n __fish_use_subcommand -a upload -d 'Refresh the workspace from local files'
+complete -c maki-oss -n __fish_use_subcommand -a upload -d 'Refresh the workspace, or copy a path as-is'
 complete -c maki-oss -n __fish_use_subcommand -a download -d 'Copy files out of the sandbox'
 complete -c maki-oss -n __fish_use_subcommand -a status -d 'Show sandbox and sync state'
 complete -c maki-oss -n __fish_use_subcommand -a list -d 'List sandboxes on the gateway'
@@ -50,6 +50,7 @@ complete -c maki-oss -l engine -r -a 'docker podman' -d 'Container engine'
 complete -c maki-oss -l gateway -r -d 'OpenShell gateway name'
 complete -c maki-oss -l workdir -r -d 'In-sandbox project directory'
 complete -c maki-oss -l env -r -d 'Non-secret KEY=VALUE, or host var for setup'
+complete -c maki-oss -l env-from -r -d 'Sandbox KEY from the caller environment (KEY or KEY=ENVVAR)'
 complete -c maki-oss -l allow-env -r -d 'Allow a credential-like --env key'
 complete -c maki-oss -l yes -d 'Skip the confirmation prompt'
 
@@ -90,11 +91,13 @@ complete -c maki-oss -s r -l resume -r -d 'Resume a specific session by id'
 complete -c maki-oss -l session-id -r -d 'Write the run under a chosen session id'
 complete -c maki-oss -l timeout -r -d 'run: end Maki inside the sandbox after SECS seconds'
 complete -c maki-oss -l no-sync -d 'Skip patch collection on exit and park the workspace'
-complete -c maki-oss -l discard -d 'Replace a parked workspace (upload) or delete it (rm)'
+complete -c maki-oss -l discard -d 'Replace a parked workspace (upload refresh) or delete it (rm)'
 complete -c maki-oss -l idle-stop -r -d 'Stop the sandbox this long after the last session closes (0 disables)'
+
+# upload options.
+complete -c maki-oss -l no-git-ignore -d 'Upload everything, ignoring .gitignore'
 
 # image build options.
 complete -c maki-oss -l maki-version -r -d 'Maki release version to build'
-complete -c maki-oss -l no-git-ignore -d 'Upload everything, ignoring .gitignore'
 
 complete -c maki-oss -s h -l help -d 'Show usage'

@@ -96,6 +96,26 @@ describe("worker", () => {
     expect(store.task("t1")).toMatchObject({ runtimeState: "idle_stopped", cancelledAt: expect.any(Date) });
   });
 
+  test("a cancel during publication finishes the cancel and writes no result", async () => {
+    let publishing = false;
+    // a round that is pushing/creating its MR when the cancel lands, and reports it opened anyway
+    const publishRound: Round = (input, signal) =>
+      new Promise((resolve) => {
+        publishing = true;
+        signal.addEventListener("abort", () => setTimeout(() => resolve({ ok: true, text: "done", mrs: [{ projectPath: "g/fx", mrUrl: "u", mrIid: 1, branchName: "feat/x" }] }), 20), { once: true });
+      });
+    const { store, worker } = setup(publishRound);
+    store.tasks.set("t1", { ...dueTask("t1"), taskRepositories: [{ projectPath: "g/fx" }] });
+    await worker.tick();
+    await until(() => publishing);
+    store.tasks.set("t1", { ...store.task("t1"), cancelRequestedAt: new Date() });
+    await worker.drain();
+    const task = store.task("t1");
+    expect(task).toMatchObject({ runtimeState: "idle_stopped", cancelledAt: expect.any(Date), wakeRequestedAt: null, state: "processing" });
+    expect(task.replyMessage).toBeUndefined();
+    expect(task.taskRepositories).toEqual([{ projectPath: "g/fx" }]);
+  });
+
   test("a round past its limit fails the task visibly", async () => {
     const { store, worker } = setup(echoRound(10), { roundTimeoutSec: 0.1 });
     store.tasks.set("t1", dueTask("t1"));

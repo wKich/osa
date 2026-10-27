@@ -340,3 +340,83 @@ Each project row MUST show its idle-stop state from `osa status --quick --json`.
 #### Scenario: Deadline passed
 - **WHEN** the deadline passes before the next quick status
 - **THEN** the row shows that the stop is due
+
+### Requirement: Base image builds
+
+The dashboard MUST show, for each agent `osa images --json` reports, the base image tag, whether it exists locally and when it was created, the engine, the configured session image when it differs, and any per-agent error. Outside read-only mode it MUST offer a Build action per agent. The action MUST be sent to a build route that requires the session token in `X-Dashboard-Token`, MUST be refused with 403 in read-only mode, and MUST run exactly one `osa image build <tag>` for an agent tag from the known set, with no other client-supplied argument. Only one build MUST run at a time across all agents: a build request while one is running MUST be refused with 409 and MUST start nothing. The build MUST keep running when every browser disconnects. The dashboard MUST stream the build's output to the page live, through a stream that requires the session token. A reconnecting or newly opened page MUST receive the current or most recent build's output from the start (up to a bounded number of lines) and then live lines. The end of the build MUST be marked with its result (succeeded, failed with exit status, or cancelled). The dashboard MUST offer Cancel while a build runs, behind the same token and read-only guards, which stops the build. After a build ends, the dashboard MUST refresh the image list without waiting for user action. Build output MUST be rendered only as text.
+
+#### Scenario: Build a missing image
+- **WHEN** the `mk` base image is missing and the user presses Build for `mk`
+- **THEN** the server runs `osa image build mk`, the page shows its output as it arrives, and after it succeeds the row shows the image as present
+
+#### Scenario: Second build is refused
+- **WHEN** a build is running and a client requests a build for any agent
+- **THEN** the response is 409 and no second `osa image build` is spawned
+
+#### Scenario: Build survives a closed tab
+- **WHEN** the user starts a build, closes the page, and opens it again before the build ends
+- **THEN** the build is still running, and the new page shows the output from the start followed by live lines
+
+#### Scenario: Cancel a build
+- **WHEN** the user presses Cancel while a build runs
+- **THEN** the build stops, and the log ends with a cancelled result
+
+#### Scenario: Failed build shows its status
+- **WHEN** `osa image build` exits non-zero
+- **THEN** the log ends with a failed result carrying the exit status, and the row still reports the image's previous state
+
+#### Scenario: Read-only mode refuses builds
+- **WHEN** read-only mode is active
+- **THEN** the Build and Cancel controls are absent, and a client posting to the build route with the page token receives 403 and nothing is spawned
+
+#### Scenario: Build stream requires the token
+- **WHEN** a client opens the build stream without the session token
+- **THEN** the response is 403
+
+### Requirement: Provider setup wizard
+
+The dashboard MUST show, for each agent `osa providers --json` reports, the providers on the gateway, the providers remembered in that agent's config, and the profiles available for setup, with each profile's id, credential variable, source (`curated` or `custom`), and note. When the gateway cannot be listed, the profiles and remembered providers MUST still show, with the gateway error. Outside read-only mode and on a loopback bind, the dashboard MUST offer a wizard that sets up a provider through `osa provider setup` for an agent whose `setup` is `stdin`. For an agent whose `setup` is `login`, it MUST show the terminal command instead of the wizard. The wizard MUST collect a profile, a provider name (defaulting to the profile id), the credential, and optionally one sandbox to attach to. It MUST offer only registered sandboxes of the same agent that are visible on the gateway. When the name matches a provider on the gateway, the wizard MUST require an explicit choice to replace that provider's credential before it sends `--yes`. The setup route MUST require the session token in `X-Dashboard-Token`, MUST be refused with 403 in read-only mode, and MUST run exactly one `osa provider setup` built from validated fields, with no client-supplied argument passed through as is. A second setup request while one is running MUST be refused with 409. After a setup, the dashboard MUST show the outcome (created, updated, refused with osa's message, or failed with the steps that completed). It MUST refresh the provider list and the inventory without waiting for the next poll. A registered sandbox's detail view that shows no attached provider MUST offer a link that opens the wizard with its agent and sandbox selected.
+
+#### Scenario: Create and attach from the wizard
+- **WHEN** the user picks agent `mk`, profile `maki-deepseek`, pastes a key, selects sandbox `mk-demo-1a2b`, and submits
+- **THEN** the server runs `osa provider setup mk --profile maki-deepseek --attach mk-demo-1a2b --json` with the key on stdin, and the wizard shows the provider created and attached
+
+#### Scenario: Existing provider needs a replace choice
+- **WHEN** the chosen name is already on the gateway and the user has not chosen to replace it
+- **THEN** the submit control stays disabled, and no request is sent
+
+#### Scenario: Login agent shows the terminal command
+- **WHEN** the user opens the wizard for agent `cx`
+- **THEN** no credential field is shown, and the page shows `codex-oss provider setup` as the command to run in a terminal
+
+#### Scenario: Refused setup is shown as no change
+- **WHEN** `osa provider setup` exits 2
+- **THEN** the wizard says nothing changed and shows osa's message
+
+#### Scenario: Read-only mode hides and refuses setup
+- **WHEN** read-only mode is active
+- **THEN** the wizard controls are absent, and a client posting to the setup route with the page token receives 403 and no command runs
+
+#### Scenario: Concurrent setup is refused
+- **WHEN** a setup is running and a second setup request arrives
+- **THEN** the second request is answered 409 and no command runs
+
+### Requirement: Provider credentials in transit
+
+A credential entered in the dashboard MUST travel only in the body of one same-origin request to the setup route. From there it MUST go only to the standard input of the `osa provider setup` child, and that stdin MUST be closed after the credential is written. The dashboard MUST NOT place the credential in any process argument, environment variable, file, log line, cache, URL, response body, or error message. The page MUST NOT keep it in application state, `localStorage`, `sessionStorage`, or a cookie. It MUST clear the credential field when the setup finishes, is cancelled, or the wizard closes. The field MUST disable autocomplete and spell checking. Before the dashboard returns or logs any output of `osa`, every occurrence of the submitted credential in it MUST be replaced with `[redacted]`. On a non-loopback bind the setup route MUST be refused with 403 before the request body is read, and the wizard MUST say that setup is available only on a loopback bind. The route MUST refuse a request body over 70 KiB with 413 and a non-JSON content type with 415, and in both cases it MUST run no command.
+
+#### Scenario: Credential stays out of argv and responses
+- **WHEN** a setup runs with a distinctive fixture credential
+- **THEN** the stub `osa` records the credential's length from stdin, its recorded argv does not contain the credential, and neither the response body nor the server's output contains it
+
+#### Scenario: Echoed credential is redacted
+- **WHEN** the stub `osa` prints the received credential inside its message
+- **THEN** the response shows `[redacted]` in its place
+
+#### Scenario: Remote bind refuses setup
+- **WHEN** the dashboard is bound to `0.0.0.0` with a token and a client posts a setup request with the correct token
+- **THEN** the response is 403, and no command runs
+
+#### Scenario: Field is cleared
+- **WHEN** a setup completes or the user cancels the wizard
+- **THEN** the credential input is empty, and no browser storage key holds the value

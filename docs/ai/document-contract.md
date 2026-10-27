@@ -23,9 +23,13 @@ different; the router maps them to these IDs.
 
 ## Naming
 
-Shared pages describe work that is identical for every agent. Agent pages
-describe one front-end and live in per-agent subdirectories once an `align-*`
-change moves them.
+Shared pages describe work that every agent follows. Where a step differs, a
+shared page names the difference in a per-agent adapter table or links the
+agent's reference; it never chooses a default agent. Agent pages describe one
+front-end and live in per-agent subdirectories once an `align-*` change moves
+them. `environment-playbook.md` is the shared procedure with a four-agent
+adapter table, and `examples/environments/reference/` is its Maki worked
+example.
 
 - **Shared:** `onboarding.md` (the router), `host-playbook.md`,
   `environment-playbook.md`, `references.md`, `document-contract.md`.

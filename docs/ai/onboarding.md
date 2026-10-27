@@ -289,7 +289,8 @@ These are the same rules as `AGENTS.md`; restate them, never relax them.
 - [`docs/ai/playbooks/maki.md`](playbooks/maki.md) — the Maki agent path,
   P0-P8.
 - [`docs/ai/environment-playbook.md`](environment-playbook.md) — compose a
-  same-agent environment store.
+  same-agent environment store for any supported agent; the Maki store is the
+  worked example.
 - [`docs/ai/playbooks/opencode.md`](playbooks/opencode.md) — the OpenCode
   agent path, P3-P8.
 - [`docs/ai/reference/opencode.md`](reference/opencode.md) — OpenCode

@@ -1,9 +1,14 @@
 # Reference environment store
 
-A worked example of the environment layer: a Docker build context that adds
-this user's MCP servers, the Bun runtime they need, and compact-UI preferences
-on top of the generic `maki-agent:local` base. It is opt-in — the repository
-never selects it by default.
+The Maki worked example of the environment layer: a Docker build context that
+adds this user's MCP servers, the Bun runtime they need, and compact-UI
+preferences on top of the generic `maki-agent:local` base. It is opt-in — the
+repository never selects it by default.
+
+It is not a default store for OpenCode, Claude Code, or Codex. Those readers use
+the per-agent adapter table in
+[`docs/ai/environment-playbook.md`](../../../docs/ai/environment-playbook.md)
+and their own reference page; only the Maki row starts from this directory.
 
 Copy this directory outside the repository to make it your own. Do not edit
 `examples/maki-image/` for a personal choice; the base is shared and stays
@@ -98,6 +103,8 @@ selection, or model rows — and copy it to `/sandbox/.config/maki/providers.tom
 Rebuild the environment image after changing it; the TUI reads the catalog
 once per bridge start.
 
-For the full audit → classify → generate → build → verify procedure for any
-host agent, follow
-[`docs/ai/environment-playbook.md`](../../../docs/ai/environment-playbook.md).
+For the full audit → classify → generate → build → verify procedure, follow
+the adapter table in
+[`docs/ai/environment-playbook.md`](../../../docs/ai/environment-playbook.md)
+and the reference for the agent you run. This directory is the Maki worked
+example, not a prerequisite for the other agents.

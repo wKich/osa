@@ -208,7 +208,7 @@ run_fish() {
     RC=0
     FISH_OUT=$CASE/fish.out
     (
-        unset MAKI_OSS_BIN
+        unset MAKI_OSS_BIN OPENCODE_OSS_BIN
         PATH="${FISH_PATH:-$STUB_DIR:$PATH}" \
         HOME="$HOME" \
         XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
@@ -2872,10 +2872,14 @@ test_fish_plugin() {
     if [ ! -L "$XDG_CONFIG_HOME/fish/functions/maki-oss.fish" ]; then
         bad "mutations symlink was not created"
     fi
+    if [ ! -L "$XDG_CONFIG_HOME/fish/functions/__oss_run.fish" ]; then
+        bad "the shared resolver symlink was not created"
+    fi
 
     run_maki fish install
     assert_rc 0
     assert_out_has "already installed"
+    assert_out_has "Fish plugin already installed."
 
     run_fish "type -q maki-oss; and maki-oss help"
     assert_rc 0
@@ -2892,6 +2896,87 @@ test_fish_plugin() {
     if [ -e "$XDG_CONFIG_HOME/fish/functions/maki-oss.fish" ]; then
         bad "managed symlink was not removed"
     fi
+    if [ -e "$XDG_CONFIG_HOME/fish/functions/__oss_run.fish" ]; then
+        bad "the shared resolver outlived the last front-end"
+    fi
+}
+
+test_fish_install_both_front_ends() {
+    begin "both front-ends install twice and share one resolver"
+    new_case fish-both
+    if ! command -v fish >/dev/null 2>&1; then
+        skipped "fish is not installed"
+        return 0
+    fi
+    fish_functions=$XDG_CONFIG_HOME/fish/functions
+
+    run_maki fish install
+    assert_rc 0
+    run_oc fish install
+    assert_rc 0
+    assert_out_has "linked:"
+    assert_out_has "already installed: $fish_functions/__oss_run.fish"
+    for fish_front in maki-oss opencode-oss; do
+        if [ ! -L "$fish_functions/$fish_front.fish" ] \
+            || [ ! -L "$XDG_CONFIG_HOME/fish/completions/$fish_front.fish" ]; then
+            bad "$fish_front was not linked"
+        fi
+    done
+    run_oc fish install
+    assert_rc 0
+    assert_out_has "Fish plugin already installed."
+    run_maki fish install
+    assert_rc 0
+    assert_out_has "Fish plugin already installed."
+    fish_link_count=$(find "$XDG_CONFIG_HOME/fish" -type l | wc -l | tr -d ' ')
+    [ "$fish_link_count" = 5 ] || bad "expected 5 links, found $fish_link_count"
+    if find "$XDG_CONFIG_HOME/fish" -type l ! -exec test -e {} \; -print | grep -q .; then
+        bad "a broken link was left behind"
+    fi
+
+    run_fish "maki-oss help; opencode-oss help"
+    assert_rc 0
+    assert_fish_out_has "maki-oss: run Maki"
+    assert_fish_out_has "opencode-oss: run OpenCode"
+
+    # The resolver stays while another front-end still uses it.
+    run_maki fish uninstall
+    assert_rc 0
+    assert_out_has "kept (still used by another front-end)"
+    [ -L "$fish_functions/__oss_run.fish" ] || bad "the shared resolver was removed too early"
+    run_fish "opencode-oss help"
+    assert_rc 0
+    assert_fish_out_has "Usage:"
+    run_oc fish uninstall
+    assert_rc 0
+    [ ! -e "$fish_functions/__oss_run.fish" ] || bad "the shared resolver was not removed"
+    fish_link_count=$(find "$XDG_CONFIG_HOME/fish" -type l | wc -l | tr -d ' ')
+    [ "$fish_link_count" = 0 ] || bad "uninstall left $fish_link_count links"
+}
+
+test_fish_uninstall_skips_foreign() {
+    begin "fish uninstall leaves a foreign file at a managed path untouched"
+    new_case fish-foreign
+    fish_functions=$XDG_CONFIG_HOME/fish/functions
+    mkdir -p "$fish_functions"
+    printf 'mine\n' >"$fish_functions/maki-oss.fish"
+    printf 'mine\n' >"$fish_functions/opencode-oss.fish"
+    ln -s /nonexistent/elsewhere.fish "$fish_functions/__oss_run.fish"
+
+    run_maki fish uninstall
+    assert_rc 0
+    assert_out_has "skipped (not a symlink from this repository): $fish_functions/maki-oss.fish"
+    assert_out_has "skipped (not installed by maki-oss): $fish_functions/__oss_run.fish"
+    run_oc fish uninstall
+    assert_rc 0
+    assert_out_has "skipped (not a symlink from this repository): $fish_functions/opencode-oss.fish"
+    [ "$(cat "$fish_functions/maki-oss.fish")" = mine ] || bad "a foreign maki-oss.fish was changed"
+    [ "$(cat "$fish_functions/opencode-oss.fish")" = mine ] || bad "a foreign opencode-oss.fish was changed"
+    [ -L "$fish_functions/__oss_run.fish" ] || bad "a foreign link was removed"
+
+    run_maki fish install
+    assert_rc 1
+    assert_err_has "file exists and was not installed by maki-oss"
 }
 
 test_fish_fisher_layout() {
@@ -2903,15 +2988,30 @@ test_fish_fisher_layout() {
     fi
 
     # fisher expands plugins into the fish config directory (copies, not
-    # symlinks); the wrapper then finds the helper on PATH.
+    # symlinks); the wrappers then find their helper on PATH.
     mkdir -p "$XDG_CONFIG_HOME/fish/functions" "$XDG_CONFIG_HOME/fish/completions"
-    cp "$ROOT/fish/functions/maki-oss.fish" "$XDG_CONFIG_HOME/fish/functions/maki-oss.fish"
-    cp "$ROOT/fish/completions/maki-oss.fish" "$XDG_CONFIG_HOME/fish/completions/maki-oss.fish"
+    cp "$ROOT"/fish/functions/*.fish "$XDG_CONFIG_HOME/fish/functions/"
+    cp "$ROOT"/fish/completions/*.fish "$XDG_CONFIG_HOME/fish/completions/"
     FISH_PATH="$STUB_DIR:$ROOT/bin:$PATH"
 
     run_fish "type -q maki-oss; and maki-oss help"
     assert_rc 0
     assert_fish_out_has "Usage:"
+    run_fish "type -q opencode-oss; and opencode-oss help"
+    assert_rc 0
+    assert_fish_out_has "Usage:"
+    for fish_file in "$XDG_CONFIG_HOME"/fish/functions/*.fish "$XDG_CONFIG_HOME"/fish/completions/*.fish; do
+        run_fish "fish -n '$fish_file'"
+        assert_rc 0
+    done
+
+    # An override that is not executable is an error, not a silent fallback.
+    run_fish "MAKI_OSS_BIN=/nonexistent/maki-oss maki-oss help"
+    assert_rc 127
+    assert_fish_out_has "set MAKI_OSS_BIN"
+    run_fish "OPENCODE_OSS_BIN=/nonexistent/opencode-oss opencode-oss help"
+    assert_rc 127
+    assert_fish_out_has "set OPENCODE_OSS_BIN"
 }
 
 test_fish_completions() {
@@ -2923,6 +3023,8 @@ test_fish_completions() {
     fi
 
     run_maki fish install
+    assert_rc 0
+    run_oc fish install
     assert_rc 0
 
     run_fish "complete -C 'maki-oss '"
@@ -2951,6 +3053,27 @@ test_fish_completions() {
     assert_fish_out_has "--from"
     assert_fish_out_has "--credential"
     assert_fish_out_has "--profile"
+
+    # Every flag the helper accepts is completed in both front-ends.
+    for fish_front in maki-oss opencode-oss; do
+        for fish_verb in run upload; do
+            run_fish "complete -C '$fish_front $fish_verb --'"
+            assert_rc 0
+            for fish_flag in --name --image --policy --provider --env --env-from \
+                --allow-env --model --continue --resume --session-id --timeout \
+                --no-sync --discard --no-git-ignore --idle-stop --yes --help; do
+                if ! grep -Fq -- "$fish_flag" "$FISH_OUT"; then
+                    bad "$fish_front $fish_verb -- does not complete $fish_flag"
+                fi
+            done
+        done
+    done
+    run_fish "complete -C 'opencode-oss run --opencode-'"
+    assert_rc 0
+    assert_fish_out_has "--opencode-version"
+    run_fish "complete -C 'maki-oss run --maki-'"
+    assert_rc 0
+    assert_fish_out_has "--maki-version"
 }
 
 # ---------------------------------------------------------------------------
@@ -6407,6 +6530,136 @@ test_upload_subpath_keeps_copy_in_semantics() {
     [ -f "$SANDBOX_WORKDIR/keep.txt" ] || bad "a subpath upload pruned the workspace"
 }
 
+test_upload_explicit_path_copies_only_that_path() {
+    begin "upload NOTES at the default destination copies only that file and records no sync state"
+    new_case upload-plain-copy
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    printf 'notes\n' >"$RUN_DIR/notes.txt"
+    printf 'other\n' >"$RUN_DIR/other.txt"
+
+    run_maki upload notes.txt
+    assert_rc 0
+    assert_log_has "upload"
+    assert_log_line "notes.txt"
+    assert_out_has "Copied 'notes.txt'"
+    assert_err_missing "baseline"
+    assert_out_missing "Refreshed"
+    [ -f "$SANDBOX_WORKDIR/notes.txt" ] || bad "the named file was not copied"
+    [ ! -e "$SANDBOX_WORKDIR/other.txt" ] || bad "another file in the directory was uploaded"
+    [ ! -e "$(session_dir maki-myproject)/synced" ] || bad "a plain copy recorded a synced pair"
+    [ ! -e "$(session_dir maki-myproject)/baseline" ] || bad "a plain copy recorded a baseline"
+    [ ! -e "$(session_dir maki-myproject)/host_manifest" ] || bad "a plain copy recorded a host manifest"
+    [ -z "$(registry_value maki-myproject fingerprint)" ] \
+        || bad "a plain copy wrote a project fingerprint"
+
+    # A destination other than the workdir is a plain copy even for `.`.
+    reset_log
+    run_maki upload . "$SANDBOX_WORKDIR/elsewhere"
+    assert_rc 0
+    assert_out_has "Copied '.'"
+    [ ! -e "$(session_dir maki-myproject)/synced" ] || bad "a copy elsewhere recorded a synced pair"
+    [ -z "$(registry_value maki-myproject fingerprint)" ] \
+        || bad "a copy elsewhere wrote a project fingerprint"
+}
+
+test_upload_partial_copy_keeps_workspace_behind() {
+    begin "a partial copy after a recorded refresh leaves the workspace not clean"
+    new_case upload-partial-behind
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    printf 'notes\n' >"$RUN_DIR/notes.txt"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    run_maki upload .
+    assert_rc 0
+    assert_out_has "Refreshed"
+    run_maki status
+    assert_out_has "Sync:      clean"
+    synced_before=$(cat "$(session_dir maki-repo)/synced")
+    fp_before=$(registry_value maki-repo fingerprint)
+    [ -n "$fp_before" ] || bad "the full refresh recorded no fingerprint"
+
+    printf 'host-change\n' >>"$RUN_DIR/tracked.txt"
+    run_maki upload notes.txt
+    assert_rc 0
+    [ "$(cat "$(session_dir maki-repo)/synced")" = "$synced_before" ] \
+        || bad "a partial copy changed the synced pair"
+    [ "$(registry_value maki-repo fingerprint)" = "$fp_before" ] \
+        || bad "a partial copy changed the project fingerprint"
+    run_maki status
+    assert_rc 0
+    assert_out_has "Sync:      behind"
+    assert_out_missing "Sync:      clean"
+}
+
+test_upload_partial_copy_refused_when_parked() {
+    begin "a partial copy into a parked workspace is refused even with --discard"
+    new_case upload-partial-parked
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR/dist"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    printf 'built\n' >"$RUN_DIR/dist/app.js"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    PATH_OVERRIDE=$(no_git_path)
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    run_maki maki --no-sync
+    assert_rc 0
+    [ "$(pending_value maki-myproject kind)" = parked ] \
+        || bad "the workspace was not parked"
+
+    printf 'late\n' >"$RUN_DIR/dist/late.js"
+    reset_log
+    run_maki upload ./dist
+    assert_rc 1
+    assert_err_has "the workspace is parked"
+    run_maki upload ./dist --discard
+    assert_rc 1
+    assert_err_has "the workspace is parked"
+    assert_err_has "a copy of './dist' cannot use it"
+    assert_log_missing "upload"
+    [ "$(pending_value maki-myproject kind)" = parked ] \
+        || bad "a refused partial copy cleared the parked marker"
+    [ ! -e "$SANDBOX_WORKDIR/dist/late.js" ] || bad "a refused partial copy reached the sandbox"
+
+    run_maki upload . --discard
+    assert_rc 0
+    assert_log_has "upload"
+    [ ! -f "$(session_dir maki-myproject)/pending" ] \
+        || bad "the full refresh left the parked marker"
+}
+
+test_upload_partial_copy_warns_about_retained_patch() {
+    begin "a partial copy proceeds with a retained patch and names it"
+    new_case upload-partial-retained
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    printf 'notes\n' >"$RUN_DIR/notes.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    PATH_OVERRIDE=$(no_git_path)
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    run_maki maki
+    assert_rc 0
+    retained_patch=$(pending_value maki-myproject patch)
+    [ -n "$retained_patch" ] || bad "no retained patch was recorded"
+
+    run_maki upload notes.txt
+    assert_rc 0
+    assert_err_has "$retained_patch"
+    [ -f "$retained_patch" ] || bad "a partial copy removed the retained patch"
+    [ "$(pending_value maki-myproject kind)" = retained ] \
+        || bad "a partial copy cleared the retained marker"
+}
+
 test_applied_retained_patch_clears_notice() {
     begin "an applied retained patch clears the notice without deleting the patch"
     new_case retained-applied
@@ -7802,6 +8055,10 @@ run_test test_upload_prunes_tracked_deletion
 run_test test_upload_prunes_plain_deletion
 run_test test_upload_discards_parked_workspace
 run_test test_upload_subpath_keeps_copy_in_semantics
+run_test test_upload_explicit_path_copies_only_that_path
+run_test test_upload_partial_copy_keeps_workspace_behind
+run_test test_upload_partial_copy_refused_when_parked
+run_test test_upload_partial_copy_warns_about_retained_patch
 run_test test_download
 run_test test_env_refusal
 run_test test_env_refusal_session_path
@@ -7936,6 +8193,8 @@ run_test test_no_jq_fallback
 run_test test_no_jq_attached_providers
 run_test test_missing_policy_dependency
 run_test test_fish_plugin
+run_test test_fish_install_both_front_ends
+run_test test_fish_uninstall_skips_foreign
 run_test test_fish_fisher_layout
 run_test test_fish_completions
 run_test test_example_config

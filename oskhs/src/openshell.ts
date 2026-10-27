@@ -26,8 +26,8 @@ export function upload(ctx: Ctx, sandbox: string, local: string, dest: string): 
 }
 
 /** Download one sandbox file into an existing host directory (keeps its basename). */
-export function download(ctx: Ctx, sandbox: string, path: string, dir: string): Promise<RunOutput> {
-  return ctx.run([...base(ctx), "sandbox", "download", sandbox, path, dir.endsWith("/") ? dir : `${dir}/`]);
+export function download(ctx: Ctx, sandbox: string, path: string, dir: string, opts: RunOpts = {}): Promise<RunOutput> {
+  return ctx.run([...base(ctx), "sandbox", "download", sandbox, path, dir.endsWith("/") ? dir : `${dir}/`], opts);
 }
 
 export async function sandboxPhase(ctx: Ctx, sandbox: string): Promise<string | undefined> {

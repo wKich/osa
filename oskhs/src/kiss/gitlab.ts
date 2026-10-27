@@ -2,12 +2,31 @@
 // The token lives in the oskhs host process only: the API gets it as a
 // header, git as an environment-only http.extraHeader. Neither error
 // messages nor logs ever include it.
+import { checkAbort } from "../exec.ts";
 
 export interface GitLabConfig {
   baseUrl: string; // e.g. https://git.skbkontur.ru
   token: string;
   gitBaseUrl?: string; // where repositories are fetched from; default baseUrl (tests use a local dir)
   mrRetryDelaysMs?: number[]; // default kiss's MR_CREATE_RETRY_DELAYS
+  requestTimeoutMs?: number; // per API request; default REQUEST_TIMEOUT_MS
+}
+
+/** One GitLab API request, however slow the server: the round's deadline is far longer. */
+export const REQUEST_TIMEOUT_MS = 30_000;
+
+/** Resolves after `ms`, or as soon as the signal aborts. */
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const done = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+  });
 }
 
 /** kiss GitlabService: a just-pushed branch reaches the MR endpoint late (400 "source_branch does not exist"). */
@@ -41,15 +60,31 @@ export function gitAuthEnv(token: string): Record<string, string> {
 export const repoUrl = (cfg: GitLabConfig, projectPath: string) => `${(cfg.gitBaseUrl ?? cfg.baseUrl).replace(/\/+$/, "")}/${projectPath}.git`;
 
 export class GitLab {
-  constructor(private readonly cfg: GitLabConfig) {}
+  /** `signal` is the round's: once it aborts no request starts and a pending one is dropped. */
+  constructor(
+    private readonly cfg: GitLabConfig,
+    private readonly signal?: AbortSignal,
+  ) {}
 
   private async call<T>(method: string, path: string, body?: unknown): Promise<T> {
-    const res = await fetch(`${this.cfg.baseUrl.replace(/\/+$/, "")}/api/v4${path}`, {
-      method,
-      headers: { "PRIVATE-TOKEN": this.cfg.token, ...(body ? { "content-type": "application/json" } : {}) },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-    const text = await res.text();
+    checkAbort(this.signal);
+    const timeoutMs = this.cfg.requestTimeoutMs ?? REQUEST_TIMEOUT_MS;
+    const timeout = AbortSignal.timeout(timeoutMs);
+    let res: Response;
+    let text: string;
+    try {
+      res = await fetch(`${this.cfg.baseUrl.replace(/\/+$/, "")}/api/v4${path}`, {
+        method,
+        headers: { "PRIVATE-TOKEN": this.cfg.token, ...(body ? { "content-type": "application/json" } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+        signal: this.signal ? AbortSignal.any([this.signal, timeout]) : timeout,
+      });
+      text = await res.text();
+    } catch (err) {
+      checkAbort(this.signal);
+      if (timeout.aborted) throw new GitLabError(`GitLab ${method} ${path.split("?")[0]} timed out after ${timeoutMs}ms`);
+      throw err;
+    }
     if (!res.ok) {
       const detail = text.split(this.cfg.token).join("<token>").slice(0, 300);
       throw new GitLabError(`GitLab ${method} ${path.split("?")[0]} → ${res.status}: ${detail}`, res.status);
@@ -118,7 +153,8 @@ export class GitLab {
         return await this.call<MergeRequest>("POST", `/projects/${GitLab.project(projectPath)}/merge_requests`, body);
       } catch (err) {
         if (delay === null || !(err instanceof GitLabError) || err.status !== 400 || /moved projects?/i.test(err.message)) throw err;
-        await Bun.sleep(delay);
+        await sleep(delay, this.signal);
+        checkAbort(this.signal); // an abort during the wait ends the retry without another request
       }
     }
     throw new Error("unreachable");

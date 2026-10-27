@@ -2,7 +2,9 @@
 // vcs.base, vcs.status), ported from OpenCode's git provider
 // (core/src/plugin/vcs/git.ts v2.1.4) and run in the sandbox over the exec
 // transport. Each request batches its git commands into a few execs: the
-// transport costs a round trip per exec, not per command.
+// transport costs a round trip per exec, not per command. A batch is bounded
+// by command count and script size, so a large repository runs several execs
+// in order instead of one that exceeds the transport's argument limit.
 import { sandboxRun } from "./sandbox.ts";
 
 // the provider's fixed git configuration (git.ts L164–L176)
@@ -12,6 +14,12 @@ const CFG = ["--no-optional-locks", "-c", "core.autocrlf=false", "-c", "core.fsm
 const PATCH_CONTEXT_LINES = 2_147_483_647;
 const MAX_PATCH_BYTES = 10_000_000;
 const MAX_TOTAL_PATCH_BYTES = 10_000_000;
+// one exec carries at most this many commands and this many script bytes
+// (well under the 128 KiB a single argument may take); patches run in smaller
+// groups, since each can answer megabytes and the total budget ends the work
+export const MAX_BATCH_COMMANDS = 100;
+export const MAX_BATCH_BYTES = 64 * 1024;
+export const MAX_PATCH_COMMANDS = 16;
 
 export type Mode = "working" | "branch" | "committed";
 export type Kind = "added" | "deleted" | "modified";
@@ -26,12 +34,39 @@ interface Stat { file: string; additions: number; deletions: number }
 
 const quote = (arg: string) => `'${arg.replace(/'/g, `'\\''`)}'`;
 
-/** runs git commands in order in one exec; a missing sandbox reads as all failed */
+/** one command's script line: its exit code follows its output, \037 then \036 */
+const line = (args: string[]) => `git ${[...CFG, ...args].map(quote).join(" ")} 2>/dev/null; printf '\\037%d\\036' $?`;
+
+/** splits a command list, keeping its order, into groups that each fit one
+ * exec: at most `max` commands and MAX_BATCH_BYTES of script (a single command
+ * larger than that still runs, alone) */
+export function chunkCommands(cmds: string[][], max = MAX_BATCH_COMMANDS): string[][][] {
+  const groups: string[][][] = [];
+  let group: string[][] = [];
+  let bytes = 0;
+  for (const cmd of cmds) {
+    const size = Buffer.byteLength(line(cmd)) + 1;
+    if (group.length && (group.length >= max || bytes + size > MAX_BATCH_BYTES)) {
+      groups.push(group);
+      group = [];
+      bytes = 0;
+    }
+    group.push(cmd);
+    bytes += size;
+  }
+  if (group.length) groups.push(group);
+  return groups;
+}
+
+/** runs git commands in order, one bounded exec per chunk; a missing sandbox reads as all failed */
 async function batch(cmds: string[][], workdir: string): Promise<Result[]> {
-  const script = cmds
-    .map((args) => `git ${[...CFG, ...args].map(quote).join(" ")} 2>/dev/null; printf '\\037%d\\036' $?`)
-    .join("\n");
-  const res = await sandboxRun(["sh", "-c", script], workdir);
+  const results: Result[] = [];
+  for (const group of chunkCommands(cmds)) results.push(...(await exec(group, workdir)));
+  return results;
+}
+
+async function exec(cmds: string[][], workdir: string): Promise<Result[]> {
+  const res = await sandboxRun(["sh", "-c", cmds.map(line).join("\n")], workdir);
   if (!res) return cmds.map(() => ({ code: 1, out: "" }));
   const parts = res.stdout.split("\x1e");
   return cmds.map((_, i) => {
@@ -266,28 +301,35 @@ async function files(workdir: string, ref: string | undefined, list: Item[], map
   const sorted = list.toSorted((a, b) => a.file.localeCompare(b.file));
   const untracked = sorted.filter((i) => i.code === "??" || !ref || (!target && i.status === "added" && !map.has(i.file)));
   const stats = await untrackedStats(workdir, untracked.filter((i) => !target && i.status === "added").map((i) => i.file));
-  const patches = await batch(
-    sorted.map((item) =>
-      item.code === "??" || !ref
-        ? ["diff", "--no-index", "--patch", "--no-ext-diff", "--no-renames", `--unified=${context}`, "--", "/dev/null", item.file]
-        : ["diff", "--patch", "--no-ext-diff", "--no-renames", `--unified=${context}`, ref, ...(target ? [target] : []), "--", item.file],
-    ),
-    workdir,
+  const cmds = sorted.map((item) =>
+    item.code === "??" || !ref
+      ? ["diff", "--no-index", "--patch", "--no-ext-diff", "--no-renames", `--unified=${context}`, "--", "/dev/null", item.file]
+      : ["diff", "--patch", "--no-ext-diff", "--no-renames", `--unified=${context}`, ref, ...(target ? [target] : []), "--", item.file],
   );
+  // patches are generated group by group, in order, until the total budget is
+  // reached; the files after that are capped without running their diffs
+  const patches: string[] = [];
   let total = 0;
   let capped = false;
+  for (const group of chunkCommands(cmds, MAX_PATCH_COMMANDS)) {
+    if (capped) break;
+    for (const result of await exec(group, workdir)) {
+      const file = sorted[patches.length]!.file;
+      let patch = result.out;
+      if (!patch || Buffer.byteLength(patch) > MAX_PATCH_BYTES || capped) patch = emptyPatch(file);
+      if (!capped && total + Buffer.byteLength(patch) > MAX_TOTAL_PATCH_BYTES) {
+        patch = emptyPatch(file);
+        capped = true;
+      }
+      if (!capped) {
+        total += Buffer.byteLength(patch);
+        capped = total >= MAX_TOTAL_PATCH_BYTES;
+      }
+      patches.push(patch);
+    }
+  }
   return sorted.map((item, i) => {
     const stat = map.get(item.file) ?? (!target && item.status === "added" ? stats.get(item.file) : undefined);
-    let patch = patches[i]!.out;
-    if (!patch || Buffer.byteLength(patch) > MAX_PATCH_BYTES || capped) patch = emptyPatch(item.file);
-    if (!capped && total + Buffer.byteLength(patch) > MAX_TOTAL_PATCH_BYTES) {
-      patch = emptyPatch(item.file);
-      capped = true;
-    }
-    if (!capped) {
-      total += Buffer.byteLength(patch);
-      capped = total >= MAX_TOTAL_PATCH_BYTES;
-    }
-    return { file: item.file, patch, additions: stat?.additions ?? 0, deletions: stat?.deletions ?? 0, status: item.status };
+    return { file: item.file, patch: patches[i] ?? emptyPatch(item.file), additions: stat?.additions ?? 0, deletions: stat?.deletions ?? 0, status: item.status };
   });
 }

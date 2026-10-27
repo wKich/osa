@@ -88,12 +88,14 @@ function start(
   overrides: {
     readOnly?: boolean;
     token?: string;
+    host?: string;
     config?: DashboardConfig;
     client?: OpenShellClient;
     projects?: ProjectService;
   } = {},
 ): DashboardHandle {
   const handle = createDashboardServer({
+    host: overrides.host,
     port: 0,
     client: overrides.client ?? makeClient(),
     config: overrides.config ?? testConfig,
@@ -174,7 +176,7 @@ describe("page and doctor", () => {
     expect(html).toContain(testConfig.image);
   });
 
-  test("read-only mode serves a read token for streams", async () => {
+  test("loopback read-only mode serves a read token for streams", async () => {
     const handle = start({ readOnly: true });
     expect(handle.token).toBeString();
     const html = await (await fetch(`${base(handle)}/`)).text();
@@ -194,6 +196,200 @@ describe("page and doctor", () => {
 
   test("non-loopback bind requires an explicit token", () => {
     expect(() => createDashboardServer({ host: "0.0.0.0", port: 0 })).toThrow(/token/);
+  });
+});
+
+const REMOTE_TOKEN = "remote-secret-token";
+
+function startRemote(overrides: { readOnly?: boolean; host?: string } = {}): DashboardHandle {
+  return start({ host: overrides.host ?? "0.0.0.0", token: REMOTE_TOKEN, readOnly: overrides.readOnly });
+}
+
+describe("host validation", () => {
+  test("a loopback bind refuses a foreign Host before the page or any API route", async () => {
+    seedSandbox("demo");
+    const handle = start();
+    resetLog();
+    for (const path of ["/", "/api/sandboxes", "/api/doctor", "/api/projects", "/app/main.js"]) {
+      const response = await fetch(`${base(handle)}${path}`, {
+        headers: { host: `evil.example:${handle.port}` },
+      });
+      expect(response.status).toBe(403);
+      const text = await response.text();
+      expect(text).not.toContain(handle.token ?? "no-token");
+      expect(text).not.toContain("demo");
+    }
+    const stream = await fetch(`${base(handle)}/events/logs?name=demo&token=${handle.token}`, {
+      headers: { host: "evil.example" },
+    });
+    expect(stream.status).toBe(403);
+    expect(argvLog()).toBe("");
+  });
+
+  test("a loopback bind accepts only the loopback names and its own port", async () => {
+    const handle = start();
+    const hosts = [
+      `127.0.0.1:${handle.port}`,
+      `localhost:${handle.port}`,
+      `[::1]:${handle.port}`,
+      "localhost",
+      "LOCALHOST",
+    ];
+    for (const host of hosts) {
+      const response = await fetch(`${base(handle)}/api/doctor`, { headers: { host } });
+      expect(response.status).toBe(200);
+    }
+    for (const host of [`localhost:${handle.port + 1}`, "localhost.evil.example", "127.0.0.2", "[::2]"]) {
+      const response = await fetch(`${base(handle)}/api/doctor`, { headers: { host } });
+      expect(response.status).toBe(403);
+    }
+  });
+
+  test("a concrete non-loopback bind also accepts its own address", async () => {
+    // A concrete non-loopback address; skip if this host cannot bind it.
+    let handle: DashboardHandle;
+    try {
+      handle = startRemote({ host: "127.0.0.2" });
+    } catch {
+      return;
+    }
+    const headers = { "x-dashboard-token": REMOTE_TOKEN };
+    const own = await fetch(`http://127.0.0.2:${handle.port}/api/doctor`, { headers });
+    expect(own.status).toBe(200);
+    const foreign = await fetch(`http://127.0.0.2:${handle.port}/api/doctor`, {
+      headers: { ...headers, host: `evil.example:${handle.port}` },
+    });
+    expect(foreign.status).toBe(403);
+  });
+
+  test("a wildcard bind accepts any host but still needs the token", async () => {
+    const handle = startRemote();
+    const host = `dashboard.internal:${handle.port}`;
+    const open = await fetch(`${base(handle)}/api/doctor`, { headers: { host } });
+    expect(open.status).toBe(403);
+    const authed = await fetch(`${base(handle)}/api/doctor`, {
+      headers: { host, "x-dashboard-token": REMOTE_TOKEN },
+    });
+    expect(authed.status).toBe(200);
+  });
+});
+
+describe("non-loopback token confidentiality", () => {
+  test("the page without the token is refused and leaks nothing", async () => {
+    seedSandbox("demo");
+    const handle = startRemote();
+    resetLog();
+    for (const path of ["/", "/index.html", "/?token=wrong", "/?token="]) {
+      const response = await fetch(`${base(handle)}${path}`);
+      expect(response.status).toBe(403);
+      const text = await response.text();
+      expect(text).not.toContain(REMOTE_TOKEN);
+      expect(text).not.toContain("dashboard-bootstrap");
+      expect(text).not.toContain(testConfig.image);
+    }
+    expect(argvLog()).toBe("");
+  });
+
+  test("the page with the token embeds it for same-origin calls", async () => {
+    const handle = startRemote();
+    const response = await fetch(`${base(handle)}/?token=${REMOTE_TOKEN}`);
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("dashboard-bootstrap");
+    expect(html).toContain(`"token":"${REMOTE_TOKEN}"`);
+  });
+
+  test("API reads without the token are refused and run no command", async () => {
+    seedSandbox("demo");
+    const handle = startRemote();
+    resetLog();
+    const paths = [
+      "/api/doctor",
+      "/api/sandboxes",
+      "/api/sandboxes/demo",
+      "/api/sandboxes/demo/policy",
+      "/api/sandboxes/demo/rules",
+      "/api/projects",
+      "/api/projects/demo/status",
+      "/api/projects/demo/patch",
+    ];
+    for (const path of paths) {
+      for (const headers of [{}, { "x-dashboard-token": "wrong" }]) {
+        const response = await fetch(`${base(handle)}${path}`, { headers });
+        expect(response.status).toBe(403);
+        const text = await response.text();
+        expect(text).not.toContain(REMOTE_TOKEN);
+        expect(text).not.toContain("demo");
+      }
+    }
+    expect(argvLog()).toBe("");
+  });
+
+  test("API reads with the token are served", async () => {
+    seedSandbox("demo");
+    const handle = startRemote();
+    const headers = { "x-dashboard-token": REMOTE_TOKEN };
+    const sandboxes = await fetch(`${base(handle)}/api/sandboxes`, { headers });
+    expect(sandboxes.status).toBe(200);
+    expect(JSON.stringify(await sandboxes.json())).toContain("demo");
+    const projects = await fetch(`${base(handle)}/api/projects`, { headers });
+    expect(projects.status).toBe(200);
+  });
+
+  test("streams need the token and mutations keep needing the header", async () => {
+    seedSandbox("demo");
+    const handle = startRemote();
+    resetLog();
+    const stream = await fetch(`${base(handle)}/events/logs?name=demo`);
+    expect(stream.status).toBe(403);
+    await stream.text();
+    const mutation = await fetch(`${base(handle)}/api/sandboxes/demo/stop`, { method: "POST" });
+    expect(mutation.status).toBe(403);
+    expect(argvLog()).toBe("");
+    expect(phase("demo")).toBe("Ready");
+
+    const authed = await fetch(`${base(handle)}/api/sandboxes/demo/stop`, {
+      method: "POST",
+      headers: { "x-dashboard-token": REMOTE_TOKEN },
+    });
+    expect(authed.status).toBe(200);
+    expect(phase("demo")).toBe("Stopped");
+  });
+
+  test("static modules stay open so the authenticated page can load them", async () => {
+    const handle = startRemote();
+    const response = await fetch(`${base(handle)}/app/main.js`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).not.toContain(REMOTE_TOKEN);
+  });
+
+  test("read-only remote requires the token for page, reads, and logs, and refuses every mutation", async () => {
+    seedSandbox("demo");
+    const handle = startRemote({ readOnly: true });
+    resetLog();
+    expect((await fetch(`${base(handle)}/`)).status).toBe(403);
+    expect((await fetch(`${base(handle)}/api/sandboxes`)).status).toBe(403);
+    const logs = await fetch(`${base(handle)}/events/logs?name=demo`);
+    expect(logs.status).toBe(403);
+    await logs.text();
+    const bare = await fetch(`${base(handle)}/api/sandboxes/demo/stop`, { method: "POST" });
+    expect(bare.status).toBe(403);
+    const withToken = await fetch(`${base(handle)}/api/sandboxes/demo/stop`, {
+      method: "POST",
+      headers: { "x-dashboard-token": REMOTE_TOKEN },
+    });
+    expect(withToken.status).toBe(403);
+    expect((await withToken.json()).error.kind).toBe("read_only");
+    expect(argvLog()).toBe("");
+    expect(phase("demo")).toBe("Ready");
+
+    const page = await fetch(`${base(handle)}/?token=${REMOTE_TOKEN}`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('"readOnly":true');
+    const reads = await fetch(`${base(handle)}/api/sandboxes`, {
+      headers: { "x-dashboard-token": REMOTE_TOKEN },
+    });
+    expect(reads.status).toBe(200);
   });
 });
 

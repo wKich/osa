@@ -2,13 +2,13 @@
 // the project's warm sandbox, one worktree per task repository, synced from
 // the host's bare mirrors; Maki's answer becomes the reply kiss posts.
 import { existsSync } from "node:fs";
-import { tail } from "../exec.ts";
+import { checkAbort, RoundAborted, tail } from "../exec.ts";
 import { checkTaskId, projectName, repoSubdir, sandboxName } from "../names.ts";
 import { sandboxSh, type Ctx } from "../openshell.ts";
 import { runRound, type RepoSpec } from "../round.ts";
 import { ensureSandbox } from "../sandbox.ts";
 import { ensureModelProvider, ModelError, pinSandboxProvider, planModel, providerStateFile, type KissModelProvider } from "./model.ts";
-import type { Round, RoundReply } from "../worker.ts";
+import type { Round, RoundInput, RoundReply } from "../worker.ts";
 import { agentsMd, buildCodeTaskPrompt, buildTaskPrompt, type PromptTask } from "./prompt.ts";
 import { parseResultFields, replyText, reportedNoChanges } from "./result.ts";
 import { MirrorError, mirrorPath, refreshMirror } from "./mirror.ts";
@@ -47,7 +47,10 @@ async function terminalLabel(api: GitLab, mrs: { projectPath: string; mrIid: num
   let merged = false;
   let closed = false;
   for (const mr of mrs) {
-    const state = await api.mrState(mr.projectPath, mr.mrIid).catch(() => "opened");
+    const state = await api.mrState(mr.projectPath, mr.mrIid).catch((err) => {
+      if (err instanceof RoundAborted) throw err;
+      return "opened";
+    });
     if (state === "merged") merged = true;
     else if (state === "closed") closed = true;
     else return null;
@@ -70,15 +73,18 @@ export function sandboxFor(project: { _id?: unknown; title?: string | null } | n
   }
 }
 
+const ABORTED: RoundReply = { ok: false, error: "aborted" };
+
 export function sandboxRound(cfg: SandboxRoundConfig): Round {
-  return async (input, signal): Promise<RoundReply> => {
+  const attempt = async (input: RoundInput, signal: AbortSignal): Promise<RoundReply> => {
     const { task } = input;
     const taskRepos = (task.taskRepositories as TaskRepository[] | undefined) ?? [];
     const repos: (RepoSpec & { projectPath: string; description?: string | null; target: string })[] = [];
     for (const r of taskRepos) {
+      checkAbort(signal);
       if (cfg.gitlab) {
         try {
-          await refreshMirror(cfg.ctx, cfg.gitlab, cfg.mirrorDir, r.projectPath);
+          await refreshMirror(cfg.ctx, cfg.gitlab, cfg.mirrorDir, r.projectPath, signal);
         } catch (err) {
           if (err instanceof MirrorError) return { ok: false, error: `oskhs mirror of ${r.projectPath}: ${err.message}` };
           throw err;
@@ -121,7 +127,7 @@ export function sandboxRound(cfg: SandboxRoundConfig): Round {
     // after a Q&A round opens the first MR) — unless every MR is merged or
     // closed, then it only answers.
     const withMR = taskRepos.filter((r) => r.mrIid && r.branchName) as (TaskRepository & { mrIid: number; branchName: string })[];
-    const terminal = input.subTask && withMR.length && cfg.gitlab ? await terminalLabel(new GitLab(cfg.gitlab), withMR) : null;
+    const terminal = input.subTask && withMR.length && cfg.gitlab ? await terminalLabel(new GitLab(cfg.gitlab, signal), withMR) : null;
     const code = task.readOnly !== true && !!cfg.gitlab && !terminal;
     // a follow-up's prompt was already built by kiss
     const prompt = input.subTask
@@ -149,6 +155,7 @@ export function sandboxRound(cfg: SandboxRoundConfig): Round {
       case "answer": {
         const text = replyText(result.text);
         const fields = parseResultFields(result.text);
+        checkAbort(signal);
         if (terminal) return { ok: true, text: `${text}\n\n${terminalNote(terminal)}` };
         const changed = outcomes.filter((o) => o.changes);
         if (!code || !changed.length || reportedNoChanges(fields)) return { ok: true, text };
@@ -164,13 +171,16 @@ export function sandboxRound(cfg: SandboxRoundConfig): Round {
             authorUsername: task.authorUsername as string | null | undefined,
             source: task.source as string | null | undefined,
             fields,
-            branch: withMR[0]?.branchName,
+            signal,
             repos: changed.map((o) => {
               const spec = repos.find((r) => r.key === o.key)!;
-              return { projectPath: spec.projectPath, target: spec.target, changes: o.changes! };
+              // each repository keeps the branch of its own MR; none → publish picks a new one
+              const branchName = withMR.find((r) => r.projectPath === spec.projectPath)?.branchName;
+              return { projectPath: spec.projectPath, target: spec.target, changes: o.changes!, branchName };
             }),
           });
         } catch (err) {
+          if (err instanceof RoundAborted) throw err;
           return { ok: false, error: `oskhs could not publish the changes: ${err instanceof Error ? err.message : String(err)}` };
         }
         const fresh = mrs.filter((m) => !withMR.some((r) => r.projectPath === m.projectPath));
@@ -191,6 +201,15 @@ export function sandboxRound(cfg: SandboxRoundConfig): Round {
         return { ok: false, error: `round timed out after ${result.seconds}s` };
       case "failed":
         return { ok: false, error: `oskhs round failed at ${result.stage} (exit ${result.exitCode}): ${tail(result.stderr, 5)}` };
+    }
+  };
+  return async (input, signal) => {
+    try {
+      return await attempt(input, signal);
+    } catch (err) {
+      // a cancelled round ends quietly: the worker finishes the cancel and writes no result
+      if (err instanceof RoundAborted) return ABORTED;
+      throw err;
     }
   };
 }

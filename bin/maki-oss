@@ -33,8 +33,9 @@ Commands:
   run "<prompt>"                Ensure the sandbox, run Maki headless, and
                                 print its JSON output
   upload [--discard] [PATH] [DEST]
-                                Refresh the workspace from local files
-                                (--discard replaces parked changes)
+                                Refresh the workspace (no PATH or `.`), or copy
+                                PATH as-is (no baseline; --discard is
+                                refresh-only and replaces parked changes)
   download [SANDBOX_PATH] DEST  Copy files from the sandbox to the host
   status                        Show the sandbox and workspace sync state
   list                          List sandboxes on the gateway
@@ -82,8 +83,10 @@ Common options:
   --no-sync        Session commands: skip collecting changes on exit and
                    park the workspace (default: collect a patch and apply it
                    only when the sandbox baseline matches the host)
-  --discard        upload: replace a parked workspace; rm: delete a parked
-                   workspace's unique changes (both keep patch files)
+  --discard        upload (full refresh only): replace a parked workspace;
+                   rm: delete a parked workspace's unique changes (both
+                   keep patch files)
+  --no-git-ignore  upload: send everything, ignoring .gitignore
   --idle-stop DUR  Session commands: stop the sandbox DUR after the last
                    session closes and no Maki runs in it (seconds, or with
                    an s, m, or h suffix; default 1h; 0 disables)
@@ -505,73 +508,6 @@ cmd_image_build() {
         die_dep "image build failed (exit status $image_build_rc)"
     fi
     say "Built image '$image'."
-}
-
-cmd_fish_install() {
-    [ "$#" -eq 0 ] || die_usage "fish install takes no arguments"
-    fish_home=${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/fish
-    failed=0
-    for entry in functions/maki-oss.fish completions/maki-oss.fish; do
-        src=$repo_root/fish/$entry
-        dest=$fish_home/$entry
-        if [ ! -e "$src" ]; then
-            err "missing plugin file: $src"
-            failed=1
-            continue
-        fi
-        if [ -L "$dest" ]; then
-            target=$(readlink "$dest")
-            if [ "$target" = "$src" ]; then
-                say "already installed: $dest"
-            else
-                case $target in
-                    "$repo_root"/*)
-                        ln -sfn "$src" "$dest"
-                        say "relinked: $dest"
-                        ;;
-                    *)
-                        err "skipped $dest: existing symlink points outside this repository"
-                        failed=1
-                        ;;
-                esac
-            fi
-        elif [ -e "$dest" ]; then
-            err "skipped $dest: file exists and was not installed by $PROGRAM"
-            failed=1
-        else
-            mkdir -p -- "$(dirname -- "$dest")"
-            ln -s "$src" "$dest"
-            say "linked: $dest -> $src"
-        fi
-    done
-    if [ "$failed" -ne 0 ]; then
-        exit "$EX_USAGE"
-    fi
-    say "Fish plugin installed; open a new fish session to use it."
-}
-
-cmd_fish_uninstall() {
-    [ "$#" -eq 0 ] || die_usage "fish uninstall takes no arguments"
-    fish_home=${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/fish
-    for entry in functions/maki-oss.fish completions/maki-oss.fish; do
-        dest=$fish_home/$entry
-        if [ -L "$dest" ]; then
-            target=$(readlink "$dest")
-            case $target in
-                "$repo_root"/*)
-                    rm -f "$dest"
-                    say "removed: $dest"
-                    ;;
-                *)
-                    say "skipped (not installed by $PROGRAM): $dest"
-                    ;;
-            esac
-        elif [ -e "$dest" ]; then
-            say "skipped (not a symlink from this repository): $dest"
-        else
-            say "not installed: $dest"
-        fi
-    done
 }
 
 # shellcheck source=../lib/oss-core.sh

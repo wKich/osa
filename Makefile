@@ -1,6 +1,7 @@
 # osa development tasks.
 #
 #   make test          stub-backed suite (no Docker, no gateway, no network)
+#   make test-all      every suite: shell, bridge, dashboard, oskhs + MongoDB
 #   make test-oskhs    oskhs round library suite (bun, no gateway)
 #   make lint          shellcheck + fish syntax checks
 #   make lint-profiles lint every example provider profile with the real CLI
@@ -9,10 +10,23 @@
 
 SHELL := /bin/sh
 
-.PHONY: test test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-docs lint-profiles install-fish openspec-update sync-openspec
+.PHONY: test test-all test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-docs lint-profiles install-fish openspec-update sync-openspec
 
 test:
 	tests/run-tests.sh
+
+# The verification gate (CI runs exactly this): the shell, bridge, dashboard,
+# and oskhs suites, including the MongoTaskStore tests against
+# OSKHS_TEST_MONGO_URI. A missing prerequisite fails instead of skipping, and
+# the first failing suite is named.
+test-all:
+	@command -v bun >/dev/null 2>&1 || { echo 'test-all: bun not found (install Bun: https://bun.sh)' >&2; exit 1; }
+	@[ -n "$${OSKHS_TEST_MONGO_URI:-}" ] || { echo 'test-all: OSKHS_TEST_MONGO_URI is not set (e.g. mongodb://127.0.0.1:27017)' >&2; exit 1; }
+	@tests/run-tests.sh || { echo 'test-all: shell suite failed' >&2; exit 1; }
+	@(cd bridge && bun test) || { echo 'test-all: bridge suite failed' >&2; exit 1; }
+	@(cd dashboard && bun test) || { echo 'test-all: dashboard suite failed' >&2; exit 1; }
+	@(cd oskhs && bun test) || { echo 'test-all: oskhs suite failed' >&2; exit 1; }
+	@echo 'test-all: shell, bridge, dashboard, and oskhs (with MongoDB) suites passed'
 
 # Offline oskhs suite: round library over a recording runner. No Docker,
 # gateway, or network. Skips with a message when bun is absent.
@@ -105,6 +119,7 @@ lint-docs:
 
 lint: lint-docs
 	shellcheck -x bin/maki-oss bin/opencode-oss bin/claude-oss bin/codex-oss bin/osa lib/oss-core.sh lib/osa-state.sh tests/run-tests.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode tests/stub/codex
+	fish -n fish/functions/__oss_run.fish
 	fish -n fish/functions/maki-oss.fish
 	fish -n fish/conf.d/maki-oss.fish
 	fish -n fish/completions/maki-oss.fish

@@ -532,16 +532,27 @@ MAKI_OSS_WORKSPACE=caller MAKI_OSS_IDLE_STOP=0 MAKI_OSS_SANDBOX_NAME=repo-app \
 
 ### upload / download
 
-`upload [--discard] [LOCAL_PATH] [SANDBOX_DEST]` copies local files into the
-sandbox. The default local path is `.` and the default destination is the
-workdir. An upload to the workdir refreshes the tracked tree: it uploads the
-current host tree, removes tracked files deleted on the host, preserves
-ignored sandbox-local artifacts such as `node_modules`, and re-records the
-baseline and synced pair. A parked workspace is refused unless `--discard` is
-passed; discard replaces the parked output and keeps existing patch files. A
-retained patch is kept and its path is printed. An upload to any other
-destination is a copy-in: it does not prune and does not re-record the
-baseline. `upload` never clears a retained patch file.
+`upload [--discard] [LOCAL_PATH] [SANDBOX_DEST]` has two modes.
+
+- **Full refresh**: no path, or `.`, at the workdir (the default destination).
+  It uploads the current host tree, removes tracked files that the previous
+  refresh placed in the workspace but the host no longer has, preserves
+  ignored sandbox-local artifacts such as `node_modules`, and only then
+  records the baseline, host manifest, synced pair, and project fingerprint.
+  A parked workspace is refused unless `--discard` is passed; discard
+  replaces the parked output and keeps existing patch files. A retained patch
+  is kept and its path is printed.
+- **Plain copy**: an explicit path other than `.` (at any destination), or
+  any copy to a destination other than the workdir. It runs
+  `openshell sandbox upload SRC DEST` and nothing else: no pruning, and no
+  baseline, manifest, synced pair, or fingerprint is written, so a partial
+  copy never makes the workspace look current and the next status or session
+  still sees host changes. A parked workspace refuses a plain copy even with
+  `--discard`, because copying into unrecovered output can destroy it;
+  `--discard` applies only to a full refresh. A retained patch only warns.
+
+`upload ./notes.txt` therefore copies only that file into the workdir; it does
+not refresh the tree. `upload` never clears a retained patch file.
 
 `download [SANDBOX_PATH] DEST` copies files out to an explicit host
 destination; with one argument that argument is the destination and the
@@ -552,9 +563,10 @@ Both delegate to `openshell sandbox upload` / `download`; neither creates a
 bind mount or exposes any other host path.
 
 ```sh
-maki-oss upload .                          # project -> /sandbox/project
-maki-oss upload --discard .                # replace a parked workspace
-maki-oss upload ./dist /sandbox/project/dist
+maki-oss upload                            # full refresh: project -> /sandbox/project
+maki-oss upload --discard .                # full refresh replacing a parked workspace
+maki-oss upload ./notes.txt                # plain copy of one file into the workdir
+maki-oss upload ./dist /sandbox/project/dist   # plain copy, no prune or baseline
 maki-oss download /sandbox/project/out ./out
 ```
 
@@ -761,17 +773,21 @@ MCP is not a prerequisite for running Maki: a failing MCP gate never changes
 
 Installs the fish plugin without fisher by symlinking
 `fish/functions/maki-oss.fish` and `fish/completions/maki-oss.fish` into
-`${XDG_CONFIG_HOME:-$HOME/.config}/fish`. The install is idempotent, refuses
-to overwrite foreign files, and uninstall removes only symlinks that point
-into this repository.
+`fish/functions/__oss_run.fish` (the shared resolver both commands call) into
+`${XDG_CONFIG_HOME:-$HOME/.config}/fish`. The install is idempotent (a second
+run reports the plugin is already installed), refuses to overwrite foreign
+files, and uninstall removes only symlinks that point into this repository,
+reporting every other file as skipped. Uninstall keeps the shared resolver
+while the other front-end is still installed.
 
 ```sh
 maki-oss fish install
 maki-oss fish uninstall
 ```
 
-`opencode-oss` has the same subcommand, symlinking its own
-`fish/functions/opencode-oss.fish` and `fish/completions/opencode-oss.fish`.
+`opencode-oss` has the same subcommand (one implementation in
+`lib/oss-core.sh`), symlinking its own `fish/functions/opencode-oss.fish` and
+`fish/completions/opencode-oss.fish`.
 Neither installs `fish/completions/osa.fish`; fisher picks it up with the
 rest of `fish/completions/`, or link it by hand.
 

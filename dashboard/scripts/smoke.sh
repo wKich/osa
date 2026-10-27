@@ -313,11 +313,14 @@ assert_status "explicit token authorizes mutations" 200 "$TOKENBASE/api/sandboxe
 
 stop_all
 start_server "$WORK/host.log" --host 0.0.0.0 --port "$HOST_PORT" --token smoke-token
-if wait_http "$HOSTBASE/" && grep -q "warning: dashboard bound to 0.0.0.0" "$WORK/host.log"; then
+if wait_http "$HOSTBASE/?token=smoke-token" && grep -q "warning: dashboard bound to 0.0.0.0" "$WORK/host.log"; then
     ok "--host 0.0.0.0 --token starts with a warning"
 else
     bad "non-loopback start/warning failed"
 fi
+assert_status "non-loopback page without the token is 403" 403 "$HOSTBASE/"
+assert_status "non-loopback read without the token is 403" 403 "$HOSTBASE/api/sandboxes"
+assert_status "non-loopback read with the token is 200" 200 "$HOSTBASE/api/sandboxes" -H "x-dashboard-token: smoke-token"
 
 stop_all
 

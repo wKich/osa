@@ -88,12 +88,14 @@ function start(
   overrides: {
     readOnly?: boolean;
     token?: string;
+    host?: string;
     config?: DashboardConfig;
     client?: OpenShellClient;
     projects?: ProjectService;
   } = {},
 ): DashboardHandle {
   const handle = createDashboardServer({
+    host: overrides.host,
     port: 0,
     client: overrides.client ?? makeClient(),
     config: overrides.config ?? testConfig,
@@ -174,7 +176,7 @@ describe("page and doctor", () => {
     expect(html).toContain(testConfig.image);
   });
 
-  test("read-only mode serves a read token for streams", async () => {
+  test("loopback read-only mode serves a read token for streams", async () => {
     const handle = start({ readOnly: true });
     expect(handle.token).toBeString();
     const html = await (await fetch(`${base(handle)}/`)).text();
@@ -194,6 +196,200 @@ describe("page and doctor", () => {
 
   test("non-loopback bind requires an explicit token", () => {
     expect(() => createDashboardServer({ host: "0.0.0.0", port: 0 })).toThrow(/token/);
+  });
+});
+
+const REMOTE_TOKEN = "remote-secret-token";
+
+function startRemote(overrides: { readOnly?: boolean; host?: string } = {}): DashboardHandle {
+  return start({ host: overrides.host ?? "0.0.0.0", token: REMOTE_TOKEN, readOnly: overrides.readOnly });
+}
+
+describe("host validation", () => {
+  test("a loopback bind refuses a foreign Host before the page or any API route", async () => {
+    seedSandbox("demo");
+    const handle = start();
+    resetLog();
+    for (const path of ["/", "/api/sandboxes", "/api/doctor", "/api/projects", "/app/main.js"]) {
+      const response = await fetch(`${base(handle)}${path}`, {
+        headers: { host: `evil.example:${handle.port}` },
+      });
+      expect(response.status).toBe(403);
+      const text = await response.text();
+      expect(text).not.toContain(handle.token ?? "no-token");
+      expect(text).not.toContain("demo");
+    }
+    const stream = await fetch(`${base(handle)}/events/logs?name=demo&token=${handle.token}`, {
+      headers: { host: "evil.example" },
+    });
+    expect(stream.status).toBe(403);
+    expect(argvLog()).toBe("");
+  });
+
+  test("a loopback bind accepts only the loopback names and its own port", async () => {
+    const handle = start();
+    const hosts = [
+      `127.0.0.1:${handle.port}`,
+      `localhost:${handle.port}`,
+      `[::1]:${handle.port}`,
+      "localhost",
+      "LOCALHOST",
+    ];
+    for (const host of hosts) {
+      const response = await fetch(`${base(handle)}/api/doctor`, { headers: { host } });
+      expect(response.status).toBe(200);
+    }
+    for (const host of [`localhost:${handle.port + 1}`, "localhost.evil.example", "127.0.0.2", "[::2]"]) {
+      const response = await fetch(`${base(handle)}/api/doctor`, { headers: { host } });
+      expect(response.status).toBe(403);
+    }
+  });
+
+  test("a concrete non-loopback bind also accepts its own address", async () => {
+    // A concrete non-loopback address; skip if this host cannot bind it.
+    let handle: DashboardHandle;
+    try {
+      handle = startRemote({ host: "127.0.0.2" });
+    } catch {
+      return;
+    }
+    const headers = { "x-dashboard-token": REMOTE_TOKEN };
+    const own = await fetch(`http://127.0.0.2:${handle.port}/api/doctor`, { headers });
+    expect(own.status).toBe(200);
+    const foreign = await fetch(`http://127.0.0.2:${handle.port}/api/doctor`, {
+      headers: { ...headers, host: `evil.example:${handle.port}` },
+    });
+    expect(foreign.status).toBe(403);
+  });
+
+  test("a wildcard bind accepts any host but still needs the token", async () => {
+    const handle = startRemote();
+    const host = `dashboard.internal:${handle.port}`;
+    const open = await fetch(`${base(handle)}/api/doctor`, { headers: { host } });
+    expect(open.status).toBe(403);
+    const authed = await fetch(`${base(handle)}/api/doctor`, {
+      headers: { host, "x-dashboard-token": REMOTE_TOKEN },
+    });
+    expect(authed.status).toBe(200);
+  });
+});
+
+describe("non-loopback token confidentiality", () => {
+  test("the page without the token is refused and leaks nothing", async () => {
+    seedSandbox("demo");
+    const handle = startRemote();
+    resetLog();
+    for (const path of ["/", "/index.html", "/?token=wrong", "/?token="]) {
+      const response = await fetch(`${base(handle)}${path}`);
+      expect(response.status).toBe(403);
+      const text = await response.text();
+      expect(text).not.toContain(REMOTE_TOKEN);
+      expect(text).not.toContain("dashboard-bootstrap");
+      expect(text).not.toContain(testConfig.image);
+    }
+    expect(argvLog()).toBe("");
+  });
+
+  test("the page with the token embeds it for same-origin calls", async () => {
+    const handle = startRemote();
+    const response = await fetch(`${base(handle)}/?token=${REMOTE_TOKEN}`);
+    expect(response.status).toBe(200);
+    const html = await response.text();
+    expect(html).toContain("dashboard-bootstrap");
+    expect(html).toContain(`"token":"${REMOTE_TOKEN}"`);
+  });
+
+  test("API reads without the token are refused and run no command", async () => {
+    seedSandbox("demo");
+    const handle = startRemote();
+    resetLog();
+    const paths = [
+      "/api/doctor",
+      "/api/sandboxes",
+      "/api/sandboxes/demo",
+      "/api/sandboxes/demo/policy",
+      "/api/sandboxes/demo/rules",
+      "/api/projects",
+      "/api/projects/demo/status",
+      "/api/projects/demo/patch",
+    ];
+    for (const path of paths) {
+      for (const headers of [{}, { "x-dashboard-token": "wrong" }]) {
+        const response = await fetch(`${base(handle)}${path}`, { headers });
+        expect(response.status).toBe(403);
+        const text = await response.text();
+        expect(text).not.toContain(REMOTE_TOKEN);
+        expect(text).not.toContain("demo");
+      }
+    }
+    expect(argvLog()).toBe("");
+  });
+
+  test("API reads with the token are served", async () => {
+    seedSandbox("demo");
+    const handle = startRemote();
+    const headers = { "x-dashboard-token": REMOTE_TOKEN };
+    const sandboxes = await fetch(`${base(handle)}/api/sandboxes`, { headers });
+    expect(sandboxes.status).toBe(200);
+    expect(JSON.stringify(await sandboxes.json())).toContain("demo");
+    const projects = await fetch(`${base(handle)}/api/projects`, { headers });
+    expect(projects.status).toBe(200);
+  });
+
+  test("streams need the token and mutations keep needing the header", async () => {
+    seedSandbox("demo");
+    const handle = startRemote();
+    resetLog();
+    const stream = await fetch(`${base(handle)}/events/logs?name=demo`);
+    expect(stream.status).toBe(403);
+    await stream.text();
+    const mutation = await fetch(`${base(handle)}/api/sandboxes/demo/stop`, { method: "POST" });
+    expect(mutation.status).toBe(403);
+    expect(argvLog()).toBe("");
+    expect(phase("demo")).toBe("Ready");
+
+    const authed = await fetch(`${base(handle)}/api/sandboxes/demo/stop`, {
+      method: "POST",
+      headers: { "x-dashboard-token": REMOTE_TOKEN },
+    });
+    expect(authed.status).toBe(200);
+    expect(phase("demo")).toBe("Stopped");
+  });
+
+  test("static modules stay open so the authenticated page can load them", async () => {
+    const handle = startRemote();
+    const response = await fetch(`${base(handle)}/app/main.js`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).not.toContain(REMOTE_TOKEN);
+  });
+
+  test("read-only remote requires the token for page, reads, and logs, and refuses every mutation", async () => {
+    seedSandbox("demo");
+    const handle = startRemote({ readOnly: true });
+    resetLog();
+    expect((await fetch(`${base(handle)}/`)).status).toBe(403);
+    expect((await fetch(`${base(handle)}/api/sandboxes`)).status).toBe(403);
+    const logs = await fetch(`${base(handle)}/events/logs?name=demo`);
+    expect(logs.status).toBe(403);
+    await logs.text();
+    const bare = await fetch(`${base(handle)}/api/sandboxes/demo/stop`, { method: "POST" });
+    expect(bare.status).toBe(403);
+    const withToken = await fetch(`${base(handle)}/api/sandboxes/demo/stop`, {
+      method: "POST",
+      headers: { "x-dashboard-token": REMOTE_TOKEN },
+    });
+    expect(withToken.status).toBe(403);
+    expect((await withToken.json()).error.kind).toBe("read_only");
+    expect(argvLog()).toBe("");
+    expect(phase("demo")).toBe("Ready");
+
+    const page = await fetch(`${base(handle)}/?token=${REMOTE_TOKEN}`);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('"readOnly":true');
+    const reads = await fetch(`${base(handle)}/api/sandboxes`, {
+      headers: { "x-dashboard-token": REMOTE_TOKEN },
+    });
+    expect(reads.status).toBe(200);
   });
 });
 
@@ -250,6 +446,100 @@ describe("read routes", () => {
     expect(response.status).toBe(404);
     const body = await response.json();
     expect(body.error.kind).toBe("not_found");
+  });
+});
+
+describe("denials route", () => {
+  const logsCalls = (): number => argvLog().split("---\n").filter((entry) => entry.startsWith("logs\n")).length;
+
+  test("no token returns 403 and never calls logs", async () => {
+    seedSandbox("demo");
+    const handle = start();
+    resetLog();
+    const response = await fetch(`${base(handle)}/api/sandboxes/demo/denials`);
+    expect(response.status).toBe(403);
+    expect(argvLog()).toBe("");
+    const wrong = await fetch(`${base(handle)}/api/sandboxes/demo/denials`, {
+      headers: { "x-dashboard-token": "wrong" },
+    });
+    expect(wrong.status).toBe(403);
+    expect(argvLog()).toBe("");
+  });
+
+  test("read-only mode with the token returns grouped and matched denials", async () => {
+    seedSandbox("demo");
+    const handle = start({ readOnly: true });
+    const response = await fetch(`${base(handle)}/api/sandboxes/demo/denials`, { headers: authHeaders(handle) });
+    expect(response.status).toBe(200);
+    const { denials } = await response.json();
+    expect(denials.window).toBe("1h");
+    expect(denials.capped).toBe(false);
+    expect(denials.unparsed).toBe(1);
+    expect(denials.unparsedSamples[0]).toContain("HTTP:GET");
+    const find = (host: string, port: number | null) =>
+      denials.groups.find((group: { host: string; port: number | null }) => group.host === host && group.port === port);
+    expect(find("example.com", 443)).toMatchObject({ binary: "/usr/bin/curl", count: 3, matches: [] });
+    expect(find("example.com", null)).toMatchObject({ count: 1, reasons: ["policy_dns_ineligible"] });
+    expect(find("api.example.com", 443).matches).toEqual(["chunk-pending-1"]);
+    expect(find("<img src=x onerror=alert(1)>", 443)).toBeTruthy();
+    expect(argvLog()).toContain("logs\ndemo\n--since\n1h\n--source\nsandbox\n-n\n5000\n");
+  });
+
+  test("an invalid window returns 400 without calling the CLI", async () => {
+    seedSandbox("demo");
+    const handle = start();
+    resetLog();
+    const response = await fetch(`${base(handle)}/api/sandboxes/demo/denials?window=--all`, {
+      headers: authHeaders(handle),
+    });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.kind).toBe("invalid_request");
+    expect(argvLog()).toBe("");
+  });
+
+  test("a second read within 30 seconds reuses the cache; refresh=1 reads again", async () => {
+    seedSandbox("demo");
+    const handle = start();
+    resetLog();
+    const url = `${base(handle)}/api/sandboxes/demo/denials?window=15m`;
+    expect((await fetch(url, { headers: authHeaders(handle) })).status).toBe(200);
+    expect((await fetch(url, { headers: authHeaders(handle) })).status).toBe(200);
+    expect(logsCalls()).toBe(1);
+    expect(argvLog()).toContain("--since\n15m\n");
+    // Another window is its own cache entry.
+    await fetch(`${base(handle)}/api/sandboxes/demo/denials?window=6h`, { headers: authHeaders(handle) });
+    expect(logsCalls()).toBe(2);
+    await fetch(`${url}&refresh=1`, { headers: authHeaders(handle) });
+    expect(logsCalls()).toBe(3);
+  });
+
+  test("the inventory carries the last read's unmatched count and never reads logs", async () => {
+    seedSandbox("demo");
+    const handle = start();
+    resetLog();
+    const before = await (await fetch(`${base(handle)}/api/sandboxes`)).json();
+    expect(before.sandboxes[0].denials).toBeNull();
+    expect(logsCalls()).toBe(0);
+    const { denials } = await (
+      await fetch(`${base(handle)}/api/sandboxes/demo/denials`, { headers: authHeaders(handle) })
+    ).json();
+    const unmatched = denials.groups.filter((group: { matches: string[] }) => group.matches.length === 0).length;
+    const after = await (await fetch(`${base(handle)}/api/sandboxes`)).json();
+    expect(after.sandboxes[0].denials).toMatchObject({ unmatched, window: "1h" });
+    expect(typeof after.sandboxes[0].denials.readAt).toBe("number");
+    expect(logsCalls()).toBe(1);
+  });
+
+  test("a gateway failure returns the CLI's error text", async () => {
+    seedSandbox("demo");
+    const handle = start({ client: makeClient({ STUB_LOGS_FAIL: "1" }) });
+    const response = await fetch(`${base(handle)}/api/sandboxes/demo/denials`, { headers: authHeaders(handle) });
+    expect(response.status).toBe(502);
+    const body = await response.json();
+    expect(body.error.message).toContain("gateway unreachable");
+    // The proposals route still answers.
+    const rules = await (await fetch(`${base(handle)}/api/sandboxes/demo/rules?status=pending`)).json();
+    expect(rules.rules).toHaveLength(1);
   });
 });
 
@@ -375,6 +665,7 @@ describe("page assets and DOM safety", () => {
     const names = [...moduleAllowlist()];
     expect(names).toContain("main.js");
     expect(names).toContain("dom.js");
+    for (const name of ["images.js", "providers.js", "setup.js"]) expect(names).toContain(name);
     for (const name of names) {
       const response = await fetch(`${base(handle)}/app/${name}`);
       expect(response.status).toBe(200);
@@ -756,6 +1047,72 @@ describe("project routes", () => {
     const quoted = await listRows(handle, `?path=${encodeURIComponent(fixture.quotedPath)}`);
     expect(quoted.map((entry) => entry.sandbox_name)).toEqual([SANDBOX.noKind]);
     expect(await listRows(handle, "?path=%2Fnot%2Fregistered")).toEqual([]);
+  });
+
+  describe("health route", () => {
+    function setHealthAnswers(answers: Record<string, unknown>): void {
+      const current = JSON.parse(readFileSync(osaAnswers, "utf8")) as Record<string, unknown>;
+      writeFileSync(osaAnswers, JSON.stringify({ ...current, health: answers }));
+    }
+
+    test("GET /api/projects/:sandbox/health runs osa health for a registered sandbox", async () => {
+      setHealthAnswers({
+        [SANDBOX.retained]: {
+          report: { sandbox: SANDBOX.retained, agent: "mk", idle: { state: "off" }, mcp: { supported: false }, doctor: { ok: true, checks: [] } },
+        },
+      });
+      const handle = start({ projects: projectService() });
+      const response = await fetch(`${base(handle)}/api/projects/${SANDBOX.retained}/health`);
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.health).toMatchObject({ sandbox: SANDBOX.retained, mcp: { supported: false } });
+      expect(osaCalls()).toContainEqual(["health", SANDBOX.retained, "--json"]);
+    });
+
+    test("an unregistered sandbox is 404 and runs nothing", async () => {
+      const handle = start({ projects: projectService() });
+      const response = await fetch(`${base(handle)}/api/projects/mk-nowhere-0000/health`);
+      expect(response.status).toBe(404);
+      expect(osaCalls().some((args) => args[0] === "health")).toBe(false);
+    });
+
+    test("a slow osa health times out", async () => {
+      setHealthAnswers({ [SANDBOX.retained]: { report: {}, delay: 2 } });
+      const projects = new ProjectService({
+        stateRoot: fixture.stateRoot,
+        runnerOptions: { binary: osaStub, env: { STUB_OSA_FIXTURE: osaAnswers, STUB_OSA_LOG: osaLog } },
+        healthTimeoutMs: 200,
+      });
+      const handle = start({ projects });
+      const response = await fetch(`${base(handle)}/api/projects/${SANDBOX.retained}/health`);
+      expect(response.status).toBe(504);
+      expect((await response.json()).error.kind).toBe("timeout");
+    });
+
+    test("polling the project list never runs osa health, and rows carry idle", async () => {
+      const current = JSON.parse(readFileSync(osaAnswers, "utf8")) as Record<string, any>;
+      current[fixture.appPath].quick[0].idle = {
+        period: 3600,
+        state: "counting",
+        deadline: "2026-10-27T12:00:00Z",
+        estimated: false,
+        last_event: "closed",
+        last_time: "2026-10-27T11:00:00Z",
+      };
+      writeFileSync(osaAnswers, JSON.stringify(current));
+      const projects = projectService();
+      const handle = start({ projects });
+      await listRows(handle);
+      await projects.cache.idle();
+      const rows = await listRows(handle, "?refresh=1");
+      await projects.cache.idle();
+      const again = await listRows(handle);
+      expect(row(again, SANDBOX.retained).idle).toMatchObject({ state: "counting", deadline: "2026-10-27T12:00:00Z" });
+      expect(row(again, SANDBOX.parked).idle).toMatchObject({ state: "none", deadline: null });
+      expect(row(rows, SANDBOX.orphan).idle).toBeNull();
+      expect(osaCalls().length).toBeGreaterThan(0);
+      expect(osaCalls().some((args) => args[0] === "health")).toBe(false);
+    });
   });
 
   describe("resolve route", () => {

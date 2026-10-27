@@ -7,8 +7,9 @@
 //
 // Shapes are pinned to OpenShell v0.1.2 (`sandbox list|get|create`,
 // `policy get|list`, `rule get|approve|reject`, `settings get`, `status`,
-// `logs`). `rule get` is the one command without a JSON output mode, so its
-// stable field-per-line table is parsed and covered by tests.
+// `logs`). `rule get` and `logs` have no JSON output mode, so the rule
+// table's stable field-per-line layout and the logs' OCSF shorthand denial
+// lines are parsed and covered by tests.
 
 export type OpenShellErrorKind =
   | "missing_cli"
@@ -382,6 +383,119 @@ export function parseRuleTable(output: string): RuleProposal[] {
 }
 
 // ---------------------------------------------------------------------------
+// OCSF shorthand denials (`openshell logs` has no JSON mode either)
+// ---------------------------------------------------------------------------
+
+export interface DenialEvent {
+  /** Log timestamp, milliseconds since the epoch. */
+  timeMs: number;
+  source: string;
+  eventClass: string;
+  severity: string;
+  host: string;
+  port: number | null;
+  binary: string | null;
+  pid: number | null;
+  reason: string | null;
+}
+
+export type DenialLine =
+  | { kind: "denial"; event: DenialEvent }
+  | { kind: "unparsed"; raw: string }
+  | { kind: "skip" };
+
+const OCSF_DENIAL_PATTERN =
+  /^\[(?<ts>[\d.]+)\] \[(?<src>[^\]]+)\] \[OCSF\s*\] \[ocsf\] (?<cls>[A-Z]+:[A-Z_]+) \[(?<sev>[A-Z]+)\] DENIED (?<rest>.*)$/;
+/** A trailing bracketed tag group such as `[reason:x]` or `[policy:- engine:opa]`. */
+const DENIAL_TAG_PATTERN = /^(?<body>.*?)\s*\[(?<tag>[a-z][a-z_]*:[^\[\]]*)\]$/;
+const DENIAL_FLOW_PATTERN = /^(?<binary>\S+?)(?:\((?<pid>\d+)\))? -> (?<dest>.+)$/;
+
+function splitDestination(dest: string): { host: string; port: number } | null {
+  // `[v6]:port` keeps its brackets out of the host; otherwise the port follows
+  // the last colon.
+  const v6 = /^\[(?<host>[0-9A-Fa-f:.]+)\]:(?<port>\d+)$/.exec(dest);
+  if (v6?.groups) return { host: v6.groups.host ?? "", port: Number(v6.groups.port) };
+  const colon = dest.lastIndexOf(":");
+  if (colon <= 0) return null;
+  const port = dest.slice(colon + 1);
+  if (!/^\d+$/.test(port)) return null;
+  return { host: dest.slice(0, colon), port: Number(port) };
+}
+
+/**
+ * Classify one `openshell logs` line (design D2): an OCSF `NET:*` denial, a
+ * denial the shapes below do not fit (`unparsed`, kept so a format change
+ * stays visible), or anything else (`skip`).
+ *
+ * Shapes: `<binary>(<pid>) -> <host>:<port> [tags]` and `<host> [tags]`.
+ */
+export function parseDenialLine(line: string): DenialLine {
+  if (line.indexOf("DENIED") === -1) return { kind: "skip" };
+  const raw = stripAnsi(line).trimEnd();
+  if (raw.indexOf("[OCSF") === -1 || raw.indexOf(" DENIED ") === -1) return { kind: "skip" };
+  const match = OCSF_DENIAL_PATTERN.exec(raw);
+  if (!match?.groups) {
+    // A line that names OCSF and DENIED but not in the shorthand layout.
+    return /\[OCSF\s*\]/.test(raw) ? { kind: "unparsed", raw } : { kind: "skip" };
+  }
+  const { ts, src, cls, sev } = match.groups;
+  if (!cls?.startsWith("NET:")) return { kind: "unparsed", raw };
+
+  let body = (match.groups.rest ?? "").trim();
+  let reason: string | null = null;
+  for (let tag = DENIAL_TAG_PATTERN.exec(body); tag?.groups; tag = DENIAL_TAG_PATTERN.exec(body)) {
+    body = tag.groups.body ?? "";
+    for (const pair of (tag.groups.tag ?? "").split(/\s+/)) {
+      const colon = pair.indexOf(":");
+      if (colon > 0 && pair.slice(0, colon) === "reason") reason = pair.slice(colon + 1);
+    }
+  }
+
+  const event = {
+    timeMs: Math.round(Number(ts) * 1000),
+    source: src ?? "",
+    eventClass: cls,
+    severity: sev ?? "",
+    reason,
+  };
+  const flow = DENIAL_FLOW_PATTERN.exec(body);
+  if (flow?.groups) {
+    const dest = splitDestination(flow.groups.dest ?? "");
+    if (!dest || !dest.host) return { kind: "unparsed", raw };
+    return {
+      kind: "denial",
+      event: {
+        ...event,
+        host: dest.host,
+        port: dest.port,
+        binary: flow.groups.binary ?? null,
+        pid: flow.groups.pid ? Number(flow.groups.pid) : null,
+      },
+    };
+  }
+  if (/^\S+$/.test(body)) {
+    return { kind: "denial", event: { ...event, host: body, port: null, binary: null, pid: null } };
+  }
+  return { kind: "unparsed", raw };
+}
+
+/** Windows a denial read may ask for; never free text (design D1). */
+export const LOG_WINDOWS = ["15m", "1h", "6h"] as const;
+export type LogWindow = (typeof LOG_WINDOWS)[number];
+/** Line cap for a one-shot log read. */
+export const LOG_LINE_CAP = 5000;
+
+export function isLogWindow(value: unknown): value is LogWindow {
+  return typeof value === "string" && (LOG_WINDOWS as readonly string[]).includes(value);
+}
+
+export interface RecentLogs {
+  lines: string[];
+  /** True when the CLI returned the full line cap, so older lines were cut. */
+  capped: boolean;
+}
+
+// ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
 
@@ -690,6 +804,30 @@ export class OpenShellClient {
             error: statusResult.error.message,
           },
     });
+  }
+
+  /**
+   * One bounded sandbox-log read for the egress view (design D1):
+   * `openshell logs <name> --since <window> --source sandbox -n 5000`.
+   */
+  async recentLogs(name: string, window: LogWindow): Promise<Result<RecentLogs>> {
+    if (!name.trim()) return fail("invalid_request", "a sandbox name is required");
+    if (!isLogWindow(window)) {
+      return fail("invalid_request", `window must be one of ${LOG_WINDOWS.join(", ")}`);
+    }
+    const result = await this.run([
+      "logs",
+      name,
+      "--since",
+      window,
+      "--source",
+      "sandbox",
+      "-n",
+      String(LOG_LINE_CAP),
+    ]);
+    if (!result.ok) return result;
+    const lines = result.value.stdout.split(/\r?\n/).filter((line) => line !== "");
+    return ok({ lines, capped: lines.length >= LOG_LINE_CAP });
   }
 
   /**

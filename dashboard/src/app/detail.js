@@ -4,6 +4,7 @@
 import { mutate, request } from "./api.js";
 import { clearBanner, showError, showNotice } from "./banner.js";
 import { clear, formatTimestamp, h, shortHash } from "./dom.js";
+import { healthPanel, openHealth } from "./health.js";
 import { cleanupLogStream } from "./logs.js";
 import { actions, state } from "./state.js";
 
@@ -106,8 +107,30 @@ function actionButtons() {
   return wrapper;
 }
 
-function providersTable(providers) {
-  if (!providers.length) return h("p", { class: "muted", text: "No providers attached." });
+/**
+ * "No providers attached." and, for a registered sandbox outside read-only
+ * mode, a Configure link that opens the provider wizard with its agent and
+ * sandbox selected.
+ */
+function noProviders(project) {
+  const text = h("span", { class: "muted", text: "No providers attached." });
+  if (!project || state.readOnly) return h("p", null, text);
+  return h("p", { class: "row" }, [
+    text,
+    h("button", {
+      class: "link",
+      id: "configure-providers",
+      text: "Configure",
+      onclick: () => {
+        state.wizard = { agent: project.agent, sandbox: project.sandbox_name };
+        actions.navigate("setup");
+      },
+    }),
+  ]);
+}
+
+function providersTable(providers, project) {
+  if (!providers.length) return noProviders(project);
   const table = h("table");
   table.append(h("thead", null, h("tr", null, [
     h("th", { text: "Provider" }),
@@ -171,6 +194,12 @@ export function renderDetail() {
     return;
   }
   const detail = state.detail;
+  // Health exists for registered projects only; raw gateway sandboxes keep
+  // this view as it is.
+  const project = state.projects.find(
+    (candidate) => candidate.supported && candidate.sandbox_name === detail.sandbox.name,
+  );
+  const registered = Boolean(project);
   state.app.append(
     h("div", { class: "card" }, [
       h("div", { class: "row" }, [
@@ -185,8 +214,15 @@ export function renderDetail() {
       h("button", { text: "Logs", onclick: () => actions.navigate("logs") }),
       h("button", { text: "Policy", onclick: () => actions.navigate("policy") }),
       h("button", { text: "Rules", onclick: () => actions.navigate("rules") }),
+      registered ? h("button", { text: "Health", onclick: () => openHealth(detail.sandbox.name) }) : null,
     ]),
-    h("div", { class: "card" }, [h("h3", { text: "Providers" }), providersTable(detail.providers || [])]),
+    registered && state.healthOpen === detail.sandbox.name
+      ? healthPanel(detail.sandbox.name, () => {
+          state.healthOpen = null;
+          actions.render();
+        })
+      : null,
+    h("div", { class: "card" }, [h("h3", { text: "Providers" }), providersTable(detail.providers || [], project)]),
     h("div", { class: "card" }, [h("h3", { text: "Policy revisions" }), revisionsTable(detail.revisions || [])]),
   );
   if (detail.errors && Object.keys(detail.errors).length) {
@@ -202,6 +238,7 @@ export async function openDetail(name) {
   state.selected = name;
   state.detail = null;
   state.rules = [];
+  state.denials = null;
   cleanupLogStream();
   clearBanner();
   actions.navigate("detail");

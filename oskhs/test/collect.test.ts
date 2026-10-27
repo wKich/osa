@@ -99,6 +99,42 @@ describe("changes back", () => {
     expect(await git(repo, "for-each-ref", "--format=%(refname)", "refs/heads")).toBe("refs/heads/feature\nrefs/heads/main");
   });
 
+  test("a cancel after one repository is collected stops the next one", async () => {
+    const [a, b] = [await fixture(), await fixture()];
+    const sb = localSandbox();
+    sb.onRun = async (_argv, opts) => {
+      for (const key of ["fx", "fy"]) writeFileSync(join(sb.path(opts.env!.MAKI_OSS_WORKDIR!), key, "calc.py"), `edited ${key}\n`);
+      return answer;
+    };
+    const controller = new AbortController();
+    const run = sb.ctx.run;
+    // the last host step of a repository's collect is its diff
+    sb.ctx.run = async (argv, opts) => {
+      const out = await run(argv, opts);
+      if (argv[0] === "git" && argv.includes("--name-status")) controller.abort("cancelled");
+      return out;
+    };
+    const spec: RoundSpec = {
+      sandbox: "repo-fx",
+      providers: [],
+      taskId: "c4",
+      repos: [
+        { key: "fx", hostRepo: a, base: "main", branches: [], allBranches: false },
+        { key: "fy", hostRepo: b, base: "main", branches: [], allBranches: false },
+      ],
+      collect: true,
+      prompt: "q",
+      timeoutSec: 5,
+      signal: controller.signal,
+    };
+    const { result, repos } = await runRound(sb.ctx, spec);
+    expect(result).toEqual({ kind: "failed", stage: "collect", exitCode: 0, stderr: "aborted" });
+    expect(repos[0]!.changes).not.toBeNull();
+    expect(repos[1]!.changes).toBeNull();
+    expect(sb.calls.some((c) => c.argv.join(" ").includes("out/c4-fy.bundle"))).toBe(false);
+    expect(await git(b, "for-each-ref", "refs/heads/oskhs")).toBe("");
+  });
+
   test("read-only rounds skip collection", async () => {
     const { repo, sb, outcome } = await setup(async (wt) => writeFileSync(join(wt, "calc.py"), "changed\n"), { collect: false });
     expect(outcome.repos[0]!.changes).toBeNull();

@@ -1545,3 +1545,214 @@ Checks on the host afterwards: `git status --short` shows ` M notes.txt` (the
 uncommitted edit kept) and `?? hello.txt` ("hello from the sandbox"); `HEAD`
 is still the `init` commit; the `pending` marker is gone and the patch file
 is still in the session directory; `osa projects` shows no pending kind.
+
+## Dashboard egress denials — 2026-10-27
+
+Change `dashboard-egress`. Offline: `cd dashboard && bun test` 165 passed,
+`bun run scripts/browser-check.ts` 63 passed (the egress journey included),
+`make lint-docs` passes, and `openspec validate dashboard-egress --strict` is
+valid.
+
+### Real denial in the Rules view (task 4.3)
+
+A scratch sandbox on the real gateway (OpenShell 0.1.5), created from
+`maki-agent:personal` with `examples/policies/maki-minimal.yaml` and deleted
+afterwards:
+
+```text
+$ openshell sandbox exec dash-egress-verify -- curl -sS -m 10 -o /dev/null https://example.com
+curl: (7) Failed to connect to example.com port 443 after 2 ms: Couldn't connect to server
+
+$ openshell logs dash-egress-verify --since 15m --source sandbox -n 5000 | grep DENIED
+[1793074091.448] [sandbox] [OCSF ] [ocsf] NET:REFUSE [MED] DENIED example.com [reason:policy_dns_ineligible]
+[1793074091.449] [sandbox] [OCSF ] [ocsf] NET:OPEN [MED] DENIED /usr/bin/curl(0) -> example.com:443 [reason:transparent_tcp_policy_denied]
+```
+
+The dashboard then ran with its defaults (real `openshell`, minted token,
+read-write) and was driven in headless Chrome to the sandbox's Rules view:
+
+- The policy advisor had proposed `allow_example_com_443` (endpoints
+  `example.com:443 [L4]`, binary `/usr/bin/curl`, 65% confidence). Under it,
+  "Denied traffic this proposal would allow" listed `example.com:443` from
+  `/usr/bin/curl` (count 1, `transparent_tcp_policy_denied`) and `example.com`
+  with no port (count 1, `policy_dns_ineligible`).
+- "Denied, no proposal" read "Every denial in this window matches a pending
+  proposal"; no unparsed lines were reported.
+- Back on the inventory, the row showed `0 denied · 6s ago` from that read.
+
+## Dashboard health — 2026-10-27
+
+Change `dashboard-health`. Offline: `make test` 252 passed, `make lint`
+passes, `cd dashboard && bun test` 171 passed,
+`bun run scripts/browser-check.ts` 76 passed (the health journey included),
+`make lint-docs` passes, and `openspec validate dashboard-health --strict` is
+valid.
+
+### Real session countdown (task 5.3)
+
+A throwaway plain folder (`dash-health`) on the real gateway (OpenShell
+0.1.5, `maki-agent:personal`), with a session that starts the agent and ends
+at once:
+
+```text
+$ maki-oss run --idle-stop 2m --model nope/nope "noop"
+✖ invalid --model spec
+No sandbox changes to sync.
+
+$ osa status --quick --json   → "idle":{"period":120,"state":"counting",...}
+```
+
+The dashboard then ran with its defaults (`$HOME/.local/state/osa`, the
+repository's `bin/osa`, real `openshell`) and was driven in headless Chrome:
+
+- The project row's idle cell read `stops in 1m 37s`, `1m 36s`, `1m 35s` on
+  three successive seconds, with the absolute deadline
+  (`2026-10-27T04:48:43Z`) on hover.
+- At the deadline the cell read `stop due`; the watcher logged `stopped` at
+  04:48:49Z and the next quick status turned the cell to `stopped`.
+- **Health** showed idle stop, both MCP servers (`context7` http and
+  `synthetic` stdio) with every gate passing, and the six doctor checks, all
+  `ok`.
+- With the sandbox stopped, `osa health mk-dash-health-7666 --json` reported
+  `"mcp":{"error":"sandbox is not running (phase: Stopped)"}`, and the sandbox
+  stayed `Stopped`.
+
+This run found one defect, fixed before the checks above were repeated: the
+Health panel took the configured `idle_stop` (1 h) as the period instead of
+the `--idle-stop 2m` the session's watcher was armed with, so its deadline
+was an hour out while the row's was right. `idle_state` now uses the period
+from the session's `armed` line and falls back to the setting only when there
+is none. A second session then showed the same deadline in the row and the
+panel (`2026-10-27T04:51:53Z`, period 120 s). The scratch sandbox was removed
+with `maki-oss rm --yes`.
+
+## Non-interactive provider setup — 2026-10-27
+
+`add-provider-setup-noninteractive`, on this host (gateway `openshell`,
+`https://localhost:17670`, Docker). `make test` passed (262 tests) and
+`openspec validate add-provider-setup-noninteractive --strict` passed.
+
+A real Synthetic key was piped from Maki's store; it never appeared in an
+argument or in the output:
+
+```sh
+$ jq -r .api_key ~/.local/state/maki/auth/synthetic.json \
+    | bin/osa provider setup mk --profile maki-synthetic --name maki-synthetic-stdin \
+        --attach mk-resolve-dem-cbfc --json        # exit 3
+{"ok":false,...,"outcome":"failed","attached":null,"remembered":true,
+ "steps":["linted","created","remembered"],"message":"created maki-synthetic-stdin and remembered it; attach to 'mk-resolve-dem-cbfc' failed: ..."}
+```
+
+The gateway refused the attach (`provider attachment failed (The system is
+not in a state required for the operation's execution)`), most likely because
+`maki-synthetic`, which binds the same `SYNTHETIC_API_KEY`, was already
+attached. The run exited 3 with the completed steps, as specified. It found
+one defect, fixed afterwards: the message kept only the last line of
+openshell's wrapped error (`failed:   │ operation's execution)`). The front-end
+now joins the whole error into one line, and the stub's attach failure wraps
+its error the same way as a regression test.
+
+Updating the attached provider instead succeeded:
+
+```sh
+$ jq -r .api_key ~/.local/state/maki/auth/synthetic.json \
+    | bin/osa provider setup mk --profile maki-synthetic --attach mk-resolve-dem-cbfc --yes --json
+{"ok":true,"agent":"mk","provider":"maki-synthetic","profile":"maki-synthetic","outcome":"updated",
+ "attached":"mk-resolve-dem-cbfc","remembered":true,"steps":["linted","updated","remembered","attached"],...}
+```
+
+A headless session in that sandbox then used the credential:
+
+```sh
+$ maki-oss run --name mk-resolve-dem-cbfc --model synthetic/hf:zai-org/GLM-5.3 \
+    --timeout 150 --no-sync "Reply with exactly the word: pong"
+{"type":"result","subtype":"success","is_error":false,...,"result":"pong",...}
+```
+
+Note: because setup remembers a provider before it attaches, the failed first
+run left `maki-synthetic-stdin` in `providers` in the config, and the next
+session failed while attaching it. The entry was removed by hand before the
+session above. The parked workspace that `--no-sync` left was cleared with
+`osa resolve mk-resolve-dem-cbfc discard --yes`. The `maki-synthetic-stdin`
+provider is still on the gateway.
+
+## Dashboard image builds — 2026-10-27
+
+`dashboard-image-build`, on this host (Docker under OrbStack). `make test`
+passed (262 tests), `cd dashboard && bun test` passed (198), the browser
+check passed (101, including the image journey), and
+`openspec validate dashboard-image-build --strict` passed.
+
+The dashboard ran on loopback (`bun run src/main.ts --port 8799`) and was
+driven through its routes:
+
+- `POST /api/images/cc/build` returned 202. `GET /events/build` streamed 53
+  lines (`Building image 'claude-agent:local' with docker...`, the BuildKit
+  steps) and then `done` with `exitCode: 0`. Every layer was cached, so the
+  build took 0.5 s and `claude-agent:local` kept its id and creation time.
+- `POST /api/images/oc/build`, then `POST /api/images/build/cancel` 0.25 s
+  later while `docker build -t opencode-agent:local …/opencode-oss/image` was
+  running. The stream ended with `ERROR: failed to build: failed to solve:
+  Canceled: context canceled` and `opencode-oss: image build failed (exit
+  status 130)`, and `done` reported `cancelled: true, exitCode: 2`. Three
+  seconds later `pgrep` found no `docker build`, `opencode-oss image build`,
+  or `osa image build` process, and `docker ps` showed nothing from the build.
+  `opencode-agent:local` was still present and unchanged.
+
+## Dashboard provider wizard — 2026-10-27
+
+`dashboard-provider-wizard`, on this host, with `add-provider-setup-noninteractive`
+applied. `cd dashboard && bun test` passed (198), the browser check passed
+(101, including the provider journey), and
+`openspec validate dashboard-provider-wizard --strict` passed.
+
+In a desktop browser on `http://127.0.0.1:8799`: Setup tab, Maki card, Set up.
+Profile `maki-synthetic`, name `maki-synthetic`, the real Synthetic key pasted,
+attach `mk-resolve-dem-cbfc`, Replace existing credential checked. The wizard
+showed:
+
+```
+Updated the credential of provider maki-synthetic and attached it to mk-resolve-dem-cbfc.
+updated the credential of maki-synthetic and remembered it, attached to mk-resolve-dem-cbfc
+```
+
+The dashboard server's output did not contain the key. A session in that
+sandbox then used the credential:
+
+```sh
+$ maki-oss run --name mk-resolve-dem-cbfc --model synthetic/hf:zai-org/GLM-5.3 \
+    --timeout 150 "Reply with exactly the word: pong"
+... "result":"pong" ...
+```
+
+## osa dashboard — 2026-10-27
+
+`add-osa-dashboard-command`, on this host (macOS, Bun 1.4.2). `make test`
+passed (264), `cd dashboard && bun test` passed (206), `make lint` and
+`make lint-docs` passed, and
+`openspec validate add-osa-dashboard-command --strict` passed.
+
+From `$HOME`, `osa dashboard --open` printed
+`OpenShell dashboard listening on http://127.0.0.1:8787` and no
+`could not open a browser` note, so `open` exited 0. `ps` showed the same PID
+as `bun run /Users/ki/Projects/experiments/osa/dashboard/src/main.ts --open`
+(the `exec` replaced `osa`), with
+`DASHBOARD_OSA_BIN=/Users/ki/Projects/experiments/osa/bin/osa` in its
+environment. `GET /` served the page, which opens on Projects; that the
+browser tab showed it was not checked from this session.
+
+With the server running, a full status and a resolve of `cc-osa-cb62` (nothing
+pending, so it was refused with exit 2 and changed nothing) spawned:
+
+```
+/bin/sh /Users/ki/Projects/experiments/osa/bin/osa status /Users/ki/Projects/experiments/osa --json
+/bin/sh /Users/ki/Projects/experiments/osa/bin/osa resolve cc-osa-cb62 apply --json
+/bin/sh /Users/ki/Projects/experiments/osa/bin/osa status /Users/ki/Projects/experiments/osa --quick --json
+```
+
+Ctrl-C: `osa dashboard --port 8788` was started from `$HOME` in its own process
+group, and SIGINT was sent to the group (what a terminal Ctrl-C does). Bun
+exited on the signal (status -2), and `pgrep` then found no dashboard `bun`
+process. A job started with `&` from a non-interactive shell ignores SIGINT,
+as it inherits that disposition, so a plain `kill -INT` to such a job is not
+a valid check.

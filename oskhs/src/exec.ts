@@ -47,6 +47,17 @@ export const spawnRunner: Runner = async (argv, opts = {}) => {
   return { code, stdout, stderr, timedOut };
 };
 
+/** A step saw the round's cancellation: no new side effect starts after it. */
+export class RoundAborted extends Error {
+  constructor() {
+    super("round aborted");
+  }
+}
+
+export function checkAbort(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new RoundAborted();
+}
+
 /** Last `n` lines of a stream, for error reports that stay readable. */
 export function tail(text: string, n = 20): string {
   return text.trimEnd().split("\n").slice(-n).join("\n");

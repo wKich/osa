@@ -31,11 +31,20 @@ export class SessionHistory {
     const prefix = eventID.replace(/^evt_/, "msg_");
     let boundary: string | undefined;
     parent.messages.forEach((m, i) => {
-      boundary = m.id;
-      if (m.type === "assistant" && m.time?.completed === undefined) return;
+      if (!SessionHistory.settled(m)) return;
       this.messages.push({ ...structuredClone(m), id: `${prefix}_${i + 1}` });
+      boundary = m.id;
     });
     return boundary;
+  }
+
+  /** whether a fork would copy anything: an in-flight assistant message is not settled */
+  get copyable(): boolean {
+    return this.messages.some(SessionHistory.settled);
+  }
+
+  private static settled(m: Message): boolean {
+    return !(m.type === "assistant" && m.time?.completed === undefined);
   }
 
   get size(): number {

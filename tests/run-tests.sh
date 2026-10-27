@@ -133,6 +133,12 @@ new_case() {
     STUB_MAKI_SCRIPT=
     STUB_EXEC_SCRIPT_FAIL=
     GIT_TRACE_LOG=
+    ATTACH_FAIL=
+    IMAGE_INSPECT=
+    BUILD_MODE=
+    BUILD_PID_FILE=
+    BUILD_SIGNAL_LOG=
+    ENGINE_EXIT=
     RC=0
 }
 
@@ -164,6 +170,11 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         STUB_POLICY_FULL="${POLICY_FULL:-}" \
         STUB_JSON_COMPACT="${JSON_COMPACT:-0}" \
         STUB_CREATE_RACE="${CREATE_RACE:-0}" \
+        STUB_ATTACH_FAIL="${ATTACH_FAIL:-0}" \
+        STUB_IMAGE_INSPECT="${IMAGE_INSPECT:-}" \
+        STUB_BUILD_MODE="${BUILD_MODE:-}" \
+        STUB_BUILD_PID_FILE="${BUILD_PID_FILE:-}" \
+        STUB_BUILD_SIGNAL_LOG="${BUILD_SIGNAL_LOG:-}" \
         MAKI_OSS_SANDBOX_NAME="${ENV_NAME:-$NAME_PIN}" \
         MAKI_OSS_TUI="${ENV_TUI:-}" \
         MAKI_OSS_TIMEOUT="${ENV_TIMEOUT:-}" \
@@ -208,7 +219,7 @@ run_fish() {
     RC=0
     FISH_OUT=$CASE/fish.out
     (
-        unset MAKI_OSS_BIN
+        unset MAKI_OSS_BIN OPENCODE_OSS_BIN
         PATH="${FISH_PATH:-$STUB_DIR:$PATH}" \
         HOME="$HOME" \
         XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
@@ -2872,10 +2883,14 @@ test_fish_plugin() {
     if [ ! -L "$XDG_CONFIG_HOME/fish/functions/maki-oss.fish" ]; then
         bad "mutations symlink was not created"
     fi
+    if [ ! -L "$XDG_CONFIG_HOME/fish/functions/__oss_run.fish" ]; then
+        bad "the shared resolver symlink was not created"
+    fi
 
     run_maki fish install
     assert_rc 0
     assert_out_has "already installed"
+    assert_out_has "Fish plugin already installed."
 
     run_fish "type -q maki-oss; and maki-oss help"
     assert_rc 0
@@ -2892,6 +2907,87 @@ test_fish_plugin() {
     if [ -e "$XDG_CONFIG_HOME/fish/functions/maki-oss.fish" ]; then
         bad "managed symlink was not removed"
     fi
+    if [ -e "$XDG_CONFIG_HOME/fish/functions/__oss_run.fish" ]; then
+        bad "the shared resolver outlived the last front-end"
+    fi
+}
+
+test_fish_install_both_front_ends() {
+    begin "both front-ends install twice and share one resolver"
+    new_case fish-both
+    if ! command -v fish >/dev/null 2>&1; then
+        skipped "fish is not installed"
+        return 0
+    fi
+    fish_functions=$XDG_CONFIG_HOME/fish/functions
+
+    run_maki fish install
+    assert_rc 0
+    run_oc fish install
+    assert_rc 0
+    assert_out_has "linked:"
+    assert_out_has "already installed: $fish_functions/__oss_run.fish"
+    for fish_front in maki-oss opencode-oss; do
+        if [ ! -L "$fish_functions/$fish_front.fish" ] \
+            || [ ! -L "$XDG_CONFIG_HOME/fish/completions/$fish_front.fish" ]; then
+            bad "$fish_front was not linked"
+        fi
+    done
+    run_oc fish install
+    assert_rc 0
+    assert_out_has "Fish plugin already installed."
+    run_maki fish install
+    assert_rc 0
+    assert_out_has "Fish plugin already installed."
+    fish_link_count=$(find "$XDG_CONFIG_HOME/fish" -type l | wc -l | tr -d ' ')
+    [ "$fish_link_count" = 5 ] || bad "expected 5 links, found $fish_link_count"
+    if find "$XDG_CONFIG_HOME/fish" -type l ! -exec test -e {} \; -print | grep -q .; then
+        bad "a broken link was left behind"
+    fi
+
+    run_fish "maki-oss help; opencode-oss help"
+    assert_rc 0
+    assert_fish_out_has "maki-oss: run Maki"
+    assert_fish_out_has "opencode-oss: run OpenCode"
+
+    # The resolver stays while another front-end still uses it.
+    run_maki fish uninstall
+    assert_rc 0
+    assert_out_has "kept (still used by another front-end)"
+    [ -L "$fish_functions/__oss_run.fish" ] || bad "the shared resolver was removed too early"
+    run_fish "opencode-oss help"
+    assert_rc 0
+    assert_fish_out_has "Usage:"
+    run_oc fish uninstall
+    assert_rc 0
+    [ ! -e "$fish_functions/__oss_run.fish" ] || bad "the shared resolver was not removed"
+    fish_link_count=$(find "$XDG_CONFIG_HOME/fish" -type l | wc -l | tr -d ' ')
+    [ "$fish_link_count" = 0 ] || bad "uninstall left $fish_link_count links"
+}
+
+test_fish_uninstall_skips_foreign() {
+    begin "fish uninstall leaves a foreign file at a managed path untouched"
+    new_case fish-foreign
+    fish_functions=$XDG_CONFIG_HOME/fish/functions
+    mkdir -p "$fish_functions"
+    printf 'mine\n' >"$fish_functions/maki-oss.fish"
+    printf 'mine\n' >"$fish_functions/opencode-oss.fish"
+    ln -s /nonexistent/elsewhere.fish "$fish_functions/__oss_run.fish"
+
+    run_maki fish uninstall
+    assert_rc 0
+    assert_out_has "skipped (not a symlink from this repository): $fish_functions/maki-oss.fish"
+    assert_out_has "skipped (not installed by maki-oss): $fish_functions/__oss_run.fish"
+    run_oc fish uninstall
+    assert_rc 0
+    assert_out_has "skipped (not a symlink from this repository): $fish_functions/opencode-oss.fish"
+    [ "$(cat "$fish_functions/maki-oss.fish")" = mine ] || bad "a foreign maki-oss.fish was changed"
+    [ "$(cat "$fish_functions/opencode-oss.fish")" = mine ] || bad "a foreign opencode-oss.fish was changed"
+    [ -L "$fish_functions/__oss_run.fish" ] || bad "a foreign link was removed"
+
+    run_maki fish install
+    assert_rc 1
+    assert_err_has "file exists and was not installed by maki-oss"
 }
 
 test_fish_fisher_layout() {
@@ -2903,15 +2999,30 @@ test_fish_fisher_layout() {
     fi
 
     # fisher expands plugins into the fish config directory (copies, not
-    # symlinks); the wrapper then finds the helper on PATH.
+    # symlinks); the wrappers then find their helper on PATH.
     mkdir -p "$XDG_CONFIG_HOME/fish/functions" "$XDG_CONFIG_HOME/fish/completions"
-    cp "$ROOT/fish/functions/maki-oss.fish" "$XDG_CONFIG_HOME/fish/functions/maki-oss.fish"
-    cp "$ROOT/fish/completions/maki-oss.fish" "$XDG_CONFIG_HOME/fish/completions/maki-oss.fish"
+    cp "$ROOT"/fish/functions/*.fish "$XDG_CONFIG_HOME/fish/functions/"
+    cp "$ROOT"/fish/completions/*.fish "$XDG_CONFIG_HOME/fish/completions/"
     FISH_PATH="$STUB_DIR:$ROOT/bin:$PATH"
 
     run_fish "type -q maki-oss; and maki-oss help"
     assert_rc 0
     assert_fish_out_has "Usage:"
+    run_fish "type -q opencode-oss; and opencode-oss help"
+    assert_rc 0
+    assert_fish_out_has "Usage:"
+    for fish_file in "$XDG_CONFIG_HOME"/fish/functions/*.fish "$XDG_CONFIG_HOME"/fish/completions/*.fish; do
+        run_fish "fish -n '$fish_file'"
+        assert_rc 0
+    done
+
+    # An override that is not executable is an error, not a silent fallback.
+    run_fish "MAKI_OSS_BIN=/nonexistent/maki-oss maki-oss help"
+    assert_rc 127
+    assert_fish_out_has "set MAKI_OSS_BIN"
+    run_fish "OPENCODE_OSS_BIN=/nonexistent/opencode-oss opencode-oss help"
+    assert_rc 127
+    assert_fish_out_has "set OPENCODE_OSS_BIN"
 }
 
 test_fish_completions() {
@@ -2923,6 +3034,8 @@ test_fish_completions() {
     fi
 
     run_maki fish install
+    assert_rc 0
+    run_oc fish install
     assert_rc 0
 
     run_fish "complete -C 'maki-oss '"
@@ -2951,6 +3064,27 @@ test_fish_completions() {
     assert_fish_out_has "--from"
     assert_fish_out_has "--credential"
     assert_fish_out_has "--profile"
+
+    # Every flag the helper accepts is completed in both front-ends.
+    for fish_front in maki-oss opencode-oss; do
+        for fish_verb in run upload; do
+            run_fish "complete -C '$fish_front $fish_verb --'"
+            assert_rc 0
+            for fish_flag in --name --image --policy --provider --env --env-from \
+                --allow-env --model --continue --resume --session-id --timeout \
+                --no-sync --discard --no-git-ignore --idle-stop --yes --help; do
+                if ! grep -Fq -- "$fish_flag" "$FISH_OUT"; then
+                    bad "$fish_front $fish_verb -- does not complete $fish_flag"
+                fi
+            done
+        done
+    done
+    run_fish "complete -C 'opencode-oss run --opencode-'"
+    assert_rc 0
+    assert_fish_out_has "--opencode-version"
+    run_fish "complete -C 'maki-oss run --maki-'"
+    assert_rc 0
+    assert_fish_out_has "--maki-version"
 }
 
 # ---------------------------------------------------------------------------
@@ -6490,6 +6624,136 @@ test_upload_subpath_keeps_copy_in_semantics() {
     [ -f "$SANDBOX_WORKDIR/keep.txt" ] || bad "a subpath upload pruned the workspace"
 }
 
+test_upload_explicit_path_copies_only_that_path() {
+    begin "upload NOTES at the default destination copies only that file and records no sync state"
+    new_case upload-plain-copy
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    printf 'notes\n' >"$RUN_DIR/notes.txt"
+    printf 'other\n' >"$RUN_DIR/other.txt"
+
+    run_maki upload notes.txt
+    assert_rc 0
+    assert_log_has "upload"
+    assert_log_line "notes.txt"
+    assert_out_has "Copied 'notes.txt'"
+    assert_err_missing "baseline"
+    assert_out_missing "Refreshed"
+    [ -f "$SANDBOX_WORKDIR/notes.txt" ] || bad "the named file was not copied"
+    [ ! -e "$SANDBOX_WORKDIR/other.txt" ] || bad "another file in the directory was uploaded"
+    [ ! -e "$(session_dir maki-myproject)/synced" ] || bad "a plain copy recorded a synced pair"
+    [ ! -e "$(session_dir maki-myproject)/baseline" ] || bad "a plain copy recorded a baseline"
+    [ ! -e "$(session_dir maki-myproject)/host_manifest" ] || bad "a plain copy recorded a host manifest"
+    [ -z "$(registry_value maki-myproject fingerprint)" ] \
+        || bad "a plain copy wrote a project fingerprint"
+
+    # A destination other than the workdir is a plain copy even for `.`.
+    reset_log
+    run_maki upload . "$SANDBOX_WORKDIR/elsewhere"
+    assert_rc 0
+    assert_out_has "Copied '.'"
+    [ ! -e "$(session_dir maki-myproject)/synced" ] || bad "a copy elsewhere recorded a synced pair"
+    [ -z "$(registry_value maki-myproject fingerprint)" ] \
+        || bad "a copy elsewhere wrote a project fingerprint"
+}
+
+test_upload_partial_copy_keeps_workspace_behind() {
+    begin "a partial copy after a recorded refresh leaves the workspace not clean"
+    new_case upload-partial-behind
+    RUN_DIR=$CASE/project/repo
+    seed_git_project "$RUN_DIR"
+    printf 'notes\n' >"$RUN_DIR/notes.txt"
+    seed_sandbox maki-repo Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-repo maki-stub
+    run_maki upload .
+    assert_rc 0
+    assert_out_has "Refreshed"
+    run_maki status
+    assert_out_has "Sync:      clean"
+    synced_before=$(cat "$(session_dir maki-repo)/synced")
+    fp_before=$(registry_value maki-repo fingerprint)
+    [ -n "$fp_before" ] || bad "the full refresh recorded no fingerprint"
+
+    printf 'host-change\n' >>"$RUN_DIR/tracked.txt"
+    run_maki upload notes.txt
+    assert_rc 0
+    [ "$(cat "$(session_dir maki-repo)/synced")" = "$synced_before" ] \
+        || bad "a partial copy changed the synced pair"
+    [ "$(registry_value maki-repo fingerprint)" = "$fp_before" ] \
+        || bad "a partial copy changed the project fingerprint"
+    run_maki status
+    assert_rc 0
+    assert_out_has "Sync:      behind"
+    assert_out_missing "Sync:      clean"
+}
+
+test_upload_partial_copy_refused_when_parked() {
+    begin "a partial copy into a parked workspace is refused even with --discard"
+    new_case upload-partial-parked
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR/dist"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    printf 'built\n' >"$RUN_DIR/dist/app.js"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    PATH_OVERRIDE=$(no_git_path)
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    run_maki maki --no-sync
+    assert_rc 0
+    [ "$(pending_value maki-myproject kind)" = parked ] \
+        || bad "the workspace was not parked"
+
+    printf 'late\n' >"$RUN_DIR/dist/late.js"
+    reset_log
+    run_maki upload ./dist
+    assert_rc 1
+    assert_err_has "the workspace is parked"
+    run_maki upload ./dist --discard
+    assert_rc 1
+    assert_err_has "the workspace is parked"
+    assert_err_has "a copy of './dist' cannot use it"
+    assert_log_missing "upload"
+    [ "$(pending_value maki-myproject kind)" = parked ] \
+        || bad "a refused partial copy cleared the parked marker"
+    [ ! -e "$SANDBOX_WORKDIR/dist/late.js" ] || bad "a refused partial copy reached the sandbox"
+
+    run_maki upload . --discard
+    assert_rc 0
+    assert_log_has "upload"
+    [ ! -f "$(session_dir maki-myproject)/pending" ] \
+        || bad "the full refresh left the parked marker"
+}
+
+test_upload_partial_copy_warns_about_retained_patch() {
+    begin "a partial copy proceeds with a retained patch and names it"
+    new_case upload-partial-retained
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    printf 'base\n' >"$RUN_DIR/file.txt"
+    printf 'notes\n' >"$RUN_DIR/notes.txt"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    PATH_OVERRIDE=$(no_git_path)
+    STUB_MAKI_SCRIPT='printf "agent\n" > file.txt'
+    run_maki maki
+    assert_rc 0
+    retained_patch=$(pending_value maki-myproject patch)
+    [ -n "$retained_patch" ] || bad "no retained patch was recorded"
+
+    run_maki upload notes.txt
+    assert_rc 0
+    assert_err_has "$retained_patch"
+    [ -f "$retained_patch" ] || bad "a partial copy removed the retained patch"
+    [ "$(pending_value maki-myproject kind)" = retained ] \
+        || bad "a partial copy cleared the retained marker"
+}
+
 test_applied_retained_patch_clears_notice() {
     begin "an applied retained patch clears the notice without deleting the patch"
     new_case retained-applied
@@ -6889,16 +7153,22 @@ assert_json_array() { # COUNT
 }
 
 test_osa_usage() {
-    begin "osa offers projects, status, resolve, and help, and rejects anything else"
+    begin "osa offers its commands and rejects anything else"
     new_case osa-usage
     run_osa help
     assert_rc 0
     assert_out_has "projects"
     assert_out_has "status"
+    assert_out_has "health SANDBOX"
+    assert_out_has "providers [--agent TAG]"
+    assert_out_has "images [--json]"
     assert_out_has "resolve"
+    assert_out_has "provider setup TAG --profile ID"
+    assert_out_has "image build TAG"
+    assert_out_has "dashboard [--port N]"
     run_osa up
     assert_rc 1
-    assert_err_has "projects, status, resolve, help"
+    assert_err_has "projects, status, health, providers, images, resolve, provider setup, image build, dashboard, help"
     run_osa projects --quick
     assert_rc 1
 }
@@ -7076,11 +7346,725 @@ test_osa_read_only() {
     assert_rc 0
     run_osa status --json
     assert_rc 0
-    for osa_verb in create start stop delete upload download maki; do
+    run_osa health maki-myproject
+    assert_rc 0
+    run_osa health maki-myproject --json
+    assert_rc 0
+    run_osa providers --json
+    assert_rc 0
+    run_osa images --json
+    assert_rc 0
+    for osa_verb in create start stop delete upload download maki update attach import build tag rmi; do
         assert_log_line_missing "$osa_verb"
     done
     state_snapshot >"$CASE/after.txt"
     cmp -s "$CASE/before.txt" "$CASE/after.txt" || bad "osa changed a file under the state root"
+}
+
+# ---------------------------------------------------------------------------
+# Non-interactive provider setup (specs/helper-cli: "Generic credential
+# sources", "Profile resolution and generation"; specs/osa-project-layer: "osa
+# lists providers and setup profiles", "osa sets up a provider from stdin").
+# ---------------------------------------------------------------------------
+
+# Writes TEXT (printf %b: `\n` is a newline) to the case's stdin file and
+# prints its path.
+stdin_file() { # TEXT
+    printf '%b' "$1" >"$CASE/stdin.txt"
+    printf '%s' "$CASE/stdin.txt"
+}
+
+# Asserts that no gateway mutation was recorded.
+assert_no_mutation() {
+    for anm_verb in import create update attach; do
+        assert_log_line_missing "$anm_verb"
+    done
+}
+
+assert_log_empty() { # WHY
+    if [ -s "$LOG" ]; then
+        bad "$1: $(tr '\n' ' ' <"$LOG")"
+    fi
+}
+
+# Prints each recorded invocation as one space-joined line.
+log_invocations() {
+    awk '$0 == "---" { if (line != "") print line; line = ""; next }
+        { line = (line == "" ? $0 : line " " $0) }
+        END { if (line != "") print line }' "$LOG" 2>/dev/null
+}
+
+assert_invocation() { # LINE
+    if ! log_invocations | grep -Fxq -- "$1"; then
+        bad "no recorded invocation: $1"
+    fi
+}
+
+# Prints jq FILTER over stdout (empty without jq).
+out_value() { # FILTER
+    jq -r "$1" "$OUT" 2>/dev/null
+}
+
+have_jq() { command -v jq >/dev/null 2>&1; }
+
+test_provider_setup_stdin() {
+    begin "provider setup --stdin creates the provider without a prompt"
+    new_case setup-stdin
+    CREDENTIAL_ENV=DEEPSEEK_API_KEY
+    CREDENTIAL_LOG=$CASE/credential-env.log
+    run_maki_with_input "$(stdin_file 'fixture-stdin-key\n')" provider setup --stdin --profile maki-deepseek
+    assert_rc 0
+    assert_invocation "provider create --name maki-deepseek --type maki-deepseek --from-existing --global-profile"
+    assert_credential_env fixture-stdin-key
+    assert_secret_absent fixture-stdin-key
+    assert_out_missing "[y/N]"
+    assert_out_missing "Default model"
+
+    begin "provider setup --stdin refuses empty, multi-line, and oversized input"
+    for pss_input in '' '\n' 'fixture-line-a\nfixture-line-b\n'; do
+        reset_log
+        run_maki_with_input "$(stdin_file "$pss_input")" provider setup --stdin --profile maki-deepseek
+        assert_rc 1
+        assert_log_empty "invalid stdin reached the gateway"
+    done
+    assert_err_missing fixture-line
+    head -c 65537 /dev/zero | tr '\0' k >"$CASE/big.txt"
+    reset_log
+    run_maki_with_input "$CASE/big.txt" provider setup --stdin --profile maki-deepseek
+    assert_rc 1
+    assert_err_has "at most 65536 bytes"
+    assert_log_empty "an oversized credential reached the gateway"
+    head -c 65536 /dev/zero | tr '\0' k >"$CASE/max.txt"
+    run_maki_with_input "$CASE/max.txt" provider setup --stdin --profile maki-deepseek --yes
+    assert_rc 0
+
+    begin "provider setup --stdin needs --profile and takes no second source"
+    reset_log
+    run_maki_with_input "$(stdin_file 'fixture-k')" provider setup --stdin
+    assert_rc 1
+    assert_err_has "needs --profile"
+    run_maki_with_input "$(stdin_file 'fixture-k')" provider setup --stdin --env X --profile maki-deepseek
+    assert_rc 1
+    assert_err_has "one credential source"
+    assert_log_empty "a usage error reached the gateway"
+
+    begin "MAKI_OSS_INTERACTIVE=1 does not bring prompts back under --stdin"
+    new_case setup-stdin-interactive
+    seed_sandbox maki-project Ready
+    INTERACTIVE=1
+    run_maki_with_input "$(stdin_file 'fixture-k\n')" provider setup --stdin --profile maki-deepseek
+    assert_rc 0
+    assert_out_missing "[y/N]"
+    assert_out_missing "Default model"
+    assert_log_line_missing attach
+    reset_log
+    run_maki_with_input "$(stdin_file 'fixture-k\n')" provider setup --stdin --profile maki-deepseek
+    assert_rc 1
+    assert_err_has "already exists"
+    assert_out_missing "[y/N]"
+    assert_no_mutation
+}
+
+test_provider_setup_profile_id() {
+    begin "provider setup --profile takes a curated or a generated profile id"
+    new_case setup-profile-id
+    run_maki_with_input "$(stdin_file 'fixture-id-key')" provider setup --stdin --profile maki-deepseek
+    assert_rc 0
+    assert_log_line "$ROOT/examples/providers/maki-deepseek.yaml"
+    mkdir -p "$XDG_CONFIG_HOME/maki-oss/profiles"
+    write_fixture_profile "$XDG_CONFIG_HOME/maki-oss/profiles/my-generated.yaml" my-generated GEN_KEY
+    reset_log
+    run_maki_with_input "$(stdin_file 'fixture-id-key')" provider setup --stdin --profile my-generated
+    assert_rc 0
+    assert_log_line "$XDG_CONFIG_HOME/maki-oss/profiles/my-generated.yaml"
+    assert_invocation "provider create --name my-generated --type my-generated --from-existing --global-profile"
+
+    begin "provider setup refuses an unsafe or unknown profile id before the gateway"
+    for psp_id in ../x no-such-profile; do
+        reset_log
+        run_maki_with_input "$(stdin_file 'fixture-id-key')" provider setup --stdin --profile "$psp_id"
+        assert_rc 1
+        assert_log_empty "profile id '$psp_id' reached the gateway"
+    done
+}
+
+test_providers_json_front_ends() {
+    begin "__providers-json reports setup, profiles, gateway, and remembered"
+    new_case providers-json
+    seed_remembered_provider maki-stub
+    mkdir -p "$XDG_CONFIG_HOME/maki-oss/profiles"
+    write_fixture_profile "$XDG_CONFIG_HOME/maki-oss/profiles/my-custom.yaml" my-custom MY_CUSTOM_KEY
+    printf 'id: broken-one\n' >"$XDG_CONFIG_HOME/maki-oss/profiles/broken-one.yaml"
+    run_maki __providers-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '.setup + " " + .command')" = "stdin maki-oss provider setup" ] \
+            || bad "setup: $(out_value '.setup + " " + .command')"
+        [ "$(out_value '.profiles[] | select(.id == "maki-deepseek") | [.env, .source, .note] | join("|")')" \
+            = "DEEPSEEK_API_KEY|curated|DeepSeek API key" ] \
+            || bad "maki-deepseek: $(out_value '.profiles[] | select(.id == "maki-deepseek")')"
+        [ "$(out_value '.profiles[] | select(.id == "my-custom") | [.env, .source, (.note | tostring)] | join("|")')" \
+            = "MY_CUSTOM_KEY|custom|null" ] \
+            || bad "my-custom: $(out_value '.profiles[] | select(.id == "my-custom")')"
+        [ "$(out_value '.profiles[] | select(.id == "broken-one") | [(.env | tostring), .note] | join("|")')" \
+            = "null|unreadable profile" ] \
+            || bad "broken-one: $(out_value '.profiles[] | select(.id == "broken-one")')"
+        [ "$(out_value '[.profiles[] | select(.id == "template")] | length')" = 0 ] \
+            || bad "the template is listed as a profile"
+        [ "$(out_value '.gateway | index("maki-stub") != null')" = true ] \
+            || bad "gateway: $(out_value '.gateway')"
+        [ "$(out_value '.remembered | join(",")')" = maki-stub ] \
+            || bad "remembered: $(out_value '.remembered')"
+    fi
+
+    begin "__providers-json keeps profiles and reports a gateway error"
+    GATEWAY_DOWN=1
+    run_maki __providers-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '.gateway.error.message | type')" = string ] \
+            || bad "gateway: $(out_value '.gateway')"
+        [ "$(out_value '(.profiles | length) > 0')" = true ] || bad "profiles missing with the gateway down"
+        [ "$(out_value '.remembered | join(",")')" = maki-stub ] || bad "remembered missing with the gateway down"
+    fi
+    GATEWAY_DOWN=
+
+    begin "__providers-json reads each front-end's catalog note column"
+    oc_case providers-json-oc
+    run_oc __providers-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '.setup')" = stdin ] || bad "oc setup: $(out_value '.setup')"
+        [ "$(out_value '.profiles[] | select(.id == "opencode-deepseek") | .note')" = "DeepSeek API key" ] \
+            || bad "oc note: $(out_value '.profiles[] | select(.id == "opencode-deepseek")')"
+    fi
+    cc_case providers-json-cc
+    run_cc __providers-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '.profiles[] | select(.id == "claude-anthropic") | .note')" = "Anthropic API key, billed per call" ] \
+            || bad "cc note: $(out_value '.profiles[] | select(.id == "claude-anthropic")')"
+    fi
+    cx_case providers-json-cx
+    run_cx __providers-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '.setup + " " + .command')" = "login codex-oss provider setup" ] \
+            || bad "cx setup: $(out_value '.setup + " " + .command')"
+    fi
+}
+
+test_provider_setup_program() {
+    begin "__provider-setup creates, attaches, and prints only JSON on stdout"
+    new_case provider-setup-program
+    seed_sandbox mk-demo-1a2b Ready
+    CREDENTIAL_ENV=DEEPSEEK_API_KEY
+    CREDENTIAL_LOG=$CASE/credential-env.log
+    run_maki_with_input "$(stdin_file 'fixture-program-key')" --name mk-demo-1a2b \
+        __provider-setup --profile maki-deepseek --attach --json
+    assert_rc 0
+    [ "$(wc -l <"$OUT" | tr -d ' ')" = 1 ] || bad "stdout is not one line: $(cat "$OUT")"
+    assert_err_has "Linting profile"
+    if have_jq; then
+        [ "$(out_value '[.ok, .outcome, .attached, .remembered] | map(tostring) | join(" ")')" \
+            = "true created mk-demo-1a2b true" ] || bad "result: $(cat "$OUT")"
+        [ "$(out_value '.steps | join(",")')" = linted,imported,created,remembered,attached ] \
+            || bad "steps: $(out_value '.steps')"
+    fi
+    assert_credential_env fixture-program-key
+    assert_secret_absent fixture-program-key
+
+    begin "__provider-setup refuses an existing provider without --yes and updates with it"
+    reset_log
+    run_maki_with_input "$(stdin_file 'fixture-program-key')" __provider-setup --profile maki-deepseek --json
+    assert_rc 2
+    assert_out_has '"outcome":"refused"'
+    assert_no_mutation
+    run_maki_with_input "$(stdin_file 'fixture-program-key')" __provider-setup --profile maki-deepseek --yes --json
+    assert_rc 0
+    assert_out_has '"outcome":"updated"'
+    assert_invocation "provider update maki-deepseek --from-existing"
+    assert_log_line_missing attach
+
+    begin "__provider-setup refuses an attach to a missing sandbox before any change"
+    new_case provider-setup-missing
+    run_maki_with_input "$(stdin_file 'fixture-program-key')" --name mk-gone-0000 \
+        __provider-setup --profile maki-deepseek --attach --json
+    assert_rc 2
+    assert_out_has '"outcome":"refused"'
+    assert_out_has "not on the gateway"
+    assert_no_mutation
+
+    begin "__provider-setup reports the completed steps when the attach fails"
+    new_case provider-setup-attach-fail
+    seed_sandbox mk-demo-1a2b Ready
+    ATTACH_FAIL=1
+    run_maki_with_input "$(stdin_file 'fixture-program-key')" --name mk-demo-1a2b \
+        __provider-setup --profile maki-deepseek --attach --json
+    assert_rc 3
+    if have_jq; then
+        [ "$(out_value '[.ok, .outcome, .attached] | map(tostring) | join(" ")')" = "false failed null" ] \
+            || bad "result: $(cat "$OUT")"
+        [ "$(out_value '.steps | join(",")')" = linted,imported,created,remembered ] \
+            || bad "steps: $(out_value '.steps')"
+    fi
+    assert_out_has "created maki-deepseek and remembered it; attach to 'mk-demo-1a2b' failed: stub: attach of maki-deepseek timed out waiting for the supervisor"
+    assert_secret_absent fixture-program-key
+
+    begin "__provider-setup --probe refuses a login agent and passes a stdin agent"
+    cx_case provider-setup-probe
+    run_cx __provider-setup --probe --json
+    assert_rc 2
+    assert_out_has '"outcome":"refused"'
+    assert_out_has '"command":"codex-oss provider setup"'
+    assert_log_empty "the probe contacted the gateway"
+    run_maki __provider-setup --probe --json
+    assert_rc 0
+    [ ! -s "$OUT" ] || bad "a passing probe printed: $(cat "$OUT")"
+}
+
+run_osa_with_input() { # STDIN_FILE ARGS...
+    osa_rc=0
+    (
+        MAKI=$OSA
+        run_maki_with_input "$@"
+        exit "$RC"
+    ) || osa_rc=$?
+    RC=$osa_rc
+}
+
+test_osa_providers() {
+    begin "osa providers lists every agent or one, and refuses an unknown tag"
+    new_case osa-providers
+    run_osa providers --json
+    assert_rc 0
+    assert_json_array 4
+    if have_jq; then
+        [ "$(out_value '[.[].agent] | join(",")')" = mk,oc,cc,cx ] || bad "agents: $(out_value '[.[].agent]')"
+        [ "$(out_value '.[] | select(.agent == "cx") | .setup')" = login ] || bad "cx is not a login agent"
+    fi
+    run_osa providers --agent mk --json
+    assert_rc 0
+    assert_json_array 1
+    if have_jq; then
+        [ "$(out_value '.[0].profiles[] | select(.id == "maki-deepseek") | .env + " " + .source')" \
+            = "DEEPSEEK_API_KEY curated" ] || bad "maki-deepseek: $(cat "$OUT")"
+    fi
+    run_osa providers
+    assert_rc 0
+    assert_out_has "mk (maki-oss): setup stdin"
+    assert_out_has "run 'codex-oss provider setup' in a terminal"
+    run_osa providers --agent zz --json
+    assert_rc 1
+    run_osa providers extra
+    assert_rc 1
+
+    begin "osa providers exits 0 with a gateway error object per agent"
+    GATEWAY_DOWN=1
+    run_osa providers --json
+    assert_rc 0
+    assert_json_array 4
+    if have_jq; then
+        [ "$(out_value '[.[] | .gateway.error.message | type] | unique | join(",")')" = string ] \
+            || bad "gateway: $(out_value '[.[].gateway]')"
+        [ "$(out_value 'all(.[]; (.profiles | length) > 0)')" = true ] || bad "profiles missing"
+    fi
+}
+
+test_osa_provider_setup() {
+    begin "osa provider setup creates and attaches from stdin, which osa never reads"
+    new_case osa-provider-setup
+    seed_registry_entry mk-demo-1a2b mk "$CASE/project"
+    seed_registry_entry oc-demo-1a2b oc "$CASE/project"
+    seed_sandbox mk-demo-1a2b Ready
+    CREDENTIAL_ENV=DEEPSEEK_API_KEY
+    CREDENTIAL_LOG=$CASE/credential-env.log
+    run_osa_with_input "$(stdin_file 'sk-test-osa-fixture')" provider setup mk --profile maki-deepseek \
+        --attach mk-demo-1a2b --json
+    assert_rc 0
+    assert_invocation "profile lint -f $ROOT/examples/providers/maki-deepseek.yaml"
+    assert_invocation "provider create --name maki-deepseek --type maki-deepseek --from-existing --global-profile"
+    assert_invocation "sandbox provider attach mk-demo-1a2b maki-deepseek --wait"
+    assert_out_has '"outcome":"created"'
+    assert_out_has '"attached":"mk-demo-1a2b"'
+    # The probe runs with stdin closed and osa execs the front-end, so the
+    # front-end reads the whole key: any byte osa consumed would be missing.
+    assert_credential_env sk-test-osa-fixture
+    assert_secret_absent sk-test-osa-fixture
+
+    begin "osa provider setup needs --yes for an existing provider"
+    reset_log
+    run_osa_with_input "$(stdin_file 'sk-test-osa-fixture')" provider setup mk --profile maki-deepseek \
+        --attach mk-demo-1a2b --json
+    assert_rc 2
+    assert_out_has '"outcome":"refused"'
+    assert_log_line_missing update
+    assert_log_line_missing attach
+
+    begin "osa provider setup validates the tag, ids, and sandbox before the front-end"
+    reset_log
+    run_osa_with_input "$(stdin_file 'sk-test-osa-fixture')" provider setup mk --profile maki-deepseek \
+        --attach oc-demo-1a2b --json
+    assert_rc 1
+    assert_err_has "belongs to agent 'oc'"
+    run_osa_with_input "$(stdin_file 'sk-test-osa-fixture')" provider setup mk --profile maki-deepseek \
+        --attach mk-nowhere-0000
+    assert_rc 1
+    run_osa_with_input "$(stdin_file 'k')" provider setup zz --profile maki-deepseek
+    assert_rc 1
+    run_osa_with_input "$(stdin_file 'k')" provider setup mk --profile ../x
+    assert_rc 1
+    run_osa_with_input "$(stdin_file 'k')" provider setup mk --profile maki-deepseek --name Bad_Name
+    assert_rc 1
+    run_osa_with_input "$(stdin_file 'k')" provider setup mk
+    assert_rc 1
+    run_osa_with_input "$(stdin_file 'k')" provider remove mk
+    assert_rc 1
+    assert_log_empty "a refused osa provider setup reached the gateway"
+
+    begin "osa provider setup refuses a login agent and names its command"
+    run_osa_with_input "$(stdin_file 'k')" provider setup cx --profile codex-chatgpt --json
+    assert_rc 2
+    assert_out_has "codex-oss provider setup"
+    assert_log_empty "a login agent's setup reached the gateway"
+
+    begin "osa provider setup reports the steps when the attach fails"
+    new_case osa-provider-setup-fail
+    seed_registry_entry mk-demo-1a2b mk "$CASE/project"
+    seed_sandbox mk-demo-1a2b Ready
+    ATTACH_FAIL=1
+    run_osa_with_input "$(stdin_file 'sk-test-osa-fixture')" provider setup mk --profile maki-deepseek \
+        --attach mk-demo-1a2b --json
+    assert_rc 3
+    assert_out_has '"outcome":"failed"'
+    assert_out_has "created maki-deepseek and remembered it; attach to 'mk-demo-1a2b' failed"
+    assert_out_has '"steps":["linted","imported","created","remembered"]'
+    assert_secret_absent sk-test-osa-fixture
+}
+
+# Asserts the credential is in no argv, output, or file under the state and
+# config roots.
+assert_secret_nowhere() { # VALUE
+    assert_secret_absent "$1"
+    if grep -rFq -- "$1" "$HOME/.local/state" "$XDG_CONFIG_HOME" 2>/dev/null; then
+        bad "a file under the state or config root holds the credential"
+    fi
+}
+
+test_provider_setup_secret_scan() {
+    begin "no setup path leaks the credential to argv, output, state, or config"
+    new_case setup-secret-scan
+    pss_secret=FIXTURE-SECRET-7c1e9b
+    seed_registry_entry mk-demo-1a2b mk "$CASE/project"
+    seed_sandbox mk-demo-1a2b Ready
+    run_maki_with_input "$(stdin_file "$pss_secret\n")" provider setup --stdin --profile maki-deepseek
+    assert_rc 0
+    assert_secret_nowhere "$pss_secret"
+    run_maki_with_input "$(stdin_file "$pss_secret")" provider setup --stdin --profile maki-deepseek
+    assert_rc 1
+    assert_secret_nowhere "$pss_secret"
+    run_maki_with_input "$(stdin_file "$pss_secret")" provider setup --stdin --profile maki-deepseek --yes
+    assert_rc 0
+    assert_secret_nowhere "$pss_secret"
+    run_maki_with_input "$(stdin_file "$pss_secret\n$pss_secret\n")" provider setup --stdin --profile maki-deepseek --yes
+    assert_rc 1
+    assert_secret_nowhere "$pss_secret"
+    run_osa_with_input "$(stdin_file "$pss_secret")" provider setup mk --profile maki-deepseek \
+        --name maki-second --attach mk-demo-1a2b --json
+    assert_rc 0
+    assert_secret_nowhere "$pss_secret"
+    run_osa_with_input "$(stdin_file "$pss_secret")" provider setup mk --profile maki-deepseek --json
+    assert_rc 2
+    assert_secret_nowhere "$pss_secret"
+    ATTACH_FAIL=1
+    run_osa_with_input "$(stdin_file "$pss_secret")" provider setup mk --profile maki-deepseek \
+        --name maki-third --attach mk-demo-1a2b --json
+    assert_rc 3
+    assert_secret_nowhere "$pss_secret"
+    ATTACH_FAIL=
+    PROFILE_LINT_EXIT=1
+    run_osa_with_input "$(stdin_file "$pss_secret")" provider setup mk --profile maki-deepseek \
+        --name maki-fourth --json
+    assert_rc 2
+    assert_secret_nowhere "$pss_secret"
+    PROFILE_LINT_EXIT=
+    GATEWAY_DOWN=1
+    run_osa_with_input "$(stdin_file "$pss_secret")" provider setup mk --profile maki-deepseek \
+        --name maki-fifth --json
+    assert_rc 2
+    assert_secret_nowhere "$pss_secret"
+    GATEWAY_DOWN=
+    run_osa_with_input "$(stdin_file '')" provider setup mk --profile maki-deepseek --name maki-sixth --json
+    assert_rc 1
+    assert_secret_nowhere "$pss_secret"
+}
+
+# ---------------------------------------------------------------------------
+# Base images (specs/osa-project-layer: "osa reports and builds base images").
+# ---------------------------------------------------------------------------
+
+test_image_build_forwards_term() {
+    begin "image build forwards SIGTERM to the engine and leaves no engine process"
+    new_case image-build-term
+    BUILD_MODE='sleep'
+    BUILD_PID_FILE=$CASE/build.pid
+    BUILD_SIGNAL_LOG=$CASE/build-signal.log
+    (
+        run_maki image build
+        printf '%s' "$RC" >"$CASE/rc"
+    ) &
+    ibt_bg=$!
+    ibt_i=0
+    while [ ! -s "$BUILD_PID_FILE.sleep" ] && [ "$ibt_i" -lt 100 ]; do
+        sleep 0.1
+        ibt_i=$((ibt_i + 1))
+    done
+    if [ ! -s "$BUILD_PID_FILE.sleep" ]; then
+        bad "the stub engine never started"
+        kill "$ibt_bg" 2>/dev/null || :
+        return
+    fi
+    ibt_engine=$(cat "$BUILD_PID_FILE")
+    ibt_sleep=$(cat "$BUILD_PID_FILE.sleep")
+    # The engine's parent is the front-end; signal it alone.
+    ibt_front=$(ps -o ppid= -p "$ibt_engine" | tr -d ' ')
+    kill -TERM "$ibt_front"
+    wait "$ibt_bg" || :
+    [ "$(cat "$CASE/rc" 2>/dev/null)" != 0 ] || bad "the front-end exited 0 after SIGTERM"
+    grep -Fqx TERM "$BUILD_SIGNAL_LOG" 2>/dev/null || bad "the engine did not receive SIGTERM"
+    sleep 0.2
+    if kill -0 "$ibt_engine" 2>/dev/null || kill -0 "$ibt_sleep" 2>/dev/null; then
+        bad "an engine process from the build remains"
+        kill "$ibt_engine" "$ibt_sleep" 2>/dev/null || :
+    fi
+}
+
+test_image_json() {
+    begin "__image-json reports a present, missing, or configured base image"
+    new_case image-json
+    run_maki __image-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '[.agent, .image, .engine, .present, .id, (.configured | tostring), (.error | tostring)] | map(tostring) | join(" ")')" \
+            = "mk maki-agent:local docker true sha256:stub null null" ] || bad "present: $(cat "$OUT")"
+    fi
+    IMAGE_INSPECT=missing
+    run_maki __image-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '[.present, (.error | tostring)] | map(tostring) | join(" ")')" = "false null" ] \
+            || bad "missing: $(cat "$OUT")"
+    fi
+    IMAGE_INSPECT=error
+    run_maki __image-json
+    assert_rc 0
+    if have_jq; then
+        out_value '.error.message' | grep -q 'permission denied' || bad "inspect failure: $(cat "$OUT")"
+    fi
+    IMAGE_INSPECT=
+    mkdir -p "$XDG_CONFIG_HOME/maki-oss"
+    printf 'image = "maki-env:me"\n' >"$XDG_CONFIG_HOME/maki-oss/config.toml"
+    run_maki __image-json
+    assert_rc 0
+    if have_jq; then
+        [ "$(out_value '.image + " " + .configured')" = "maki-agent:local maki-env:me" ] \
+            || bad "configured: $(cat "$OUT")"
+    fi
+    printf 'engine = "no-such-engine"\n' >"$XDG_CONFIG_HOME/maki-oss/config.toml"
+    run_maki __image-json
+    assert_rc 0
+    assert_out_has "container engine 'no-such-engine' not found on PATH"
+    assert_log_line_missing build
+    oc_case image-json-oc
+    run_oc __image-json
+    assert_rc 0
+    assert_out_has '"image":"opencode-agent:local"'
+}
+
+test_osa_images() {
+    begin "osa images reports every agent with no build and no gateway call"
+    new_case osa-images
+    IMAGE_INSPECT=missing
+    run_osa images --json
+    assert_rc 0
+    assert_json_array 4
+    if have_jq; then
+        [ "$(out_value '[.[] | .agent + ":" + (.present | tostring)] | join(",")')" \
+            = "mk:false,oc:false,cc:false,cx:false" ] || bad "images: $(cat "$OUT")"
+    fi
+    if log_invocations | grep -v '^image inspect ' | grep -q .; then
+        bad "osa images ran more than image inspect: $(log_invocations | grep -v '^image inspect ')"
+    fi
+    run_osa images
+    assert_rc 0
+    assert_out_has "maki-agent:local"
+    assert_out_has "missing; run 'osa image build mk'"
+
+    begin "osa image build streams the front-end's build and passes its status through"
+    reset_log
+    BUILD_MODE=lines
+    run_osa image build oc
+    assert_rc 0
+    assert_out_has "step 1/3"
+    assert_out_has "step 3/3"
+    assert_invocation "build -t opencode-agent:local $ROOT/opencode-oss/image"
+    oib_rc=0
+    (
+        STUB_ENGINE_EXIT=5
+        export STUB_ENGINE_EXIT
+        run_osa image build oc
+        exit "$RC"
+    ) || oib_rc=$?
+    [ "$oib_rc" -eq 2 ] || bad "a failed build exited $oib_rc, not the front-end's 2"
+
+    begin "osa image build refuses extra arguments and unknown tags before the engine"
+    reset_log
+    run_osa image build mk --maki-version 1.2.3
+    assert_rc 1
+    run_osa image build zz
+    assert_rc 1
+    run_osa image build
+    assert_rc 1
+    run_osa image build mk mk
+    assert_rc 1
+    run_osa image list
+    assert_rc 1
+    assert_log_empty "a refused image build reached the engine"
+}
+
+# ---------------------------------------------------------------------------
+# Idle stop state (specs/osa-project-layer: "osa health reports a sandbox's
+# health"): idle_state over constructed idle/idle.log files.
+# ---------------------------------------------------------------------------
+
+# Appends `LOCAL_TIME EVENT...` to DIR/idle.log, SECONDS_AGO before now, in the
+# local time of the current TZ, the way idle_log writes it.
+idle_line() { # DIR SECONDS_AGO EVENT...
+    il_dir=$1
+    il_epoch=$(($(date +%s) - $2))
+    shift 2
+    il_local=$(date -d "@$il_epoch" '+%Y-%m-%dT%H:%M:%S' 2>/dev/null \
+        || date -r "$il_epoch" '+%Y-%m-%dT%H:%M:%S')
+    mkdir -p "$il_dir"
+    printf '%s %s\n' "$il_local" "$*" >>"$il_dir/idle.log"
+}
+
+# Seconds since the epoch for an ISO 8601 UTC time.
+iso_epoch() { # TIME
+    date -u -d "$1" +%s 2>/dev/null || date -u -j -f '%Y-%m-%dT%H:%M:%SZ' "$1" +%s
+}
+
+idle_state_of() { # DIR [SECS]
+    (. "$ROOT/lib/osa-state.sh" && idle_state "$@")
+}
+
+# Field N (1-based) of an idle_state line.
+idle_field() { # LINE N
+    printf '%s\n' "$1" | awk -F '\t' -v n="$2" '{ print $n }'
+}
+
+# Fails unless DEADLINE is SECONDS from now, within 5 seconds.
+assert_deadline_in() { # DEADLINE SECONDS
+    adi_at=$(iso_epoch "$1") || { bad "deadline is not ISO 8601 UTC: $1"; return 0; }
+    adi_off=$((adi_at - $(date +%s) - $2))
+    [ "$adi_off" -ge -5 ] && [ "$adi_off" -le 5 ] \
+        || bad "deadline $1 is ${adi_off}s off from now + $2s"
+}
+
+test_idle_state() {
+    begin "idle_state reports every idle-stop state from the idle files"
+    new_case idle-state
+    is_dead_pid=$(sh -c 'echo $$')
+
+    st=$(idle_state_of "$CASE/none" 3600)
+    [ "$(idle_field "$st" 1)" = none ] || bad "no idle.log: $st"
+    st=$(idle_state_of "$CASE/none" 0)
+    [ "$(idle_field "$st" 1)" = off ] && [ "$(idle_field "$st" 2)" = 0 ] || bad "secs 0: $st"
+
+    idle_line "$CASE/running" 30 "armed secs=3600 session=$$ watcher=1"
+    printf '%s.%s\n' "$(date +%s)" "$$" >"$CASE/running/idle"
+    st=$(idle_state_of "$CASE/running")
+    [ "$(idle_field "$st" 1)" = running ] || bad "a live session: $st"
+    [ "$(idle_field "$st" 2)" = 3600 ] || bad "the period comes from the armed line: $st"
+
+    idle_line "$CASE/counting" 900 "armed secs=3600 session=$is_dead_pid watcher=1"
+    idle_line "$CASE/counting" 600 "closed session=$is_dead_pid"
+    st=$(idle_state_of "$CASE/counting")
+    [ "$(idle_field "$st" 1)" = counting ] && [ "$(idle_field "$st" 4)" = false ] \
+        || bad "a closed session: $st"
+    assert_deadline_in "$(idle_field "$st" 3)" 3000
+    [ "$(idle_field "$st" 5)" = closed ] || bad "last event: $st"
+    assert_deadline_in "$(idle_field "$st" 6)" -600
+    # The watcher's own period (from --idle-stop, say) wins over the setting.
+    st=$(idle_state_of "$CASE/counting" 1800)
+    assert_deadline_in "$(idle_field "$st" 3)" 3000
+    [ "$(idle_field "$st" 2)" = 3600 ] || bad "the armed period was replaced: $st"
+    # Without an armed line the setting is the period.
+    idle_line "$CASE/no-armed" 600 "closed session=$is_dead_pid"
+    st=$(idle_state_of "$CASE/no-armed" 1800)
+    assert_deadline_in "$(idle_field "$st" 3)" 1200
+
+    idle_line "$CASE/estimated" 120 "armed secs=3600 session=$is_dead_pid watcher=1"
+    printf '%s.%s\n' "$(date +%s)" "$is_dead_pid" >"$CASE/estimated/idle"
+    st=$(idle_state_of "$CASE/estimated")
+    [ "$(idle_field "$st" 1)" = counting ] && [ "$(idle_field "$st" 4)" = true ] \
+        || bad "a dead session without closed is an estimate: $st"
+    assert_deadline_in "$(idle_field "$st" 3)" 3600
+
+    for is_case in stopped:stopped superseded:skipped busy:skipped \
+        stop-failed:failed scan-failed:failed; do
+        is_event=${is_case%%:*}
+        idle_line "$CASE/$is_event" 3700 "armed secs=60 session=$is_dead_pid watcher=1"
+        idle_line "$CASE/$is_event" 3600 "closed session=$is_dead_pid"
+        idle_line "$CASE/$is_event" 3540 "$is_event session=$is_dead_pid"
+        st=$(idle_state_of "$CASE/$is_event")
+        [ "$(idle_field "$st" 1)" = "${is_case#*:}" ] || bad "$is_event: $st"
+        [ "$(idle_field "$st" 3)" = - ] || bad "$is_event has a deadline: $st"
+        [ "$(idle_field "$st" 5)" = "$is_event" ] || bad "$is_event last event: $st"
+    done
+
+    begin "idle_state converts local log times to UTC in any time zone"
+    for is_tz in Asia/Yekaterinburg America/New_York UTC; do
+        rm -rf "$CASE/tz"
+        st=$(
+            TZ=$is_tz
+            export TZ
+            idle_line "$CASE/tz" 900 "armed secs=3600 session=$is_dead_pid watcher=1"
+            idle_line "$CASE/tz" 600 "closed session=$is_dead_pid"
+            idle_state_of "$CASE/tz"
+        )
+        case $(idle_field "$st" 3) in
+            *Z) ;;
+            *) bad "$is_tz: the deadline is not UTC: $st" ;;
+        esac
+        assert_deadline_in "$(idle_field "$st" 3)" 3000
+    done
+}
+
+test_osa_quick_idle() {
+    begin "osa status --quick reports the idle deadline without the gateway"
+    new_case osa-quick-idle
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    assert_rc 0
+    oqi_dead=$(sh -c 'echo $$')
+    idle_line "$(session_dir maki-myproject)" 900 "armed secs=3600 session=$oqi_dead watcher=1"
+    idle_line "$(session_dir maki-myproject)" 600 "closed session=$oqi_dead"
+    reset_log
+    run_osa status --quick --json
+    assert_rc 0
+    assert_json_array 1
+    assert_out_has '"idle":{"period":3600,"state":"counting","deadline":"'
+    oqi_deadline=$(sed -n 's/.*"idle":{[^}]*"deadline":"\([^"]*\)".*/\1/p' "$OUT")
+    assert_deadline_in "$oqi_deadline" 3000
+    if [ -s "$LOG" ]; then
+        bad "--quick contacted the gateway: $(tr '\n' ' ' <"$LOG")"
+    fi
+    run_osa status --quick
+    assert_rc 0
+    assert_out_has "Idle stop: counting down; stop due $oqi_deadline (period 3600s)"
+    [ ! -s "$LOG" ] || bad "--quick text contacted the gateway"
 }
 
 # ---------------------------------------------------------------------------
@@ -7266,7 +8250,7 @@ test_resolve_dispatch_refusals() {
     assert_out_has "resolve SANDBOX ACTION"
     run_osa up
     assert_rc 1
-    assert_err_has "projects, status, resolve, help"
+    assert_err_has "projects, status, health, providers, images, resolve, provider setup, image build, dashboard, help"
     run_osa resolve
     assert_rc 1
     run_osa resolve maki-x frobnicate
@@ -7845,6 +8829,433 @@ test_caller_invalid_mode() {
     return 0
 }
 
+# ---------------------------------------------------------------------------
+# Health (specs/osa-project-layer: "osa health reports a sandbox's health"):
+# each front-end's __health-json against its own doctor and mcp status text.
+# ---------------------------------------------------------------------------
+
+# Runs FRONT (maki, oc, cc, or cx) with its stub environment.
+run_front_any() { # FRONT ARGS...
+    rfa_front=$1
+    shift
+    case $rfa_front in
+        cx) run_cx "$@" ;;
+        *) run_front "$rfa_front" "$@" ;;
+    esac
+}
+
+# Renders a health JSON file's MCP section as `mcp status` gate and fix lines.
+health_mcp_text() { # FILE
+    jq -r '.mcp.servers[]
+        | "  \(.name): \([.gates[] | "\(.gate)=\(if .ok then "ok" else "missing" end)"] | join(" ")) transport=\(.transport)",
+          (.gates[] | select(.fix != null) | "    fix: \(.fix)")' "$1"
+}
+
+# Renders a health JSON file's doctor section as `doctor` check lines.
+health_doctor_text() { # FILE
+    jq -r '.doctor.checks[] | "\(.status)\u0001\(.name)\u0001\(.detail)"' "$1" \
+        | awk -F '\001' '{ printf "%-5s %s: %s\n", $1, $2, $3 }'
+}
+
+# Runs FRONT's mcp status, doctor, and __health-json in the current case and
+# fails unless the JSON reports the same gates, fixes, and checks.
+assert_health_matches() { # FRONT
+    run_front_any "$1" mcp status
+    grep '^  ' "$OUT" >"$CASE/expected-mcp" || :
+    run_front_any "$1" doctor
+    grep -E '^(ok|fail|skip|warn) ' "$OUT" >"$CASE/expected-doctor" || :
+    run_front_any "$1" __health-json
+    assert_rc 0
+    cp "$OUT" "$CASE/health.json"
+    jq -e 'type == "object"' "$CASE/health.json" >/dev/null 2>&1 \
+        || { bad "$1 __health-json is not one JSON object: $(cat "$CASE/health.json")"; return 0; }
+    health_mcp_text "$CASE/health.json" >"$CASE/got-mcp"
+    cmp -s "$CASE/expected-mcp" "$CASE/got-mcp" \
+        || bad "$1 MCP gates differ from mcp status: $(diff "$CASE/expected-mcp" "$CASE/got-mcp" | tr '\n' ' ')"
+    health_doctor_text "$CASE/health.json" >"$CASE/got-doctor"
+    cmp -s "$CASE/expected-doctor" "$CASE/got-doctor" \
+        || bad "$1 doctor checks differ from doctor: $(diff "$CASE/expected-doctor" "$CASE/got-doctor" | tr '\n' ' ')"
+    [ -s "$CASE/got-doctor" ] || bad "$1 reported no doctor checks"
+}
+
+health_value() { # JQ
+    jq -r "$1" "$CASE/health.json"
+}
+
+test_health_json_maki() {
+    begin "maki-oss __health-json matches its mcp status and doctor"
+    command -v jq >/dev/null 2>&1 || { skipped "jq not found"; return 0; }
+    new_case health-maki
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_host_mcp stdio
+    attach_stub_provider maki-myproject mcp-context7
+    seed_exec_stdio 1
+    POLICY_FULL='host: mcp.context7.com'
+    assert_health_matches maki
+    [ "$(health_value '.sandbox + " " + .agent')" = "maki-myproject mk" ] \
+        || bad "sandbox and agent: $(health_value '.sandbox + " " + .agent')"
+    [ "$(health_value '.mcp.supported')" = true ] && [ "$(health_value '.mcp.ok')" = false ] \
+        || bad "a failing gate is not reported: $(health_value '.mcp')"
+    health_value '.mcp.servers[] | select(.name == "synthetic") | .gates[] | select(.gate == "runtime") | .fix' \
+        | grep -q "provides the runtime 'bun'" || bad "the runtime gate carries no fix"
+    [ "$(health_value '.doctor.checks[] | select(.name == "image") | .status')" = ok ] \
+        || bad "no image check: $(health_value '.doctor')"
+    # The suite runs with MAKI_OSS_IDLE_STOP=0.
+    [ "$(health_value '.idle.state + " " + (.idle.period | tostring)')" = "off 0" ] \
+        || bad "idle: $(health_value '.idle')"
+    assert_log_line_missing start
+    # shellcheck disable=SC2016  # the literal ${VAR} placeholder text is the assertion
+    assert_secret_absent '${SYNTHETIC_API_KEY}'
+
+    begin "maki-oss __health-json reports a missing image the way doctor does"
+    # The stub engine fails every call, so `image inspect` finds nothing.
+    STUB_ENGINE_EXIT=1
+    export STUB_ENGINE_EXIT
+    assert_health_matches maki
+    unset STUB_ENGINE_EXIT
+    health_value '.doctor.checks[] | select(.name == "image") | .status + " " + .detail' \
+        | grep -q '^fail maki-agent:local not found (build it: maki-oss image build)$' \
+        || bad "image check: $(health_value '.doctor.checks[] | select(.name == "image")')"
+    [ "$(health_value '.doctor.ok')" = false ] || bad "doctor.ok with a missing image"
+}
+
+test_health_json_front_ends() {
+    begin "opencode-oss __health-json matches its mcp status and doctor"
+    command -v jq >/dev/null 2>&1 || { skipped "jq not found"; return 0; }
+    oc_case health-oc
+    oc_ready_project
+    seed_oc_host_mcp "$OC_HOST_MCP"
+    EXEC_STDOUT=$(cat "$ROOT/opencode-oss/image/config/opencode.json")
+    assert_health_matches oc
+    [ "$(health_value '.agent')" = oc ] || bad "agent: $(health_value '.agent')"
+    [ "$(health_value '.doctor.checks[] | select(.name == "model") | .status')" = warn ] \
+        || bad "the model warning is missing: $(health_value '.doctor')"
+
+    begin "opencode-oss __health-json reports MCP as an error without jq"
+    PATH_OVERRIDE=$(no_jq_path)
+    run_oc __health-json
+    PATH_OVERRIDE=
+    assert_rc 0
+    cp "$OUT" "$CASE/health.json"
+    health_value '.mcp.error' | grep -q 'needs jq' || bad "MCP without jq: $(cat "$OUT")"
+    [ "$(health_value '.doctor.checks | length > 0')" = true ] || bad "doctor missing without jq"
+
+    begin "claude-oss __health-json matches its mcp status and doctor"
+    cc_case health-cc
+    cc_ready_project
+    seed_cc_host_mcp "$CC_HOST_MCP"
+    EXEC_STDOUT=$(cat "$ROOT/claude-oss/image/claude.json")
+    assert_health_matches cc
+    [ "$(health_value '.agent')" = cc ] || bad "agent: $(health_value '.agent')"
+
+    begin "codex-oss __health-json matches its mcp status and doctor"
+    cx_case health-cx
+    cx_ready_project
+    seed_cx_host_mcp "$CX_HOST_MCP"
+    EXEC_STDOUT='model = "x"'
+    assert_health_matches cx
+    [ "$(health_value '.agent')" = cx ] || bad "agent: $(health_value '.agent')"
+}
+
+test_health_json_stopped() {
+    begin "__health-json reports a stopped sandbox's MCP as an error and starts nothing"
+    command -v jq >/dev/null 2>&1 || { skipped "jq not found"; return 0; }
+    new_case health-stopped
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Stopped
+    seed_host_mcp
+    reset_log
+    run_maki __health-json
+    assert_rc 0
+    cp "$OUT" "$CASE/health.json"
+    health_value '.mcp.error' | grep -q 'not running' || bad "MCP error: $(health_value '.mcp')"
+    [ "$(health_value '.mcp.servers | length')" = 0 ] || bad "a stopped sandbox reported servers"
+    [ "$(health_value '.doctor.checks | length > 0')" = true ] || bad "doctor missing"
+    for hs_verb in start exec create; do
+        assert_log_line_missing "$hs_verb"
+    done
+    phase=$(cat "$STUB_STATE_DIR/sandboxes/maki-myproject")
+    [ "$phase" = Stopped ] || bad "the sandbox phase changed to $phase"
+}
+
+test_osa_health() {
+    begin "osa health reports a registered sandbox through its front-end"
+    command -v jq >/dev/null 2>&1 || { skipped "jq not found"; return 0; }
+    new_case osa-health
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_maki_store anthropic 'fixture-health-secret-5c1e'
+    seed_remembered_provider maki-stub
+    run_maki up
+    assert_rc 0
+    attach_stub_provider maki-myproject maki-stub
+    seed_host_mcp
+    EXEC_STDOUT=$(sandbox_mcp_fixture)
+    POLICY_FULL='host: mcp.context7.com'
+    oh_dead=$(sh -c 'echo $$')
+    idle_line "$(session_dir maki-myproject)" 900 "armed secs=3600 session=$oh_dead watcher=1"
+    idle_line "$(session_dir maki-myproject)" 600 "closed session=$oh_dead"
+    ENV_IDLE_STOP=1h
+
+    RUN_DIR=$CASE
+    run_osa health maki-myproject --json
+    assert_rc 0
+    cp "$OUT" "$CASE/health.json"
+    [ "$(health_value '.sandbox + " " + .agent')" = "maki-myproject mk" ] \
+        || bad "sandbox and agent: $(cat "$OUT")"
+    [ "$(health_value '.idle.state + " " + (.idle.period | tostring)')" = "counting 3600" ] \
+        || bad "idle: $(health_value '.idle')"
+    [ "$(health_value '.mcp.servers[0].gates[] | select(.gate == "provider") | .fix')" = \
+        "maki-oss provider attach mcp-context7" ] || bad "MCP: $(health_value '.mcp')"
+    [ "$(health_value '.doctor.checks[] | select(.name == "gateway") | .status')" = ok ] \
+        || bad "doctor: $(health_value '.doctor')"
+    assert_secret_absent 'fixture-health-secret-5c1e'
+
+    run_osa health maki-myproject
+    assert_rc 0
+    assert_out_has "Health of sandbox 'maki-myproject' (mk):"
+    assert_out_has "Idle stop: counting down; stop due "
+    assert_out_has "context7: sandbox=ok provider=missing endpoint=ok transport=http"
+    assert_out_has "fix: maki-oss provider attach mcp-context7"
+    assert_out_has "ok    gateway: connected"
+    assert_secret_absent 'fixture-health-secret-5c1e'
+
+    begin "osa health reports MCP and the gateway check as failed when the gateway is down"
+    GATEWAY_DOWN=1
+    run_osa health maki-myproject --json
+    GATEWAY_DOWN=
+    assert_rc 0
+    cp "$OUT" "$CASE/health.json"
+    health_value '.mcp.error' | grep -q 'gateway' || bad "MCP error: $(health_value '.mcp')"
+    [ "$(health_value '.doctor.checks[] | select(.name == "gateway") | .status')" = fail ] \
+        || bad "doctor gateway: $(health_value '.doctor')"
+    [ "$(health_value '.idle.state')" = counting ] || bad "idle without the gateway: $(health_value '.idle')"
+    assert_secret_absent 'fixture-health-secret-5c1e'
+
+    begin "osa health refuses an unregistered sandbox as a usage error"
+    reset_log
+    run_osa health mk-nowhere-0000 --json
+    assert_rc 1
+    assert_err_has "not registered"
+    [ ! -s "$OUT" ] || bad "stdout for an unregistered sandbox: $(cat "$OUT")"
+    [ ! -s "$LOG" ] || bad "an unregistered sandbox contacted the gateway"
+    run_osa health
+    assert_rc 1
+    assert_err_has "usage: osa health SANDBOX"
+
+    begin "osa health reports only idle stop for an orphan"
+    seed_registry_entry mk-ghost-0000 mk "$CASE/project/gone"
+    oh_ghost=$(state_root)/sessions/mk-ghost-0000
+    idle_line "$oh_ghost" 7200 "armed secs=60 session=$oh_dead watcher=1"
+    idle_line "$oh_ghost" 7100 "stopped session=$oh_dead"
+    reset_log
+    run_osa health mk-ghost-0000 --json
+    assert_rc 0
+    cp "$OUT" "$CASE/health.json"
+    [ "$(health_value '.idle.state')" = stopped ] || bad "orphan idle: $(cat "$OUT")"
+    [ "$(health_value '.mcp.error + "|" + .doctor.error')" = "project folder missing|project folder missing" ] \
+        || bad "orphan sections: $(cat "$OUT")"
+    [ ! -s "$LOG" ] || bad "an orphan's health contacted the gateway"
+    run_osa health mk-ghost-0000
+    assert_rc 0
+    assert_out_has "Idle stop: stopped at "
+    assert_out_has "error: project folder missing"
+}
+
+# ---------------------------------------------------------------------------
+# osa dashboard: an exec wrapper around the repository's Bun dashboard. A
+# per-case bun stub, ahead of tests/stub (whose bun stands in for the TUI
+# bridge), answers --version from BUN_VERSION and otherwise records its argv,
+# DASHBOARD_OSA_BIN, DASHBOARD_PORT, and working directory, then exits 0.
+
+write_dashboard_bun_stub() {
+    mkdir -p "$CASE/bun-bin"
+    cat >"$CASE/bun-bin/bun" <<'STUB'
+#!/bin/sh
+if [ "${1:-}" = --version ]; then
+    printf '%s\n' "$STUB_BUN_VERSION"
+    exit 0
+fi
+{
+    for stub_arg in "$@"; do
+        printf 'argv: %s\n' "$stub_arg"
+    done
+    printf 'DASHBOARD_OSA_BIN=%s\n' "${DASHBOARD_OSA_BIN:-}"
+    printf 'DASHBOARD_PORT=%s\n' "${DASHBOARD_PORT:-}"
+    printf 'pwd=%s\n' "$(pwd -P)"
+} >"$STUB_BUN_LOG"
+STUB
+    chmod +x "$CASE/bun-bin/bun"
+}
+
+# Runs osa dashboard with the bun stub first on PATH (PATH_OVERRIDE replaces
+# the whole PATH), BUN_VERSION as its version, DASHBOARD_ENV_OSA_BIN as the
+# inherited DASHBOARD_OSA_BIN, and OSA_CMD (default: $OSA) as the command.
+run_osa_dashboard() { # ARGS...
+    BUN_LOG=$CASE/bun.log
+    rm -f "$BUN_LOG"
+    RC=0
+    (
+        cd "${RUN_DIR:-$CASE/project}"
+        PATH="${PATH_OVERRIDE:-$CASE/bun-bin:$STUB_DIR:$PATH}" \
+        HOME="$HOME" \
+        XDG_STATE_HOME="$CASE/xdg-state" \
+        STUB_LOG="$STUB_LOG" \
+        STUB_STATE_DIR="$STUB_STATE_DIR" \
+        STUB_BUN_VERSION="${BUN_VERSION:-1.4.2}" \
+        STUB_BUN_LOG="$BUN_LOG" \
+        DASHBOARD_OSA_BIN="${DASHBOARD_ENV_OSA_BIN:-}" \
+        DASHBOARD_PORT=9123 \
+        "${OSA_CMD:-$OSA}" dashboard "$@" >"$OUT" 2>"$ERR" </dev/null
+    ) || RC=$?
+}
+
+# Checks that the bun stub received exactly `run <repo>/dashboard/src/main.ts`
+# followed by ARGS, in order.
+assert_bun_argv() { # ARGS...
+    {
+        printf 'argv: run\n'
+        printf 'argv: %s\n' "$ROOT/dashboard/src/main.ts"
+        for bun_arg in "$@"; do
+            printf 'argv: %s\n' "$bun_arg"
+        done
+    } >"$CASE/bun-argv.want"
+    if [ ! -f "$BUN_LOG" ]; then
+        bad "bun did not run: $(cat "$ERR")"
+        return
+    fi
+    grep '^argv: ' "$BUN_LOG" >"$CASE/bun-argv.got" || :
+    cmp -s "$CASE/bun-argv.want" "$CASE/bun-argv.got" \
+        || bad "bun argv: $(tr '\n' '|' <"$CASE/bun-argv.got")"
+}
+
+assert_bun_not_run() { # WHY
+    [ ! -f "$BUN_LOG" ] || bad "$1: bun ran: $(tr '\n' '|' <"$BUN_LOG")"
+}
+
+assert_bun_log_line() { # LINE
+    grep -qxF "$1" "$BUN_LOG" 2>/dev/null || bad "bun log lacks '$1': $(tr '\n' '|' <"$BUN_LOG" 2>/dev/null)"
+}
+
+test_osa_dashboard() {
+    begin "osa dashboard execs Bun on the repository's dashboard with this osa"
+    new_case osa-dashboard
+    write_dashboard_bun_stub
+    run_osa_dashboard
+    assert_rc 0
+    assert_bun_argv
+    assert_bun_log_line "DASHBOARD_OSA_BIN=$ROOT/bin/osa"
+    assert_bun_log_line "DASHBOARD_PORT=9123"
+    assert_bun_log_line "pwd=$(CDPATH='' cd -- "$CASE/project" && pwd -P)"
+
+    begin "osa dashboard passes its five flags through unchanged and in order"
+    run_osa_dashboard --port 9000 --host 127.0.0.1 --token T --read-only --open
+    assert_rc 0
+    assert_bun_argv --port 9000 --host 127.0.0.1 --token T --read-only --open
+    run_osa_dashboard --open --token=T2 --host=::1 --read-only --port=0
+    assert_rc 0
+    assert_bun_argv --open --token=T2 --host=::1 --read-only --port=0
+    run_osa_dashboard --port abc
+    assert_rc 0
+    assert_bun_argv --port abc
+
+    begin "osa dashboard rejects other arguments before starting Bun"
+    run_osa_dashboard --daemon
+    assert_rc 1
+    assert_err_has "unknown dashboard option: --daemon"
+    assert_bun_not_run "--daemon"
+    run_osa_dashboard extra
+    assert_rc 1
+    assert_bun_not_run "a positional argument"
+    run_osa_dashboard --port
+    assert_rc 1
+    assert_err_has "option --port requires a value"
+    assert_bun_not_run "--port without a value"
+    run_osa_dashboard --read-only --token
+    assert_rc 1
+    assert_bun_not_run "--token without a value"
+    run_osa_dashboard --help
+    assert_rc 0
+    assert_out_has "Usage: osa dashboard"
+    assert_bun_not_run "--help"
+
+    begin "osa dashboard exits 2 without Bun, naming the minimum and the install link"
+    mkdir -p "$CASE/nobin"
+    PATH_OVERRIDE="$CASE/nobin:/usr/bin:/bin"
+    run_osa_dashboard
+    PATH_OVERRIDE=
+    assert_rc 2
+    assert_err_has "Bun >= 1.2.0"
+    assert_err_has "https://bun.sh"
+    assert_bun_not_run "no bun"
+
+    begin "osa dashboard refuses Bun below 1.2.0 and runs at 1.2.0"
+    BUN_VERSION=1.1.30
+    run_osa_dashboard
+    assert_rc 2
+    assert_err_has "found 1.1.30"
+    assert_err_has "Bun >= 1.2.0"
+    assert_bun_not_run "Bun 1.1.30"
+    BUN_VERSION=1.2.0
+    run_osa_dashboard
+    assert_rc 0
+    assert_bun_argv
+    BUN_VERSION=1.2.0-canary.3+abc
+    run_osa_dashboard
+    assert_rc 0
+    assert_bun_argv
+
+    begin "osa dashboard warns on an unreadable Bun version and still runs"
+    BUN_VERSION=nightly
+    run_osa_dashboard --open
+    assert_rc 0
+    assert_err_has "warning: cannot read Bun's version ('nightly')"
+    assert_bun_argv --open
+    BUN_VERSION=
+
+    begin "osa dashboard overrides an inherited DASHBOARD_OSA_BIN"
+    DASHBOARD_ENV_OSA_BIN=/elsewhere/bin/osa
+    run_osa_dashboard
+    DASHBOARD_ENV_OSA_BIN=
+    assert_rc 0
+    assert_bun_log_line "DASHBOARD_OSA_BIN=$ROOT/bin/osa"
+
+    begin "osa dashboard found on PATH from / starts the same dashboard"
+    RUN_DIR=/
+    PATH_OVERRIDE="$CASE/bun-bin:$ROOT/bin:$STUB_DIR:$PATH"
+    OSA_CMD=osa
+    run_osa_dashboard --read-only
+    OSA_CMD=
+    PATH_OVERRIDE=
+    RUN_DIR=
+    assert_rc 0
+    assert_bun_argv --read-only
+    assert_bun_log_line "DASHBOARD_OSA_BIN=$ROOT/bin/osa"
+    assert_bun_log_line "pwd=/"
+}
+
+test_osa_dashboard_writes_nothing() {
+    begin "osa dashboard writes no state and makes no openshell call"
+    new_case osa-dashboard-quiet
+    write_dashboard_bun_stub
+    mkdir -p "$CASE/xdg-state"
+    find "$CASE/xdg-state" "$HOME" | sort >"$CASE/before.txt"
+    reset_log
+    run_osa_dashboard
+    assert_rc 0
+    run_osa_dashboard --port 0 --open
+    assert_rc 0
+    run_osa_dashboard --daemon
+    assert_rc 1
+    find "$CASE/xdg-state" "$HOME" | sort >"$CASE/after.txt"
+    cmp -s "$CASE/before.txt" "$CASE/after.txt" \
+        || bad "osa dashboard wrote a file: $(diff "$CASE/before.txt" "$CASE/after.txt" | tr '\n' ' ')"
+    [ ! -s "$LOG" ] || bad "osa dashboard called openshell: $(tr '\n' ' ' <"$LOG")"
+}
+
 run_test test_flat_get_helper
 run_test test_shared_state_root
 run_test test_old_state_root_ignored
@@ -7859,6 +9270,17 @@ run_test test_osa_projects
 run_test test_osa_status_quick
 run_test test_osa_status_full
 run_test test_osa_read_only
+run_test test_osa_providers
+run_test test_osa_provider_setup
+run_test test_osa_images
+run_test test_idle_state
+run_test test_osa_quick_idle
+run_test test_health_json_maki
+run_test test_health_json_front_ends
+run_test test_health_json_stopped
+run_test test_osa_health
+run_test test_osa_dashboard
+run_test test_osa_dashboard_writes_nothing
 run_test test_resolve_fixtures
 run_test test_resolve_dispatch_refusals
 run_test test_resolve_wrong_kind
@@ -7885,6 +9307,10 @@ run_test test_upload_prunes_tracked_deletion
 run_test test_upload_prunes_plain_deletion
 run_test test_upload_discards_parked_workspace
 run_test test_upload_subpath_keeps_copy_in_semantics
+run_test test_upload_explicit_path_copies_only_that_path
+run_test test_upload_partial_copy_keeps_workspace_behind
+run_test test_upload_partial_copy_refused_when_parked
+run_test test_upload_partial_copy_warns_about_retained_patch
 run_test test_download
 run_test test_env_refusal
 run_test test_env_refusal_session_path
@@ -7910,6 +9336,8 @@ run_test test_doctor_mcp_section_informational
 run_test test_doctor_mcp_none_configured
 run_test test_image_build_argv
 run_test test_image_build_ignores_configured_image
+run_test test_image_build_forwards_term
+run_test test_image_json
 run_test test_asset_environment_split
 run_test test_status_list_logs
 run_test test_start_stop
@@ -7936,6 +9364,11 @@ run_test test_provider_setup_usage_errors
 run_test test_provider_setup_sigint
 run_test test_provider_setup_custom_validation
 run_test test_provider_setup_no_jq
+run_test test_provider_setup_stdin
+run_test test_provider_setup_profile_id
+run_test test_providers_json_front_ends
+run_test test_provider_setup_program
+run_test test_provider_setup_secret_scan
 run_test test_run_model_flag
 run_test test_run_timeout_flag
 run_test test_maki_resume
@@ -8019,6 +9452,8 @@ run_test test_no_jq_fallback
 run_test test_no_jq_attached_providers
 run_test test_missing_policy_dependency
 run_test test_fish_plugin
+run_test test_fish_install_both_front_ends
+run_test test_fish_uninstall_skips_foreign
 run_test test_fish_fisher_layout
 run_test test_fish_completions
 run_test test_example_config

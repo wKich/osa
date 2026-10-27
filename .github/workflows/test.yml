@@ -1,0 +1,35 @@
+# The repository verification gate: the same `make test-all` a maintainer
+# runs locally, with a MongoDB service for the oskhs store tests.
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test-all:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.runCommand({ ping: 1 })'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      OSKHS_TEST_MONGO_URI: mongodb://127.0.0.1:27017
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: Install shell suite tools
+        run: sudo apt-get update && sudo apt-get install -y fish shellcheck
+      - name: Install Bun dependencies
+        run: |
+          (cd bridge && bun install --frozen-lockfile)
+          (cd oskhs && bun install --frozen-lockfile)
+          (cd dashboard && bun install)
+      - name: make test-all
+        run: make test-all

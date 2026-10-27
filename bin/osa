@@ -4,12 +4,18 @@
 # osa: report on every project the agent front-ends (maki-oss, opencode-oss,
 # claude-oss, codex-oss) have registered in the shared state root.
 #
-# `projects` and `status` are read-only: they never create, start, stop,
-# delete, upload to, download from, or run anything in a sandbox, and they
-# never write the state root. They read the published contract files
-# (registry entries and pending markers) and, for a full status, ask the
-# owning front-end. `resolve` is the one command that writes: it validates the
-# sandbox here and hands the action to the owning front-end's `__resolve`.
+# `projects`, `status`, `health`, `providers`, and `images` are read-only:
+# they never create, start, stop, delete, upload to, or download from a
+# sandbox, launch an agent, change a provider, build an image, or write the
+# state root. They read the published contract files (registry entries and
+# pending markers) and ask the front-ends, which run only their read-only
+# status, `mcp status`, `doctor`, provider list, and image inspect probes.
+# Three commands change things, each validated here and handed to the
+# front-end: `resolve` (its `__resolve`), `provider setup` (its
+# `__provider-setup`, with stdin passed through unread), and `image build`
+# (its `image build`, which changes only the local base image tag).
+# `dashboard` changes nothing itself: it replaces this process with the
+# repository's Bun dashboard, which acts only through osa and the gateway.
 #
 # POSIX sh. See docs/helper.md for the full reference.
 
@@ -40,24 +46,65 @@ Commands:
   projects [--json]                 List every registered project
   status [PATH] [--json] [--quick]  Report the project at PATH (default: .)
                                     for each agent registered there
+  health SANDBOX [--json]           Report the sandbox's idle stop, MCP
+                                    readiness, and doctor checks
+  providers [--agent TAG] [--json]  List each agent's setup profiles, the
+                                    gateway's providers, and the remembered
+                                    providers
+  images [--json]                   Report each agent's base image tag and
+                                    whether it exists locally
   resolve SANDBOX ACTION [--yes] [--json]
                                     Resolve the sandbox's pending work:
                                     apply, branch, or drop --yes for a
                                     retained patch; rescue or discard --yes
                                     for a parked workspace
+  provider setup TAG --profile ID [--name NAME] [--attach SANDBOX] [--yes] [--json]
+                                    Set up a provider for agent TAG from a
+                                    credential read on stdin, never prompted
+  image build TAG                   Build agent TAG's base image
+  dashboard [--port N] [--host ADDR] [--token T] [--read-only] [--open]
+                                    Run the web dashboard in the foreground
+                                    (needs Bun >= 1.2.0; Ctrl-C stops it)
   help                              Show this help
 
-Options:
-  --json    Print one JSON array (resolve: one JSON object) on stdout and
-            nothing else
-  --quick   Skip the gateway and the tree hash: report the pending kind and
-            whether the host changed since the last sync (changed,
-            unchanged, or unknown), and whether a session or resolve is
-            running (busy)
-  --yes     Confirm drop or discard
+Agent tags: mk (maki-oss), oc (opencode-oss), cc (claude-oss), cx (codex-oss).
 
-Only resolve changes anything. Exit codes for resolve: 0 done, 1 usage
-error, 2 refused before any change, 3 failed during the action.
+Options:
+  --json    Print one JSON array (health, resolve, and provider setup: one
+            JSON object) on stdout and nothing else
+  --quick   Skip the gateway and the tree hash: report the pending kind,
+            whether the host changed since the last sync (changed,
+            unchanged, or unknown), whether a session or resolve is
+            running (busy), and the idle-stop state and deadline (idle)
+  --yes     Confirm drop or discard; for provider setup, update an
+            existing provider's credential
+
+Only resolve, provider setup, and image build change anything. Exit codes
+for resolve and provider setup: 0 done, 1 usage error, 2 refused before any
+change, 3 failed during the action. image build exits 0 when the image was
+built, 1 for a usage error, and the front-end's status otherwise.
+dashboard exits 1 for a usage error, 2 when Bun or the dashboard files are
+missing, and with the dashboard's status otherwise.
+EOF
+}
+
+dashboard_usage() {
+    cat <<'EOF'
+Usage: osa dashboard [--port N] [--host ADDR] [--token T] [--read-only] [--open]
+
+Runs <repo>/dashboard/src/main.ts with Bun in the foreground; Ctrl-C stops
+it. The flags pass to the dashboard unchanged, which validates them, and the
+DASHBOARD_* environment variables still apply, except DASHBOARD_OSA_BIN,
+which is always set to this osa.
+
+  --port N     Port to listen on (default: 8787)
+  --host ADDR  Address to bind (default: 127.0.0.1); off loopback needs --token
+  --token T    Session token for mutating routes
+  --read-only  Reject every mutating route and hide the controls
+  --open       Open the page in the default browser once listening (loopback)
+
+Exit codes: 1 usage error, 2 Bun or the dashboard missing, otherwise the
+dashboard's status.
 EOF
 }
 
@@ -75,6 +122,16 @@ front_end() { # TAG
         cc) printf '%s/bin/claude-oss' "$repo_root" ;;
         cx) printf '%s/bin/codex-oss' "$repo_root" ;;
     esac
+}
+
+AGENT_TAGS='mk oc cc cx'
+
+# Succeeds for a lowercase kebab-case word (profile ids, provider names).
+valid_kebab() { # WORD
+    case $1 in
+        ''|*[!a-z0-9-]*|-*|*--*|*-) return 1 ;;
+    esac
+    return 0
 }
 
 # Prints PATH as an absolute physical path, or as an absolute literal path
@@ -208,7 +265,8 @@ cmd_status() {
             if [ "$opt_json" -eq 1 ]; then
                 printf '%s{' "$cs_sep"
                 entry_json_fields
-                printf ',"fingerprint_result":%s,"busy":%s}' "$(json_str "$cs_fp")" "$cs_busy"
+                printf ',"fingerprint_result":%s,"busy":%s,"idle":%s}' "$(json_str "$cs_fp")" \
+                    "$cs_busy" "$(idle_json "$state_root/sessions/$e_sandbox_name")"
             else
                 printf 'Sandbox:   %s (%s)\n' "$e_sandbox_name" "$e_agent"
                 printf 'Pending:   %s\n' "${e_pending:-none}"
@@ -216,6 +274,7 @@ cmd_status() {
                 if [ "$cs_busy" = true ]; then
                     printf 'Busy:      a session or resolve is running\n'
                 fi
+                printf 'Idle stop: %s\n' "$(idle_text "$state_root/sessions/$e_sandbox_name")"
             fi
         else
             cs_front=$(front_end "$e_agent")
@@ -262,20 +321,64 @@ resolve_refuse() { # MESSAGE
     exit "$EX_REFUSED"
 }
 
-# Finds the registry entry by file name, never by joining the argument into a
-# path, refuses an unregistered or orphan entry, and runs the owning
-# front-end's `__resolve` in the project folder.
-cmd_resolve() {
-    cr_file=
-    while IFS= read -r cr_entry; do
-        [ -n "$cr_entry" ] || continue
-        if [ "${cr_entry##*/}" = "$opt_sandbox.toml" ]; then
-            cr_file=$cr_entry
-            break
+# Prints the registry entry file for SANDBOX, found by file name, never by
+# joining the argument into a path; nothing when it is not registered.
+entry_file() { # SANDBOX
+    while IFS= read -r ef_entry; do
+        [ -n "$ef_entry" ] || continue
+        if [ "${ef_entry##*/}" = "$1.toml" ]; then
+            printf '%s' "$ef_entry"
+            return 0
         fi
     done <<ENTRIES
 $(registry_entries)
 ENTRIES
+}
+
+# Reports one registered sandbox's health. The owning front-end runs it in the
+# project folder (`__health-json`, or `__health` for text); an orphan, or an
+# agent osa does not know, gets the idle section from files only.
+cmd_health() {
+    ch_file=$(entry_file "$opt_sandbox")
+    if [ -z "$ch_file" ]; then
+        die_usage "sandbox '$opt_sandbox' is not registered; run 'osa projects' to list sandboxes"
+    fi
+    load_entry "$ch_file"
+    if [ "$e_sandbox_name" != "$opt_sandbox" ]; then
+        die_usage "the registry entry $ch_file names sandbox '$e_sandbox_name', not '$opt_sandbox'"
+    fi
+    ch_front=$(front_end "$e_agent")
+    ch_error=
+    if [ "$e_orphan" = true ]; then
+        ch_error="project folder missing"
+    elif [ -z "$ch_front" ]; then
+        ch_error="agent '$e_agent' is not known to osa"
+    fi
+    if [ -z "$ch_error" ]; then
+        ch_verb=__health
+        if [ "$opt_json" -eq 1 ]; then
+            ch_verb=__health-json
+        fi
+        ch_rc=0
+        (cd "$e_host_path" && exec "$ch_front" --name "$opt_sandbox" "$ch_verb") || ch_rc=$?
+        exit "$ch_rc"
+    fi
+    ch_dir=$state_root/sessions/$opt_sandbox
+    if [ "$opt_json" -eq 1 ]; then
+        printf '{"sandbox":%s,"agent":%s,"idle":%s,"mcp":{"error":%s},"doctor":{"error":%s}}\n' \
+            "$(json_str "$opt_sandbox")" "$(json_str "$e_agent")" "$(idle_json "$ch_dir")" \
+            "$(json_str "$ch_error")" "$(json_str "$ch_error")"
+        return 0
+    fi
+    printf "Health of sandbox '%s' (%s):\n" "$opt_sandbox" "$e_agent"
+    printf 'Idle stop: %s\n' "$(idle_text "$ch_dir")"
+    printf '\nMCP readiness:\n  error: %s\n\nDoctor:\n  error: %s\n' "$ch_error" "$ch_error"
+}
+
+# Refuses an unregistered or orphan entry and runs the owning front-end's
+# `__resolve` in the project folder.
+cmd_resolve() {
+    cr_file=$(entry_file "$opt_sandbox")
     if [ -z "$cr_file" ]; then
         resolve_refuse "sandbox '$opt_sandbox' is not registered; run 'osa projects' to list sandboxes"
     fi
@@ -302,7 +405,118 @@ ENTRIES
     exit "$cr_rc"
 }
 
+# Prints one object per agent (or only --agent): the owning front-end's
+# `__providers-json`, or an error object when it fails.
+cmd_providers() {
+    cp_tags=${opt_agent:-$AGENT_TAGS}
+    cp_sep=
+    if [ "$opt_json" -eq 1 ]; then
+        printf '['
+    fi
+    for cp_tag in $cp_tags; do
+        cp_front=$(front_end "$cp_tag")
+        if [ "$opt_json" -eq 0 ]; then
+            printf '%s' "$cp_sep"
+            "$cp_front" __providers </dev/null || printf '%s: provider report failed\n' "$cp_tag"
+            cp_sep=$NL
+            continue
+        fi
+        cp_json=$("$cp_front" __providers-json </dev/null) || cp_json=
+        if [ -z "$cp_json" ]; then
+            cp_json=$(printf '{"agent":%s,"error":{"message":%s}}' "$(json_str "$cp_tag")" \
+                "$(json_str "${cp_front##*/} __providers-json failed")")
+        fi
+        printf '%s%s' "$cp_sep" "$cp_json"
+        cp_sep=,
+    done
+    if [ "$opt_json" -eq 1 ]; then
+        printf ']\n'
+    fi
+}
+
+# Validates the tag, profile id, name, and attach sandbox, asks the front-end
+# whether it can set up from stdin (the probe reads no stdin), and then execs
+# its `__provider-setup` so stdin reaches it untouched: osa never reads it.
+cmd_provider_setup() {
+    ps_front=$(front_end "$opt_agent")
+    if [ -n "$opt_attach" ]; then
+        ps_file=$(entry_file "$opt_attach")
+        if [ -z "$ps_file" ]; then
+            die_usage "sandbox '$opt_attach' is not registered; run 'osa projects' to list sandboxes"
+        fi
+        ps_agent=$(flat_value "$ps_file" agent)
+        if [ "$(flat_value "$ps_file" sandbox_name)" != "$opt_attach" ]; then
+            die_usage "the registry entry $ps_file does not name sandbox '$opt_attach'"
+        fi
+        if [ "$ps_agent" != "$opt_agent" ]; then
+            die_usage "sandbox '$opt_attach' belongs to agent '$ps_agent', not '$opt_agent'"
+        fi
+    fi
+    ps_rc=0
+    if [ "$opt_json" -eq 1 ]; then
+        "$ps_front" __provider-setup --probe --json </dev/null || ps_rc=$?
+    else
+        "$ps_front" __provider-setup --probe </dev/null || ps_rc=$?
+    fi
+    if [ "$ps_rc" -ne 0 ]; then
+        exit "$ps_rc"
+    fi
+    set --
+    if [ -n "$opt_attach" ]; then
+        set -- --name "$opt_attach"
+    fi
+    set -- "$@" __provider-setup --profile "$opt_profile"
+    if [ -n "$opt_name" ]; then
+        set -- "$@" --provider-name "$opt_name"
+    fi
+    if [ -n "$opt_attach" ]; then
+        set -- "$@" --attach
+    fi
+    if [ "$opt_yes" -eq 1 ]; then
+        set -- "$@" --yes
+    fi
+    if [ "$opt_json" -eq 1 ]; then
+        set -- "$@" --json
+    fi
+    exec "$ps_front" "$@"
+}
+
+# Prints one line (or object) per agent from the front-end's image report.
+# No gateway call and no build.
+cmd_images() {
+    ci_sep=
+    if [ "$opt_json" -eq 1 ]; then
+        printf '['
+    fi
+    for ci_tag in $AGENT_TAGS; do
+        ci_front=$(front_end "$ci_tag")
+        if [ "$opt_json" -eq 0 ]; then
+            "$ci_front" __image </dev/null || printf '%s: image report failed\n' "$ci_tag"
+            continue
+        fi
+        ci_json=$("$ci_front" __image-json </dev/null) || ci_json=
+        if [ -z "$ci_json" ]; then
+            ci_json=$(printf '{"agent":%s,"error":{"message":%s}}' "$(json_str "$ci_tag")" \
+                "$(json_str "${ci_front##*/} __image-json failed")")
+        fi
+        printf '%s%s' "$ci_sep" "$ci_json"
+        ci_sep=,
+    done
+    if [ "$opt_json" -eq 1 ]; then
+        printf ']\n'
+    fi
+}
+
+# Hands off to the front-end's `image build` with its default tag and version:
+# exec keeps one PID to signal, and stdin is closed.
+cmd_image_build() {
+    exec "$(front_end "$opt_agent")" image build </dev/null
+}
+
 osa_state_paths
+
+NL='
+'
 
 opt_json=0
 opt_yes=0
@@ -310,6 +524,87 @@ opt_sandbox=
 opt_action=
 opt_quick=0
 opt_path=
+opt_agent=
+opt_profile=
+opt_name=
+opt_attach=
+
+COMMANDS='projects, status, health, providers, images, resolve, provider setup, image build, dashboard, help'
+
+EX_DEP=2 # the front-ends' missing-dependency status (lib/oss-core.sh)
+OSA_BUN_MIN=1.2.0
+BUN_INSTALL_URL=https://bun.sh
+
+# Prints MAJOR MINOR PATCH for a version string, or fails when it does not
+# start with MAJOR.MINOR. A missing patch is 0; any suffix is ignored.
+version_triple() { # VERSION
+    printf '%s\n' "$1" | awk '
+        match($0, /^[0-9]+\.[0-9]+(\.[0-9]+)?/) {
+            n = split(substr($0, 1, RLENGTH), v, ".")
+            print v[1] + 0, v[2] + 0, (n == 3 ? v[3] + 0 : 0)
+            found = 1
+            exit
+        }
+        END { exit !found }'
+}
+
+# Succeeds when version A is at least version B (each MAJOR MINOR PATCH).
+version_at_least() { # A_MAJOR A_MINOR A_PATCH B_MAJOR B_MINOR B_PATCH
+    [ "$1" -gt "$4" ] && return 0
+    [ "$1" -lt "$4" ] && return 1
+    [ "$2" -gt "$5" ] && return 0
+    [ "$2" -lt "$5" ] && return 1
+    [ "$3" -ge "$6" ]
+}
+
+# osa dashboard: checks the flag shapes only (the dashboard's own parser
+# validates the values), checks the dashboard files and Bun, and replaces
+# this process with Bun so signals and the exit status belong to it.
+cmd_dashboard() { # ARGS...
+    db_expect_value=
+    for db_arg in "$@"; do
+        if [ -n "$db_expect_value" ]; then
+            db_expect_value=
+            continue
+        fi
+        case $db_arg in
+            -h|--help) dashboard_usage; exit 0 ;;
+            --port|--host|--token) db_expect_value=$db_arg ;;
+            --port=*|--host=*|--token=*|--read-only|--open) ;;
+            -*) die_usage "unknown dashboard option: $db_arg (options: --port, --host, --token, --read-only, --open)" ;;
+            *) die_usage "dashboard takes no arguments: $db_arg" ;;
+        esac
+    done
+    [ -z "$db_expect_value" ] || die_usage "option $db_expect_value requires a value"
+
+    db_main=$repo_root/dashboard/src/main.ts
+    if [ ! -f "$db_main" ]; then
+        printf '%s: dashboard not found at %s\n' "$PROGRAM" "$db_main" >&2
+        exit "$EX_DEP"
+    fi
+
+    if ! command -v bun >/dev/null 2>&1; then
+        printf '%s: the dashboard needs Bun >= %s and no bun is on PATH; install it from %s\n' \
+            "$PROGRAM" "$OSA_BUN_MIN" "$BUN_INSTALL_URL" >&2
+        exit "$EX_DEP"
+    fi
+    db_version=$(bun --version 2>/dev/null | head -n 1) || db_version=
+    if db_have=$(version_triple "$db_version"); then
+        # shellcheck disable=SC2046,SC2086  # split into three numbers on purpose
+        if ! version_at_least $db_have $(version_triple "$OSA_BUN_MIN"); then
+            printf '%s: the dashboard needs Bun >= %s, found %s; upgrade from %s\n' \
+                "$PROGRAM" "$OSA_BUN_MIN" "$db_version" "$BUN_INSTALL_URL" >&2
+            exit "$EX_DEP"
+        fi
+    else
+        printf "%s: warning: cannot read Bun's version ('%s'); the dashboard needs Bun >= %s\n" \
+            "$PROGRAM" "$db_version" "$OSA_BUN_MIN" >&2
+    fi
+
+    DASHBOARD_OSA_BIN=$script_dir/osa
+    export DASHBOARD_OSA_BIN
+    exec bun run "$db_main" "$@"
+}
 
 [ "$#" -gt 0 ] || { usage; exit 0; }
 cmd=$1
@@ -319,11 +614,34 @@ case $cmd in
         usage
         exit 0
         ;;
-    projects|status|resolve) ;;
+    projects|status|health|providers|images|resolve) ;;
+    dashboard) cmd_dashboard "$@" ;;
+    provider|image)
+        case ${1:-} in
+            setup) [ "$cmd" = provider ] || die_usage "unknown command: $cmd ${1:-} (commands: $COMMANDS)" ;;
+            build) [ "$cmd" = image ] || die_usage "unknown command: $cmd ${1:-} (commands: $COMMANDS)" ;;
+            *) die_usage "unknown command: $cmd${1:+ $1} (commands: $COMMANDS)" ;;
+        esac
+        cmd="$cmd-$1"
+        shift
+        ;;
     *)
-        die_usage "unknown command: $cmd (commands: projects, status, resolve, help)"
+        die_usage "unknown command: $cmd (commands: $COMMANDS)"
         ;;
 esac
+
+# image build takes exactly one TAG and nothing else: no version or tag
+# override reaches the front-end.
+if [ "$cmd" = image-build ]; then
+    [ "$#" -eq 1 ] || die_usage "usage: osa image build TAG (no other argument)"
+    case $1 in
+        mk|oc|cc|cx) ;;
+        *) die_usage "unknown agent tag: $1 (tags: mk, oc, cc, cx)" ;;
+    esac
+    opt_agent=$1
+    cmd_image_build
+fi
+
 while [ "$#" -gt 0 ]; do
     case $1 in
         --json) opt_json=1 ;;
@@ -332,11 +650,34 @@ while [ "$#" -gt 0 ]; do
             opt_quick=1
             ;;
         --yes)
-            [ "$cmd" = resolve ] || die_usage "--yes applies to resolve only"
+            [ "$cmd" = resolve ] || [ "$cmd" = provider-setup ] \
+                || die_usage "--yes applies to resolve and provider setup only"
             opt_yes=1
+            ;;
+        --agent)
+            [ "$cmd" = providers ] || die_usage "--agent applies to providers only"
+            [ "$#" -gt 1 ] || die_usage "option --agent requires a value"
+            opt_agent=$2
+            shift
+            ;;
+        --profile|--name|--attach)
+            [ "$cmd" = provider-setup ] || die_usage "$1 applies to provider setup only"
+            [ "$#" -gt 1 ] || die_usage "option $1 requires a value"
+            case $1 in
+                --profile) opt_profile=$2 ;;
+                --name) opt_name=$2 ;;
+                --attach) opt_attach=$2 ;;
+            esac
+            shift
             ;;
         -*) die_usage "unknown option: $1" ;;
         *)
+            if [ "$cmd" = health ]; then
+                [ -z "$opt_sandbox" ] || die_usage "health takes one SANDBOX"
+                opt_sandbox=$1
+                shift
+                continue
+            fi
             if [ "$cmd" = resolve ]; then
                 if [ -z "$opt_sandbox" ]; then
                     opt_sandbox=$1
@@ -348,13 +689,23 @@ while [ "$#" -gt 0 ]; do
                 shift
                 continue
             fi
-            [ "$cmd" = status ] || die_usage "projects takes no arguments"
+            if [ "$cmd" = provider-setup ]; then
+                [ -z "$opt_agent" ] || die_usage "provider setup takes one TAG"
+                opt_agent=$1
+                shift
+                continue
+            fi
+            [ "$cmd" = status ] || die_usage "$cmd takes no arguments"
             [ -z "$opt_path" ] || die_usage "status takes at most one PATH"
             opt_path=$1
             ;;
     esac
     shift
 done
+
+if [ "$cmd" = health ]; then
+    [ -n "$opt_sandbox" ] || die_usage "usage: osa health SANDBOX [--json]"
+fi
 
 if [ "$cmd" = resolve ]; then
     [ -n "$opt_action" ] || die_usage "usage: osa resolve SANDBOX ACTION [--yes] [--json]"
@@ -364,8 +715,32 @@ if [ "$cmd" = resolve ]; then
     esac
 fi
 
+if [ "$cmd" = providers ] && [ -n "$opt_agent" ]; then
+    case $opt_agent in
+        mk|oc|cc|cx) ;;
+        *) die_usage "unknown agent tag: $opt_agent (tags: mk, oc, cc, cx)" ;;
+    esac
+fi
+
+if [ "$cmd" = provider-setup ]; then
+    [ -n "$opt_agent" ] || die_usage "usage: osa provider setup TAG --profile ID [--name NAME] [--attach SANDBOX] [--yes] [--json]"
+    case $opt_agent in
+        mk|oc|cc|cx) ;;
+        *) die_usage "unknown agent tag: $opt_agent (tags: mk, oc, cc, cx)" ;;
+    esac
+    [ -n "$opt_profile" ] || die_usage "provider setup needs --profile ID"
+    valid_kebab "$opt_profile" || die_usage "invalid profile id '$opt_profile': use kebab-case"
+    if [ -n "$opt_name" ]; then
+        valid_kebab "$opt_name" || die_usage "invalid provider name '$opt_name': use kebab-case"
+    fi
+fi
+
 case $cmd in
     projects) cmd_projects ;;
     status) cmd_status ;;
+    health) cmd_health ;;
+    providers) cmd_providers ;;
+    images) cmd_images ;;
     resolve) cmd_resolve ;;
+    provider-setup) cmd_provider_setup ;;
 esac

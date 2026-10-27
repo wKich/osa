@@ -2,11 +2,14 @@
 // pending and orphan badges, the cached host-change result, and an on-demand
 // full status. Outside read-only mode a parked row offers Rescue and Discard;
 // a retained row's Apply, Branch, and Drop live in the patch viewer. Those
-// resolve actions are the only writes; everything else here only reads.
+// resolve actions are the only writes; everything else here only reads. The
+// idle cell counts down from the cached quick status, and Health opens the
+// on-demand health panel (health.js) under the row.
 
 import { request } from "./api.js";
 import { showError, showNotice } from "./banner.js";
-import { clear, h } from "./dom.js";
+import { clear, deniedBadge, h } from "./dom.js";
+import { healthPanel, idleView, openHealth } from "./health.js";
 import { openPatch, updatePatchActions } from "./patch.js";
 import {
   disabledReason,
@@ -16,7 +19,7 @@ import {
   runResolve,
   typedConfirm,
 } from "./resolve.js";
-import { state } from "./state.js";
+import { actions, state } from "./state.js";
 
 const AGENT_LABELS = { mk: "Maki", oc: "OpenCode", cc: "Claude Code", cx: "Codex" };
 
@@ -89,8 +92,12 @@ function sandboxCell(project) {
   if (state.inventoryKnown !== true) {
     return h("td", null, [h("div", { text: name }), h("div", { class: "muted", text: "gateway unknown" })]);
   }
-  if (state.sandboxes.some((sandbox) => sandbox.name === name)) {
-    return h("td", null, h("button", { class: "link", text: name, onclick: () => actions.openDetail(name) }));
+  const sandbox = state.sandboxes.find((entry) => entry.name === name);
+  if (sandbox) {
+    return h("td", null, [
+      h("button", { class: "link", text: name, onclick: () => actions.openDetail(name) }),
+      deniedBadge(sandbox.denials),
+    ]);
   }
   return h("td", null, [h("div", { text: name }), h("div", { class: "muted", text: "not on gateway" })]);
 }
@@ -185,6 +192,11 @@ function actionsCell(project) {
         disabled: Boolean(result && result.loading),
         onclick: () => checkStatus(project.sandbox_name),
       }),
+      h("button", {
+        text: "Health",
+        title: "Run osa health: idle stop, MCP readiness, and doctor checks (contacts gateway)",
+        onclick: () => openHealth(project.sandbox_name),
+      }),
       reason ? h("span", { class: "muted", text: reason }) : null,
     ]),
     parkedActions(project),
@@ -196,7 +208,7 @@ function actionsCell(project) {
 function projectRow(project) {
   if (!project.supported) {
     return h("tr", { class: "unsupported" }, [
-      h("td", { colspan: "7" }, [
+      h("td", { colspan: "8" }, [
         h("code", { text: project.file }),
         h("span", { class: "warn", text: ` ${project.note || ""}` }),
       ]),
@@ -210,8 +222,18 @@ function projectRow(project) {
     sandboxCell(project),
     syncCell(project),
     hostCell(project),
+    h("td", { class: "idle-cell" }, idleView(project.idle)),
     actionsCell(project),
   ]);
+}
+
+/** The open Health panel, as a full-width row under its project. */
+function healthRow(project) {
+  if (!project.supported || state.healthOpen !== project.sandbox_name) return null;
+  return h("tr", { class: "health-row" }, h("td", { colspan: "8" }, healthPanel(project.sandbox_name, () => {
+    state.healthOpen = null;
+    updateProjectsTable();
+  })));
 }
 
 function projectsTable() {
@@ -239,11 +261,16 @@ function projectsTable() {
       h("th", { text: "Sandbox" }),
       h("th", { text: "Pending" }),
       h("th", { text: "Host" }),
+      h("th", { text: "Idle stop" }),
       h("th", { text: "Status" }),
     ])),
   );
   const body = h("tbody");
-  for (const project of state.projects) body.append(projectRow(project));
+  for (const project of state.projects) {
+    body.append(projectRow(project));
+    const panel = healthRow(project);
+    if (panel) body.append(panel);
+  }
   table.append(body);
   return table;
 }

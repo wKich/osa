@@ -8,10 +8,18 @@
 // (cached per host path, design D2) and `osa status PATH --json` for the full
 // sync state on request (design D3).
 //
-// The one write is `osa resolve SANDBOX ACTION --json` for a registered
-// sandbox: nothing here creates, modifies, or deletes a file itself, and the
-// runner refuses every `osa` argv except the two `status … --json` shapes and
-// that one `resolve` shape.
+// `osa health SANDBOX --json` reports a registered sandbox's idle stop, MCP
+// readiness, and doctor checks on request only (dashboard-health design D4);
+// the idle state on each row comes from the quick status already cached.
+//
+// The writes are `osa resolve SANDBOX ACTION --json` for a registered
+// sandbox, `osa provider setup …` with the credential on stdin
+// (dashboard-provider-wizard), and `osa image build TAG` (dashboard-image-build):
+// nothing here creates, modifies, or deletes a file itself, and the runner
+// refuses every `osa` argv except the two `status … --json` shapes,
+// `health SANDBOX --json`, `providers --json`, `images --json`, that one
+// `resolve` shape, the `provider setup` shape (only through `runWithStdin`),
+// and `image build TAG` (only through `spawnBuild`).
 
 import {
   closeSync,
@@ -31,6 +39,7 @@ export const HOST_CHANGE_TTL_MS = 60_000;
 export const HOST_CHANGE_CONCURRENCY = 2;
 export const QUICK_TIMEOUT_MS = 20_000;
 export const FULL_TIMEOUT_MS = 30_000;
+export const HEALTH_TIMEOUT_MS = 30_000;
 export const PATCH_LIMIT_BYTES = 2 * 1024 * 1024;
 export const RESOLVE_TIMEOUT_MS = 60_000;
 /** Rescue downloads the sandbox workdir, so it gets longer. */
@@ -46,7 +55,18 @@ export function isResolveAction(value: unknown): value is ResolveAction {
 }
 
 /** Sandbox names the front-ends generate; anything else is never joined into a path. */
-const SANDBOX_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+export const SANDBOX_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** The agent tags `osa` knows. */
+export const AGENT_TAGS = ["mk", "oc", "cc", "cx"] as const;
+export type AgentTag = (typeof AGENT_TAGS)[number];
+
+export function isAgentTag(value: unknown): value is AgentTag {
+  return typeof value === "string" && (AGENT_TAGS as readonly string[]).includes(value);
+}
+
+/** Profile ids and provider names: lowercase kebab-case, as the helper checks them. */
+export const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export type PendingKind = "" | "retained" | "parked";
 export type FingerprintResult = "changed" | "unchanged" | "unknown";
@@ -80,6 +100,34 @@ export interface ProjectRow extends ProjectEntry {
   osaError: OpenShellError | null;
   /** A session or resolve held the sandbox at the last check. */
   busy: boolean;
+  /** The idle-stop state from the last quick status, or null. */
+  idle: IdleInfo | null;
+}
+
+/** `osa status --quick --json`'s `idle` object. */
+export interface IdleInfo {
+  period: number | null;
+  state: string;
+  /** ISO 8601 UTC while `state` is `counting`, else null. */
+  deadline: string | null;
+  estimated: boolean;
+  last_event: string | null;
+  last_time: string | null;
+}
+
+function idleInfo(value: unknown): IdleInfo | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (typeof record.state !== "string") return null;
+  const text = (key: string): string | null => (typeof record[key] === "string" ? (record[key] as string) : null);
+  return {
+    period: typeof record.period === "number" ? record.period : null,
+    state: record.state,
+    deadline: text("deadline"),
+    estimated: record.estimated === true,
+    last_event: text("last_event"),
+    last_time: text("last_time"),
+  };
 }
 
 export interface PatchView {
@@ -253,13 +301,65 @@ export function resolveArgv(sandbox: string, action: ResolveAction): string[] {
   return args;
 }
 
+export interface ProviderSetupFields {
+  agent: AgentTag;
+  profile: string;
+  name?: string;
+  attach?: string;
+  replace?: boolean;
+}
+
+/**
+ * `osa provider setup TAG --profile ID [--name N] [--attach S] [--yes] --json`
+ * from validated fields (dashboard-provider-wizard design D1); `--yes` only
+ * when `replace` is true.
+ */
+export function providerSetupArgv(fields: ProviderSetupFields): string[] {
+  const args = ["provider", "setup", fields.agent, "--profile", fields.profile];
+  if (fields.name) args.push("--name", fields.name);
+  if (fields.attach) args.push("--attach", fields.attach);
+  if (fields.replace === true) args.push("--yes");
+  args.push("--json");
+  return args;
+}
+
+/** The provider setup shape, checked position by position. */
+export function isProviderSetupArgv(args: readonly string[]): boolean {
+  if (args[0] !== "provider" || args[1] !== "setup" || !isAgentTag(args[2])) return false;
+  if (args[3] !== "--profile" || !KEBAB.test(args[4] ?? "")) return false;
+  let index = 5;
+  if (args[index] === "--name") {
+    if (!KEBAB.test(args[index + 1] ?? "")) return false;
+    index += 2;
+  }
+  if (args[index] === "--attach") {
+    if (!SANDBOX_NAME.test(args[index + 1] ?? "")) return false;
+    index += 2;
+  }
+  if (args[index] === "--yes") index += 1;
+  return args[index] === "--json" && args.length === index + 1;
+}
+
+/** `image build TAG` for a known agent tag, and nothing else (dashboard-image-build design D4). */
+export function isImageBuildArgv(args: readonly string[]): boolean {
+  return args.length === 3 && args[0] === "image" && args[1] === "build" && isAgentTag(args[2]);
+}
+
 /**
  * The only `osa` argv shapes the dashboard may spawn: `status PATH --json` and
  * `status PATH --quick --json`, with PATH absolute so it cannot read as an
- * option, and `resolve SANDBOX ACTION --json` plus `--yes` for drop and
- * discard only, with SANDBOX a generated sandbox name.
+ * option, `health SANDBOX --json`, `providers --json`, `images --json`,
+ * `resolve SANDBOX ACTION --json` plus `--yes` for drop and discard only,
+ * with SANDBOX a generated sandbox name, the provider setup shape, and
+ * `image build TAG`.
  */
 export function isAllowedOsaArgv(args: readonly string[]): boolean {
+  if (args.length === 2 && (args[0] === "providers" || args[0] === "images")) return args[1] === "--json";
+  if (args[0] === "provider") return isProviderSetupArgv(args);
+  if (args[0] === "image") return isImageBuildArgv(args);
+  if (args[0] === "health") {
+    return args.length === 3 && SANDBOX_NAME.test(args[1] ?? "") && args[2] === "--json";
+  }
   if (args[0] === "resolve") {
     const [, sandbox = "", action] = args;
     if (!SANDBOX_NAME.test(sandbox) || !isResolveAction(action)) return false;
@@ -315,15 +415,45 @@ export class OsaRunner {
     return parseJson(stdout, argv);
   }
 
-  /** Spawns `osa` with an argv array (no shell); any exit code is a result. */
+  /**
+   * Spawns `osa` with an argv array (no shell); any exit code is a result.
+   * Refuses the provider setup shape (it needs `runWithStdin`) and the image
+   * build shape (it streams through `spawnBuild`).
+   */
   async run(args: string[], timeoutMs: number): Promise<Result<OsaOutput>> {
-    if (!isAllowedOsaArgv(args)) {
+    if (!isAllowedOsaArgv(args) || isProviderSetupArgv(args) || isImageBuildArgv(args)) {
       return fail("invalid_request", `refusing to run osa ${args.join(" ")}`);
     }
+    return this.collect(args, "ignore", null, timeoutMs);
+  }
+
+  /**
+   * Spawns the provider setup shape, and only that, with `input` written to
+   * its stdin, which is then closed (dashboard-provider-wizard design D3).
+   * The input never reaches argv, the environment, or a file.
+   */
+  async runWithStdin(args: string[], input: string, timeoutMs: number): Promise<Result<OsaOutput>> {
+    if (!isProviderSetupArgv(args)) {
+      return fail("invalid_request", `refusing to run osa ${args.join(" ")} with stdin`);
+    }
+    return this.collect(args, "pipe", input, timeoutMs);
+  }
+
+  /**
+   * Spawns `osa image build TAG`, and only that, with stdout and stderr piped
+   * for streaming (dashboard-image-build design D3). The caller owns the child.
+   */
+  spawnBuild(args: string[]): Result<BunSubprocess> {
+    if (!isImageBuildArgv(args)) {
+      return fail("invalid_request", `refusing to run osa ${args.join(" ")}`);
+    }
+    return this.spawn(args, "ignore");
+  }
+
+  private spawn(args: string[], stdin: "ignore" | "pipe"): Result<BunSubprocess> {
     const argv = [this.binary, ...args];
-    let proc: ReturnType<typeof Bun.spawn>;
     try {
-      proc = Bun.spawn({ cmd: argv, env: this.env, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+      return { ok: true, value: Bun.spawn({ cmd: argv, env: this.env, stdin, stdout: "pipe", stderr: "pipe" }) };
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause);
       const code = (cause as { code?: string } | undefined)?.code;
@@ -332,6 +462,18 @@ export class OsaRunner {
       }
       return fail("spawn", `failed to start osa: ${message}`, { detail: message, argv });
     }
+  }
+
+  private async collect(
+    args: string[],
+    stdin: "ignore" | "pipe",
+    input: string | null,
+    timeoutMs: number,
+  ): Promise<Result<OsaOutput>> {
+    const argv = [this.binary, ...args];
+    const spawned = this.spawn(args, stdin);
+    if (!spawned.ok) return spawned;
+    const proc = spawned.value;
 
     let timedOut = false;
     const timer = setTimeout(() => {
@@ -345,6 +487,16 @@ export class OsaRunner {
     // Read the pipes alongside the exit so a large output cannot block the child.
     const stdoutText = proc.stdout ? new Response(proc.stdout).text() : Promise.resolve("");
     const stderrText = proc.stderr ? new Response(proc.stderr).text() : Promise.resolve("");
+    if (input !== null && proc.stdin) {
+      // A child that exits before reading closes the pipe; its exit code is
+      // the result, so a failed write is not an error of its own.
+      try {
+        proc.stdin.write(input);
+        await proc.stdin.end();
+      } catch {
+        // See above.
+      }
+    }
     let exitCode: number;
     try {
       exitCode = await proc.exited;
@@ -357,6 +509,11 @@ export class OsaRunner {
     const [stdout, stderr] = await Promise.all([stdoutText, stderrText]);
     return { ok: true, value: { exitCode, stdout, stderr, argv } };
   }
+}
+
+/** Parses osa's JSON stdout; a parse failure is `invalid_json` with the start of the output. */
+export function parseOsaJson(stdout: string, argv: string[]): Result<unknown> {
+  return parseJson(stdout, argv);
 }
 
 function parseJson(stdout: string, argv: string[]): Result<unknown> {
@@ -381,6 +538,8 @@ interface HostCheck {
   results: Map<string, FingerprintResult>;
   /** Sandboxes the quick status reported `busy`. */
   busy: Set<string>;
+  /** `idle` by sandbox_name. */
+  idle: Map<string, IdleInfo>;
   error: OpenShellError | null;
 }
 
@@ -480,7 +639,13 @@ export class HostChangeCache {
     // A `clear()` or `drop()` while this ran means the caller asked for a fresh result.
     if (generation !== this.generation) return;
     if (pathGeneration !== (this.pathGenerations.get(path) ?? 0)) return;
-    const check: HostCheck = { at: this.now(), results: new Map(), busy: new Set(), error: null };
+    const check: HostCheck = {
+      at: this.now(),
+      results: new Map(),
+      busy: new Set(),
+      idle: new Map(),
+      error: null,
+    };
     if (!result.ok) {
       check.error = result.error;
     } else if (!Array.isArray(result.value)) {
@@ -492,6 +657,8 @@ export class HostChangeCache {
         if (typeof record.sandbox_name === "string" && record.busy === true) {
           check.busy.add(record.sandbox_name);
         }
+        const idle = idleInfo(record.idle);
+        if (typeof record.sandbox_name === "string" && idle) check.idle.set(record.sandbox_name, idle);
         const value = record.fingerprint_result;
         if (
           typeof record.sandbox_name === "string" &&
@@ -517,6 +684,8 @@ export interface ProjectServiceOptions {
   cache?: { ttlMs?: number; concurrency?: number; now?: () => number; timeoutMs?: number };
   /** Full status timeout, milliseconds (default 30 s). */
   fullTimeoutMs?: number;
+  /** Health timeout, milliseconds (default 30 s). */
+  healthTimeoutMs?: number;
   /** Resolve timeouts, milliseconds (default 60 s, and 120 s for rescue). */
   resolveTimeoutMs?: number;
   rescueTimeoutMs?: number;
@@ -568,6 +737,7 @@ export class ProjectService {
   readonly runner: OsaRunner;
   readonly cache: HostChangeCache;
   private readonly fullTimeoutMs: number;
+  private readonly healthTimeoutMs: number;
   private readonly resolveTimeoutMs: number;
   private readonly rescueTimeoutMs: number;
   /** Sandboxes with a resolve running (design D2). */
@@ -576,6 +746,7 @@ export class ProjectService {
   constructor(options: ProjectServiceOptions = {}) {
     this.stateRoot = options.stateRoot ?? resolveStateRoot();
     this.fullTimeoutMs = options.fullTimeoutMs ?? FULL_TIMEOUT_MS;
+    this.healthTimeoutMs = options.healthTimeoutMs ?? HEALTH_TIMEOUT_MS;
     this.resolveTimeoutMs = options.resolveTimeoutMs ?? RESOLVE_TIMEOUT_MS;
     this.rescueTimeoutMs = options.rescueTimeoutMs ?? RESCUE_TIMEOUT_MS;
     this.runner = options.runner ?? new OsaRunner(options.runnerOptions);
@@ -599,7 +770,7 @@ export class ProjectService {
       entries.filter((entry) => entry.supported && !entry.orphan).map((entry) => entry.host_path),
     );
     return entries.map((entry): ProjectRow => {
-      const none = { fingerprintResult: null, checkedAt: null, osaError: null, busy: false };
+      const none = { fingerprintResult: null, checkedAt: null, osaError: null, busy: false, idle: null };
       if (!entry.supported) return { ...entry, ...none };
       if (entry.orphan) return { ...entry, ...none, fingerprintResult: "unknown" };
       const check = this.cache.get(entry.host_path);
@@ -610,6 +781,7 @@ export class ProjectService {
         checkedAt: check.at,
         osaError: check.error,
         busy: check.busy.has(entry.sandbox_name),
+        idle: check.idle.get(entry.sandbox_name) ?? null,
       };
     });
   }
@@ -635,6 +807,26 @@ export class ProjectService {
       };
     }
     return { ok: true, value: match };
+  }
+
+  /**
+   * `osa health SANDBOX --json` for a registered sandbox (dashboard-health
+   * design D4): 404 for an unregistered sandbox, never cached, never run by
+   * the list.
+   */
+  async health(sandbox: string): Promise<ServiceResult<unknown>> {
+    const entry = findProject(this.stateRoot, sandbox);
+    if (!entry || !entry.supported) return notRegistered(sandbox);
+    const result = await this.runner.runJson(["health", entry.sandbox_name, "--json"], this.healthTimeoutMs);
+    if (!result.ok) return { ok: false, error: result.error };
+    if (typeof result.value !== "object" || result.value === null || Array.isArray(result.value)) {
+      return {
+        ok: false,
+        status: 502,
+        error: { kind: "invalid_json", message: "osa health did not return an object" },
+      };
+    }
+    return { ok: true, value: result.value };
   }
 
   /**

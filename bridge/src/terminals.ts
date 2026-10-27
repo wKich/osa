@@ -120,10 +120,16 @@ export class SandboxTerminals {
     const t = this.terminals.get(ptyID);
     if (!t) return false;
     this.terminals.delete(ptyID);
+    for (const [ticket, entry] of this.tickets) if (entry.ptyID === ptyID) this.tickets.delete(ticket);
     if (t.info.status === "running") t.proc.kill();
     for (const s of t.sockets) s.close(1000);
     this.emit("persistent-pty.removed", { sessionID: t.info.sessionID, ptyID });
     return true;
+  }
+
+  /** a deleted session's terminals go with it */
+  removeSession(sessionID: string): void {
+    for (const [id, t] of this.terminals) if (t.info.sessionID === sessionID) this.remove(id);
   }
 
   /** snapshot: the retained output replays the screen into the client's

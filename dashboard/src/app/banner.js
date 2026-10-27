@@ -1,7 +1,7 @@
 // Banner and status line.
 
-import { clear } from "./dom.js";
-import { state } from "./state.js";
+import { clear, h } from "./dom.js";
+import { actions, state } from "./state.js";
 
 export function showNotice(message) {
   state.banner.className = "notice";
@@ -38,5 +38,19 @@ export function renderStatus(doctor) {
   state.status.append(parts.filter(Boolean).join(" · "));
   if (!doctor.gateway.ok && doctor.gateway.error) {
     state.status.append(` (${doctor.gateway.error})`);
+  }
+  // Per-agent doctor results come from the last opened Health panel only;
+  // the header never runs osa health itself.
+  const failing = actions.failingHealth();
+  if (failing) {
+    state.status.append(
+      " · ",
+      h("button", {
+        class: "link",
+        id: "status-health-link",
+        text: `doctor checks fail for ${failing}`,
+        onclick: () => actions.showHealth(failing),
+      }),
+    );
   }
 }

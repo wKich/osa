@@ -69,3 +69,15 @@ test("a terminal opens in the sandbox, streams over its socket, and is removed",
   expect(gone.status).toBe(404);
   ws.close();
 });
+
+test("a terminal is not created for a session that does not exist", async () => {
+  const sid = "ses_noterminal0000000001";
+  const path = `/api/experimental/session/${sid}/terminal`;
+  const before = bridge.frames.filter((f) => f.type === "persistent-pty.added").length;
+  const res = await call("POST", path, { args: [], title: "Terminal", cwd: bridge.workdir });
+  expect(res.status).toBe(404);
+  expect((await res.json())._tag).toBe("SessionNotFoundError");
+  expect((await (await call("GET", path)).json()).data).toEqual([]);
+  await Bun.sleep(300);
+  expect(bridge.frames.filter((f) => f.type === "persistent-pty.added")).toHaveLength(before);
+});

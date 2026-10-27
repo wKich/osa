@@ -98,7 +98,8 @@ Non-interactive (every prompt has a flag):
 | `--file PATH` | JSON credential file |
 | `--field PATH` | Field path inside `--file` (default `.api_key`; nested paths need `jq`) |
 | `--env VAR` | Host environment variable holding the key |
-| `--profile FILE` | Use this profile instead of the catalog or custom flow |
+| `--stdin` | Read the key from standard input (needs `--profile`) |
+| `--profile FILE\|ID` | Use this profile file, or the curated or generated profile with this id, instead of the catalog or custom flow |
 | `--name NAME` | Provider instance name (default: the profile id) |
 | `--yes` | Confirm create/update/overwrite without prompting |
 | `--attach` / `--no-attach` | Attach to the project sandbox, or never attach |
@@ -112,6 +113,9 @@ maki-oss provider setup --file ~/.secrets/creds.json --field api_key \
     --profile examples/providers/maki-deepseek.yaml --yes
 maki-oss provider setup --env DEEPSEEK_API_KEY \
     --profile examples/providers/maki-deepseek.yaml --yes
+
+# From a password manager, piped on stdin, with a profile id.
+pass show deepseek | maki-oss provider setup --stdin --profile maki-deepseek
 ```
 
 Store-sourced credentials resolve through the catalog automatically; the
@@ -135,6 +139,36 @@ Behavior notes:
   --provider`, `provider attach`, `run --model`), and for `maki-zai-coding` it
   prints the plan line to add to the sandbox's Maki `providers.toml`; it never
   writes into the sandbox.
+
+### Standard input (`--stdin`)
+
+`--stdin` reads the key from standard input up to end of file. It is never
+prompted, echoed, or written to a file, and like every source it reaches
+`openshell` only in the environment of the `provider create` or
+`provider update` child. One trailing newline is dropped. An empty value, a
+value with more than one line, or one larger than 64 KiB is a usage error
+before any gateway call, and the error never contains the value. `--stdin`
+needs `--profile` and cannot be combined with `--from`, `--file`, or `--env`.
+
+A `--stdin` run never asks anything, even with `MAKI_OSS_INTERACTIVE=1`,
+because stdin carries the key: an existing provider needs `--yes`, the
+provider is attached only with `--attach`, and the default model is not set.
+`osa provider setup` (see [`docs/helper.md`](helper.md#osa-provider-setup))
+uses the same path, which is how the dashboard sets up a provider.
+
+### Profile ids
+
+`--profile` takes a file path or an id. A value that names an existing file is
+used as the profile file. Anything else must be kebab-case, and resolves to
+the front-end's curated profile with that id (for `maki-oss`,
+`examples/providers/<id>.yaml`), or else to a profile generated earlier by
+the custom flow (`${XDG_CONFIG_HOME:-$HOME/.config}/maki-oss/profiles/<id>.yaml`).
+An id that matches neither, or one with `/` or `.` in it, is a usage error
+before any gateway call. `osa providers` lists the ids each agent can use.
+
+```sh
+maki-oss provider setup --env DEEPSEEK_API_KEY --profile maki-deepseek --yes
+```
 
 ### Scripted interactive runs
 

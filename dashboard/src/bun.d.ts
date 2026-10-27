@@ -7,8 +7,15 @@
 //
 // Keep this file honest: when a Bun API call changes, update its declaration.
 
+/** The writable end of a piped stdin. */
+interface BunFileSink {
+  write(data: string | Uint8Array): number;
+  end(): number | Promise<number>;
+}
+
 interface BunSubprocess {
   readonly pid: number;
+  readonly stdin: BunFileSink | undefined;
   /** Resolves with the exit code once the child exits. */
   readonly exited: Promise<number>;
   readonly stdout: ReadableStream<Uint8Array> | undefined;
@@ -54,6 +61,7 @@ interface BunGlobal {
   which(command: string): string | null;
   hash(data: string | Uint8Array): number | bigint;
   readonly version: string;
+  readonly stdin: { stream(): ReadableStream<Uint8Array> };
 }
 
 declare const Bun: BunGlobal;

@@ -80,19 +80,19 @@ For a git project, the helper SHALL record a host fingerprint in the registry en
 
 ### Requirement: osa entry point
 
-The repository SHALL provide an `osa` command that works across every agent front-end. `osa` SHALL offer `projects`, `status`, `resolve`, and `help`, and every other command SHALL be a usage error. `resolve` is the only `osa` command that changes anything; it is defined by the requirements "osa resolves retained patches" and "osa resolves parked workspaces". `projects`, `status`, and `help` MUST NOT create, start, stop, delete, upload to, or download from a sandbox, MUST NOT launch an agent, and MUST NOT write any file under the state root. No `osa` command MUST create, stop, or delete a sandbox or launch an agent, and only `osa resolve <sandbox> rescue` MAY start a stopped one. The full `osa status` MAY query the gateway read-only and MAY run the same read-only workspace probe that the front-end's `status` runs; it MUST NOT run anything else in a sandbox. `osa projects` and `osa status --quick` MUST NOT contact the gateway.
+The repository SHALL provide an `osa` command that works across every agent front-end. `osa` SHALL offer `projects`, `status`, `health`, `providers`, `images`, `resolve`, `provider setup`, `image build`, `dashboard`, and `help`, and every other command SHALL be a usage error. `resolve`, `provider setup`, and `image build` are the only `osa` commands that change anything; they are defined by the requirements "osa resolves retained patches", "osa resolves parked workspaces", "osa sets up a provider from stdin", and "osa reports and builds base images". `image build` MUST change nothing but the agent's local base image tag. `dashboard` starts the web UI defined by the `dashboard` capability: it MUST NOT itself contact the gateway, write under the state root, or run any other `osa` command, and every change the running dashboard makes MUST go through the `osa` commands and gateway actions that capability allows. `projects`, `status`, `health`, `providers`, `images`, and `help` MUST NOT create, start, stop, delete, upload to, or download from a sandbox, MUST NOT launch an agent, MUST NOT create, update, or attach a provider, MUST NOT build, tag, or remove an image, and MUST NOT write any file under the state root. No `osa` command MUST create, stop, or delete a sandbox or launch an agent, only `osa resolve <sandbox> rescue` MAY start a stopped one, and only `osa provider setup` MAY attach a provider to one. The full `osa status`, `osa health`, and `osa providers` MAY query the gateway read-only and MAY run the same read-only probes that the front-end's `status`, `mcp status`, and `doctor` run; they MUST NOT run anything else in a sandbox. `osa projects`, `osa status --quick`, and `osa images` MUST NOT contact the gateway.
 
 #### Scenario: osa never changes a sandbox
-- **WHEN** the user runs `osa projects`, `osa status`, and `osa status --quick` while a registered sandbox is `Ready`
-- **THEN** the gateway receives no create, start, stop, delete, upload, or download call and no agent launch, and no file under the state root changes
+- **WHEN** the user runs `osa projects`, `osa status`, `osa status --quick`, `osa health <sandbox>`, `osa providers --json`, and `osa images --json` while a registered sandbox is `Ready`
+- **THEN** the gateway receives no create, start, stop, delete, upload, download, provider create, provider update, or attach call and no agent launch, the container engine receives no build, tag, or remove call, and no file under the state root changes
 
 #### Scenario: Projects and quick status stay off the gateway
-- **WHEN** the user runs `osa projects` and `osa status --quick`
+- **WHEN** the user runs `osa projects`, `osa status --quick`, and `osa images`
 - **THEN** the gateway receives no call at all
 
 #### Scenario: Unknown command is a usage error
 - **WHEN** the user runs `osa up`
-- **THEN** the command exits as a usage error that lists `projects`, `status`, `resolve`, and `help`
+- **THEN** the command exits as a usage error that lists `projects`, `status`, `health`, `providers`, `images`, `resolve`, `provider setup`, `image build`, `dashboard`, and `help`
 
 ### Requirement: osa projects lists every registered project
 
@@ -108,7 +108,7 @@ The repository SHALL provide an `osa` command that works across every agent fron
 
 ### Requirement: osa status reports a project across agents
 
-`osa status [PATH]` SHALL report every registry entry whose `host_path` is the absolute physical form of `PATH` (default: the current directory), one entry per agent. The full mode SHALL report phase, attached providers, sync state (`clean`, `behind`, `retained`, or `parked`), the retained patch path, and the next command, with the same classification the agent's front-end `status` gives for that project. With `--quick` it SHALL NOT hash the project tree: it SHALL report the pending kind from the files, the fingerprint result `changed`, `unchanged`, or `unknown`, and `busy` (`true` while a live session or resolve holds that sandbox's lock), and MUST NOT report `clean` or `behind`. With `--json` it SHALL print one JSON array on stdout and nothing else. A path with no registry entry SHALL print `[]` with `--json` and exit 0.
+`osa status [PATH]` SHALL report every registry entry whose `host_path` is the absolute physical form of `PATH` (default: the current directory), one entry per agent. The full mode SHALL report phase, attached providers, sync state (`clean`, `behind`, `retained`, or `parked`), the retained patch path, and the next command, with the same classification the agent's front-end `status` gives for that project. With `--quick` it SHALL NOT hash the project tree: it SHALL report the pending kind from the files, the fingerprint result `changed`, `unchanged`, or `unknown`, `busy` (`true` while a live session or resolve holds that sandbox's lock), and `idle` (the idle-stop state and, while counting down, the deadline, as defined by "osa health reports a sandbox's health"), and MUST NOT report `clean` or `behind`. With `--json` it SHALL print one JSON array on stdout and nothing else. A path with no registry entry SHALL print `[]` with `--json` and exit 0.
 
 #### Scenario: Full status matches the front-end
 - **WHEN** a Maki project is `behind` and the user runs `osa status --json` in its folder
@@ -125,6 +125,10 @@ The repository SHALL provide an `osa` command that works across every agent fron
 #### Scenario: Quick status reports a live session
 - **WHEN** a `maki-oss` session is running for a project and the user runs `osa status --quick --json` in its folder
 - **THEN** the entry for agent `mk` reports `busy` as `true`
+
+#### Scenario: Quick status reports the idle deadline
+- **WHEN** a session ended 10 minutes ago with an idle period of 1 hour and the user runs `osa status --quick --json`
+- **THEN** the entry reports idle state `counting` and a deadline 50 minutes from now, and the gateway receives no call
 
 #### Scenario: Unregistered path
 - **WHEN** the user runs `osa status --json /tmp/elsewhere` and no entry has that `host_path`
@@ -206,3 +210,136 @@ Every front-end session and every `osa resolve` SHALL hold a per-sandbox lock in
 #### Scenario: Stale lock is replaced
 - **WHEN** a session crashed and left a lock whose process no longer exists, and the user runs `osa resolve <sandbox> apply`
 - **THEN** the resolve runs normally
+
+### Requirement: osa health reports a sandbox's health
+
+`osa health SANDBOX [--json]` SHALL report, for a registered sandbox, its idle stop, its MCP readiness, and the doctor checks of its owning front-end. An unregistered sandbox SHALL be a usage error and an orphan entry SHALL report only idle stop. With `--json` it SHALL print one JSON object on stdout and nothing else.
+
+- **Idle stop** SHALL report the effective idle period in seconds (0 when disabled) and one state: `off` (disabled), `none` (no session has run), `running` (a session is live), `counting` (the last session ended and the stop is pending, with the deadline as an ISO 8601 UTC time), `stopped`, `skipped` (the watcher found a later session or a running agent), or `failed` (the stop call failed), plus the last idle event and its time. It SHALL derive these from the session's own idle records, never from the gateway.
+- **MCP readiness** SHALL report, per server, its transport and each gate with a pass or fail result and the fix text, with the same results the front-end's `mcp status` reports. A front-end without `mcp status` SHALL report MCP as `unsupported`.
+- **Doctor** SHALL report each check with a status of `ok`, `fail`, `skip`, or `warn` and its detail, with the same results the front-end's `doctor` reports.
+- A section whose source fails (for example, the gateway is unreachable) SHALL carry an error message while the other sections are still reported. The output MUST NOT contain credential values.
+
+#### Scenario: MCP gates match the front-end
+- **WHEN** an HTTP MCP server's endpoint is missing from the effective policy and the user runs `osa health <sandbox> --json`
+- **THEN** that server's endpoint gate is reported as failed with the same fix text `maki-oss mcp status` prints
+
+#### Scenario: Doctor matches the front-end
+- **WHEN** the configured image is missing and the user runs `osa health <sandbox> --json`
+- **THEN** the doctor section has an `image` check with status `fail` and the build command in its detail
+
+#### Scenario: Idle counting down
+- **WHEN** the last session ended 10 minutes ago with an idle period of 1 hour
+- **THEN** idle state is `counting` and the deadline is 50 minutes from now
+
+#### Scenario: Idle disabled
+- **WHEN** the front-end's `idle_stop` setting is `0`
+- **THEN** idle state is `off` and the period is 0
+
+#### Scenario: Unsupported MCP
+- **WHEN** the owning front-end has no `mcp status` command
+- **THEN** the MCP section is `unsupported` and the other sections are reported
+
+#### Scenario: Gateway down
+- **WHEN** the gateway is unreachable
+- **THEN** the MCP section carries an error, the doctor section reports the gateway check as `fail`, and idle stop is still reported
+
+### Requirement: osa lists providers and setup profiles
+
+`osa providers [--agent TAG] --json` SHALL print one JSON array with one object per known agent tag (or only `TAG`), each carrying: `agent`; `setup`, either `stdin` when `osa provider setup` can configure that agent or `login` when its setup needs a terminal login, with the terminal command to run; `profiles`, each with `id`, the credential environment variable name, `source` (`curated` or `custom`), and the catalog note when there is one; `gateway`, the provider names the gateway lists, or an `error` object when the gateway cannot be reached; and `remembered`, the providers in that agent's config. Profiles SHALL come from the front-end's curated profile directory and the helper's generated profiles directory; a profile file that cannot be read SHALL be listed by id with a note instead of failing the list. The output MUST NOT contain a credential value. An unknown `TAG` SHALL be a usage error.
+
+#### Scenario: Profiles for a stdin agent
+- **WHEN** the user runs `osa providers --agent mk --json`
+- **THEN** the single object has `setup` `stdin` and lists `maki-deepseek` as a `curated` profile with env var `DEEPSEEK_API_KEY`
+
+#### Scenario: Login agent is marked
+- **WHEN** the user runs `osa providers --agent cx --json`
+- **THEN** the object has `setup` `login` and names `codex-oss provider setup` as the command to run
+
+#### Scenario: Gateway down
+- **WHEN** the gateway is unreachable and the user runs `osa providers --json`
+- **THEN** the command exits 0, every object has its profiles and remembered providers, and `gateway` is an error object
+
+### Requirement: osa sets up a provider from stdin
+
+`osa provider setup TAG --profile ID [--name NAME] [--attach SANDBOX] [--yes] [--json]` SHALL configure a provider for agent `TAG` from a credential read on standard input, without any prompt. `osa` SHALL validate the tag, the profile id (kebab-case), the name, and the sandbox before it starts the front-end, and SHALL pass standard input to the front-end without reading or buffering it. The front-end SHALL resolve the profile id, read the credential as `--stdin` does, lint the profile and import it at global scope when the gateway lacks it, create the provider (`NAME`, default the profile id) or, with `--yes`, update an existing one, remember the provider in that agent's config, and with `--attach` attach it to `SANDBOX` and wait. Without `--attach` it SHALL NOT attach anything.
+
+- An existing provider without `--yes` SHALL be refused before any mutation.
+- `--attach SANDBOX` MUST name a registry entry whose agent is `TAG`; the sandbox must exist on the gateway, and an attach to a missing sandbox SHALL be refused before any mutation.
+- For an agent whose setup is `login`, the command SHALL be refused and SHALL name the terminal command.
+- Exit codes SHALL be 0 done, 1 usage error, 2 refused before any change, and 3 failed after a change started. With `--json` stdout SHALL hold exactly one JSON object with `ok`, `agent`, `provider`, `profile`, `outcome` (`created`, `updated`, `refused`, or `failed`), `attached` (the sandbox name or `null`), `remembered`, and a `message`; on exit 3 it SHALL name the steps that completed.
+- The credential MUST NOT appear in any argument, file, stdout, stderr, or the JSON result, on success or failure, and MUST reach `openshell` only through the environment of the `provider create` or `provider update` child.
+
+#### Scenario: Create and attach from stdin
+- **WHEN** `printf 'sk-test' | osa provider setup mk --profile maki-deepseek --attach mk-demo-1a2b --json` runs with `mk-demo-1a2b` registered for `mk` and `Ready`
+- **THEN** it exits 0, the stub records `profile lint`, `provider create --name maki-deepseek --type maki-deepseek --from-existing --global-profile`, and `sandbox provider attach mk-demo-1a2b maki-deepseek --wait`, the result has outcome `created` and attached `mk-demo-1a2b`, and `sk-test` appears in no recorded argv and no output
+
+#### Scenario: Existing provider needs --yes
+- **WHEN** `maki-deepseek` already exists and the command runs without `--yes`
+- **THEN** it exits 2 with outcome `refused`, and no `provider update` or attach is recorded
+
+#### Scenario: Attach to another agent's sandbox is refused
+- **WHEN** `--attach` names a sandbox registered for `oc` while `TAG` is `mk`
+- **THEN** it exits 1 before starting the front-end, and nothing is recorded
+
+#### Scenario: Login agent is refused
+- **WHEN** the user runs `osa provider setup cx --profile codex-chatgpt`
+- **THEN** it exits 2, names `codex-oss provider setup`, and records no `openshell` mutation
+
+#### Scenario: Failure after create keeps the secret out
+- **WHEN** the provider is created but the attach fails
+- **THEN** it exits 3 with outcome `failed`, the message says the provider was created and remembered but not attached, and the credential appears in no output
+
+### Requirement: osa reports and builds base images
+
+`osa images [--json]` SHALL report, for each known agent, the agent tag, the base image tag its front-end's `image build` produces, the resolved container engine, whether that tag exists in the engine's local store (with the image id and creation time when it does), and the image the agent's sessions are configured to use when it differs from the base tag. With `--json` it SHALL print one JSON array and nothing else. When the engine is missing or the image inspection fails for another reason, that agent's entry SHALL carry an `error` instead of failing the command.
+
+`osa image build TAG` SHALL run the agent's `image build` with its default tag and default version, and with no other argument. Both its output and the engine's SHALL go to stdout and stderr as produced. It SHALL exit 0 when the image was built, 1 for a usage error (unknown or missing tag, any extra argument), and the front-end's non-zero exit status otherwise. It MUST NOT read standard input. When the process receives SIGTERM or SIGINT during a build, it SHALL stop the engine's build and exit non-zero without leaving the engine process running.
+
+#### Scenario: Missing base image is reported
+- **WHEN** the engine has no `maki-agent:local` and the user runs `osa images --json`
+- **THEN** the `mk` entry reports the tag `maki-agent:local`, the engine, and `present` `false`
+
+#### Scenario: Derived environment is shown
+- **WHEN** `maki-oss`'s config sets `image = "maki-env:me"`
+- **THEN** the `mk` entry reports base tag `maki-agent:local` and configured image `maki-env:me`
+
+#### Scenario: Build streams and succeeds
+- **WHEN** the user runs `osa image build oc` with a working engine
+- **THEN** the engine receives `build -t opencode-agent:local <repo>/opencode-oss/image`, its output appears on stdout as it is produced, and the command exits 0
+
+#### Scenario: Extra arguments are refused
+- **WHEN** the user runs `osa image build mk --maki-version 1.2.3`
+- **THEN** the command exits 1, and the engine receives no call
+
+#### Scenario: Cancel stops the engine
+- **WHEN** `osa image build mk` receives SIGTERM while the engine is building
+- **THEN** the engine process receives SIGTERM, the command exits non-zero, and no engine process from the build remains
+
+### Requirement: osa dashboard starts the web UI
+
+`osa dashboard [--port N] [--host ADDR] [--token T] [--read-only] [--open]` SHALL run the repository's dashboard in the foreground, from any working directory, until it is interrupted. It SHALL replace its own process with the dashboard's process, so that the exit status and signals belong to the dashboard. It SHALL pass the given flags to the dashboard unchanged and in order, and SHALL pass no flag the user did not give. Any other argument SHALL be a usage error before anything starts. The dashboard SHALL be started with `DASHBOARD_OSA_BIN` set to the absolute path of the `osa` that was run, overriding any inherited value. Every other environment variable, including the `DASHBOARD_*` settings, SHALL pass through. When Bun is not on `PATH`, or its version is below the minimum the dashboard supports, the command SHALL exit non-zero before starting anything, with a message that names the found version (if any), the minimum, and where to install Bun. When the dashboard files are missing next to `osa`, it SHALL exit non-zero and name the expected path. `osa dashboard` MUST NOT start a background process, write a PID file, or write under the state root.
+
+#### Scenario: Start from any folder
+- **WHEN** the user runs `osa dashboard` in their home directory
+- **THEN** Bun runs `<repo>/dashboard/src/main.ts` with no extra flags, `DASHBOARD_OSA_BIN` is `<repo>/bin/osa`, and the dashboard prints its loopback URL
+
+#### Scenario: Flags pass through
+- **WHEN** the user runs `osa dashboard --port 9000 --read-only --open`
+- **THEN** the dashboard receives exactly `--port 9000 --read-only --open`
+
+#### Scenario: Unknown flag is a usage error
+- **WHEN** the user runs `osa dashboard --daemon`
+- **THEN** the command exits as a usage error, and Bun is not started
+
+#### Scenario: Missing Bun
+- **WHEN** no `bun` is on `PATH` and the user runs `osa dashboard`
+- **THEN** the command exits non-zero with a message naming Bun, the minimum version, and the install link, and nothing is started
+
+#### Scenario: Old Bun
+- **WHEN** `bun --version` reports `1.1.30`
+- **THEN** the command exits non-zero, naming `1.1.30` and the minimum version
+
+#### Scenario: Interrupt stops the server
+- **WHEN** the user presses Ctrl-C while `osa dashboard` runs
+- **THEN** the dashboard process exits and no dashboard process is left running

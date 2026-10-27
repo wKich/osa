@@ -3,8 +3,9 @@
 A minimal local web dashboard for osa and [OpenShell](https://docs.nvidia.com/openshell):
 the projects every agent front-end has registered with their sync state and
 `osa resolve` actions for their pending work, sandbox inventory and lifecycle, live logs over Server-Sent Events, read-only
-policy inspection, and rule-proposal review, without replacing `openshell term`
-or the CLIs.
+policy inspection, rule-proposal review, and a Setup tab that sets up
+providers and builds base images, without replacing `openshell term` or the
+CLIs.
 
 Bun + TypeScript, **zero npm dependencies**, no build step, no database, no
 daemon: one command starts a loopback-only server that reads gateway JSON
@@ -15,8 +16,10 @@ through the `openshell` CLI and project state from the osa state root.
 - **Bun ≥ 1.2** (developed and tested against 1.4.2). Check with `bun --version`.
 - **`openshell` CLI ≥ 0.1.2** on `PATH`, installed and authenticated against
   the gateway you want to inspect (`openshell status` should report
-  `connected`). The dashboard never reads, stores, or forwards credential
-  values; it invokes the CLI, which holds its own credentials.
+  `connected`). The dashboard never reads or stores credential values; the
+  one it forwards is a provider credential you type into the Setup tab's
+  wizard, which goes only to `osa provider setup`'s stdin (see
+  [Provider setup](#provider-setup)).
 - A gateway reachable from this host. Remote gateways are out of scope for v1.
 - For the Projects view: the `osa` command (the repository's `bin/osa` is used
   by default) and the projects registered by `maki-oss`, `opencode-oss`,
@@ -25,13 +28,21 @@ through the `openshell` CLI and project state from the osa state root.
 ## Quick start
 
 ```sh
-cd dashboard
-bun install          # resolves with zero packages
-bun run start        # http://127.0.0.1:8787
+osa dashboard --open     # http://127.0.0.1:8787, opened in your browser
 ```
 
-Open the printed URL. The page opens on **Projects**; the **Sandboxes** tab
-holds the gateway inventory. Both lists refresh every 3 seconds; per-sandbox
+From a checkout whose `bin/` is not on `PATH`, run `<repo>/bin/osa dashboard`.
+It works from any folder: `osa` finds the dashboard next to itself, checks
+that Bun ≥ 1.2.0 is installed (exit 2 with the install link if not), and
+replaces itself with `bun run <repo>/dashboard/src/main.ts`, so the server
+runs in the foreground and Ctrl-C stops it. The UI then uses that same `osa`
+(`DASHBOARD_OSA_BIN` is set to it). `--port`, `--host`, `--token`,
+`--read-only`, and `--open` pass through unchanged; any other argument is a
+usage error.
+
+Without `--open`, open the printed URL. The page opens on **Projects**; the **Sandboxes** tab
+holds the gateway inventory, and the **Setup** tab sets up providers and
+builds base images. Both lists refresh every 3 seconds; per-sandbox
 views (`Logs`, `Policy`, `Rules`) stream or fetch on demand.
 
 ## Projects view
@@ -57,12 +68,44 @@ Each row shows:
 - **Status**: **Check (contacts gateway)** runs `osa status PATH --json` (30 s
   timeout) and shows the sync state (`clean`, `behind`, `retained`, `parked`),
   phase, and the next command the front-end suggests.
+- **Idle stop**: the idle-stop state from the same cached quick status
+  (`idle` in `osa status --quick --json`). While it is `counting`, the cell
+  shows the time left (for example `stops in 4m 59s`), updated every second in
+  the browser without a request; once the deadline passes it reads
+  `stop due` until the next quick status reports the new state. Hovering
+  shows the absolute deadline (UTC), which matters when the browser's clock
+  is not the dashboard host's. Other states read `off`, `no session`,
+  `session running`, `stopped`, `skipped`, or `stop failed`.
+- **Health** opens the Health panel under the row (see below).
 - **Review patch** (retained patches only): the patch text, never editable,
   with added and removed lines marked, truncated at 2 MiB with a notice.
 
 The header's attention counter shows how many projects have a retained patch,
 a parked workspace, or a missing folder; it is visible from every view and
 opens Projects.
+
+### Health panel
+
+**Health** on a project row, or on the detail view of a sandbox that is in
+the registry, runs `osa health SANDBOX --json` (30 s timeout) and shows:
+
+- **Idle stop**: the state, the deadline (marked when estimated), the period,
+  and the last idle event;
+- **MCP readiness**: each server and gate with pass or fail and the fix text
+  `mcp status` prints; `unsupported` for a front-end without `mcp status`
+  (not a failure);
+- **Doctor**: each check with its status and detail.
+
+`osa health` runs only when the panel opens or **Refresh health** is pressed,
+never on a poll tick, and results are not cached on the server. A section that
+reports an error (for example MCP while the gateway is unreachable, or a
+stopped sandbox) shows the error text while the other sections stay visible.
+The panel only reads: it has no control that changes configuration,
+providers, or the sandbox, and every value reaches the page as text.
+
+The header status line (CLI and gateway) adds a link, "doctor checks fail for
+SANDBOX", when the last opened panel of a project had a failing doctor check;
+it opens that panel with its last result and never runs `osa health` itself.
 
 ### Resolve actions
 
@@ -86,11 +129,101 @@ when it refused, or the error text when it failed. The project's rows are
 re-read at once, so a cleared `retained` or `parked` badge disappears without
 waiting for the next poll. In read-only mode none of these controls exist.
 
+## Setup tab
+
+### Provider setup
+
+The **Providers** section lists, for each agent `osa providers --json`
+reports, the providers on the gateway, the providers remembered in that
+agent's config, and the profiles setup can use, each with its id, credential
+variable, source (`curated` or `custom`), and catalog note. When the gateway
+cannot be listed, the profiles and remembered providers still show, with the
+gateway error. The section loads when the tab opens and after each setup; it
+is never polled.
+
+**Set up** opens a wizard inside the agent's card: pick a profile, name the
+provider (the profile id by default), paste the credential into the password
+field, and optionally pick one of the agent's registered sandboxes that is on
+the gateway to attach the provider to. When the name is already on the
+gateway, the submit control stays disabled until **Replace existing
+credential** is checked; only then does the server add `--yes`. The wizard
+shows the outcome (created or updated, attached or not; "nothing changed"
+with `osa`'s message for a refusal; the completed steps for a failure), and
+the provider list and the inventory refresh at once. For an agent whose setup
+is a login on the host (Codex), the card shows the terminal command instead
+of a wizard. A registered sandbox's detail view that shows no attached
+provider offers **Configure**, which opens the wizard with its agent and
+sandbox selected. In read-only mode there is no wizard, and on a non-loopback
+bind the card says that setup is available only on loopback.
+
+The credential is read from the field when you submit and sent in that one
+request; the field is cleared after the request, on Cancel, and when the page
+is hidden, and the page never keeps it in state or browser storage. See
+[Security notes](#security-notes-and-threat-model).
+
+### Images
+
+The **Images** section shows each agent's base image from `osa images
+--json`: the tag `image build` produces, whether it exists locally and when it
+was created, the engine, the image sessions use when the config names another
+one (a derived environment), and any error. **Build** runs
+`osa image build <agent>`; the log below the table streams its output as it
+arrives, with a status line (running for mm:ss, then succeeded, failed with
+the exit status, or cancelled). One build runs at a time: while one runs,
+every Build button is disabled and **Cancel build** stops it (SIGTERM, which
+the front-end forwards to the engine, then SIGKILL after 10 seconds). A build
+keeps running when the page closes; opening the tab again replays its log
+from the first line (up to 5000 lines; older lines are noted as dropped) and
+follows it. When a build ends, the table refreshes. A build is cancelled after
+60 minutes. Rebuilding a tag does not change running sandboxes. In read-only
+mode there is no Build or Cancel control. Environment stores stay a terminal
+step.
+
+## Rules view and egress denials
+
+Egress is deny-by-default, so a sandbox's network denials are the evidence
+behind a rule proposal. The **Rules** view of a sandbox lists its pending
+proposals and, under each one, the denials that proposal would allow; denials
+that match no pending proposal are listed under **Denied, no proposal**.
+
+- **Source.** One bounded read per refresh:
+  `openshell logs NAME --since WINDOW --source sandbox -n 5000` (20 s timeout).
+  The dashboard parses the OCSF shorthand denial lines,
+  `… [OCSF ] [ocsf] NET:… [SEV] DENIED <binary>(<pid>) -> <host>:<port> [reason:…]`
+  and `… DENIED <host> [reason:…]`, and ignores every other line.
+- **Window.** Last 15 minutes, last hour (default), or last 6 hours, picked in
+  the view. The window is a fixed choice; no free text reaches the CLI.
+- **Groups.** Denials are grouped by destination host, port (absent for a
+  DNS-stage refusal), and binary, each with a count, first and last time seen,
+  and the distinct `reason` values.
+- **Matching.** A group matches a proposal when its host equals one of the
+  proposal's endpoint hosts (case-insensitive), its port is absent or equal to
+  that endpoint's port, and, when both name binaries, its binary is one of the
+  proposal's. One group can match several proposals.
+- **When it reads.** Only when the Rules view opens, the window changes, or
+  **Refresh denials** is pressed; never on a poll tick. A read is reused for the
+  same sandbox and window for 30 seconds; **Refresh denials** bypasses that.
+  Proposals are matched fresh on every request, so an approval or rejection
+  moves its denials at once.
+- **Badges.** The inventory row and the project row show **N denied**, the
+  number of groups with no pending proposal from the last read, with its age.
+  They show nothing until a read has happened; a badge never triggers one.
+- **Limits and errors.** A read that returns 5000 lines says so, since older
+  denials in the window were cut. A `DENIED` OCSF line in a layout the parser
+  does not know (including non-`NET:` classes such as L7 `HTTP:` events) is
+  counted as unparsed and up to five are shown raw, so a format change shows up
+  instead of an empty view. A failed read shows the CLI's error text; the
+  proposals stay listed.
+
+The denial section has no control that writes policy: approving or rejecting
+stays on the proposals, and a denial with no proposal is not turned into a
+rule from the browser.
+
 ## Scripts
 
 | Script | Purpose |
 |---|---|
-| `bun run start` | Start the dashboard server |
+| `bun run start` | Start the dashboard server from `dashboard/` (development; takes the same flags, e.g. `bun run start --open`) |
 | `bun run dev` | Start with `--watch` (restarts on source changes) |
 | `bun test` | Run the stub-backed test suite (no gateway, no Docker, no network) |
 | `bun run scripts/browser-check.ts` | Drive the real UI in headless Chrome against the stub (skips without Chrome) |
@@ -102,11 +235,12 @@ Priority: flag > environment variable > default.
 | Flag | Environment | Default | Behavior |
 |---|---|---|---|
 | `--port N` | `DASHBOARD_PORT` | `8787` | Listen port |
-| `--host ADDR` | `DASHBOARD_HOST` | `127.0.0.1` | Bind address. Any non-loopback address **requires** `--token`/`DASHBOARD_TOKEN` and prints a startup warning |
-| `--token T` | `DASHBOARD_TOKEN` | random per start | Session token embedded in the served page and required by every mutating route |
+| `--host ADDR` | `DASHBOARD_HOST` | `127.0.0.1` | Bind address. Any non-loopback address **requires** `--token`/`DASHBOARD_TOKEN`, prints a startup warning, and then requires that token for the page and every read (see [Remote bind](#remote-bind)) |
+| `--token T` | `DASHBOARD_TOKEN` | random per start | Session token required by every mutating route; on loopback it is embedded in the served page, off loopback only in a page requested with `?token=T` |
 | `--read-only` | `DASHBOARD_READ_ONLY` | off | Rejects every mutating route with 403 and hides the controls (`1`, `true`, `yes`, `on`) |
+| `--open` | — | off | Once listening, opens `http://HOST:PORT/` in the default browser (`open` on macOS, `xdg-open` elsewhere). The URL never carries the token; off loopback nothing is opened and the server says to open the page with `?token=`. With no opener, or a failing one, it prints the URL and keeps serving |
 | — | `DASHBOARD_OPENSHELL_BIN` | `openshell` | CLI binary to invoke (tests point this at the stub) |
-| — | `DASHBOARD_OSA_BIN` | `../bin/osa`, else `osa` | `osa` binary for host-change and full status checks and resolve actions: this variable, else the repository's `bin/osa` next to the dashboard, else `osa` on `PATH` |
+| — | `DASHBOARD_OSA_BIN` | `../bin/osa`, else `osa` | `osa` binary for host-change and full status checks and resolve actions: this variable, else the repository's `bin/osa` next to the dashboard, else `osa` on `PATH`. Set by `osa dashboard` to that `osa`, overriding any inherited value |
 | — | `XDG_STATE_HOME` | `$HOME/.local/state` | Base of the osa state root (`$XDG_STATE_HOME/osa`) the Projects view reads |
 | `-h`, `--help` | — | — | Print usage |
 
@@ -131,20 +265,28 @@ starting point.
 
 ## API
 
-Read routes (no token required on loopback):
+Read routes (no token required on loopback; on a non-loopback bind every
+route below needs `X-Dashboard-Token`, `/` needs `?token=`, and the stream
+needs `token=` as it already does):
 
 | Route | Returns |
 |---|---|
-| `GET /` | Page shell with the session bootstrap |
+| `GET /` | Page shell with the session bootstrap. Off loopback: `GET /?token=T` |
 | `GET /api/doctor` | CLI presence, gateway reachability, read-only state |
-| `GET /api/sandboxes` | Sandbox inventory (`name`, `phase`, labels, notes) |
+| `GET /api/sandboxes` | Sandbox inventory (`name`, `phase`, labels, notes, and `denials`: `{unmatched, window, readAt}` from the last denials read, or `null`) |
 | `GET /api/sandboxes/:name` | Detail: policy source/revision, providers, revision list |
 | `GET /api/sandboxes/:name/policy?view=base\|full` | Base or effective policy |
 | `GET /api/sandboxes/:name/rules?status=pending` | Rule proposals parsed from `rule get` |
+| `GET /api/sandboxes/:name/denials?window=15m\|1h\|6h[&refresh=1]` | `{denials: {window, capped, unparsed, unparsedSamples, readAt, groups: [{host, port, binary, count, firstSeen, lastSeen, reasons, matches}]}}`, `matches` holding the chunk ids of the pending proposals each group matches. Requires `X-Dashboard-Token`, in read-only mode too. 400 for another window; cached 30 s per sandbox and window unless `refresh=1` |
 | `GET /events/logs?name=:name&token=:token` | SSE log stream (ring-buffer replay, heartbeat comments). Requires the page's session token |
-| `GET /api/projects[?refresh=1][&path=P]` | Registry entries with `pending`, `orphan`, `note`, `fingerprintResult`, `checkedAt`, `busy`, and per-row `osaError`; `refresh=1` drops the host-change cache. With `path`, only the rows registered at host path `P`, and only that path is checked or dropped |
+| `GET /api/projects[?refresh=1][&path=P]` | Registry entries with `pending`, `orphan`, `note`, `fingerprintResult`, `checkedAt`, `busy`, `idle` (from the cached quick status, or `null`), and per-row `osaError`; `refresh=1` drops the host-change cache. With `path`, only the rows registered at host path `P`, and only that path is checked or dropped |
 | `GET /api/projects/:sandbox/status` | `osa status <host_path> --json`, narrowed to that sandbox; 404 for a sandbox not in the registry |
+| `GET /api/projects/:sandbox/health` | `{health}`: `osa health <sandbox> --json` (idle stop, MCP readiness, doctor checks); 404 for a sandbox not in the registry, 504 after 30 s. Not cached |
 | `GET /api/projects/:sandbox/patch` | The retained patch `{name, size, truncated, text}`. Requires `X-Dashboard-Token`, in read-only mode too |
+| `GET /api/providers` | `{providers}`: `osa providers --json` (per agent: `setup`, `command`, `profiles`, `gateway`, `remembered`); 504 after 20 s. Not cached |
+| `GET /api/images` | `{images}`: `osa images --json` (per agent: `image`, `engine`, `present`, `id`, `created`, `configured`, `error`); 504 after 20 s. Not cached |
+| `GET /api/images/build` | `{build}`: the current or last build's `{id, agent, startedAt, finishedAt, exitCode, cancelled, reason, dropped}`, or `null` |
+| `GET /events/build?token=:token` | SSE build stream: `start` (the build summary), then `line` events replaying the ring and following live, then `done` (the summary with `exitCode`, `cancelled`, `reason`); `none` when no build has run. Requires the page's session token |
 
 Project routes accept GET only, except the resolve route below, which accepts
 POST only; any other method returns 405 and runs nothing.
@@ -158,6 +300,9 @@ read-only mode:
 | `POST /api/sandboxes/:name/start` \| `/stop` \| `/delete` | Lifecycle |
 | `POST /api/sandboxes/:name/rules/:chunkId/approve` | Approve a pending proposal |
 | `POST /api/sandboxes/:name/rules/:chunkId/reject` | Reject with required `{reason}` |
+| `POST /api/images/:agent/build` | Runs `osa image build <agent>` for `mk`, `oc`, `cc`, or `cx` with no other argument: 202 `{build}`, 400 for another agent, 409 while any build runs (nothing spawned) |
+| `POST /api/images/build/cancel` | Cancels the running build: 200 `{build}`, 409 when nothing runs |
+| `POST /api/providers/setup` | `{agent, profile, name?, attach?, replace?, credential}`: runs `osa provider setup <agent> --profile <profile> [--name <name>] [--attach <sandbox>] [--yes] --json` with the credential on stdin, `--yes` only for `replace: true`. Refused off loopback (403 `loopback_only`, before the body is read); then 403 without the token or in read-only mode, 415 for a non-JSON body, 413 for a body over 70 KiB, 400 naming the invalid field, 409 while another setup runs. Returns `osa`'s `{ok, agent, provider, profile, outcome, attached, remembered, steps, message}` plus `exitCode`: 200 for exit 0, 409 for exit 2 (refused, nothing changed), 400 for exit 1, 502 for exit 3 (with the completed `steps`), 504 after 120 s. Every copy of the credential in `osa`'s output is replaced with `[redacted]` |
 | `POST /api/projects/:sandbox/resolve` | `{action}`, one of `apply`, `branch`, `drop`, `rescue`, `discard`: runs `osa resolve <sandbox> <action> --json`, with `--yes` added by the server for `drop` and `discard`. Returns `osa`'s `{sandbox, action, ok, changed, message}` plus `exitCode`: 200 for exit 0, 409 for exit 2 (refused, nothing changed). 400 for an unknown action, 404 for a sandbox not in the registry, 409 while a resolve for that sandbox runs, 502 for exit 3 or unparsable output (stderr in `error.detail`), 504 after 60 s (120 s for `rescue`) |
 
 CLI failures return a structured body
@@ -170,17 +315,30 @@ screen.
 The dashboard is a local operator tool, not a hardened service. What it does:
 
 - **Loopback by default.** `127.0.0.1` only. Binding elsewhere is possible but
-  requires an explicit token and prints a warning; there is no TLS in v1, so
-  for remote access prefer an SSH tunnel to the loopback port.
+  requires an explicit token, prints a warning, and switches on token-gated
+  reads (below); there is no TLS in v1, so for remote access prefer an SSH
+  tunnel to the loopback port.
+- **`Host` is validated on every request, in both modes.** A loopback bind
+  accepts only `127.0.0.1`, `localhost`, and `[::1]` (with the bound port or no
+  port); any other `Host`, including a DNS name an attacker has rebound to
+  `127.0.0.1`, gets 403 before the page or any API route. A concrete
+  non-loopback bind also accepts its own address. A wildcard bind
+  (`0.0.0.0`, `::`) cannot list the machine's names, so it accepts any `Host`
+  and relies on the token; bind a concrete address if you want rebinding
+  protection there.
 - **Session token on mutations and streams.** A random token is minted at
-  startup unless `--token` is given, embedded in the served page, and required
-  as `X-Dashboard-Token`. Cross-site form posts cannot set that header, and no
-  CORS headers are served, so a malicious page cannot read responses either.
+  startup unless `--token` is given and required as `X-Dashboard-Token`.
+  Cross-site form posts cannot set that header, and no CORS headers are
+  served, so a malicious page cannot read responses either. On loopback the
+  token is embedded in the served page; off loopback see
+  [Remote bind](#remote-bind).
 - **Log streams require the page token.** `GET /events/logs` checks the token
   as a `token` query parameter (the browser's `EventSource` cannot send
   headers) and returns 403 without spawning a log process. Read-only mode
-  still mints a read token so the page can stream logs, but it continues to
-  reject every mutation.
+  still requires it, but continues to reject every mutation.
+- **Denials require the token too.** Denial groups carry log content (host
+  names, binary paths), so `GET /api/sandboxes/:name/denials` requires
+  `X-Dashboard-Token` in both modes and returns 403 before any CLI call.
 - **Read-only mode** for shared or demo machines: every mutation returns 403.
 - **Defense in depth in the browser.** The page carries a strict CSP
   (`script-src 'self'`, `default-src 'none'`), and the frontend renders gateway
@@ -188,28 +346,68 @@ The dashboard is a local operator tool, not a hardened service. What it does:
   contain no HTML sink identifiers, enforced by a test. Only the module names
   found in `src/app/` at startup are served; no URL path reaches the file
   system.
-- **No secrets through the dashboard.** It never reads or stores credential
-  values, and it adds no `--env` values; provider credentials stay with the
-  CLI and OpenShell's provider profiles. The API responses contain gateway
-  metadata only.
+- **Secrets only through provider setup.** (This replaces the earlier promise
+  that no secret passes through the dashboard.) The dashboard never reads or
+  stores credential values, and it adds no `--env` values. The one secret it
+  handles is a provider credential typed into the Setup tab's wizard: the
+  browser sends it to `127.0.0.1` in the body of one same-origin request to
+  `POST /api/providers/setup`, and the server writes it to the stdin of one
+  `osa provider setup` child and closes the pipe. It never goes into an
+  argument, an environment variable, a file, a log line, a cache, a URL, a
+  response, or an error message; every copy of it in `osa`'s output is
+  replaced with `[redacted]` before anything is parsed or returned. The route
+  is refused off loopback before the body is read, needs the token, is
+  refused in read-only mode, takes only a JSON body under 70 KiB, and runs
+  one setup at a time. Otherwise the API responses contain gateway metadata
+  only.
 - **No host bind mounts.** The dashboard only shells out to `openshell` and
   `osa`, and only with argv arrays (never through a shell). The only `osa`
   commands it can run are `status PATH --json`, `status PATH --quick --json`,
-  and `resolve SANDBOX ACTION --json` with `--yes` for `drop` and `discard`
-  only; one allowlist check in `src/projects.ts` refuses every other argv.
+  `health SANDBOX --json`, `providers --json`, `images --json`,
+  `resolve SANDBOX ACTION --json` with `--yes` for `drop` and `discard` only,
+  `provider setup TAG --profile ID [--name N] [--attach SANDBOX] [--yes]
+  --json` built from validated fields (and only with the credential on
+  stdin), and `image build TAG` with nothing after the tag; one allowlist
+  check in `src/projects.ts` refuses every other argv.
+- **Image builds use the repository's own build contexts.** The only client
+  input that reaches `osa image build` is the agent tag, chosen from four;
+  there are no build arguments, tag overrides, bind mounts, secrets, or
+  `--env` values. Build output carries no credential and is gated by the
+  token like logs.
 - **Project writes go through `osa resolve` only.** The dashboard itself never
   creates, modifies, or deletes a file in the osa state root or a registered
   host project. The resolve route is the only project route that is not GET.
 
-Threat model. The dashboard guards three assets:
+Threat model. The dashboard guards four assets:
 
-1. **The gateway**: mutating sandboxes and approving rules. Unchanged from v1.
+1. **The gateway**: mutating sandboxes and approving rules, and creating,
+   updating, and attaching providers through `osa provider setup`.
 2. **Host project trees and git refs**, newly writable: **Apply** writes the
    patch's files into the working tree, and **Branch** creates an
    `osa/<sandbox>-<timestamp>` ref.
 3. **The osa state root**, newly writable: **Drop** clears the marker and moves
    the patch into `dropped/`, **Rescue** adds a `rescue-<timestamp>/` folder,
    and **Discard** replaces the sandbox workspace and clears the marker.
+4. **Provider credentials in transit**: a credential typed into the wizard,
+   from the browser to the `osa provider setup` child. Its guards:
+   - loopback only: off loopback the route is refused before the body is
+     read, so the credential never crosses a network in plain HTTP;
+   - the session token in `X-Dashboard-Token` and read-only refusal;
+   - stdin-only handoff: the credential goes to the child's stdin and
+     nowhere else, never into argv, the environment, a file, a log, or a
+     response;
+   - redaction: every copy of it in `osa`'s output becomes `[redacted]`
+     before the server parses or returns that output;
+   - no storage on the page: the field disables autocomplete and spell
+     checking, the value is read at submit time and cleared afterwards, on
+     Cancel, and on `pagehide`, and it is never kept in page state,
+     `localStorage`, `sessionStorage`, or a cookie.
+
+   Residual risk: a local process that can read the token (from the loopback
+   page) can also submit a setup, but it gains nothing it could not already
+   do with `openshell` as the same user. The credential sits in the input and
+   the browser's memory until the field is cleared, the same exposure as a
+   password manager filling a form.
 
 The main risks are (1) another local process reaching the loopback port and
 (2) a browser tricking the operator's session into requests. The host writes
@@ -228,6 +426,32 @@ sit behind the same guards as every other mutation, plus their own:
 - in the UI, typed sandbox names for Drop and Discard and the touched-file list
   before Apply. These guard against slips, not attackers; the token is the
   security guard.
+
+### Remote bind
+
+Loopback and non-loopback binds differ on purpose. On loopback (the default)
+the page embeds the token, reads are open, and mutations require the header: a
+local process can read the token from the same page, so requiring it earlier
+would add friction and no security. Off loopback the token is the only thing
+between the network and your projects, so:
+
+- `GET /` requires `?token=<token>`; only then is the bootstrap, including the
+  token, rendered. Open `http://HOST:PORT/?token=<token>` once; the page then
+  sends the token as `X-Dashboard-Token` on its API calls and as `token=` on its
+  log stream.
+- every `/api/...` route, reads included (`/api/doctor`, `/api/sandboxes`,
+  `/api/projects`, policy, rules, status, patch), requires `X-Dashboard-Token`;
+  `/events/logs` requires `?token=`.
+- an unauthenticated request gets 403 with a generic body: no token, no
+  project, sandbox, policy, rule, log, or host-path data, and no `openshell` or
+  `osa` command runs. The static `/app/*.js` modules stay open; they contain
+  code only, and the browser loads them without the token.
+- `--read-only` keeps refusing every mutation, with or without the token, and
+  still requires the token for the page, reads, and logs.
+
+The token travels in the URL query for the page and stream, and there is no
+TLS, so use an SSH tunnel to a loopback bind for anything beyond a trusted
+network.
 
 **What read-only mode guarantees**: no host writes at all. Every project route
 is GET, the resolve route answers 403, and the page shows no resolve control.
@@ -267,8 +491,17 @@ are rendered the same way.
 - **`rule get` has no JSON output mode.** The dashboard parses the CLI's stable
   field-per-line table (covered by tests); a future CLI JSON mode can replace
   that parser behind `src/openshell.ts`.
+- **Egress denials come from the log shorthand only.** `openshell logs` has no
+  JSON mode, so denials are parsed from its OCSF shorthand lines. The OCSF JSON
+  export would be easier to parse, but its files live in the sandbox
+  supervisor's filesystem, which `openshell sandbox exec` cannot read, so the
+  CLI's log output is the only source the dashboard can reach. Gateway-side
+  `CONFIG:*` events and L7 events are not grouped (L7 denials count as
+  unparsed), and denials are not kept across reads or restarts.
 - Policy editing stays file-based; the dashboard is view-only for policy.
-- No authentication, multi-user support, or remote gateway support in v1.
+- No multi-user support or remote gateway support in v1; the only authentication
+  is the single shared session token, required for everything on a
+  non-loopback bind and for mutations, streams, and patches on loopback.
 
 ## Testing
 
@@ -280,11 +513,21 @@ bun run scripts/browser-check.ts   # real headless Chrome against the stubs
 Tests put `test/stub` first on `PATH` (or set `DASHBOARD_OPENSHELL_BIN`) and
 never touch a real gateway; the browser check uses the same stubs and a
 throwaway Chrome profile. `test/stub/openshell` records argv, returns pinned
-v0.1.2 JSON shapes, simulates lifecycle state, and can emit timed log lines.
-`test/stub/osa` answers `status PATH [--quick] --json` (with `busy` when the
-fixture says so) and `resolve SANDBOX ACTION --json [--yes]` from a JSON
-fixture, logs argv, and can succeed, refuse (exit 2), fail (exit 3), answer
-slowly, hang, or print invalid JSON. `test/state-fixture.ts`
+v0.1.2 JSON shapes, simulates lifecycle state, can emit timed log lines, and
+answers a one-shot `logs --since` read with a denial fixture (real and upstream
+shapes, IPv6, ANSI color, an unknown layout, a markup host) or a failure.
+`test/stub/osa` answers `status PATH [--quick] --json` (with `busy` and
+`idle` when the fixture says so), `health SANDBOX --json` (built-in reports:
+all ok, a failing MCP gate, unsupported MCP, a partial error, markup in a
+detail), and `resolve SANDBOX ACTION --json [--yes]` from a JSON fixture, logs argv, and can succeed, refuse (exit 2), fail (exit 3), answer
+slowly, hang, or print invalid JSON. It also answers `images --json`
+(present, missing, an error with markup, a configured image), a streaming
+`image build TAG` (timed lines on stdout and stderr, a chosen exit status, or
+a build that waits for SIGTERM or ignores it), `providers --json` (a stdin
+agent with curated and custom profiles, a markup note, a gateway error, a
+login agent), and `provider setup …` (created, updated, refused, failed after
+create, usage, slow, and a mode that echoes the credential to test
+redaction); it records each setup's stdin byte count, never the value. `test/state-fixture.ts`
 builds a throwaway state root with every registry and marker shape the
 Projects view handles, and a conformance test checks the dashboard's reader
 against the real `bin/osa projects --json` over it.

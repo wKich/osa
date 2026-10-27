@@ -16,6 +16,8 @@ try {
 export const state = {
   token: bootstrap.token ?? null,
   readOnly: Boolean(bootstrap.readOnly),
+  /** Provider setup is offered only on a loopback bind. */
+  loopback: bootstrap.loopback !== false,
   refreshMs: bootstrap.refreshMs || 3000,
   defaults: bootstrap.defaults || {},
   app: document.getElementById("app"),
@@ -25,6 +27,7 @@ export const state = {
   tabs: {
     projects: document.getElementById("tab-projects"),
     sandboxes: document.getElementById("tab-sandboxes"),
+    setup: document.getElementById("tab-setup"),
   },
   view: "projects",
   selected: null,
@@ -33,6 +36,12 @@ export const state = {
   inventoryKnown: null,
   projects: [],
   projectsLoaded: false,
+  /** Last `osa health` per sandbox name: { loading, value, error, at }. */
+  health: {},
+  /** The sandbox whose Health panel is open, or null. */
+  healthOpen: null,
+  /** The last /api/doctor reply, for re-rendering the header status. */
+  doctor: null,
   /** Full status per sandbox name: { loading, value, error }. */
   projectStatus: {},
   /** Last resolve outcome per sandbox: { running, action, kind, changed, message, detail }. */
@@ -46,7 +55,22 @@ export const state = {
   patchError: null,
   detail: null,
   rules: [],
+  /** Denial window for the Rules view: "15m", "1h", or "6h". */
+  denialWindow: "1h",
+  /** Last denials read for the selected sandbox: { key, loading, value, error }. */
+  denials: null,
   policyTab: "full",
+  /** `osa images` for the Setup tab: { value, loading, error }. */
+  images: { value: null, loading: false, error: null },
+  /** The current or last image build: its summary, replayed lines, and stream. */
+  build: { summary: null, lines: [], es: null },
+  /** `osa providers` for the Setup tab: { value, loading, error }. */
+  providers: { value: null, loading: false, error: null },
+  /**
+   * The open provider wizard: { agent, sandbox, profile, name, nameEdited,
+   * replace, running, outcome }, or null. Never holds the credential.
+   */
+  wizard: null,
   logs: {
     lines: [],
     paused: false,
@@ -65,4 +89,11 @@ export const actions = {
   loadInventory: async () => {},
   openDetail: async (_name) => {},
   refreshProject: async (_hostPath) => {},
+  renderStatus: () => {},
+  /** The sandbox whose last Health panel had a failing doctor check, or null. */
+  failingHealth: () => null,
+  /** Opens a sandbox's Health panel with its last result, running nothing. */
+  showHealth: (_sandbox) => {},
+  loadProviders: async () => {},
+  updateProviders: () => {},
 };

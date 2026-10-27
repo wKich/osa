@@ -56,3 +56,32 @@ test("a full fork opens a titled copy; a cut, unknown, or empty fork is refused"
   await post(`/api/session/${fork.id}/prompt`, { text: "again" });
   expect(await waitFor(() => bridge.frames.some((f) => f.type === "session.execution.succeeded" && f.data?.sessionID === fork.id))).toBe(true);
 });
+
+test("forking mid-turn names the last copied message, not the in-flight assistant message", async () => {
+  const inflight = await startBridge({ FAKE_MAKI_SCRIPT: JSON.stringify([{ text: "slow answer", stream: ["slow", " answer"], delayMs: 4000 }]) });
+  try {
+    const send = (path: string, body: unknown) =>
+      fetch(inflight.base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const sid = (await (await send("/api/session", { location: { directory: inflight.workdir } })).json()).data.id;
+    expect(await waitFor(() => inflight.frames.some((f) => f.type === "model.updated" && f.data?.sessionID === sid))).toBe(true);
+    await send(`/api/session/${sid}/prompt`, { text: "go slowly" });
+    // the turn is open: the assistant message exists and has no completion time
+    expect(await waitFor(() => inflight.frames.some((f) => f.type === "session.step.started" && f.data?.sessionID === sid))).toBe(true);
+    const parent = (await (await fetch(`${inflight.base}/api/session/${sid}/message?order=asc`)).json()).data;
+    expect(parent.map((m: any) => m.type)).toEqual(["user", "assistant"]);
+    expect(parent[1].time.completed).toBeUndefined();
+
+    const res = await send(`/api/session/${sid}/fork`, {});
+    const body = await res.json();
+    expect(res.status).toBe(200);
+    const fork = body.data;
+    const copied = (await (await fetch(`${inflight.base}/api/session/${fork.id}/message?order=asc`)).json()).data;
+    expect(copied.map((m: any) => m.type)).toEqual(["user"]);
+    expect(copied[0].text).toBe("go slowly");
+    // the boundary is the copied user message of the parent, never the unfinished assistant one
+    expect(fork.fork.boundary).toEqual({ type: "through", messageID: parent[0].id });
+    expect(fork.fork.boundary.messageID).not.toBe(parent[1].id);
+  } finally {
+    await inflight.stop();
+  }
+}, 30_000);

@@ -39,7 +39,10 @@ Commands:
                                 (bare `codex-oss` does the same)
   run "<prompt>"                Ensure the sandbox, run Codex headless, and
                                 print its JSON events
-  upload [PATH] [DEST]          Copy local files into the sandbox
+  upload [--discard] [PATH] [DEST]
+                                Refresh the workspace (no PATH or `.`), or copy
+                                PATH as-is (no baseline); --discard only
+                                applies to a refresh
   download [SANDBOX_PATH] DEST  Copy files from the sandbox to the host
   status                        Show this project's sandbox
   list                          List sandboxes on the gateway
@@ -143,6 +146,9 @@ OSS_TMP_PREFIX=codex-oss                 # /tmp/codex-oss-stop, temp file names
 OSS_CONFIG_EXAMPLE=docs/ai/reference/codex.md     # named in a generated config header
 OSS_PROFILES_DIR=$repo_root/codex-oss/providers
 OSS_CATALOG_FILE=$OSS_PROFILES_DIR/stores.tsv
+OSS_NOTE_CATALOG=$OSS_PROFILES_DIR/catalog.tsv  # profile notes for osa providers:
+OSS_NOTE_ID_COLUMN=1                     #   the profile-id column
+OSS_NOTE_COLUMN=4                        #   the note column
 OSS_CUSTOM_PROFILE_PREFIX=codex-         # default id for a custom profile
 OSS_AGENT_NAME=Codex                     # named in generated profiles
 OSS_AGENT_PROCESS=codex                  # in-sandbox process the idle stop waits on
@@ -355,7 +361,7 @@ cx_doctor_refresh() {
         BEGIN { FS = "  +" }
         $2 == key { print $4 "\t" $6 "\t" $8 "\t" $9; exit }')
     if [ -z "$cx_row" ]; then
-        say "warn  refresh: $CX_PROVIDER has no gateway refresh; run '$PROGRAM provider setup' again"
+        doctor_check warn "refresh" "$CX_PROVIDER has no gateway refresh; run '$PROGRAM provider setup' again"
         return 0
     fi
     tab=$(printf '\t')
@@ -364,45 +370,45 @@ $cx_row
 EOF
     case $cx_state in
         *fail*|*error*)
-            say "warn  refresh: $CX_PROVIDER last refresh failed ($cx_state, ${cx_failure:--}); run '$PROGRAM provider setup' again"
+            doctor_check warn "refresh" "$CX_PROVIDER last refresh failed ($cx_state, ${cx_failure:--}); run '$PROGRAM provider setup' again"
             return 0
             ;;
     esac
     if [ -n "$cx_failure" ] && [ "$cx_failure" != - ]; then
-        say "warn  refresh: $CX_PROVIDER last refresh failed ($cx_failure); run '$PROGRAM provider setup' again"
+        doctor_check warn "refresh" "$CX_PROVIDER last refresh failed ($cx_failure); run '$PROGRAM provider setup' again"
         return 0
     fi
     cx_expires_s=$(cx_epoch "$cx_expires") || cx_expires_s=
     if [ -z "$cx_expires_s" ]; then
-        say "ok    refresh: $CX_PROVIDER $cx_state (expiry not reported)"
+        doctor_check ok "refresh" "$CX_PROVIDER $cx_state (expiry not reported)"
         return 0
     fi
     cx_now=$(date -u +%s)
     if cx_last_s=$(cx_epoch "$cx_last"); then
         cx_lead=$(cx_refresh_before)
         if [ "$((cx_expires_s - cx_last_s))" -le "$cx_lead" ]; then
-            say "warn  refresh: the gateway recorded $CX_PROVIDER as expiring $((cx_expires_s - cx_last_s))s after its last refresh, within the ${cx_lead}s lead time, so it refreshes continuously; see 'Refresh' in codex-oss/README.md"
+            doctor_check warn "refresh" "the gateway recorded $CX_PROVIDER as expiring $((cx_expires_s - cx_last_s))s after its last refresh, within the ${cx_lead}s lead time, so it refreshes continuously; see 'Refresh' in codex-oss/README.md"
             return 0
         fi
     fi
     if [ "$((cx_expires_s - cx_now))" -lt 86400 ]; then
-        say "warn  refresh: $CX_PROVIDER expires $cx_expires UTC, in under 24 hours"
+        doctor_check warn "refresh" "$CX_PROVIDER expires $cx_expires UTC, in under 24 hours"
         return 0
     fi
-    say "ok    refresh: $CX_PROVIDER $cx_state, expires $cx_expires UTC"
+    doctor_check ok "refresh" "$CX_PROVIDER $cx_state, expires $cx_expires UTC"
 }
 
 agent_doctor_extra() {
     doctor_model=$(resolved_model)
     if [ -n "$doctor_model" ]; then
-        say "ok    model: $doctor_model"
+        doctor_check ok "model" "$doctor_model"
     else
-        say "ok    model: Codex's default"
+        doctor_check ok "model" "Codex's default"
     fi
     if [ -n "$(cx_account_id)" ]; then
-        say "ok    account: ChatGPT account ID configured"
+        doctor_check ok "account" "ChatGPT account ID configured"
     else
-        say "warn  account: no ChatGPT account ID; run '$PROGRAM provider setup'"
+        doctor_check warn "account" "no ChatGPT account ID; run '$PROGRAM provider setup'"
     fi
     cx_doctor_refresh
     doctor_mcp_section
@@ -636,7 +642,7 @@ cmd_image_build() {
     fi
     # The base build never uses the configured `image`: that may name a derived
     # environment, and tagging the base with it would overwrite the environment.
-    image=$(resolve_setting "$opt_image" "$(env_setting IMAGE)" "" "$DEFAULT_IMAGE")
+    image=$(base_image_tag)
     set -- build
     if [ -n "$opt_codex_version" ]; then
         set -- "$@" --build-arg "CODEX_VERSION=$opt_codex_version"
@@ -644,7 +650,7 @@ cmd_image_build() {
     set -- "$@" -t "$image" "$context"
     say "Building image '$image' with $engine..."
     image_build_rc=0
-    "$engine" "$@" || image_build_rc=$?
+    run_forwarding_signals "$engine" "$@" || image_build_rc=$?
     if [ "$image_build_rc" -ne 0 ]; then
         if [ -n "$opt_codex_version" ]; then
             err "the Dockerfile verifies a pinned sha256 per architecture for both"

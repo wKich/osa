@@ -14,6 +14,8 @@
 //   BRIDGE_LOG=<file.jsonl>    request/response log (optional, redacted)
 //   BRIDGE_SSE_LOG=<file>      emitted SSE frames (optional, redacted)
 //   SSE_HEARTBEAT_MS=<ms>      idle-keepalive comment interval (default 15000)
+//   SSE_REPLAY_MAX_FRAMES=<n>  frames kept for SSE reconnect replay (default 10000)
+//   SSE_REPLAY_MAX_BYTES=<n>   total JSON bytes of those frames (default 16 MiB)
 //
 // The helper sets these (bin/maki-oss OpenCode mode) and attaches the TUI with
 // `opencode --server http://127.0.0.1:$PORT`.
@@ -98,12 +100,36 @@ const terminals = new SandboxTerminals(
 const HEARTBEAT_MS = Number(process.env.SSE_HEARTBEAT_MS) || 15_000;
 const HEARTBEAT = ": heartbeat\n\n";
 const subscribers = new Set<ReadableStreamDefaultController<Uint8Array>>();
-const seenFrames: { id: string; event: string; data: AnyObj }[] = [];
+// Replay is a reconnect aid, not a durable log: the newest frames are kept up
+// to a count and a total JSON size, and the oldest are evicted on every push
+const REPLAY_MAX_FRAMES = Number(process.env.SSE_REPLAY_MAX_FRAMES) || 10_000;
+const REPLAY_MAX_BYTES = Number(process.env.SSE_REPLAY_MAX_BYTES) || 16 * 1024 * 1024;
+interface SeenFrame { id: string; event: string; sessionID?: string; json: string; bytes: number }
+let seenFrames: SeenFrame[] = [];
+let seenBytes = 0;
 let durableSeq = 0;
 
-function pushFrame(frame: { id: string; event: string; data: AnyObj }): void {
+function retainFrame(frame: { id: string; event: string; data: AnyObj }, json: string): void {
+  const sessionID = typeof frame.data.data?.sessionID === "string" ? frame.data.data.sessionID : undefined;
+  const bytes = Buffer.byteLength(json);
+  seenFrames.push({ id: frame.id, event: frame.event, sessionID, json, bytes });
+  seenBytes += bytes;
+  let drop = 0;
+  while (drop < seenFrames.length && (seenFrames.length - drop > REPLAY_MAX_FRAMES || seenBytes > REPLAY_MAX_BYTES)) {
+    seenBytes -= seenFrames[drop++]!.bytes;
+  }
+  if (drop) seenFrames.splice(0, drop);
+}
+
+/** a deleted session's frames are no longer replayed */
+function forgetFrames(sessionID: string): void {
+  seenFrames = seenFrames.filter((f) => f.sessionID !== sessionID);
+  seenBytes = seenFrames.reduce((n, f) => n + f.bytes, 0);
+}
+
+function pushFrame(frame: { id: string; event: string; data: AnyObj }, json: string): void {
   if (SSE_LOG) appendFileSync(SSE_LOG, JSON.stringify({ ts: new Date().toISOString(), ...frame }) + "\n");
-  const bytes = new TextEncoder().encode(`data: ${JSON.stringify(frame.data)}\n\n`);
+  const bytes = new TextEncoder().encode(`data: ${json}\n\n`);
   for (const c of subscribers) {
     try { c.enqueue(bytes); } catch { subscribers.delete(c); }
   }
@@ -120,8 +146,9 @@ function emit(type: string, data: AnyObj, durableVersion?: number, eventID?: str
   projectIdle(type, data, ev.created);
   if (typeof data.sessionID === "string") sessions.get(data.sessionID)?.history.apply(type, data, ev.created, ev.id);
   const frame = { id: ev.id, event: type, data: ev };
-  seenFrames.push(frame);
-  pushFrame(frame);
+  const json = JSON.stringify(frame.data);
+  retainFrame(frame, json);
+  pushFrame(frame, json);
   if (OUTCOME[type]) void checkSkills();
 }
 
@@ -162,7 +189,7 @@ function openEventStream(): Response {
       // flush headers immediately: without an early byte the client treats the
       // stream as dead and reconnects
       c.enqueue(enc.encode(`data: ${JSON.stringify(connected)}\n\n`));
-      const replay = seenFrames.map((f) => `data: ${JSON.stringify(f.data)}\n\n`).join("");
+      const replay = seenFrames.map((f) => `data: ${f.json}\n\n`).join("");
       if (replay) c.enqueue(enc.encode(replay));
       hb = setInterval(() => {
         try { c.enqueue(beat); } catch { clearInterval(hb!); subscribers.delete(c); }
@@ -488,7 +515,7 @@ function forkSession(parent: BridgeSession, body: AnyObj): { status: number; pay
   if (before && !parent.history.has(before)) {
     return { status: 404, payload: { _tag: "MessageNotFoundError", sessionID: parent.id, messageID: before, message: `Message not found: ${before}` } };
   }
-  if (parent.history.size === 0 || !parent.makiSessionID) {
+  if (!parent.history.copyable || !parent.makiSessionID) {
     return { status: 400, payload: { _tag: "InvalidRequestError", message: `Cannot fork empty session: ${parent.id}`, kind: "empty_session" } };
   }
   if (before) {
@@ -530,7 +557,10 @@ function listSessions(url: URL): { status: number; payload: AnyObj } {
 // binary has no block on the inbound `user` wire (sdk_mode.rs L786–L816) —
 // the mention text stays in the prompt either way
 async function promptFiles(files: unknown, clientDir: string): Promise<{ blocks: ContentBlock[]; delivered: AnyObj[] }> {
-  const read = await Promise.all((Array.isArray(files) ? files : []).map((f) => readAttachment(f, clientDir, CANONICAL)));
+  // a worktree directory is itself a sandbox path, so its mentions resolve
+  // under it; a host directory maps onto the main checkout
+  const workdir = worktrees.rootOf(posix.normalize(clientDir)) ? posix.normalize(clientDir) : CANONICAL;
+  const read = await Promise.all((Array.isArray(files) ? files : []).map((f) => readAttachment(f, clientDir, workdir)));
   const found = read.filter((a): a is NonNullable<typeof a> => a !== null);
   return { blocks: found.flatMap((a) => a.blocks), delivered: found.map((a) => a.delivered) };
 }
@@ -850,6 +880,8 @@ function messagePage(s: BridgeSession, url: URL): { status: number; payload: any
 // sandbox read first (an edit's result, edit-diff.ts) holds the ones after it
 const frameChains = new Map<string, Promise<void>>();
 function onMakiFrame(sessionID: string, frame: AnyObj): void {
+  // a deleted session's child may still write; nothing of it is kept
+  if (!sessions.has(sessionID)) return;
   const next = (frameChains.get(sessionID) ?? Promise.resolve())
     .then(() => enrichFrame(sessionID, frame))
     .then(() => handleMakiFrame(sessionID, frame))
@@ -857,28 +889,40 @@ function onMakiFrame(sessionID: string, frame: AnyObj): void {
   frameChains.set(sessionID, next);
 }
 
-// the parent's own Edit calls, by id, with their input
-const editCalls = new Map<string, AnyObj>();
+// the parent's own Edit calls, by id, with their session and input; a call
+// whose result never arrives (an aborted turn) is evicted past the cap
+const EDIT_CALLS_MAX = 1_000;
+const editCalls = new Map<string, { sessionID: string; input: AnyObj }>();
 async function enrichFrame(sessionID: string, frame: AnyObj): Promise<void> {
   if (frame.parent_tool_use_id) return;
   const content = Array.isArray(frame.message?.content) ? frame.message.content : [];
   if (frame.type === "assistant") {
-    for (const part of content) if (part?.type === "tool_use" && part.name === "Edit") editCalls.set(String(part.id), part.input ?? {});
+    // a frame queued behind a delete is dropped, not remembered
+    if (!sessions.has(sessionID)) return;
+    for (const part of content) {
+      if (part?.type !== "tool_use" || part.name !== "Edit") continue;
+      editCalls.set(String(part.id), { sessionID, input: part.input ?? {} });
+      if (editCalls.size > EDIT_CALLS_MAX) editCalls.delete(editCalls.keys().next().value!);
+    }
     return;
   }
   if (frame.type !== "user") return;
   const s = sessions.get(sessionID);
   for (const part of content) {
     if (part?.type !== "tool_result" || part.is_error) continue;
-    const input = editCalls.get(String(part.tool_use_id));
+    const call = editCalls.get(String(part.tool_use_id));
     editCalls.delete(String(part.tool_use_id));
+    const input = call?.input;
     if (!s || !input || typeof input.path !== "string") continue;
-    const abs = input.path.startsWith("/") ? posix.normalize(input.path) : posix.join(CANONICAL, input.path);
-    const res = await sandboxRun(["cat", "--", abs], CANONICAL);
+    // a relative edit path is the session's directory's; the read runs in
+    // that session's checkout (a worktree is its own)
+    const root = worktrees.checkoutFor(s.directory);
+    const abs = input.path.startsWith("/") ? posix.normalize(input.path) : posix.join(s.directory, input.path);
+    const res = await sandboxRun(["cat", "--", abs], root);
     if (res?.code !== 0) continue;
     const before = undoEdit(res.stdout, input);
     if (before === undefined) continue;
-    const file = abs.startsWith(`${CANONICAL}/`) ? abs.slice(CANONICAL.length + 1) : abs;
+    const file = abs.startsWith(`${root}/`) ? abs.slice(root.length + 1) : abs;
     s.translator.attachResultMetadata(String(part.tool_use_id), { files: [editFileDiff(file, before, res.stdout)] });
   }
 }
@@ -938,6 +982,8 @@ function startChild(id: string, opts: { cwd: string; model?: string; fork?: stri
     onFrame: (frame) => onMakiFrame(id, frame),
     // the exit is handled after the frames the child wrote before it
     onExit: () => {
+      // a deleted session's exit needs no handling, and must not re-create its chain
+      if (!sessions.has(id)) return;
       const next = (frameChains.get(id) ?? Promise.resolve()).then(() => {
         const s = sessions.get(id);
         if (!s || s.maki === child) onMakiExit(id);
@@ -999,10 +1045,16 @@ function sessionRoute(method: string, sid: string, rest: string, body: AnyObj, u
     if (method === "DELETE") {
       if (!s) return sessionNotFound(sid);
       s.maki.kill();
+      terminals.removeSession(sid);
       // the TUI drops the session and leaves its route on this frame
       // (session-event.ts v2.1.4 L182–L189; client data.ts L681–L683)
       emit("session.deleted", { sessionID: sid }, 2);
       sessions.delete(sid);
+      // deletion is the one cleanup point for what the session held
+      forgetFrames(sid);
+      frameChains.delete(sid);
+      admitting.delete(sid);
+      for (const [callID, call] of editCalls) if (call.sessionID === sid) editCalls.delete(callID);
       return { status: 204, payload: null };
     }
   }
@@ -1224,12 +1276,17 @@ async function location(url: URL): Promise<{ status: number; payload: any }> {
 // /api/vcs: the footer's `dir:branch` and the sidebar read the checkout's
 // branch (tui prompt/index.tsx v2.1.4 L1626), read fresh from the sandbox on
 // every location sync
+// the checkout a request's `location[directory]` selects: the main checkout
+// or a worktree when it names one, else the main checkout (a host directory)
+const checkoutOf = (url: URL): string => {
+  const asked = url.searchParams.get("location[directory]");
+  return worktrees.checkoutFor(asked?.startsWith("/") ? posix.normalize(asked) : CANONICAL);
+};
+
 async function vcsInfo(url: URL): Promise<{ status: number; payload: any }> {
   const { status, payload } = synthesize("GET", "/api/vcs", url, null, CANONICAL);
   // a worktree is its own checkout, with its own HEAD
-  const asked = url.searchParams.get("location[directory]");
-  const checkout = asked && asked !== CANONICAL && worktrees.contains(asked) ? posix.normalize(asked) : CANONICAL;
-  const git = await readGitState(checkout);
+  const git = await readGitState(checkoutOf(url));
   const branch: AnyObj = {};
   if (git.branch) branch.current = git.branch;
   if (git.defaultBranch) branch.default = git.defaultBranch;
@@ -1242,17 +1299,18 @@ async function vcsInfo(url: URL): Promise<{ status: number; payload: any }> {
 // handlers/vcs.ts v2.1.4 L61–L100); a provider error is the pinned 503
 async function vcsReview(path: string, url: URL): Promise<{ status: number; payload: any }> {
   const { status, payload } = synthesize("GET", path, url, null, CANONICAL);
+  const checkout = checkoutOf(url);
   try {
     let data: unknown;
-    if (path === "/api/vcs/base") data = await reviewBase(CANONICAL);
-    else if (path === "/api/vcs/status") data = await reviewStatus(CANONICAL);
+    if (path === "/api/vcs/base") data = await reviewBase(checkout);
+    else if (path === "/api/vcs/status") data = await reviewStatus(checkout);
     else {
       const mode = (url.searchParams.get("mode") ?? "") as Mode;
       if (!["working", "branch", "committed"].includes(mode)) {
         return { status: 400, payload: { _tag: "InvalidRequestError", message: `invalid mode: ${mode}` } };
       }
       const context = url.searchParams.get("context");
-      data = await reviewDiff(CANONICAL, mode, {
+      data = await reviewDiff(checkout, mode, {
         base: url.searchParams.get("base") ?? undefined,
         context: context !== null && /^\d+$/.test(context) ? Number(context) : undefined,
       });
@@ -1274,11 +1332,12 @@ function terminalRoute(method: string, path: string, url: URL, body: AnyObj, req
     const s = sessions.get(sid);
     if (method === "GET") return { status: 200, payload: { data: terminals.list(sid) } };
     if (method !== "POST") return synthesize(method, path, url, body, CANONICAL);
+    if (!s) return sessionNotFound(sid);
     if (!terminals.available) return unavailable;
     // the TUI names its own host directory; terminals open in the sandbox
     // workdir, as every session runs there (design decision 5)
     const asked = typeof body?.cwd === "string" ? posix.normalize(body.cwd) : "";
-    const cwd = asked === CANONICAL || asked.startsWith(`${CANONICAL}/`) ? asked : (s?.directory ?? CANONICAL);
+    const cwd = asked === CANONICAL || asked.startsWith(`${CANONICAL}/`) ? asked : s.directory;
     const size = body?.size && Number.isInteger(body.size.cols) && Number.isInteger(body.size.rows) ? { cols: body.size.cols, rows: body.size.rows } : undefined;
     const info = terminals.create(sid, {
       command: typeof body?.command === "string" && body.command ? body.command : undefined,
@@ -1330,7 +1389,9 @@ async function fsList(url: URL): Promise<{ status: number; payload: any }> {
   const abs = rel.startsWith("/") ? posix.normalize(rel) : posix.join(base, rel);
   // only the client's directory and what lies under it map onto the workdir
   const inside = abs === base || abs.startsWith(base === "/" ? "/" : `${base}/`);
-  const target = inside ? posix.join(CANONICAL, abs.slice(base.length)) : null;
+  // a directory of the main checkout or of a worktree is a sandbox path as
+  // named; anything else is the host's and maps onto the main checkout
+  const target = !inside ? null : worktrees.rootOf(base) ? abs : posix.join(CANONICAL, abs.slice(base.length));
   let entries: AnyObj[] = [];
   const res = target ? await sandboxRun(["ls", "-1Ap", "--", target], CANONICAL) : null;
   if (res?.code === 0) {
@@ -1416,14 +1477,14 @@ async function fsFind(url: URL): Promise<{ status: number; payload: any }> {
   const { status, payload } = synthesize("GET", "/api/fs/find", url, null, CANONICAL);
   const type = url.searchParams.get("type");
   const limit = Number(url.searchParams.get("limit"));
-  const res = await sandboxRun(LIST_FILES, CANONICAL);
+  const asked = url.searchParams.get("location[directory]");
+  const res = await sandboxRun(LIST_FILES, worktrees.checkoutFor(asked?.startsWith("/") ? posix.normalize(asked) : CANONICAL));
   const files = res?.code === 0 ? res.stdout.split("\n").filter(Boolean) : [];
   const data = findFiles(files, {
     query: url.searchParams.get("query") ?? "",
     type: type === "file" || type === "directory" ? type : undefined,
     limit: Number.isInteger(limit) && limit > 0 ? limit : undefined,
   });
-  const asked = url.searchParams.get("location[directory]");
   return { status, payload: { ...payload, location: asked?.startsWith("/") ? { ...payload.location, directory: asked } : payload.location, data } };
 }
 
@@ -1450,6 +1511,13 @@ async function handle(req: Request, srv: Bun.Server<SocketData>): Promise<Respon
   const url = new URL(req.url);
   const method = req.method.toUpperCase();
   const path = url.pathname;
+  // The bridge serves a native client, which sends no Origin; a browser page
+  // always does. Refuse those before routing, reading a body, or upgrading a
+  // socket, so a page can neither create a session nor run a command.
+  if (req.headers.has("origin") || req.headers.get("sec-fetch-site")?.toLowerCase() === "cross-site") {
+    logRequest({ method, path, query: {}, body: {}, resp: null }, 403, path, method);
+    return new Response(null, { status: 403 });
+  }
   // persistentPty.connect is a WebSocket upgrade (server handlers/persistent-pty.ts v2.1.4 L127–L209)
   const connect = /^\/api\/experimental\/persistent-pty\/([^/]+)\/connect$/.exec(path);
   if (method === "GET" && connect) {

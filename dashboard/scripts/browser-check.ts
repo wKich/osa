@@ -6,10 +6,12 @@
 // claims of the change: inventory refresh and rendering, XSS containment,
 // lifecycle actions with typed delete confirmation, read-only controls, log
 // streaming with filters/pause/reconnect and disconnect cleanup, policy tabs,
-// rule approve/reject, and the Projects view (registry list, attention
+// rule approve/reject, egress denials beside the proposals, and the Projects view (registry list, attention
 // counter, patch viewer, full status) and its resolve actions (Apply with the
-// touched-file list, refusal, typed Drop, Rescue, busy rows, read-only) over a
-// state-root fixture and the stub osa.
+// touched-file list, refusal, typed Drop, Rescue, busy rows, read-only) and the
+// idle countdown and Health panel over a state-root fixture and the stub osa,
+// and the Setup tab: base image builds with a live log, and the provider
+// wizard with its credential handling.
 //
 // No npm dependencies. Skips (exit 0) when no Chrome/Chromium binary is found.
 //
@@ -651,10 +653,281 @@ async function runChecks(): Promise<void> {
 
   await closePage(viewPage.id, views);
 
+  await egressJourney();
   await projectsJourney();
   await resolveJourney();
+  await healthJourney();
+  await imageJourney();
+  await providerJourney();
 
   check(pageErrors.length === 0, `no page exceptions or console errors (${pageErrors.join("; ")})`);
+}
+
+// ---------------------------------------------------------------------------
+// Images (dashboard-image-build): build a missing image with streamed lines,
+// Build disabled while one runs, replay after a reload, Cancel, a failed
+// build's status, markup as text, and no Build control in read-only mode
+// ---------------------------------------------------------------------------
+
+async function imageJourney(): Promise<void> {
+  const answers = JSON.parse(readFileSync(osaAnswers, "utf8")) as Record<string, any>;
+  answers.build = {
+    oc: { lines: 30, interval: 0.1 },
+    mk: { mode: "sleep" },
+    cc: { lines: 2, interval: 0.05, exit: 5, text: "<img src=x onerror=window.__pwned=3>" },
+  };
+  writeFileSync(osaAnswers, JSON.stringify(answers));
+  const row = (agent: string) => `document.querySelector('#images-table tr[data-agent="${agent}"]')`;
+  const buildButton = (agent: string) => `${row(agent)}.querySelector("button")`;
+  const logText = `(document.getElementById("build-log") ? document.getElementById("build-log").textContent : "")`;
+  const statusText = `(document.getElementById("build-status") ? document.getElementById("build-status").textContent : "")`;
+  const openSetup = async (cdp: Cdp) => {
+    await clickButton(cdp, "Setup");
+    await waitFor(cdp, `document.querySelectorAll("#images-table tbody tr").length === 4`, "image rows");
+  };
+
+  const page = await openPage(mainUrl);
+  let cdp = page.cdp;
+  await openSetup(cdp);
+  check(
+    (await cdp.evaluate(`${row("oc")}.textContent.includes("missing") && ${row("cx")}.textContent.includes("sessions use codex-env:me")`)) === true,
+    "the Images section shows a missing image and a configured session image",
+  );
+  await cdp.evaluate(`${buildButton("oc")}.click()`);
+  await waitFor(cdp, `${logText}.includes("Step 2/30: building oc")`, "streamed build lines");
+  check(true, "Build streams the output into the log as it arrives");
+  check(
+    (await cdp.evaluate(`(() => {
+      const buttons = [...document.querySelectorAll("#images-table button")];
+      return buttons.length === 4 && buttons.every((b) => b.disabled && b.title === "a build is running");
+    })()`)) === true,
+    "every Build button is disabled while a build runs",
+  );
+  check(
+    (await cdp.evaluate(`[...document.querySelectorAll("button")].some((b) => b.textContent === "Cancel build")`)) === true,
+    "Cancel appears while a build runs",
+  );
+
+  // Reload mid-build: the new page replays from the first line, then follows.
+  await cdp.send("Page.reload");
+  await Bun.sleep(300);
+  await waitFor(cdp, `document.readyState === "complete"`, "reload");
+  await openSetup(cdp);
+  await waitFor(cdp, `${logText}.startsWith("Step 1/30: building oc")`, "replay after reload");
+  check(true, "a reload mid-build replays the log from the first line");
+  await waitFor(cdp, `${statusText}.endsWith("succeeded")`, "build success", 15_000);
+  check((await cdp.evaluate(`${logText}.includes("Step 30/30: building oc")`)) === true, "live lines follow the replay");
+  await waitFor(cdp, `${row("oc")}.textContent.includes("present")`, "row refreshed after the build");
+  check(true, "after the build the row shows the image as present without user action");
+
+  // Cancel.
+  await cdp.evaluate(`${buildButton("mk")}.click()`);
+  await waitFor(cdp, `${logText}.includes("Step 1: building mk")`, "sleeping build");
+  await clickButton(cdp, "Cancel build");
+  await waitFor(cdp, `${statusText}.endsWith("cancelled")`, "cancelled status");
+  check(true, "Cancel ends the build with a cancelled result");
+
+  // A failed build, with markup in its output.
+  await cdp.evaluate(`${buildButton("cc")}.click()`);
+  await waitFor(cdp, `${statusText}.endsWith("failed (exit 5)")`, "failed status");
+  check(true, "a failed build shows its exit status");
+  check(
+    (await cdp.evaluate(`${logText}.includes("<img src=x onerror=window.__pwned=3>")`)) === true &&
+      (await cdp.evaluate(`document.querySelectorAll("#app img").length === 0 && window.__pwned === undefined`)) === true,
+    "markup in build output renders as text",
+  );
+  await closePage(page.id, cdp);
+
+  const readOnly = await openPage(readOnlyUrl);
+  cdp = readOnly.cdp;
+  await openSetup(cdp);
+  check(
+    (await cdp.evaluate(`document.querySelectorAll("#images-table button").length === 0 && ![...document.querySelectorAll("button")].some((b) => b.textContent === "Cancel build")`)) === true,
+    "read-only mode has no Build or Cancel control",
+  );
+  await closePage(readOnly.id, cdp);
+}
+
+// ---------------------------------------------------------------------------
+// Providers (dashboard-provider-wizard): Configure from a sandbox with no
+// provider, create and attach with the outcome and a refreshed list, the
+// credential gone from the field and storage, a taken name needing Replace,
+// the Codex terminal command, markup as text, and no wizard in read-only mode
+// ---------------------------------------------------------------------------
+
+async function providerJourney(): Promise<void> {
+  const secret = "sk-browser-fixture-5e8a";
+  const card = (agent: string) => `document.querySelector('[data-providers="${agent}"]')`;
+  const wizard = `document.querySelector('form[data-wizard="mk"]')`;
+  const field = (name: string) => `${wizard}.querySelector('[name="${name}"]')`;
+  const submit = `[...${wizard}.querySelectorAll("button")].find((b) => b.textContent === "Set up provider")`;
+  const setValue = (selector: string, value: string, event = "input") =>
+    `(() => { const node = ${selector}; node.value = ${JSON.stringify(value)}; node.dispatchEvent(new Event(${JSON.stringify(event)})); return true; })()`;
+
+  const page = await openPage(mainUrl);
+  const cdp = page.cdp;
+  await waitFor(cdp, `document.querySelectorAll("#projects-table tbody tr").length >= 1`, "projects for providers");
+  await clickButton(cdp, "Sandboxes");
+  await waitFor(cdp, `document.getElementById("inventory-table") !== null`, "inventory for providers");
+  await clickButton(cdp, SANDBOX.retained);
+  await waitFor(cdp, `document.getElementById("configure-providers") !== null`, "Configure link");
+  check(true, "a registered sandbox with no provider offers Configure");
+  await cdp.evaluate(`document.getElementById("configure-providers").click()`);
+  await waitFor(cdp, `${wizard} !== null`, "wizard from Configure");
+  check(
+    (await cdp.evaluate(`${field("attach")}.value === ${JSON.stringify(SANDBOX.retained)}`)) === true,
+    "Configure opens the wizard with the agent and sandbox selected",
+  );
+
+  await cdp.evaluate(setValue(field("profile"), "maki-deepseek", "change"));
+  check((await cdp.evaluate(`${field("provider-name")}.value`)) === "maki-deepseek", "the name defaults to the profile id");
+  await cdp.evaluate(setValue(field("credential"), secret));
+  await cdp.evaluate(`${submit}.click()`);
+  await waitFor(cdp, `document.querySelector('[data-outcome="notice"]') !== null`, "setup outcome");
+  check(
+    (await cdp.evaluate(`document.querySelector('[data-outcome="notice"]').textContent`) as string).includes(
+      `Created provider maki-deepseek and attached it to ${SANDBOX.retained}`,
+    ),
+    "create with attach shows the outcome",
+  );
+  await waitFor(cdp, `${card("mk")}.textContent.includes("maki-anthropic, maki-deepseek")`, "refreshed provider list", 5000);
+  check(true, "the provider list refreshes with no further page action");
+  check(
+    (await cdp.evaluate(`[...document.querySelectorAll("input[data-credential]")].every((input) => input.value === "")`)) === true,
+    "the credential field is empty afterwards",
+  );
+  check(
+    (await cdp.evaluate(`(() => {
+      const values = [];
+      for (const store of [localStorage, sessionStorage]) {
+        for (let i = 0; i < store.length; i += 1) values.push(store.getItem(store.key(i)));
+      }
+      return values.every((value) => !String(value).includes(${JSON.stringify(secret)}));
+    })()`)) === true,
+    "no browser storage holds the credential",
+  );
+  const setupCall = (existsSync(osaLog) ? readFileSync(osaLog, "utf8") : "")
+    .split("\n")
+    .filter((line) => line.startsWith('["provider","setup"'));
+  check(
+    setupCall.length === 1 &&
+      setupCall[0] === JSON.stringify(["provider", "setup", "mk", "--profile", "maki-deepseek", "--attach", SANDBOX.retained, "--json"]) &&
+      !readFileSync(osaLog, "utf8").includes(secret),
+    "the server ran one osa provider setup with the attach and no credential in argv",
+  );
+
+  // A taken name keeps submit disabled until Replace is checked.
+  await cdp.evaluate(setValue(field("credential"), secret));
+  await cdp.evaluate(setValue(field("provider-name"), "maki-anthropic"));
+  check(
+    (await cdp.evaluate(`${submit}.disabled && !${field("replace")}.closest("label").hidden`)) === true,
+    "a taken name keeps submit disabled and offers Replace",
+  );
+  await cdp.evaluate(`(() => { const box = ${field("replace")}; box.checked = true; box.dispatchEvent(new Event("change")); return true; })()`);
+  check((await cdp.evaluate(`${submit}.disabled`)) === false, "checking Replace enables submit");
+  await clickButton(cdp, "Cancel");
+  await waitFor(cdp, `${wizard} === null`, "wizard closed");
+  check(
+    (await cdp.evaluate(`[...document.querySelectorAll("input[data-credential]")].every((input) => input.value === "")`)) === true,
+    "Cancel clears the credential",
+  );
+
+  check(
+    (await cdp.evaluate(`${card("cx")}.textContent.includes("codex-oss provider setup") && ${card("cx")}.querySelector("input[type=password]") === null && ![...${card("cx")}.querySelectorAll("button")].some((b) => b.textContent === "Set up")`)) === true,
+    "the Codex card shows the terminal command and no credential field",
+  );
+  check(
+    (await cdp.evaluate(`${card("oc")}.textContent.includes("<img src=x onerror=alert(1)> key") && document.querySelectorAll("#app img").length === 0`)) === true,
+    "a markup note renders as text",
+  );
+  await closePage(page.id, cdp);
+
+  const readOnly = await openPage(readOnlyUrl);
+  await clickButton(readOnly.cdp, "Setup");
+  await waitFor(readOnly.cdp, `${card("mk")} !== null`, "read-only provider cards");
+  check(
+    (await readOnly.cdp.evaluate(`document.querySelectorAll("form.wizard, input[data-credential]").length === 0 && ![...document.querySelectorAll("button")].some((b) => b.textContent === "Set up")`)) === true,
+    "read-only mode has no provider wizard",
+  );
+  await closePage(readOnly.id, readOnly.cdp);
+}
+
+// ---------------------------------------------------------------------------
+// Egress: denials under the matching proposal, unmatched denials, the window,
+// the inventory badge, markup as text, and no policy control
+// ---------------------------------------------------------------------------
+
+async function egressJourney(): Promise<void> {
+  const page = await openPage(mainUrl);
+  const cdp = page.cdp;
+  const sinceCalls = (window: string) =>
+    argv().split("---\n").filter((entry) => entry.startsWith("logs\nxss\n") && entry.includes(`--since\n${window}\n`)).length;
+
+  await clickButton(cdp, "Sandboxes");
+  await waitFor(cdp, `document.querySelectorAll("#inventory-table tbody tr").length >= 1`, "inventory for egress");
+  check(
+    (await cdp.evaluate(`[...document.querySelectorAll("#inventory-table tbody tr")].find((tr) => tr.textContent.startsWith("logs-demo")).querySelector(".badge")`)) === null,
+    "a sandbox whose denials were never read shows no denied badge",
+  );
+  await cdp.evaluate(`[...document.querySelectorAll("#inventory-table button.link")].find((b) => b.textContent === "xss").click()`);
+  await waitFor(cdp, `document.querySelector("#app h2") && document.querySelector("#app h2").textContent === "xss"`, "xss detail for egress");
+  await clickButton(cdp, "Rules");
+  await waitFor(cdp, `document.querySelector(".denials-row") !== null`, "denials under a proposal");
+  check(
+    (await cdp.evaluate(`(() => {
+      const row = document.querySelector(".denials-row");
+      const proposal = row.previousElementSibling;
+      return proposal.textContent.includes("chunk-pending-1") && row.textContent.includes("api.example.com:443") &&
+        row.textContent.includes("/usr/bin/curl");
+    })()`)) === true,
+    "the matching denial shows under its pending proposal",
+  );
+  await waitFor(cdp, `document.getElementById("denials").textContent.includes("Denied, no proposal")`, "unmatched section");
+  check(
+    (await cdp.evaluate(`(() => {
+      const text = document.getElementById("denials").textContent;
+      return text.includes("example.com:443") && !text.includes("api.example.com:443") && text.includes("policy_dns_ineligible") &&
+        text.includes("[2001:db8::1]:8443") && text.includes("1 denial line could not be parsed");
+    })()`)) === true,
+    "unmatched denials list under denied, no proposal, with the unparsed count",
+  );
+  check(
+    (await cdp.evaluate(`document.getElementById("denials").textContent.includes("<img src=x onerror=alert(1)>")`)) === true &&
+      (await cdp.evaluate(`document.querySelectorAll("#app img").length`)) === 0,
+    "a markup host renders as text and creates no element",
+  );
+  check(
+    (await cdp.evaluate(`(() => {
+      const scopes = [document.getElementById("denials"), ...document.querySelectorAll(".denials-row")];
+      const buttons = scopes.flatMap((scope) => [...scope.querySelectorAll("button")].map((b) => b.textContent));
+      const inputs = scopes.flatMap((scope) => [...scope.querySelectorAll("input, textarea, form")]);
+      return JSON.stringify(buttons) === JSON.stringify(["Refresh denials"]) && inputs.length === 0;
+    })()`)) === true,
+    "the denial view offers no control that changes policy",
+  );
+
+  check(sinceCalls("15m") === 0, "no 15-minute read before the window changes");
+  await cdp.evaluate(`(() => {
+    const select = document.querySelector("#denials select");
+    select.value = "15m";
+    select.dispatchEvent(new Event("change"));
+    return true;
+  })()`);
+  await waitFor(cdp, `!document.getElementById("denials").textContent.includes("reading logs")`, "15m read");
+  check(sinceCalls("15m") === 1, "switching to 15 minutes reads logs with --since 15m");
+
+  await clickButton(cdp, "← Inventory");
+  await waitFor(
+    cdp,
+    `(() => { const row = [...document.querySelectorAll("#inventory-table tbody tr")].find((tr) => tr.textContent.startsWith("xss")); return row && row.querySelector(".badge-denied"); })()`,
+    "inventory denied badge",
+    7000,
+  );
+  check(
+    (await cdp.evaluate(`[...document.querySelectorAll("#inventory-table tbody tr")].find((tr) => tr.textContent.startsWith("xss")).querySelector(".badge-denied").textContent.startsWith("5 denied")`)) === true,
+    "the inventory badge shows the unmatched denial count",
+  );
+  await closePage(page.id, cdp);
 }
 
 // ---------------------------------------------------------------------------
@@ -943,12 +1216,195 @@ async function resolveJourney(): Promise<void> {
   await closePage(page.id, cdp);
 }
 
+// ---------------------------------------------------------------------------
+// Health: the idle countdown ticks without requests; the panel shows a failing
+// MCP gate with its fix, unsupported MCP, a partial error, markup as text, and
+// no configuration control
+// ---------------------------------------------------------------------------
+
+async function healthJourney(): Promise<void> {
+  const deadline = new Date(Date.now() + 5 * 60_000).toISOString().replace(/\.\d+Z$/, "Z");
+  const idle = (state: string, at: string | null = null) => ({
+    period: 3600,
+    state,
+    deadline: at,
+    estimated: false,
+    last_event: null,
+    last_time: null,
+  });
+  const doctor = (detail: string, status = "ok") => ({
+    ok: status === "ok",
+    error: null,
+    checks: [
+      { name: "gateway", status: "ok", detail: "connected" },
+      { name: "policy file", status, detail },
+    ],
+  });
+  const answers = JSON.parse(readFileSync(osaAnswers, "utf8")) as Record<string, any>;
+  answers[stateFixture.appPath] = {
+    ...answers[stateFixture.appPath],
+    quick: [
+      { sandbox_name: SANDBOX.retained, fingerprint_result: "unchanged", idle: idle("counting", deadline) },
+      { sandbox_name: SANDBOX.parked, fingerprint_result: "unchanged", idle: idle("off") },
+    ],
+  };
+  answers.health = {
+    [SANDBOX.retained]: {
+      report: {
+        sandbox: SANDBOX.retained,
+        agent: "mk",
+        idle: idle("counting", deadline),
+        mcp: {
+          supported: true,
+          ok: false,
+          error: null,
+          servers: [
+            {
+              name: "context7",
+              transport: "http",
+              gates: [
+                { gate: "sandbox", ok: true, fix: null },
+                { gate: "provider", ok: false, fix: "maki-oss provider attach mcp-context7" },
+                { gate: "endpoint", ok: true, fix: null },
+              ],
+            },
+          ],
+        },
+        doctor: doctor("<img src=x onerror=alert(1)> not found", "fail"),
+      },
+    },
+    [SANDBOX.parked]: {
+      report: {
+        sandbox: SANDBOX.parked,
+        agent: "oc",
+        idle: idle("off"),
+        mcp: { supported: false, ok: null, error: null, servers: [] },
+        doctor: doctor("/repo/policy.yaml"),
+      },
+    },
+    [SANDBOX.noKind]: {
+      report: {
+        sandbox: SANDBOX.noKind,
+        agent: "cc",
+        idle: idle("stopped"),
+        mcp: { supported: true, ok: false, error: "cannot reach the gateway; try 'claude-oss doctor'", servers: [] },
+        doctor: {
+          ok: false,
+          error: null,
+          checks: [{ name: "gateway", status: "fail", detail: "unreachable (openshell status failed)" }],
+        },
+      },
+    },
+  };
+  writeFileSync(osaAnswers, JSON.stringify(answers));
+  const healthCalls = (): number =>
+    (existsSync(osaLog) ? readFileSync(osaLog, "utf8").split("\n") : [])
+      .filter((line) => line.startsWith('["health"')).length;
+  const rowOf = (sandbox: string) =>
+    `[...document.querySelectorAll("#projects-table tbody tr")].find((tr) => tr.textContent.includes(${JSON.stringify(sandbox)}) && !tr.classList.contains("health-row"))`;
+  const idleSpan = `${rowOf(SANDBOX.retained)}.querySelector(".idle-counting")`;
+  const secondsLeft = `(() => {
+    const match = /stops in (?:(\\d+)m )?(\\d+)s/.exec(${idleSpan}.textContent);
+    return match ? Number(match[1] || 0) * 60 + Number(match[2]) : -1;
+  })()`;
+
+  const page = await openPage(mainUrl);
+  const cdp = page.cdp;
+  await waitFor(cdp, `document.querySelectorAll("#projects-table tbody tr").length >= 7`, "rows for health");
+  await clickButton(cdp, "Check host changes");
+  await waitFor(cdp, `${idleSpan} !== null`, "a counting idle cell", 8000);
+  check(
+    (await cdp.evaluate(`${rowOf(SANDBOX.parked)}.querySelector(".idle").textContent`)) === "off",
+    "an idle state other than counting shows a short label",
+  );
+
+  // Count the page's requests while the countdown runs.
+  await cdp.evaluate(`(() => {
+    window.__requests = 0;
+    const original = window.fetch;
+    window.fetch = (...args) => { window.__requests += 1; return original(...args); };
+    return true;
+  })()`);
+  const start = (await cdp.evaluate(secondsLeft)) as number;
+  check(start > 240 && start <= 300, `the countdown starts near 5 minutes (${start}s)`);
+  let tickedWithoutRequest = false;
+  for (let attempt = 0; attempt < 6 && !tickedWithoutRequest; attempt += 1) {
+    const before = (await cdp.evaluate(`[${secondsLeft}, window.__requests]`)) as [number, number];
+    await Bun.sleep(1200);
+    const after = (await cdp.evaluate(`[${secondsLeft}, window.__requests]`)) as [number, number];
+    tickedWithoutRequest = after[0] < before[0] && after[1] === before[1];
+  }
+  check(tickedWithoutRequest, "the countdown decreases with no request in between");
+  await Bun.sleep(2000);
+  check(((await cdp.evaluate(secondsLeft)) as number) <= start - 2, "the countdown decreased over 2 seconds");
+  check(healthCalls() === 0, "polling the Projects view never ran osa health");
+
+  // Health panel: failing MCP gate with its fix, markup as text.
+  await cdp.evaluate(`[...${rowOf(SANDBOX.retained)}.querySelectorAll("button")].find((b) => b.textContent === "Health").click()`);
+  const panel = `document.querySelector(".health-panel[data-health='${SANDBOX.retained}']")`;
+  await waitFor(cdp, `${panel} && ${panel}.textContent.includes("provider attach mcp-context7")`, "health panel");
+  check(
+    (await cdp.evaluate(`(() => {
+      const row = [...${panel}.querySelectorAll("tr")].find((tr) => tr.textContent.includes("provider") && tr.textContent.includes("fail"));
+      return Boolean(row) && row.textContent.includes("maki-oss provider attach mcp-context7");
+    })()`)) === true,
+    "the panel shows the failing MCP gate with its fix",
+  );
+  check(
+    (await cdp.evaluate(`${panel}.textContent.includes("<img src=x onerror=alert(1)> not found")`)) === true &&
+      (await cdp.evaluate(`document.querySelectorAll("#app img").length`)) === 0,
+    "a markup doctor detail renders as text",
+  );
+  check(
+    (await cdp.evaluate(`(() => {
+      const panels = [...document.querySelectorAll(".health-panel")];
+      const buttons = panels.flatMap((p) => [...p.querySelectorAll("button")].map((b) => b.textContent));
+      const inputs = panels.flatMap((p) => [...p.querySelectorAll("input, select, textarea, form")]);
+      return buttons.every((label) => label === "Refresh health" || label === "Close") && inputs.length === 0;
+    })()`)) === true,
+    "the panel has no configuration control",
+  );
+  check(healthCalls() === 1, "opening the panel ran osa health once");
+  await waitFor(cdp, `document.getElementById("status-health-link") !== null`, "header doctor link");
+  check(
+    (await cdp.evaluate(`document.getElementById("status-health-link").textContent`)) ===
+      `doctor checks fail for ${SANDBOX.retained}`,
+    "the header links to the failing doctor results",
+  );
+
+  // Unsupported MCP for another agent.
+  await cdp.evaluate(`[...${rowOf(SANDBOX.parked)}.querySelectorAll("button")].find((b) => b.textContent === "Health").click()`);
+  const parked = `document.querySelector(".health-panel[data-health='${SANDBOX.parked}']")`;
+  await waitFor(cdp, `${parked} && ${parked}.textContent.includes("Doctor")`, "oc health panel");
+  check(
+    (await cdp.evaluate(`${parked}.textContent.includes("unsupported") && !${parked}.textContent.includes("error:")`)) === true,
+    "MCP unsupported is shown as such, not as a failure",
+  );
+
+  // Partial error: MCP error text with idle and doctor still present.
+  await cdp.evaluate(`[...${rowOf(SANDBOX.noKind)}.querySelectorAll("button")].find((b) => b.textContent === "Health").click()`);
+  const partial = `document.querySelector(".health-panel[data-health='${SANDBOX.noKind}']")`;
+  await waitFor(cdp, `${partial} && ${partial}.textContent.includes("Doctor")`, "partial health panel");
+  check(
+    (await cdp.evaluate(`(() => {
+      const text = ${partial}.textContent;
+      return text.includes("error: cannot reach the gateway") && text.includes("Idle stop") && text.includes("stopped") &&
+        text.includes("unreachable (openshell status failed)");
+    })()`)) === true,
+    "a partial error shows the MCP error and still shows idle stop and doctor",
+  );
+  await clickButton(cdp, "Close");
+  await waitFor(cdp, `document.querySelector(".health-panel") === null`, "panel closed");
+  check(true, "Close hides the panel");
+  await closePage(page.id, cdp);
+}
+
 try {
   debugPort = await waitForDebugPort();
   await Promise.race([
     runChecks(),
-    Bun.sleep(120_000).then(() => {
-      throw new Error("browser-check watchdog: 120s exceeded");
+    Bun.sleep(240_000).then(() => {
+      throw new Error("browser-check watchdog: 240s exceeded");
     }),
   ]);
 } catch (error) {

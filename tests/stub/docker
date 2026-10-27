@@ -3,6 +3,19 @@
 #
 # Records argv to $STUB_LOG like tests/stub/openshell and exits 0 unless
 # STUB_ENGINE_EXIT is set.
+#
+# Environment knobs:
+#   STUB_ENGINE_EXIT      exit code for every call (default: 0)
+#   STUB_IMAGE_INSPECT    `image inspect`: missing (Docker's "No such image"
+#                         on stderr, exit 1), error (another failure, exit 1),
+#                         or unset (prints `sha256:stub|2026-01-01T00:00:00Z`
+#                         and exits STUB_ENGINE_EXIT)
+#   STUB_BUILD_MODE       `build`: lines (prints three timed lines), or sleep
+#                         (prints one line and waits until TERM, which it logs
+#                         to STUB_BUILD_SIGNAL_LOG and exits 143); unset keeps
+#                         the plain exit
+#   STUB_BUILD_PID_FILE   file receiving the build process's PID (and, in
+#                         sleep mode, <file>.sleep its sleep child's PID)
 
 set -eu
 
@@ -13,6 +26,48 @@ if [ -n "${STUB_LOG:-}" ]; then
             printf '%s\n' "$stub_arg"
         done
     } >> "$STUB_LOG"
+fi
+
+if [ "${1:-}" = image ] && [ "${2:-}" = inspect ]; then
+    for stub_image in "$@"; do :; done
+    case ${STUB_IMAGE_INSPECT:-} in
+        missing)
+            printf 'Error: No such image: %s\n' "$stub_image" >&2
+            exit 1
+            ;;
+        error)
+            printf 'permission denied while trying to connect to the Docker daemon socket\n' >&2
+            exit 1
+            ;;
+    esac
+    if [ "${STUB_ENGINE_EXIT:-0}" = 0 ]; then
+        printf 'sha256:stub|2026-01-01T00:00:00Z\n'
+    fi
+fi
+
+if [ "${1:-}" = build ]; then
+    if [ -n "${STUB_BUILD_PID_FILE:-}" ]; then
+        printf '%s\n' "$$" > "$STUB_BUILD_PID_FILE"
+    fi
+    case ${STUB_BUILD_MODE:-} in
+        lines)
+            for stub_step in 1 2 3; do
+                printf 'step %s/3\n' "$stub_step"
+                sleep 0.1
+            done
+            ;;
+        sleep)
+            printf 'building...\n'
+            sleep 60 &
+            stub_sleep=$!
+            trap 'printf "TERM\n" >> "${STUB_BUILD_SIGNAL_LOG:-/dev/null}"; kill "$stub_sleep" 2>/dev/null; exit 143' TERM
+            # Written after the trap, so a test that waits for it can signal.
+            if [ -n "${STUB_BUILD_PID_FILE:-}" ]; then
+                printf '%s\n' "$stub_sleep" > "$STUB_BUILD_PID_FILE.sleep"
+            fi
+            wait "$stub_sleep"
+            ;;
+    esac
 fi
 
 exit "${STUB_ENGINE_EXIT:-0}"

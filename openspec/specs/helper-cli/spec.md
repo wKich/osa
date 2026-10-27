@@ -160,7 +160,7 @@ The helper SHALL accept `--continue`, `--resume <ID>`, and `--session-id <ID>` o
 
 ### Requirement: Project transfer in and out
 
-`maki-oss upload [path] [dest]` SHALL copy local files into the sandbox using `openshell sandbox upload` and SHALL NOT create a bind mount or any other host filesystem exposure. When the destination is the project workspace, upload SHALL refresh the tracked tree: it SHALL upload the current host tree and SHALL remove tracked files that the previous refresh placed in the workspace but the current host tree no longer contains, while preserving gitignored sandbox-local artifacts. Upload SHALL refuse when the workspace is parked unless `--discard` is passed; `maki-oss upload --discard` SHALL discard the parked output and refresh, while keeping patch files on disk. Upload SHALL warn, without refusing, when a retained patch is unapplied. On success it SHALL record the new baseline and synced pair and SHALL keep the retained patch available for review. `maki-oss download [path] [dest]` SHALL copy files from the sandbox workspace to an explicit host destination.
+`maki-oss upload [path] [dest]` SHALL copy local files into the sandbox using `openshell sandbox upload` and SHALL NOT create a bind mount or any other host filesystem exposure. When the destination is the project workspace and no explicit path is given, or the explicit path is the workspace root `.`, upload SHALL refresh the tracked tree: it SHALL upload the current host tree and SHALL remove tracked files that the previous refresh placed in the workspace but the current host tree no longer contains, while preserving gitignored sandbox-local artifacts. When an explicit path other than `.` is given, upload SHALL copy only that path to the requested destination, MUST NOT substitute the current directory, and MUST NOT prune or refresh the full tree. Upload SHALL refuse to copy when the workspace is parked. A full workspace refresh with `--discard` SHALL discard the parked output and proceed, while keeping patch files on disk. A partial copy into a parked workspace SHALL be refused even with `--discard`; `--discard` applies only to a full refresh. Upload SHALL warn, without refusing, when a retained patch is unapplied. Only a full workspace refresh SHALL record the new baseline and synced pair; a partial copy-in MUST NOT alter the recorded baseline, host manifest, synced pair, or project fingerprint, and SHALL leave the workspace classification to the normal freshness check. `maki-oss download [path] [dest]` SHALL copy files from the sandbox workspace to an explicit host destination.
 
 #### Scenario: Upload never mounts
 - **WHEN** the user runs `maki-oss upload .`
@@ -179,8 +179,8 @@ The helper SHALL accept `--continue`, `--resume <ID>`, and `--session-id <ID>` o
 - **THEN** no upload is recorded and the error names the `--discard` and download commands
 
 #### Scenario: Upload discards a parked workspace
-- **WHEN** the workspace is parked and the user runs `maki-oss upload --discard`
-- **THEN** the refresh proceeds, the parked state is cleared, and existing patch files remain on disk
+- **WHEN** the workspace is parked and the user runs `maki-oss upload . --discard`
+- **THEN** the full refresh proceeds, the parked state is cleared, and existing patch files remain on disk
 
 #### Scenario: Upload warns about a retained patch
 - **WHEN** a retained patch is unapplied and the user runs `maki-oss upload`
@@ -190,6 +190,17 @@ The helper SHALL accept `--continue`, `--resume <ID>`, and `--session-id <ID>` o
 - **WHEN** the user runs `maki-oss upload ./dist /sandbox/project/dist`
 - **THEN** only that path is copied and no tracked-file pruning is attempted
 
+#### Scenario: Explicit path with the default destination copies only that path
+- **WHEN** the user runs `maki-oss upload ./notes.txt` with no destination
+- **THEN** `notes.txt` is copied into the workspace, another file in the current directory is not uploaded, and no full-tree refresh or synced pair is recorded
+
+#### Scenario: Partial upload does not claim the workspace is current
+- **WHEN** a full refresh was recorded, the host later edits a tracked file, and the user copies one path into the workspace
+- **THEN** the next status or session still sees the host change and does not treat the workspace as clean
+
+#### Scenario: Partial copy-in does not clear a parked marker
+- **WHEN** the workspace is parked and the user runs `maki-oss upload ./dist --discard`
+- **THEN** the helper refuses the copy with the parked-workspace error, the parked marker remains, and only a full `maki-oss upload --discard` can replace the workspace
 ### Requirement: Secret hygiene
 The helper SHALL refuse to pass sandbox environment variables whose names contain a credential-like underscore-separated segment (`TOKEN`, `SECRET`, `PASSWORD`, `CREDENTIAL`, `API_KEY`, `ACCESS_KEY`, or `SECRET_KEY`) on every command that can create a sandbox, including `up`, bare `maki-oss`, `maki-oss maki`, and `maki-oss run`, and SHALL direct the user to `maki-oss provider add`. The check MUST run before any gateway mutation. Passing `--allow-env KEY` SHALL override the refusal for that key only.
 
@@ -276,7 +287,9 @@ The helper SHALL detect API-key credentials in the Maki store (`~/.local/state/m
 - **THEN** the helper reports no detected credentials and offers the generic credential sources instead of failing
 
 ### Requirement: Generic credential sources
-For credentials not present in a supported store, the helper SHALL accept a JSON file with a field path, a host environment variable name, or a hidden interactive prompt, and SHALL use the resulting value only in the provider creation flow.
+For credentials not present in a supported store, the helper SHALL accept a JSON file with a field path, a host environment variable name, a hidden interactive prompt, or standard input (`--stdin`), and SHALL use the resulting value only in the provider creation flow.
+
+With `--stdin` the helper SHALL read the value from standard input up to end of file, remove one trailing newline, and use it without prompting. It SHALL refuse an empty value, a value that still contains a newline, and a value larger than 64 KiB, before any gateway mutation and without printing the value. `--stdin` SHALL require `--profile` and SHALL be refused together with `--from`, `--file`, or `--env`. With `--stdin` the run is non-interactive even when `<PREFIX>_INTERACTIVE` is set: every question SHALL be answered by a flag or by its non-interactive default, and a step that would need an answer it does not have SHALL fail before any gateway mutation.
 
 #### Scenario: JSON file with field path
 - **WHEN** the user selects a file source with a field path
@@ -290,8 +303,20 @@ For credentials not present in a supported store, the helper SHALL accept a JSON
 - **WHEN** the user selects the hidden prompt source in an interactive session
 - **THEN** the helper reads the value with terminal echo disabled and does not echo it
 
+#### Scenario: Standard input source
+- **WHEN** a script runs `printf 'sk-test\n' | maki-oss provider setup --stdin --profile maki-deepseek`
+- **THEN** the provider is created with `--from-existing`, the credential reaches `openshell` only through the child environment, and no prompt is printed
+
+#### Scenario: Empty or multi-line stdin is refused
+- **WHEN** `--stdin` receives an empty value, or a value with two non-empty lines
+- **THEN** the command exits as a usage error, no `openshell` mutation is recorded, and the error does not contain the value
+
+#### Scenario: Stdin requires a profile
+- **WHEN** the user runs `maki-oss provider setup --stdin` without `--profile`
+- **THEN** the command exits as a usage error before reading stdin
+
 ### Requirement: Profile resolution and generation
-Given a selected credential, the helper SHALL resolve a provider profile from: a curated profile file under `examples/providers/` matched through the catalog mapping, an explicit `--profile` file, or a generated custom profile for an unknown provider. Custom profiles SHALL be generated only after validating the provider id (kebab-case), credential environment variable name, host, and API path, and SHALL be written under `${XDG_CONFIG_HOME:-$HOME/.config}/maki-oss/profiles/`. Profiles SHALL be linted before import, imported at global scope, and an existing generated profile SHALL NOT be overwritten without confirmation.
+Given a selected credential, the helper SHALL resolve a provider profile from: a curated profile file under `examples/providers/` matched through the catalog mapping, an explicit `--profile` file, an explicit `--profile` id, or a generated custom profile for an unknown provider. A `--profile` value that is not a path to an existing file SHALL be read as an id: it MUST be kebab-case, and it SHALL resolve to the front-end's curated profile with that id, or else to a generated profile with that id in the helper's profiles directory; an id that matches neither SHALL be a usage error before any gateway call. Custom profiles SHALL be generated only after validating the provider id (kebab-case), credential environment variable name, host, and API path, and SHALL be written under `${XDG_CONFIG_HOME:-$HOME/.config}/maki-oss/profiles/`. Profiles SHALL be linted before import, imported at global scope, and an existing generated profile SHALL NOT be overwritten without confirmation.
 
 #### Scenario: Curated provider resolves to a shipped profile
 - **WHEN** the selected credential matches a catalog entry
@@ -308,6 +333,14 @@ Given a selected credential, the helper SHALL resolve a provider profile from: a
 #### Scenario: Existing generated profile is preserved
 - **WHEN** the target generated profile already exists and the user declines overwriting
 - **THEN** the existing file is left unchanged
+
+#### Scenario: Profile id resolves to a curated profile
+- **WHEN** the user passes `--profile maki-deepseek` and no file of that name exists in the current directory
+- **THEN** `examples/providers/maki-deepseek.yaml` is linted and imported
+
+#### Scenario: Unknown or unsafe profile id is refused
+- **WHEN** the user passes `--profile ../secrets` or `--profile no-such-profile`
+- **THEN** the command exits as a usage error and no `openshell` command runs
 
 ### Requirement: Credential non-exposure
 The helper SHALL supply credential values to the OpenShell CLI only through the environment of the invoked child process. It SHALL NOT place values in command arguments, write them to any file, or print them to stdout or stderr, including error messages and logs, and its output SHALL be safe to capture in a shared log.

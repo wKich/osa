@@ -189,7 +189,6 @@ For a project whose `pending` marker records a retained patch, the dashboard MUS
 - **WHEN** a retained patch is larger than 2 MiB
 - **THEN** the viewer shows the first 2 MiB and a notice that the patch was truncated
 
-
 ### Requirement: Project writes go through osa resolve
 The dashboard MUST NOT create, modify, or delete any file under the osa state root or in a registered host project except by running `osa resolve`. The only `osa` commands it MAY run are `osa status PATH --json`, `osa status PATH --quick --json`, and `osa resolve SANDBOX ACTION --json`, with `--yes` only for `drop` and `discard`, where `SANDBOX` is a name from the registry and `ACTION` is one of `apply`, `branch`, `drop`, `rescue`, or `discard`. The resolve route is the only project route that accepts a method other than GET; it MUST accept only POST, and every other project route MUST accept only GET.
 
@@ -243,3 +242,197 @@ Outside read-only mode, the dashboard MUST offer Apply, Branch, and Drop for a p
 #### Scenario: Second action while one runs
 - **WHEN** an action for a sandbox is still running and another resolve request for the same sandbox arrives
 - **THEN** the second request is answered 409 and runs no command
+
+### Requirement: Token confidentiality and authenticated remote reads
+
+When the dashboard is bound to a non-loopback address, every request for the page or for an API read route MUST present the configured token, either as the `token` query parameter for the page and stream or as the `X-Dashboard-Token` header for API reads. An unauthenticated response MUST NOT contain the token or any project, sandbox, policy, rule, log, or host-path data. The page SHALL embed the token only after the request has proved it knows it. Mutating routes SHALL keep requiring the header, and read-only mode SHALL keep rejecting every mutation while still requiring the token for remote reads and logs.
+
+The dashboard MUST validate the `Host` header against the configured bind address and port. On a loopback bind it MUST accept only `127.0.0.1`, `localhost`, and `[::1]`; a request with any other host, including a DNS name that resolves to the loopback address, MUST be refused before the page or any API route is served. On a concrete non-loopback bind it MUST accept its own address in addition to the loopback names, and on a wildcard bind it MAY accept any hostname because the token remains required.
+
+#### Scenario: Remote page without a token is refused
+- **WHEN** the dashboard is bound to `0.0.0.0` with a configured token and a client requests `/` without the token
+- **THEN** the response is 403 and its body contains neither the token nor project or sandbox data
+
+#### Scenario: Remote page with the token is served
+- **WHEN** the same client requests `/?token=<token>`
+- **THEN** the page is served and the bootstrap contains the token for its same-origin API calls
+
+#### Scenario: Remote reads require the token
+- **WHEN** a client requests `/api/sandboxes` or `/api/projects` from a non-loopback bind without `X-Dashboard-Token`
+- **THEN** the response is 403 and no gateway or `osa` command runs
+
+#### Scenario: DNS rebinding is refused
+- **WHEN** a request reaches the loopback server with `Host: evil.example:<port>`
+- **THEN** the dashboard answers 403 before serving the page or any API data
+
+#### Scenario: Read-only remote logs require the token
+- **WHEN** read-only mode is active on a non-loopback bind and a client opens `/events/logs?name=<sandbox>` without the token
+- **THEN** the response is 403 and no log process is spawned
+
+### Requirement: Egress denials
+The dashboard MUST show the network denials a sandbox logged within a user-selected window of 15 minutes, 1 hour (the default), or 6 hours, read from the gateway's sandbox log through the `openshell` CLI. A denial is an OCSF log line whose decision is `DENIED`. Denials MUST be grouped by destination host, destination port (absent when the line names none), and process binary (absent when the line names none), and each group MUST show its count, first and last time seen, and the distinct `reason` values. Lines that are not OCSF denials MUST be ignored, and a denial line the dashboard cannot parse MUST be counted and reported as unparsed instead of failing the view. The denials route MUST require the session token, in read-only mode too, and MUST return 403 without calling the CLI when the token is missing or wrong. The dashboard MUST NOT read logs for denials in the background; it MUST read them only when the user opens the Rules view or asks for a refresh, and MAY reuse a result for the same sandbox and window for up to 30 seconds. A CLI failure MUST be shown with its error text and MUST NOT clear the proposal list.
+
+#### Scenario: Denials are grouped
+- **WHEN** the sandbox log holds three `DENIED /usr/bin/curl(64) -> example.com:443` lines and one `DENIED example.com [reason:policy_dns_ineligible]` line in the window
+- **THEN** the view shows one group for `example.com:443` from `/usr/bin/curl` with count 3 and one group for `example.com` with no port and count 1 with reason `policy_dns_ineligible`
+
+#### Scenario: Window bounds the read
+- **WHEN** the user selects the 15-minute window
+- **THEN** the CLI is asked only for log lines from the last 15 minutes
+
+#### Scenario: Unparsed denial is reported
+- **WHEN** a log line has level `OCSF` and decision `DENIED` but an unknown layout
+- **THEN** the view shows a count of unparsed denials and the other groups are still shown
+
+#### Scenario: Token required
+- **WHEN** a request reaches the denials route without the session token
+- **THEN** the dashboard returns 403 and the CLI is not called
+
+#### Scenario: Gateway failure
+- **WHEN** the logs call fails because the gateway is unreachable
+- **THEN** the view shows the CLI's error text and the pending proposals stay listed
+
+### Requirement: Denials beside rule proposals
+In the Rules view, each pending proposal MUST show the denial groups that match it. A group matches a proposal when the group's host equals one of the proposal's endpoint hosts (case-insensitive) and either the group has no port or its port equals that endpoint's port, and, when both the group and the proposal name binaries, the group's binary is one of the proposal's binaries. A group MAY match more than one proposal. Groups that match no pending proposal MUST be listed under a separate "denied, no proposal" heading. The inventory row and the project row for a sandbox MUST show the number of unmatched groups from the last read, and MUST show nothing when no read has happened yet. The denial view MUST NOT offer any control that creates or changes policy.
+
+#### Scenario: Denial shown under its proposal
+- **WHEN** a pending proposal names endpoint `api.example.com:443` and the log holds denials to `api.example.com:443`
+- **THEN** those denials are shown under that proposal and not under "denied, no proposal"
+
+#### Scenario: Binary mismatch does not match
+- **WHEN** a proposal names endpoint `api.example.com:443` and binary `/usr/bin/node`, and the denials come from `/usr/bin/curl`
+- **THEN** the denials are listed under "denied, no proposal"
+
+#### Scenario: Unmatched count on the inventory
+- **WHEN** the last read found two denial groups and one of them matches a pending proposal
+- **THEN** the inventory row for that sandbox shows a denied count of 1
+
+#### Scenario: Log text stays text
+- **WHEN** a denial line names the host `<img src=x onerror=alert(1)>`
+- **THEN** the view shows that text literally and no element is created from it
+
+### Requirement: Project health panel
+The dashboard MUST offer a Health panel for each registered project, from the Projects view and from the detail view of a registered sandbox. Opening the panel MUST run `osa health SANDBOX --json` for that sandbox and show the idle-stop state, each MCP server with each gate's result and fix text, and each doctor check with its status and detail. The dashboard MUST run `osa health` only when the user opens the panel or asks for a refresh, never on a poll tick. A section that reports an error MUST show the error text while the other sections are shown. MCP reported as `unsupported` MUST be shown as such, not as a failure. The panel MUST NOT offer any control that changes configuration, providers, or the sandbox. All values MUST reach the page as text only.
+
+#### Scenario: Failing MCP gate shows its fix
+- **WHEN** the user opens the Health panel of a project whose MCP server fails the policy gate
+- **THEN** the panel shows that server with the failed gate and the fix text
+
+#### Scenario: Health is on demand
+- **WHEN** the Projects view stays open for several refresh intervals without the user opening a Health panel
+- **THEN** `osa health` is never run
+
+#### Scenario: Partial failure
+- **WHEN** `osa health` reports an MCP error because the gateway is unreachable
+- **THEN** the panel shows the MCP error text and still shows the idle stop and doctor sections
+
+#### Scenario: Health output stays text
+- **WHEN** a doctor check's detail contains `<img src=x onerror=alert(1)>`
+- **THEN** the panel shows that text literally and no element is created from it
+
+### Requirement: Idle stop countdown
+Each project row MUST show its idle-stop state from `osa status --quick --json`. While the state is `counting`, the row MUST show the time left until the deadline and update it at least every second without a request. When the deadline passes, the row MUST show that the stop is due until the next quick status reports the new state. Other states MUST be shown as a short label (`off`, `no session`, `session running`, `stopped`, `skipped`, `stop failed`).
+
+#### Scenario: Countdown ticks without requests
+- **WHEN** quick status reports idle state `counting` with a deadline 5 minutes away
+- **THEN** the row shows about 5 minutes left and the value decreases each second with no new request to the server
+
+#### Scenario: Deadline passed
+- **WHEN** the deadline passes before the next quick status
+- **THEN** the row shows that the stop is due
+
+### Requirement: Base image builds
+
+The dashboard MUST show, for each agent `osa images --json` reports, the base image tag, whether it exists locally and when it was created, the engine, the configured session image when it differs, and any per-agent error. Outside read-only mode it MUST offer a Build action per agent. The action MUST be sent to a build route that requires the session token in `X-Dashboard-Token`, MUST be refused with 403 in read-only mode, and MUST run exactly one `osa image build <tag>` for an agent tag from the known set, with no other client-supplied argument. Only one build MUST run at a time across all agents: a build request while one is running MUST be refused with 409 and MUST start nothing. The build MUST keep running when every browser disconnects. The dashboard MUST stream the build's output to the page live, through a stream that requires the session token. A reconnecting or newly opened page MUST receive the current or most recent build's output from the start (up to a bounded number of lines) and then live lines. The end of the build MUST be marked with its result (succeeded, failed with exit status, or cancelled). The dashboard MUST offer Cancel while a build runs, behind the same token and read-only guards, which stops the build. After a build ends, the dashboard MUST refresh the image list without waiting for user action. Build output MUST be rendered only as text.
+
+#### Scenario: Build a missing image
+- **WHEN** the `mk` base image is missing and the user presses Build for `mk`
+- **THEN** the server runs `osa image build mk`, the page shows its output as it arrives, and after it succeeds the row shows the image as present
+
+#### Scenario: Second build is refused
+- **WHEN** a build is running and a client requests a build for any agent
+- **THEN** the response is 409 and no second `osa image build` is spawned
+
+#### Scenario: Build survives a closed tab
+- **WHEN** the user starts a build, closes the page, and opens it again before the build ends
+- **THEN** the build is still running, and the new page shows the output from the start followed by live lines
+
+#### Scenario: Cancel a build
+- **WHEN** the user presses Cancel while a build runs
+- **THEN** the build stops, and the log ends with a cancelled result
+
+#### Scenario: Failed build shows its status
+- **WHEN** `osa image build` exits non-zero
+- **THEN** the log ends with a failed result carrying the exit status, and the row still reports the image's previous state
+
+#### Scenario: Read-only mode refuses builds
+- **WHEN** read-only mode is active
+- **THEN** the Build and Cancel controls are absent, and a client posting to the build route with the page token receives 403 and nothing is spawned
+
+#### Scenario: Build stream requires the token
+- **WHEN** a client opens the build stream without the session token
+- **THEN** the response is 403
+
+### Requirement: Provider setup wizard
+
+The dashboard MUST show, for each agent `osa providers --json` reports, the providers on the gateway, the providers remembered in that agent's config, and the profiles available for setup, with each profile's id, credential variable, source (`curated` or `custom`), and note. When the gateway cannot be listed, the profiles and remembered providers MUST still show, with the gateway error. Outside read-only mode and on a loopback bind, the dashboard MUST offer a wizard that sets up a provider through `osa provider setup` for an agent whose `setup` is `stdin`. For an agent whose `setup` is `login`, it MUST show the terminal command instead of the wizard. The wizard MUST collect a profile, a provider name (defaulting to the profile id), the credential, and optionally one sandbox to attach to. It MUST offer only registered sandboxes of the same agent that are visible on the gateway. When the name matches a provider on the gateway, the wizard MUST require an explicit choice to replace that provider's credential before it sends `--yes`. The setup route MUST require the session token in `X-Dashboard-Token`, MUST be refused with 403 in read-only mode, and MUST run exactly one `osa provider setup` built from validated fields, with no client-supplied argument passed through as is. A second setup request while one is running MUST be refused with 409. After a setup, the dashboard MUST show the outcome (created, updated, refused with osa's message, or failed with the steps that completed). It MUST refresh the provider list and the inventory without waiting for the next poll. A registered sandbox's detail view that shows no attached provider MUST offer a link that opens the wizard with its agent and sandbox selected.
+
+#### Scenario: Create and attach from the wizard
+- **WHEN** the user picks agent `mk`, profile `maki-deepseek`, pastes a key, selects sandbox `mk-demo-1a2b`, and submits
+- **THEN** the server runs `osa provider setup mk --profile maki-deepseek --attach mk-demo-1a2b --json` with the key on stdin, and the wizard shows the provider created and attached
+
+#### Scenario: Existing provider needs a replace choice
+- **WHEN** the chosen name is already on the gateway and the user has not chosen to replace it
+- **THEN** the submit control stays disabled, and no request is sent
+
+#### Scenario: Login agent shows the terminal command
+- **WHEN** the user opens the wizard for agent `cx`
+- **THEN** no credential field is shown, and the page shows `codex-oss provider setup` as the command to run in a terminal
+
+#### Scenario: Refused setup is shown as no change
+- **WHEN** `osa provider setup` exits 2
+- **THEN** the wizard says nothing changed and shows osa's message
+
+#### Scenario: Read-only mode hides and refuses setup
+- **WHEN** read-only mode is active
+- **THEN** the wizard controls are absent, and a client posting to the setup route with the page token receives 403 and no command runs
+
+#### Scenario: Concurrent setup is refused
+- **WHEN** a setup is running and a second setup request arrives
+- **THEN** the second request is answered 409 and no command runs
+
+### Requirement: Provider credentials in transit
+
+A credential entered in the dashboard MUST travel only in the body of one same-origin request to the setup route. From there it MUST go only to the standard input of the `osa provider setup` child, and that stdin MUST be closed after the credential is written. The dashboard MUST NOT place the credential in any process argument, environment variable, file, log line, cache, URL, response body, or error message. The page MUST NOT keep it in application state, `localStorage`, `sessionStorage`, or a cookie. It MUST clear the credential field when the setup finishes, is cancelled, or the wizard closes. The field MUST disable autocomplete and spell checking. Before the dashboard returns or logs any output of `osa`, every occurrence of the submitted credential in it MUST be replaced with `[redacted]`. On a non-loopback bind the setup route MUST be refused with 403 before the request body is read, and the wizard MUST say that setup is available only on a loopback bind. The route MUST refuse a request body over 70 KiB with 413 and a non-JSON content type with 415, and in both cases it MUST run no command.
+
+#### Scenario: Credential stays out of argv and responses
+- **WHEN** a setup runs with a distinctive fixture credential
+- **THEN** the stub `osa` records the credential's length from stdin, its recorded argv does not contain the credential, and neither the response body nor the server's output contains it
+
+#### Scenario: Echoed credential is redacted
+- **WHEN** the stub `osa` prints the received credential inside its message
+- **THEN** the response shows `[redacted]` in its place
+
+#### Scenario: Remote bind refuses setup
+- **WHEN** the dashboard is bound to `0.0.0.0` with a token and a client posts a setup request with the correct token
+- **THEN** the response is 403, and no command runs
+
+#### Scenario: Field is cleared
+- **WHEN** a setup completes or the user cancels the wizard
+- **THEN** the credential input is empty, and no browser storage key holds the value
+
+### Requirement: Open in the browser on start
+
+The dashboard SHALL accept `--open`. With `--open` on a loopback bind, the dashboard SHALL open the page in the user's default browser once the server is listening. The URL it opens MUST NOT contain the token. With `--open` on a non-loopback bind, it MUST NOT open a browser, and SHALL print that the page must be opened with `?token=`. The URL and the token MUST NOT be placed together in any process argument. When no browser opener is available or the opener fails, the dashboard SHALL print the URL and a note and SHALL keep serving. Without `--open`, the dashboard MUST NOT start any other process at startup.
+
+#### Scenario: Open on loopback
+- **WHEN** the dashboard starts with `--open` on the default bind
+- **THEN** after it is listening, the opener receives `http://127.0.0.1:<port>/` with no query string
+
+#### Scenario: No open off loopback
+- **WHEN** the dashboard starts with `--host 0.0.0.0 --token T --open`
+- **THEN** no opener runs, and the startup output says to open the page with `?token=`
+
+#### Scenario: Opener missing
+- **WHEN** `--open` is given and no opener is available
+- **THEN** the dashboard prints the URL with a note and keeps serving

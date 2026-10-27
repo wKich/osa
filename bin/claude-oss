@@ -38,7 +38,10 @@ Commands:
                                 TUI (bare `claude-oss` does the same)
   run "<prompt>"                Ensure the sandbox, run Claude Code headless,
                                 and print its stream-json events
-  upload [PATH] [DEST]          Copy local files into the sandbox
+  upload [--discard] [PATH] [DEST]
+                                Refresh the workspace (no PATH or `.`), or copy
+                                PATH as-is (no baseline); --discard only
+                                applies to a refresh
   download [SANDBOX_PATH] DEST  Copy files from the sandbox to the host
   status                        Show this project's sandbox
   list                          List sandboxes on the gateway
@@ -142,6 +145,9 @@ OSS_TMP_PREFIX=claude-oss                # /tmp/claude-oss-stop, temp file names
 OSS_CONFIG_EXAMPLE=docs/ai/reference/claude.md  # named in a generated config header
 OSS_PROFILES_DIR=$repo_root/claude-oss/providers
 OSS_CATALOG_FILE=$OSS_PROFILES_DIR/stores.tsv
+OSS_NOTE_CATALOG=$OSS_PROFILES_DIR/catalog.tsv  # profile notes for osa providers:
+OSS_NOTE_ID_COLUMN=1                     #   the profile-id column
+OSS_NOTE_COLUMN=4                        #   the note column
 OSS_CUSTOM_PROFILE_PREFIX=claude-        # default id for a custom profile
 OSS_AGENT_NAME='Claude Code'             # named in generated profiles
 OSS_AGENT_PROCESS=claude                 # in-sandbox process the idle stop waits on
@@ -149,6 +155,7 @@ OSS_AGENT_TAG=cc                         # registry agent tag and default name p
 OSS_HOST_MCP_CONFIG=${CLAUDE_CONFIG_DIR:-${HOME:-/tmp}}/.claude.json
 OSS_SANDBOX_MCP_CONFIG=/sandbox/.claude.json
 OSS_MCP_PROVIDER_PREFIX=claude-mcp-      # provider name for server <name>
+OSS_MCP_REQUIRES_JQ=1                   # mcp status and health read JSON with jq
 OSS_MCP_FIX_IMAGE='an environment image built FROM claude-agent:local'
 OSS_MCP_FIX_DOC=docs/ai/reference/claude.md
 
@@ -305,24 +312,18 @@ cc_doctor_precedence() {
         *"\"$CC_TOKEN_PROVIDER\""*) ;;
         *) return 0 ;;
     esac
-    say "warn  credentials: $CC_KEY_PROVIDER and $CC_TOKEN_PROVIDER are both attached to '$cc_name'; Claude Code uses the API key ($CC_KEY_PROVIDER), not the subscription; detach one: openshell sandbox provider detach $cc_name <provider>"
+    doctor_check warn "credentials" "$CC_KEY_PROVIDER and $CC_TOKEN_PROVIDER are both attached to '$cc_name'; Claude Code uses the API key ($CC_KEY_PROVIDER), not the subscription; detach one: openshell sandbox provider detach $cc_name <provider>"
 }
 
 agent_doctor_extra() {
     doctor_model=$(resolved_model)
     if [ -n "$doctor_model" ]; then
-        say "ok    model: $doctor_model"
+        doctor_check ok "model" "$doctor_model"
     else
-        say "ok    model: Claude Code's default"
+        doctor_check ok "model" "Claude Code's default"
     fi
     cc_doctor_precedence
 
-    if [ "$have_jq" -eq 0 ]; then
-        say ""
-        say "MCP readiness (informational):"
-        say "  skipped: jq not found"
-        return 0
-    fi
     doctor_mcp_section
 }
 
@@ -409,7 +410,7 @@ cmd_image_build() {
     fi
     # The base build never uses the configured `image`: that may name a derived
     # environment, and tagging the base with it would overwrite the environment.
-    image=$(resolve_setting "$opt_image" "$(env_setting IMAGE)" "" "$DEFAULT_IMAGE")
+    image=$(base_image_tag)
     set -- build
     if [ -n "$opt_claude_version" ]; then
         set -- "$@" --build-arg "CLAUDE_VERSION=$opt_claude_version"
@@ -417,7 +418,7 @@ cmd_image_build() {
     set -- "$@" -t "$image" "$context"
     say "Building image '$image' with $engine..."
     image_build_rc=0
-    "$engine" "$@" || image_build_rc=$?
+    run_forwarding_signals "$engine" "$@" || image_build_rc=$?
     if [ "$image_build_rc" -ne 0 ]; then
         if [ -n "$opt_claude_version" ]; then
             err "the Dockerfile verifies a pinned sha256 per architecture; a new"

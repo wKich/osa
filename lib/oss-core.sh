@@ -29,7 +29,12 @@ say() { printf '%s\n' "$*"; }
 
 warn() { printf '%s: warning: %s\n' "$PROGRAM" "$*" >&2; }
 
-err() { printf '%s: %s\n' "$PROGRAM" "$*" >&2; }
+# The last error is kept for `__provider-setup`'s result message.
+last_err=
+err() {
+    last_err=$*
+    printf '%s: %s\n' "$PROGRAM" "$*" >&2
+}
 
 die_usage() {
     err "$1"
@@ -45,6 +50,29 @@ die_dep() {
 die_gateway() {
     err "$1"
     exit "$EX_GATEWAY"
+}
+
+# Check records: `doctor` and `mcp status` collect each result as one
+# tab-separated line in $OSS_RECORDS (when set) and render the text from the
+# same values, so `__health-json` reports exactly what the text commands
+# print. Tabs and newlines inside a field become spaces.
+check_record() { # FIELD...
+    [ -n "${OSS_RECORDS:-}" ] || return 0
+    cr_line=
+    cr_sep=
+    for cr_field in "$@"; do
+        cr_field=$(printf '%s' "$cr_field" | tr '\t\n' '  ')
+        cr_line=$cr_line$cr_sep$cr_field
+        cr_sep=$TAB
+    done
+    printf '%s\n' "$cr_line" >>"$OSS_RECORDS"
+}
+
+# One doctor check: STATUS is ok, fail, skip, or warn. Prints the
+# `STATUS  NAME: DETAIL` line.
+doctor_check() { # STATUS NAME DETAIL
+    check_record doctor "$1" "$2" "$3"
+    printf '%-5s %s: %s\n' "$1" "$2" "$3"
 }
 
 # ---------------------------------------------------------------------------
@@ -684,7 +712,13 @@ check_env_hygiene() {
 
 cmd_doctor() {
     [ "$#" -eq 0 ] || die_usage "doctor takes no arguments"
+    doctor_collect
+    exit "$doctor_status"
+}
 
+# Runs every doctor check, printing each line and recording it; sets
+# doctor_status to the exit code `doctor` reports.
+doctor_collect() {
     if [ "$have_jq" -eq 0 ]; then
         warn "jq not found; falling back to grep-based parsing"
     fi
@@ -695,10 +729,10 @@ cmd_doctor() {
     gateway_ok=0
 
     if command -v openshell >/dev/null 2>&1; then
-        say "ok    openshell CLI: $(command -v openshell)"
+        doctor_check ok "openshell CLI" "$(command -v openshell)"
         have_openshell=1
     else
-        say "fail  openshell CLI: not found on PATH"
+        doctor_check fail "openshell CLI" "not found on PATH"
         doctor_status=$EX_DEP
     fi
 
@@ -713,60 +747,60 @@ cmd_doctor() {
                     | sed -n 's/.*"status":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
             fi
             if [ "$connected" = connected ]; then
-                say "ok    gateway: connected"
+                doctor_check ok "gateway" "connected"
                 # shellcheck disable=SC2034  # read by the front-end's agent_doctor_extra
                 gateway_ok=1
             else
-                say "fail  gateway: not connected (status: ${connected:-unknown})"
+                doctor_check fail "gateway" "not connected (status: ${connected:-unknown})"
                 if [ "$doctor_status" -eq 0 ]; then
                     doctor_status=$EX_GATEWAY
                 fi
             fi
         else
-            say "fail  gateway: unreachable (openshell status failed)"
+            doctor_check fail "gateway" "unreachable (openshell status failed)"
             if [ "$doctor_status" -eq 0 ]; then
                 doctor_status=$EX_GATEWAY
             fi
         fi
     else
-        say "skip  gateway: openshell CLI unavailable"
+        doctor_check skip "gateway" "openshell CLI unavailable"
     fi
 
     doctor_engine=$(resolved_engine)
     if command -v "$doctor_engine" >/dev/null 2>&1; then
         if "$doctor_engine" version >/dev/null 2>&1; then
-            say "ok    container engine: $doctor_engine ($(command -v "$doctor_engine"))"
+            doctor_check ok "container engine" "$doctor_engine ($(command -v "$doctor_engine"))"
             engine_ok=1
         else
-            say "fail  container engine: $doctor_engine is installed but not running"
+            doctor_check fail "container engine" "$doctor_engine is installed but not running"
             doctor_status=$EX_DEP
         fi
     else
-        say "fail  container engine: $doctor_engine not found on PATH"
+        doctor_check fail "container engine" "$doctor_engine not found on PATH"
         doctor_status=$EX_DEP
     fi
 
     doctor_image=$(resolved_image)
     if [ "$engine_ok" -eq 1 ] && "$doctor_engine" image inspect "$doctor_image" >/dev/null 2>&1; then
-        say "ok    image: $doctor_image present"
+        doctor_check ok "image" "$doctor_image present"
     else
-        say "fail  image: $doctor_image not found (build it: $PROGRAM image build)"
+        doctor_check fail "image" "$doctor_image not found (build it: $PROGRAM image build)"
         doctor_status=$EX_DEP
     fi
 
     doctor_policy=$(resolved_policy)
     if [ -f "$doctor_policy" ]; then
-        say "ok    policy file: $doctor_policy"
+        doctor_check ok "policy file" "$doctor_policy"
     else
-        say "fail  policy file: $doctor_policy not found"
+        doctor_check fail "policy file" "$doctor_policy not found"
         doctor_status=$EX_DEP
     fi
 
     doctor_providers=$(providers_value)
     if [ "$have_openshell" -eq 0 ]; then
-        say "skip  providers: openshell CLI unavailable"
+        doctor_check skip "providers" "openshell CLI unavailable"
     elif [ -z "$doctor_providers" ]; then
-        say "ok    providers: none configured"
+        doctor_check ok "providers" "none configured"
     else
         doctor_known=''
         if ! doctor_known=$(os provider list --names 2>/dev/null); then
@@ -788,18 +822,16 @@ cmd_doctor() {
         set +f
         IFS=$saved_ifs
         if [ -n "$doctor_missing" ]; then
-            say "fail  providers: not found:$doctor_missing"
+            doctor_check fail "providers" "not found:$doctor_missing"
             if [ "$doctor_status" -eq 0 ]; then
                 doctor_status=$EX_GATEWAY
             fi
         else
-            say "ok    providers: $(printf '%s' "$doctor_providers" | tr '\n' ' ')"
+            doctor_check ok "providers" "$(printf '%s' "$doctor_providers" | tr '\n' ' ')"
         fi
     fi
 
     agent_doctor_extra
-
-    exit "$doctor_status"
 }
 
 cmd_up() {
@@ -2651,17 +2683,32 @@ cmd_run() {
     exit "$run_rc"
 }
 
+# Two jobs, split by source and destination. A full refresh (no path, or `.`,
+# at the workspace destination) mirrors the host tree and is the only upload
+# that records a baseline, manifest, synced pair, or fingerprint. Anything
+# else is a plain `sandbox upload SRC DEST` copy that writes no sync state, so
+# a partial copy never makes the workspace look current.
 cmd_upload() {
     [ "$#" -le 2 ] || die_usage "usage: $PROGRAM upload [--discard] [LOCAL_PATH] [SANDBOX_DEST]"
     require_openshell
     name=$(resolved_name)
     require_sandbox "$name"
     src=${1:-.}
-    dest=${2:-$(resolved_workdir)}
     workdir=$(resolved_workdir)
+    dest=${2:-$workdir}
+    upload_full=0
+    case $src in
+        .|./)
+            if [ "$dest" = "$workdir" ]; then
+                upload_full=1
+            fi
+            ;;
+    esac
     upload_state=$(session_state_dir "$name")
-    if ! (umask 077 && mkdir -p "$upload_state" && chmod 700 "$upload_state" 2>/dev/null); then
-        warn "cannot create the session state directory $upload_state"
+    if [ "$upload_full" -eq 1 ]; then
+        if ! (umask 077 && mkdir -p "$upload_state" && chmod 700 "$upload_state" 2>/dev/null); then
+            warn "cannot create the session state directory $upload_state"
+        fi
     fi
     upload_patch=
     upload_kind=
@@ -2676,27 +2723,32 @@ cmd_upload() {
             fi
         fi
     fi
-    if [ "$upload_kind" = parked ] && [ "$opt_discard" -eq 0 ]; then
+    # A plain copy into unrecovered output could destroy it, so --discard
+    # only applies to a full refresh.
+    if [ "$upload_kind" = parked ] && { [ "$opt_discard" -eq 0 ] || [ "$upload_full" -eq 0 ]; }; then
         err "the workspace is parked; download its changes or pass --discard to replace them"
         err "  download: $PROGRAM download $workdir ./DEST"
         err "  discard:  $PROGRAM upload --discard"
+        if [ "$upload_full" -eq 0 ] && [ "$opt_discard" -eq 1 ]; then
+            err "--discard replaces the whole workspace; a copy of '$src' cannot use it"
+        fi
         exit "$EX_USAGE"
     fi
-    sync_name=$name
-    sync_workdir=$workdir
-    sync_state_dir=$upload_state
-    sync_sandbox_id=$(sandbox_id "$name")
-    sync_sandbox_tree=
-    sync_probe_ok=0
-    sync_pending_patch=$upload_patch
-    sync_pending_kind=$upload_kind
-    sync_pending_result_tree=$(flat_value "$upload_state/pending" result_tree)
-    synced_host_tree=$(read_baseline "$upload_state/synced" host_tree)
-    synced_sandbox_tree=$(read_baseline "$upload_state/synced" sandbox_tree)
-    capture_host_baseline "$upload_state"
-    if [ "$dest" = "$workdir" ]; then
+    if [ "$upload_full" -eq 1 ]; then
+        sync_name=$name
+        sync_workdir=$workdir
+        sync_state_dir=$upload_state
+        sync_sandbox_id=$(sandbox_id "$name")
+        sync_sandbox_tree=
+        sync_probe_ok=0
+        sync_pending_patch=$upload_patch
+        sync_pending_kind=$upload_kind
+        sync_pending_result_tree=$(flat_value "$upload_state/pending" result_tree)
+        synced_host_tree=$(read_baseline "$upload_state/synced" host_tree)
+        synced_sandbox_tree=$(read_baseline "$upload_state/synced" sandbox_tree)
+        capture_host_baseline "$upload_state"
         refresh_sandbox_workspace "$name" "$workdir" "$upload_state"
-        say "Uploaded '$src' to '$name:$dest'."
+        say "Refreshed '$name:$dest' from the host directory."
     else
         set -- sandbox upload
         if [ "$opt_no_git_ignore" -eq 1 ]; then
@@ -2704,14 +2756,7 @@ cmd_upload() {
         fi
         set -- "$@" "$name" "$src" "$dest"
         run_gateway "$@"
-        say "Uploaded '$src' to '$name:$dest'."
-        if upload_tree=$(sandbox_script "$name" "$workdir" "$SANDBOX_INIT_SCRIPT" 2>/dev/null); then
-            record_host_manifest "$upload_state"
-            write_synced_marker "$upload_state" "$bl_tree" "$upload_tree" "$sync_sandbox_id"
-            note "Recorded a new sandbox baseline for '$name'."
-        else
-            warn "uploaded, but could not record the sandbox baseline for '$name'"
-        fi
+        say "Copied '$src' to '$name:$dest' (no workspace refresh or baseline recorded)."
     fi
     if [ "$upload_kind" = parked ] && [ "$opt_discard" -eq 1 ]; then
         rm -f "$upload_state/pending"
@@ -2737,6 +2782,114 @@ cmd_download() {
     fi
     run_gateway sandbox download "$name" "$spath" "$dest"
     say "Downloaded '$name:$spath' to '$dest'."
+}
+
+# ---------------------------------------------------------------------------
+# Fish plugin: symlink install without fisher. Shared by every front-end that
+# ships a fish plugin; the entries come from $PROGRAM, so the link-safety
+# rules live in one place. functions/__oss_run.fish is the resolver both
+# front-end functions call.
+# ---------------------------------------------------------------------------
+
+fish_plugin_home() {
+    printf '%s/fish' "${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}"
+}
+
+fish_plugin_entries() {
+    printf '%s\n' functions/__oss_run.fish "functions/$PROGRAM.fish" "completions/$PROGRAM.fish"
+}
+
+# True when another front-end's function link into this repository remains,
+# so the shared resolver must stay.
+fish_shared_in_use() { # FISH_HOME
+    for fsu_link in "$1"/functions/*.fish; do
+        [ -L "$fsu_link" ] || continue
+        case $fsu_link in
+            */__oss_run.fish|*/"$PROGRAM".fish) continue ;;
+        esac
+        case $(readlink "$fsu_link") in
+            "$repo_root"/fish/functions/*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+cmd_fish_install() {
+    [ "$#" -eq 0 ] || die_usage "fish install takes no arguments"
+    fish_home=$(fish_plugin_home)
+    failed=0
+    fish_changed=0
+    for entry in $(fish_plugin_entries); do
+        src=$repo_root/fish/$entry
+        dest=$fish_home/$entry
+        if [ ! -e "$src" ]; then
+            err "missing plugin file: $src"
+            failed=1
+            continue
+        fi
+        if [ -L "$dest" ]; then
+            target=$(readlink "$dest")
+            if [ "$target" = "$src" ]; then
+                say "already installed: $dest"
+            else
+                case $target in
+                    "$repo_root"/*)
+                        ln -sfn "$src" "$dest"
+                        say "relinked: $dest"
+                        fish_changed=1
+                        ;;
+                    *)
+                        err "skipped $dest: existing symlink points outside this repository"
+                        failed=1
+                        ;;
+                esac
+            fi
+        elif [ -e "$dest" ]; then
+            err "skipped $dest: file exists and was not installed by $PROGRAM"
+            failed=1
+        else
+            mkdir -p -- "$(dirname -- "$dest")"
+            ln -s "$src" "$dest"
+            say "linked: $dest -> $src"
+            fish_changed=1
+        fi
+    done
+    if [ "$failed" -ne 0 ]; then
+        exit "$EX_USAGE"
+    fi
+    if [ "$fish_changed" -eq 0 ]; then
+        say "Fish plugin already installed."
+    else
+        say "Fish plugin installed; open a new fish session to use it."
+    fi
+}
+
+cmd_fish_uninstall() {
+    [ "$#" -eq 0 ] || die_usage "fish uninstall takes no arguments"
+    fish_home=$(fish_plugin_home)
+    for entry in $(fish_plugin_entries); do
+        dest=$fish_home/$entry
+        if [ -L "$dest" ]; then
+            target=$(readlink "$dest")
+            case $target in
+                "$repo_root"/*)
+                    if [ "$entry" = functions/__oss_run.fish ] && fish_shared_in_use "$fish_home"; then
+                        say "kept (still used by another front-end): $dest"
+                    else
+                        rm -f "$dest"
+                        say "removed: $dest"
+                    fi
+                    ;;
+                *)
+                    say "skipped (not installed by $PROGRAM): $dest"
+                    ;;
+            esac
+        elif [ -e "$dest" ]; then
+            say "skipped (not a symlink from this repository): $dest"
+        else
+            say "not installed: $dest"
+        fi
+    done
 }
 
 # ---------------------------------------------------------------------------
@@ -3607,8 +3760,42 @@ cmd_provider_list() {
 # Prints the per-server gate table for sandbox $1 and sets mcp_any (any
 # enabled server on either side) and mcp_failed (servers with a failing
 # gate). Returns 1 when gateway data cannot be read at all.
+# Records one gate of the current server (mcp_server, mcp_transport) and
+# queues it for mcp_render_server. STATUS is ok or missing; FIX is the fix
+# line printed for it, or empty.
+mcp_gate() { # GATE STATUS [FIX]
+    check_record mcp "$mcp_server" "$mcp_transport" "$1" "$2" "${3:-}"
+    mcp_gates=$mcp_gates$1$TAB$2$TAB${3:-}$NL
+}
+
+# Prints the current server's gate line and its fix lines from the queued
+# gates, then clears the queue.
+mcp_render_server() {
+    mrs_line="  $mcp_server:"
+    mrs_fixes=
+    while IFS=$TAB read -r mrs_gate mrs_status mrs_fix; do
+        [ -n "$mrs_gate" ] || continue
+        mrs_line="$mrs_line $mrs_gate=$mrs_status"
+        if [ -n "$mrs_fix" ]; then
+            mrs_fixes="$mrs_fixes    fix: $mrs_fix$NL"
+        fi
+    done <<GATES
+$mcp_gates
+GATES
+    say "$mrs_line transport=$mcp_transport"
+    printf '%s' "$mrs_fixes"
+    mcp_gates=
+}
+
+# A config that cannot be parsed: recorded as an error and printed.
+mcp_unreadable() { # MESSAGE
+    check_record mcp-error "$1"
+    say "  unreadable: $1"
+}
+
 mcp_readiness_report() { # NAME
     mcp_name=$1
+    mcp_gates=
     mcp_tmp=${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-mcp.$$
     mcp_any=0
     mcp_failed=0
@@ -3624,10 +3811,10 @@ mcp_readiness_report() { # NAME
     # than read as "no servers", which would invent gate results.
     if [ "$mcp_unreadable_host" -eq 1 ] || [ "$mcp_unreadable_sandbox" -eq 1 ]; then
         if [ "$mcp_unreadable_host" -eq 1 ]; then
-            say "  unreadable: host config $OSS_HOST_MCP_CONFIG (cannot parse it)"
+            mcp_unreadable "host config $OSS_HOST_MCP_CONFIG (cannot parse it)"
         fi
         if [ "$mcp_unreadable_sandbox" -eq 1 ]; then
-            say "  unreadable: sandbox config $OSS_SANDBOX_MCP_CONFIG (cannot parse it)"
+            mcp_unreadable "sandbox config $OSS_SANDBOX_MCP_CONFIG (cannot parse it)"
         fi
         mcp_any=1
         mcp_failed=1
@@ -3677,24 +3864,28 @@ mcp_readiness_report() { # NAME
                     >/dev/null 2>&1; then
                 mcp_runtime_gate=ok
             fi
-            if [ "$mcp_sandbox_gate" = ok ] && [ "$mcp_runtime_gate" = ok ] \
-                && [ "$mcp_provider_gate" = ok ]; then
-                say "  $mcp_server: sandbox=ok runtime=ok provider=ok transport=stdio"
-                continue
-            fi
-            mcp_failed=$((mcp_failed + 1))
-            say "  $mcp_server: sandbox=$mcp_sandbox_gate runtime=$mcp_runtime_gate provider=$mcp_provider_gate transport=stdio"
-            mcp_build_fix=0
+            mcp_transport=stdio
+            mcp_fix=
             if [ "$mcp_sandbox_gate" = missing ]; then
-                say "    fix: build and select $OSS_MCP_FIX_IMAGE that declares '$mcp_server' (see $OSS_MCP_FIX_DOC)"
-                mcp_build_fix=1
+                mcp_fix="build and select $OSS_MCP_FIX_IMAGE that declares '$mcp_server' (see $OSS_MCP_FIX_DOC)"
             fi
-            if [ "$mcp_runtime_gate" = missing ] && [ "$mcp_build_fix" -eq 0 ]; then
-                say "    fix: build and select $OSS_MCP_FIX_IMAGE that provides the runtime '$mcp_argv0' for '$mcp_server' (see $OSS_MCP_FIX_DOC)"
+            mcp_gate sandbox "$mcp_sandbox_gate" "$mcp_fix"
+            # The build fix for a missing config also supplies the runtime.
+            mcp_fix=
+            if [ "$mcp_runtime_gate" = missing ] && [ "$mcp_sandbox_gate" = ok ]; then
+                mcp_fix="build and select $OSS_MCP_FIX_IMAGE that provides the runtime '$mcp_argv0' for '$mcp_server' (see $OSS_MCP_FIX_DOC)"
             fi
+            mcp_gate runtime "$mcp_runtime_gate" "$mcp_fix"
+            mcp_fix=
             if [ "$mcp_provider_gate" = missing ]; then
-                say "    fix: $PROGRAM provider attach $mcp_provider"
+                mcp_fix="$PROGRAM provider attach $mcp_provider"
             fi
+            mcp_gate provider "$mcp_provider_gate" "$mcp_fix"
+            if [ "$mcp_sandbox_gate" != ok ] || [ "$mcp_runtime_gate" != ok ] \
+                || [ "$mcp_provider_gate" != ok ]; then
+                mcp_failed=$((mcp_failed + 1))
+            fi
+            mcp_render_server
             continue
         fi
         mcp_endpoint_gate=ok
@@ -3702,22 +3893,26 @@ mcp_readiness_report() { # NAME
             || ! printf '%s\n' "$mcp_policy" | grep -Fq -- "$mcp_endpoint_host"; then
             mcp_endpoint_gate=missing
         fi
-        if [ "$mcp_sandbox_gate" = ok ] && [ "$mcp_provider_gate" = ok ] \
-            && [ "$mcp_endpoint_gate" = ok ]; then
-            say "  $mcp_server: sandbox=$mcp_sandbox_gate provider=ok endpoint=ok transport=http"
-            continue
-        fi
-        mcp_failed=$((mcp_failed + 1))
-        say "  $mcp_server: sandbox=$mcp_sandbox_gate provider=$mcp_provider_gate endpoint=$mcp_endpoint_gate transport=http"
+        mcp_fix=
         if [ "$mcp_sandbox_gate" = missing ]; then
-            say "    fix: build and select $OSS_MCP_FIX_IMAGE that declares '$mcp_server' (see $OSS_MCP_FIX_DOC)"
+            mcp_fix="build and select $OSS_MCP_FIX_IMAGE that declares '$mcp_server' (see $OSS_MCP_FIX_DOC)"
         fi
+        mcp_gate sandbox "$mcp_sandbox_gate" "$mcp_fix"
+        mcp_fix=
         if [ "$mcp_provider_gate" = missing ]; then
-            say "    fix: $PROGRAM provider attach $mcp_provider"
+            mcp_fix="$PROGRAM provider attach $mcp_provider"
         fi
+        mcp_gate provider "$mcp_provider_gate" "$mcp_fix"
+        mcp_fix=
         if [ "$mcp_endpoint_gate" = missing ]; then
-            say "    fix: the endpoint for '$mcp_endpoint_host' comes from the provider profile; run '$PROGRAM provider attach $mcp_provider' or import a profile that declares it"
+            mcp_fix="the endpoint for '$mcp_endpoint_host' comes from the provider profile; run '$PROGRAM provider attach $mcp_provider' or import a profile that declares it"
         fi
+        mcp_gate endpoint "$mcp_endpoint_gate" "$mcp_fix"
+        if [ "$mcp_sandbox_gate" != ok ] || [ "$mcp_provider_gate" != ok ] \
+            || [ "$mcp_endpoint_gate" != ok ]; then
+            mcp_failed=$((mcp_failed + 1))
+        fi
+        mcp_render_server
     done <"$mcp_tmp.list"
     rm -f -- "$mcp_tmp".host "$mcp_tmp".config "$mcp_tmp".sandbox "$mcp_tmp".list
     return 0
@@ -3751,9 +3946,13 @@ doctor_mcp_section() {
     # the agent, so the exit code stays decided by the checks above. It also
     # needs a reachable gateway, so it is skipped when the CLI or gateway is
     # down.
+    # `__health-json` reports MCP as its own section.
+    [ "${health_mode:-0}" -eq 0 ] || return 0
     say ""
     say "MCP readiness (informational):"
-    if [ "$have_openshell" -eq 0 ] || [ "$gateway_ok" -eq 0 ]; then
+    if [ "${OSS_MCP_REQUIRES_JQ:-0}" -eq 1 ] && [ "$have_jq" -eq 0 ]; then
+        say "  skipped: jq not found"
+    elif [ "$have_openshell" -eq 0 ] || [ "$gateway_ok" -eq 0 ]; then
         say "  skipped (gateway unavailable)"
     else
         doctor_name=$(resolved_name)
@@ -3766,6 +3965,133 @@ doctor_mcp_section() {
             say "  none configured"
         fi
     fi
+}
+
+# ---------------------------------------------------------------------------
+# Health: `osa health SANDBOX` runs `__health-json` (or `__health` for text)
+# here, in the project folder, with --name. One report of the idle stop (from
+# the session's idle files), MCP readiness (the `mcp status` gates), and the
+# doctor checks, collected as check records so the JSON and the text commands
+# cannot disagree. Read-only: it runs only the probes `status`, `mcp status`,
+# and `doctor` run, never starts a stopped sandbox, and prints no credential
+# value. A section whose source fails carries an error; the others are still
+# reported.
+# ---------------------------------------------------------------------------
+
+# Prints the MCP section as JSON from RECORDS. SUPPORTED is true or false;
+# ERROR is a message, or empty.
+health_mcp_json() { # RECORDS SUPPORTED ERROR
+    awk -F "$TAB" -v supported="$2" -v error="$3" '
+        function esc(s) {
+            gsub(/\\/, "\\\\", s)
+            gsub(/"/, "\\\"", s)
+            return "\"" s "\""
+        }
+        $1 == "mcp-error" { error = error (error == "" ? "" : "; ") $2; next }
+        $1 == "mcp" {
+            if (!($2 in index_of)) { order[++n] = $2; index_of[$2] = n; transport[$2] = $3 }
+            gate = "{\"gate\":" esc($4) ",\"ok\":" ($5 == "ok" ? "true" : "false") \
+                ",\"fix\":" ($6 == "" ? "null" : esc($6)) "}"
+            gates[$2] = gates[$2] (gates[$2] == "" ? "" : ",") gate
+            if ($5 != "ok") failed = 1
+        }
+        END {
+            if (supported != "true") {
+                printf "{\"supported\":false,\"ok\":null,\"error\":null,\"servers\":[]}"
+                exit
+            }
+            ok = (error == "" && !failed) ? "true" : "false"
+            printf "{\"supported\":true,\"ok\":%s,\"error\":%s,\"servers\":[", ok, (error == "" ? "null" : esc(error))
+            for (i = 1; i <= n; i++) {
+                s = order[i]
+                printf "%s{\"name\":%s,\"transport\":%s,\"gates\":[%s]}", (i > 1 ? "," : ""), esc(s), esc(transport[s]), gates[s]
+            }
+            printf "]}"
+        }
+    ' "$1"
+}
+
+# Prints the doctor section as JSON from RECORDS. OK is true or false.
+health_doctor_json() { # RECORDS OK
+    awk -F "$TAB" -v ok="$2" '
+        function esc(s) {
+            gsub(/\\/, "\\\\", s)
+            gsub(/"/, "\\\"", s)
+            return "\"" s "\""
+        }
+        $1 == "doctor" {
+            checks = checks (checks == "" ? "" : ",") "{\"name\":" esc($3) ",\"status\":" esc($2) ",\"detail\":" esc($4) "}"
+        }
+        END { printf "{\"ok\":%s,\"error\":null,\"checks\":[%s]}", ok, checks }
+    ' "$1"
+}
+
+cmd_health() { # json|text
+    hl_format=$1
+    shift
+    [ "$#" -eq 0 ] || die_usage "usage: $PROGRAM --name SANDBOX __health-json"
+    hl_name=$(resolved_name)
+    hl_dir=$(session_state_dir "$hl_name")
+    hl_period=$(resolved_idle_stop 2>/dev/null) || hl_period=
+    hl_tmp=${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-health.$$
+    : >"$hl_tmp.mcp"
+    : >"$hl_tmp.doctor"
+    hl_out=/dev/null
+    if [ "$hl_format" = text ]; then
+        hl_out=/dev/stdout
+        say "Health of sandbox '$hl_name' ($OSS_AGENT_TAG):"
+        say "Idle stop: $(idle_text "$hl_dir" "$hl_period")"
+        say ""
+        say "MCP readiness:"
+    fi
+
+    # MCP: only a Ready sandbox is probed; nothing here starts one.
+    hl_supported=true
+    hl_mcp_error=
+    if ! command -v agent_mcp_servers >/dev/null 2>&1; then
+        hl_supported=false
+    elif [ "${OSS_MCP_REQUIRES_JQ:-0}" -eq 1 ] && [ "$have_jq" -eq 0 ]; then
+        hl_mcp_error="mcp status needs jq; install jq"
+    elif ! command -v openshell >/dev/null 2>&1; then
+        hl_mcp_error="openshell CLI not found on PATH"
+    elif ! hl_phase=$(sandbox_phase "$hl_name" 2>/dev/null); then
+        hl_mcp_error="cannot reach the gateway; try '$PROGRAM doctor'"
+    elif [ -z "$hl_phase" ]; then
+        hl_mcp_error="no sandbox '$hl_name'; run '$PROGRAM up' first"
+    elif [ "$hl_phase" != Ready ]; then
+        hl_mcp_error="sandbox is not running (phase: $hl_phase)"
+    elif ! (OSS_RECORDS=$hl_tmp.mcp && mcp_readiness_report "$hl_name") >"$hl_out" 2>/dev/null; then
+        hl_mcp_error="cannot read MCP readiness from the gateway; try '$PROGRAM doctor'"
+    fi
+    if [ "$hl_format" = text ]; then
+        if [ "$hl_supported" = false ]; then
+            say "  unsupported: $PROGRAM has no mcp status"
+        elif [ -n "$hl_mcp_error" ]; then
+            say "  error: $hl_mcp_error"
+        elif [ ! -s "$hl_tmp.mcp" ]; then
+            say "  none configured"
+        fi
+        say ""
+        say "Doctor:"
+    fi
+
+    # Doctor: the same checks as `doctor`, without its MCP section.
+    hl_doctor_ok=true
+    (
+        health_mode=1
+        OSS_RECORDS=$hl_tmp.doctor
+        doctor_collect
+        exit "$doctor_status"
+    ) >"$hl_out" 2>/dev/null || hl_doctor_ok=false
+
+    if [ "$hl_format" = json ]; then
+        printf '{"sandbox":%s,"agent":%s,"idle":%s,"mcp":%s,"doctor":%s}\n' \
+            "$(json_str "$hl_name")" "$(json_str "$OSS_AGENT_TAG")" \
+            "$(idle_json "$hl_dir" "$hl_period")" \
+            "$(health_mcp_json "$hl_tmp.mcp" "$hl_supported" "$hl_mcp_error")" \
+            "$(health_doctor_json "$hl_tmp.doctor" "$hl_doctor_ok")"
+    fi
+    rm -f -- "$hl_tmp.mcp" "$hl_tmp.doctor"
 }
 
 # ---------------------------------------------------------------------------
@@ -3789,7 +4115,13 @@ setup_cleanup() {
 
 # Interactive when stdin is a terminal. <PREFIX>_INTERACTIVE=1 treats piped
 # stdin as interactive for scripted runs (tests, `printf ... | <program>`).
+# `provider setup --stdin` sets setup_noninteractive: stdin then carries the
+# credential, so nothing is ever asked, whatever <PREFIX>_INTERACTIVE says.
+setup_noninteractive=0
 is_interactive() {
+    if [ "$setup_noninteractive" -eq 1 ]; then
+        return 1
+    fi
     if [ -t 0 ]; then
         return 0
     fi
@@ -4342,13 +4674,82 @@ run_credential_env() { # VAR VALUE COMMAND...
     fi
 }
 
+# The largest credential --stdin accepts, in bytes.
+SETUP_STDIN_MAX=65536
+
+# Reads the --stdin credential into cred_value: up to EOF, never prompted or
+# echoed, and never written to a file. The command substitution drops the
+# trailing newline; a newline left inside means more than one line.
+read_stdin_credential() {
+    cred_value=$(head -c "$((SETUP_STDIN_MAX + 1))") || cred_value=
+    if [ -z "$cred_value" ]; then
+        die_usage "provider setup --stdin read an empty credential"
+    fi
+    case $cred_value in
+        *"$NL"*)
+            unset cred_value
+            die_usage "provider setup --stdin expects one line; the input has more than one"
+            ;;
+    esac
+    rsc_bytes=$(printf '%s' "$cred_value" | wc -c | tr -d '[:space:]')
+    if [ "$rsc_bytes" -gt "$SETUP_STDIN_MAX" ]; then
+        unset cred_value
+        die_usage "provider setup --stdin accepts at most $SETUP_STDIN_MAX bytes"
+    fi
+}
+
+# Runs one gateway step of provider setup. Under `__provider-setup` its output
+# is kept, so a failure can name the gateway's own words in the result.
+setup_step() { # COMMAND...
+    if [ "$ps_mode" -eq 0 ]; then
+        "$@"
+        return
+    fi
+    ss_rc=0
+    ss_out=$("$@" 2>&1) || ss_rc=$?
+    if [ -n "$ss_out" ]; then
+        printf '%s\n' "$ss_out" >&2
+    fi
+    if [ "$ss_rc" -ne 0 ]; then
+        # openshell wraps one error over several lines behind `×` and `│`
+        # gutters; keep the whole error as one line of plain words.
+        ps_gateway_text=$(printf '%s\n' "$ss_out" \
+            | grep -v "^$PROGRAM: openshell command failed" \
+            | sed 's/^[[:space:]]*Error:[[:space:]]*//; s/^[[:space:]]*[×│|][[:space:]]*//; s/^[[:space:]]*//; s/[[:space:]]*$//' \
+            | grep -v '^$' | paste -sd ' ' -)
+        exit "$ss_rc"
+    fi
+}
+
+# Records a finished setup step for `__provider-setup`. Every step after the
+# lint changes the gateway or the config, so a later failure is reported as
+# failed, not refused.
+setup_done() { # STEP
+    ps_steps=$(append_list "$ps_steps" "$1")
+    if [ "$1" != linted ]; then
+        ps_mutated=1
+    fi
+}
+
 cmd_provider_setup() {
     [ "$#" -eq 0 ] || die_usage "provider setup takes no arguments"
     # A front-end whose credential is not a single stored value (a login that
     # yields several tokens and a refresh configuration) runs its own setup.
     if command -v agent_provider_setup >/dev/null 2>&1; then
+        if [ "$opt_stdin" -eq 1 ]; then
+            die_usage "$PROGRAM provider setup takes no --stdin credential: it is a login on the host; run '$PROGRAM provider setup' in a terminal"
+        fi
         agent_provider_setup
         return
+    fi
+    if [ "$opt_stdin" -eq 1 ]; then
+        if [ -n "$opt_from" ] || [ -n "$opt_file" ] || [ -n "$opt_envs" ]; then
+            die_usage "provider setup accepts one credential source: --from, --file, --env, or --stdin"
+        fi
+        if [ -z "$opt_profile" ]; then
+            die_usage "provider setup --stdin needs --profile ID or --profile FILE"
+        fi
+        setup_noninteractive=1
     fi
     if [ "$have_jq" -eq 0 ]; then
         warn "jq not found; JSON stores are read with a limited fallback"
@@ -4365,7 +4766,10 @@ cmd_provider_setup() {
     source_env=
     cred_value=
 
-    if [ -n "$opt_from" ]; then
+    if [ "$opt_stdin" -eq 1 ]; then
+        source_kind=stdin
+        read_stdin_credential
+    elif [ -n "$opt_from" ]; then
         [ -z "$opt_file" ] || die_usage "provider setup accepts one credential source: --from, --file, or --env"
         [ -z "$opt_envs" ] || die_usage "provider setup accepts one credential source: --from, --file, or --env"
         source_kind=store
@@ -4446,9 +4850,19 @@ cmd_provider_setup() {
     profile_id=
     profile_env=
     if [ -n "$opt_profile" ]; then
-        profile_file=$opt_profile
-        if [ ! -f "$profile_file" ]; then
-            die_dep "profile file not found: $profile_file"
+        # A path to an existing file is a profile file; anything else is an
+        # id, confined by the kebab check to the curated and generated
+        # profile directories. `__provider-setup` takes ids only.
+        if [ "$ps_mode" -eq 0 ] && [ -f "$opt_profile" ]; then
+            profile_file=$opt_profile
+        elif ! valid_kebab "$opt_profile" || [ "$opt_profile" = template ]; then
+            die_usage "provider setup --profile: '$opt_profile' is not a profile file or a profile id (kebab-case)"
+        elif [ -f "$profiles_dir/$opt_profile.yaml" ]; then
+            profile_file=$profiles_dir/$opt_profile.yaml
+        elif [ -f "$helper_profiles_dir/$opt_profile.yaml" ]; then
+            profile_file=$helper_profiles_dir/$opt_profile.yaml
+        else
+            die_usage "provider setup --profile: no profile file or profile id '$opt_profile' (curated: $profiles_dir; generated: $helper_profiles_dir)"
         fi
         profile_id=$(profile_field "$profile_file" id)
         if [ -z "$profile_id" ]; then
@@ -4565,7 +4979,18 @@ cmd_provider_setup() {
         die_usage "cannot read a credential env var from $profile_file (expected: env_vars: [NAME])"
     fi
 
-    provider_name=${opt_name:-$profile_id}
+    # `__provider-setup` uses --name for the sandbox to attach to, so its
+    # provider name comes from --provider-name.
+    if [ "$ps_mode" -eq 1 ]; then
+        provider_name=${opt_provider_name:-$profile_id}
+    else
+        provider_name=${opt_provider_name:-${opt_name:-$profile_id}}
+    fi
+    if ! valid_kebab "$provider_name"; then
+        die_usage "invalid provider name '$provider_name': use lowercase letters, digits, and single hyphens"
+    fi
+    ps_provider=$provider_name
+    ps_profile=$profile_id
     require_openshell
 
     if ! os provider list --names >"$setup_tmp/providers.txt" 2>/dev/null; then
@@ -4576,16 +5001,31 @@ cmd_provider_setup() {
         provider_exists=1
     fi
     if [ "$provider_exists" -eq 1 ] && [ "$opt_yes" -eq 0 ] && ! is_interactive; then
+        if [ "$ps_mode" -eq 1 ]; then
+            err "provider '$provider_name' already exists; pass --yes to update its credential"
+            exit "$EX_REFUSED"
+        fi
         die_usage "provider '$provider_name' already exists; pass --yes to update it (stdin is not a terminal)"
+    fi
+    # An attach that cannot happen is refused before anything changes.
+    if [ "$ps_mode" -eq 1 ] && [ "${opt_attach:-}" = 1 ]; then
+        ps_sandbox=$(resolved_name)
+        if [ -z "$(sandbox_phase "$ps_sandbox")" ]; then
+            err "sandbox '$ps_sandbox' is not on the gateway; cannot attach"
+            exit "$EX_REFUSED"
+        fi
     fi
 
     say "Linting profile '$profile_id'..."
-    run_gateway profile lint -f "$profile_file"
+    setup_step run_gateway profile lint -f "$profile_file"
+    setup_done linted
     if profile_exists_in_gateway "$profile_id"; then
         say "Profile '$profile_id' is already imported."
     else
         say "Importing profile '$profile_id' globally..."
-        run_gateway profile import -f "$profile_file" --global
+        ps_doing="import of profile '$profile_id'"
+        setup_step run_gateway profile import -f "$profile_file" --global
+        setup_done imported
     fi
 
     if [ "$provider_exists" -eq 1 ]; then
@@ -4597,39 +5037,49 @@ cmd_provider_setup() {
             update_now=1
         fi
         if [ "$update_now" -eq 1 ]; then
-            run_credential_env "$profile_env" "$cred_value" provider update "$provider_name" --from-existing
+            ps_doing="update of '$provider_name'"
+            setup_step run_credential_env "$profile_env" "$cred_value" provider update "$provider_name" --from-existing
+            setup_done updated
             say "Provider '$provider_name' updated."
         else
             say "Keeping existing provider '$provider_name'."
         fi
     else
-        run_credential_env "$profile_env" "$cred_value" provider create \
+        ps_doing="create of '$provider_name'"
+        setup_step run_credential_env "$profile_env" "$cred_value" provider create \
             --name "$provider_name" --type "$profile_id" --from-existing --global-profile
+        setup_done created
         say "Provider '$provider_name' created."
     fi
 
+    ps_doing="remembering '$provider_name'"
     remember_provider "$provider_name"
+    setup_done remembered
     say "Remembered provider '$provider_name' in $config_file."
 
-    sandbox_name=$(resolved_name)
-    sandbox_step_phase=$(sandbox_phase "$sandbox_name")
-    if [ -z "$sandbox_step_phase" ]; then
-        if [ "${opt_attach:-}" = 1 ]; then
-            warn "sandbox '$sandbox_name' not found; skipping attach (run '$PROGRAM up' first)"
-        fi
-    else
-        attach_now=0
-        if [ "${opt_attach:-}" = 1 ]; then
-            attach_now=1
-        elif [ "${opt_attach:-}" = 0 ]; then
+    # Without an attach flag, only an interactive run looks for the sandbox.
+    if [ "${opt_attach:-}" = 1 ] || { [ "${opt_attach:-}" != 0 ] && is_interactive; }; then
+        sandbox_name=$(resolved_name)
+        sandbox_step_phase=$(sandbox_phase "$sandbox_name")
+        if [ -z "$sandbox_step_phase" ]; then
+            if [ "${opt_attach:-}" = 1 ]; then
+                warn "sandbox '$sandbox_name' not found; skipping attach (run '$PROGRAM up' first)"
+            fi
+        else
             attach_now=0
-        elif is_interactive \
-            && confirm "Attach provider '$provider_name' to sandbox '$sandbox_name'? [y/N] "; then
-            attach_now=1
-        fi
-        if [ "$attach_now" -eq 1 ]; then
-            run_gateway sandbox provider attach "$sandbox_name" "$provider_name" --wait
-            say "Provider '$provider_name' attached to '$sandbox_name'."
+            if [ "${opt_attach:-}" = 1 ]; then
+                attach_now=1
+            elif is_interactive \
+                && confirm "Attach provider '$provider_name' to sandbox '$sandbox_name'? [y/N] "; then
+                attach_now=1
+            fi
+            if [ "$attach_now" -eq 1 ]; then
+                ps_doing="attach to '$sandbox_name'"
+                setup_step run_gateway sandbox provider attach "$sandbox_name" "$provider_name" --wait
+                setup_done attached
+                ps_attached=$sandbox_name
+                say "Provider '$provider_name' attached to '$sandbox_name'."
+            fi
         fi
     fi
 
@@ -4649,6 +5099,399 @@ cmd_provider_setup() {
     say "  start a session:               $PROGRAM (from the project directory)"
     say "  attach to an existing sandbox: $PROGRAM provider attach $provider_name"
     say "  pick a model headless:         $PROGRAM run --model <provider/model> \"...\""
+}
+
+# ---------------------------------------------------------------------------
+# Provider setup for programs: `osa provider setup` runs `__provider-setup`
+# here. The credential arrives on stdin (as `provider setup --stdin`), nothing
+# is asked, every output of the setup goes to stderr, and the result (one JSON
+# object under --json) is the only thing on stdout. Exit codes: 0 done, 1
+# usage error, 2 refused before any change, 3 failed after a change started.
+# ---------------------------------------------------------------------------
+
+ps_mode=0
+ps_finished=0
+ps_mutated=0
+ps_steps=
+ps_doing=
+ps_gateway_text=
+ps_provider=
+ps_profile=
+ps_sandbox=
+ps_attached=
+
+# Prints the completed steps as a JSON array.
+ps_steps_json() {
+    psj_sep=
+    printf '['
+    while IFS= read -r psj_step; do
+        [ -n "$psj_step" ] || continue
+        printf '%s%s' "$psj_sep" "$(json_str "$psj_step")"
+        psj_sep=,
+    done <<STEPS
+$ps_steps
+STEPS
+    printf ']'
+}
+
+ps_has_step() { # STEP
+    printf '%s\n' "$ps_steps" | grep -Fqx -- "$1"
+}
+
+# Prints what the completed steps did, in plain words.
+ps_done_text() {
+    pdt_text=
+    if ps_has_step created; then
+        pdt_text="created $ps_provider"
+    elif ps_has_step updated; then
+        pdt_text="updated the credential of $ps_provider"
+    elif ps_has_step imported; then
+        pdt_text="imported profile $ps_profile"
+    fi
+    if ps_has_step remembered; then
+        pdt_text="$pdt_text and remembered it"
+    fi
+    if ps_has_step attached; then
+        pdt_text="$pdt_text, attached to $ps_attached"
+    fi
+    printf '%s' "$pdt_text"
+}
+
+# Prints the result on the saved stdout (fd 3) and exits with RC.
+ps_finish() { # RC OUTCOME MESSAGE
+    ps_finished=1
+    unset cred_value
+    if [ "$opt_json" -eq 1 ]; then
+        pf_ok=false
+        if [ "$1" -eq 0 ]; then
+            pf_ok=true
+        fi
+        pf_remembered=false
+        if ps_has_step remembered; then
+            pf_remembered=true
+        fi
+        pf_attached=null
+        if [ -n "$ps_attached" ]; then
+            pf_attached=$(json_str "$ps_attached")
+        fi
+        printf '{"ok":%s,"agent":%s,"provider":%s,"profile":%s,"outcome":%s,"attached":%s,"remembered":%s,"steps":%s,"message":%s}\n' \
+            "$pf_ok" "$(json_str "$OSS_AGENT_TAG")" "$(json_str "$ps_provider")" \
+            "$(json_str "$ps_profile")" "$(json_str "$2")" "$pf_attached" "$pf_remembered" \
+            "$(ps_steps_json)" "$(json_str "$3")" >&3
+        if [ "$1" -ne 0 ]; then
+            printf '%s: %s\n' "$PROGRAM" "$3" >&2
+        fi
+    elif [ "$1" -eq 0 ]; then
+        printf '%s\n' "$3" >&3
+    else
+        printf '%s: %s\n' "$PROGRAM" "$3" >&2
+    fi
+    exit "$1"
+}
+
+# Any exit before ps_finish reports it: refused (1 for a usage error, else 2)
+# before the first gateway change, failed (3) after it.
+# shellcheck disable=SC2329  # invoked via trap
+ps_exit_hook() {
+    peh_rc=$?
+    trap - EXIT
+    unset cred_value
+    setup_cleanup
+    if [ "$ps_finished" -eq 1 ]; then
+        exit "$peh_rc"
+    fi
+    if [ "$peh_rc" -eq 0 ]; then
+        peh_rc=$EX_FAILED
+        last_err="setup ended without a result"
+    fi
+    peh_reason=${ps_gateway_text:-${last_err:-stopped with exit status $peh_rc}}
+    if [ "$ps_mutated" -eq 1 ]; then
+        peh_done=$(ps_done_text)
+        ps_finish "$EX_FAILED" failed "${peh_done:+$peh_done; }$ps_doing failed: $peh_reason"
+    fi
+    if [ "$peh_rc" -ne "$EX_USAGE" ]; then
+        peh_rc=$EX_REFUSED
+    fi
+    ps_finish "$peh_rc" refused "$peh_reason; nothing changed"
+}
+
+# Refuses a front-end whose setup is a login on the host.
+ps_refuse_login() {
+    ps_finished=1
+    prl_message="$PROGRAM provider setup is a login on the host and needs a terminal; run '$PROGRAM provider setup' there"
+    if [ "$opt_json" -eq 1 ]; then
+        printf '{"ok":false,"agent":%s,"provider":null,"profile":null,"outcome":"refused","attached":null,"remembered":false,"steps":[],"command":%s,"message":%s}\n' \
+            "$(json_str "$OSS_AGENT_TAG")" "$(json_str "$PROGRAM provider setup")" \
+            "$(json_str "$prl_message")"
+    fi
+    err "$prl_message"
+    exit "$EX_REFUSED"
+}
+
+cmd_provider_setup_program() {
+    if [ "$opt_probe" -eq 1 ]; then
+        [ "$#" -eq 0 ] || die_usage "usage: $PROGRAM __provider-setup --probe [--json]"
+        if command -v agent_provider_setup >/dev/null 2>&1; then
+            ps_refuse_login
+        fi
+        return 0
+    fi
+    [ "$#" -eq 0 ] || die_usage "usage: $PROGRAM [--name SANDBOX] __provider-setup --profile ID [--provider-name NAME] [--attach] [--yes] [--json]"
+    if command -v agent_provider_setup >/dev/null 2>&1; then
+        ps_refuse_login
+    fi
+    [ -n "$opt_profile" ] || die_usage "__provider-setup needs --profile ID"
+    if [ "${opt_attach:-}" = 1 ] && [ -z "$opt_name" ]; then
+        die_usage "__provider-setup --attach needs --name SANDBOX"
+    fi
+    ps_mode=1
+    ps_profile=$opt_profile
+    ps_provider=${opt_provider_name:-$opt_profile}
+    opt_stdin=1
+    exec 3>&1 1>&2
+    trap 'ps_exit_hook' EXIT
+    cmd_provider_setup
+    if ps_has_step updated; then
+        ps_finish 0 updated "$(ps_done_text)"
+    fi
+    ps_finish 0 created "$(ps_done_text)"
+}
+
+# ---------------------------------------------------------------------------
+# Provider listing: `osa providers` runs `__providers-json` (or `__providers`
+# for text) here. Read-only: it reads the profile directories and the config
+# and lists the gateway's providers.
+# ---------------------------------------------------------------------------
+
+# Prints `id<TAB>source<TAB>file` for every profile setup can use: curated
+# first, then generated ones whose id no curated profile already takes.
+setup_profiles() {
+    for sp_file in "$profiles_dir"/*.yaml; do
+        [ -f "$sp_file" ] || continue
+        sp_id=${sp_file##*/}
+        sp_id=${sp_id%.yaml}
+        [ "$sp_id" != template ] || continue
+        valid_kebab "$sp_id" || continue
+        printf '%s\tcurated\t%s\n' "$sp_id" "$sp_file"
+    done
+    for sp_file in "$helper_profiles_dir"/*.yaml; do
+        [ -f "$sp_file" ] || continue
+        sp_id=${sp_file##*/}
+        sp_id=${sp_id%.yaml}
+        valid_kebab "$sp_id" || continue
+        [ ! -f "$profiles_dir/$sp_id.yaml" ] || continue
+        printf '%s\tcustom\t%s\n' "$sp_id" "$sp_file"
+    done
+}
+
+# Prints the catalog note for a profile id, or nothing. The front-end names
+# its catalog and columns; the default is the Maki store catalog layout.
+profile_note() { # ID
+    pn_file=${OSS_NOTE_CATALOG:-$OSS_CATALOG_FILE}
+    [ -f "$pn_file" ] || return 0
+    awk -F '\t' -v id="$1" -v idc="${OSS_NOTE_ID_COLUMN:-3}" -v nc="${OSS_NOTE_COLUMN:-4}" '
+        /^#/ || NF == 0 { next }
+        $idc == id && $nc != "" { print $nc; exit }
+    ' "$pn_file"
+}
+
+# Prints the lines of LIST joined with ", ".
+join_lines() { # LIST
+    printf '%s\n' "$1" | grep -v '^$' | paste -sd, - | sed 's/,/, /g'
+}
+
+# Prints the lines of LIST as a JSON array of strings.
+json_lines() { # LIST
+    jl_sep=
+    printf '['
+    while IFS= read -r jl_item; do
+        [ -n "$jl_item" ] || continue
+        printf '%s%s' "$jl_sep" "$(json_str "$jl_item")"
+        jl_sep=,
+    done <<LINES
+$1
+LINES
+    printf ']'
+}
+
+cmd_providers_report() { # json|text
+    pr_mode=$1
+    shift
+    [ "$#" -eq 0 ] || die_usage "usage: $PROGRAM __providers-json"
+    pr_setup=stdin
+    if command -v agent_provider_setup >/dev/null 2>&1; then
+        pr_setup=login
+    fi
+    pr_command="$PROGRAM provider setup"
+    pr_gateway_error=
+    pr_names=
+    if ! command -v openshell >/dev/null 2>&1; then
+        pr_gateway_error="openshell CLI not found on PATH"
+    elif ! pr_names=$(os provider list --names 2>/dev/null); then
+        pr_gateway_error="cannot list providers; is the gateway running? Try '$PROGRAM doctor'"
+    fi
+    pr_profiles=$(setup_profiles)
+    pr_remembered=$(split_csv "$config_providers")
+
+    if [ "$pr_mode" = text ]; then
+        printf '%s (%s): setup %s' "$OSS_AGENT_TAG" "$PROGRAM" "$pr_setup"
+        if [ "$pr_setup" = login ]; then
+            printf "; run '%s' in a terminal" "$pr_command"
+        fi
+        printf '\n'
+        if [ -n "$pr_gateway_error" ]; then
+            printf '  gateway:    error: %s\n' "$pr_gateway_error"
+        else
+            printf '  gateway:    %s\n' "$(join_lines "$pr_names")"
+        fi
+        printf '  remembered: %s\n' "$(join_lines "$pr_remembered")"
+        printf '  profiles:\n'
+    else
+        printf '{"agent":%s,"setup":%s,"command":%s,"profiles":[' \
+            "$(json_str "$OSS_AGENT_TAG")" "$(json_str "$pr_setup")" "$(json_str "$pr_command")"
+    fi
+    pr_sep=
+    while IFS=$TAB read -r pr_id pr_source pr_file; do
+        [ -n "$pr_id" ] || continue
+        pr_env=
+        if [ -r "$pr_file" ]; then
+            pr_env=$(profile_env_var "$pr_file" 2>/dev/null) || pr_env=
+        fi
+        if [ -n "$pr_env" ]; then
+            pr_note=$(profile_note "$pr_id")
+        else
+            pr_note="unreadable profile"
+        fi
+        if [ "$pr_mode" = text ]; then
+            printf '    %-32s %-24s %-8s %s\n' "$pr_id" "${pr_env:--}" "$pr_source" "$pr_note"
+            continue
+        fi
+        pr_env_json=null
+        if [ -n "$pr_env" ]; then
+            pr_env_json=$(json_str "$pr_env")
+        fi
+        pr_note_json=null
+        if [ -n "$pr_note" ]; then
+            pr_note_json=$(json_str "$pr_note")
+        fi
+        printf '%s{"id":%s,"env":%s,"source":%s,"note":%s}' "$pr_sep" "$(json_str "$pr_id")" \
+            "$pr_env_json" "$(json_str "$pr_source")" "$pr_note_json"
+        pr_sep=,
+    done <<PROFILES
+$pr_profiles
+PROFILES
+    [ "$pr_mode" = json ] || return 0
+    printf '],"gateway":'
+    if [ -n "$pr_gateway_error" ]; then
+        printf '{"error":{"message":%s}}' "$(json_str "$pr_gateway_error")"
+    else
+        json_lines "$pr_names"
+    fi
+    printf ',"remembered":%s}\n' "$(json_lines "$pr_remembered")"
+}
+
+# ---------------------------------------------------------------------------
+# Base images: `osa images` runs `__image-json` (or `__image` for text) here,
+# and `osa image build TAG` runs `image build`. The report never builds,
+# tags, or removes an image and never contacts the gateway.
+# ---------------------------------------------------------------------------
+
+# The tag `image build` produces. The configured `image` is never used: it
+# may name a derived environment that a base build must not overwrite.
+base_image_tag() {
+    resolve_setting "$opt_image" "$(env_setting IMAGE)" "" "$DEFAULT_IMAGE"
+}
+
+# Runs COMMAND in the background and waits for it, forwarding TERM and INT to
+# it as TERM, so a signal sent to this process alone still stops the child
+# (an engine build is a separate process the shell does not exec). Returns
+# the child's status, or 143 when a signal arrived and the child still
+# exited 0.
+run_forwarding_signals() { # COMMAND...
+    "$@" &
+    rfs_pid=$!
+    rfs_signalled=0
+    trap 'rfs_signalled=1; kill -TERM "$rfs_pid" 2>/dev/null || :' TERM INT
+    rfs_rc=0
+    wait "$rfs_pid" || rfs_rc=$?
+    # A trapped signal interrupts wait (status > 128): wait for the child.
+    while kill -0 "$rfs_pid" 2>/dev/null; do
+        rfs_rc=0
+        wait "$rfs_pid" || rfs_rc=$?
+    done
+    trap 'setup_cleanup; exit 130' INT
+    trap 'setup_cleanup; exit 143' TERM
+    if [ "$rfs_signalled" -eq 1 ] && [ "$rfs_rc" -eq 0 ]; then
+        rfs_rc=143
+    fi
+    return "$rfs_rc"
+}
+
+# Prints S as a JSON string, or null when it is empty.
+json_str_or_null() { # S
+    if [ -n "$1" ]; then
+        json_str "$1"
+    else
+        printf 'null'
+    fi
+}
+
+cmd_image_report() { # json|text
+    ir_mode=$1
+    shift
+    [ "$#" -eq 0 ] || die_usage "usage: $PROGRAM __image-json"
+    ir_image=$(base_image_tag)
+    ir_engine=$(resolved_engine)
+    ir_configured=$(resolved_image)
+    if [ "$ir_configured" = "$ir_image" ]; then
+        ir_configured=
+    fi
+    ir_present=false
+    ir_id=
+    ir_created=
+    ir_error=
+    if ! command -v "$ir_engine" >/dev/null 2>&1; then
+        ir_error="container engine '$ir_engine' not found on PATH"
+    else
+        ir_rc=0
+        ir_out=$("$ir_engine" image inspect --format '{{.Id}}|{{.Created}}' "$ir_image" 2>&1) || ir_rc=$?
+        if [ "$ir_rc" -eq 0 ]; then
+            ir_line=$(first_line "$ir_out")
+            ir_present=true
+            ir_id=${ir_line%%|*}
+            ir_created=${ir_line#*|}
+        elif printf '%s\n' "$ir_out" | grep -Eqi 'no such image|image not known'; then
+            ir_present=false
+        else
+            ir_error=$(printf '%s\n' "$ir_out" | grep -v '^[[:space:]]*$' | head -n 1)
+            ir_error="image inspect failed (exit status $ir_rc)${ir_error:+: $ir_error}"
+        fi
+    fi
+
+    if [ "$ir_mode" = text ]; then
+        if [ -n "$ir_error" ]; then
+            ir_state="error: $ir_error"
+        elif [ "$ir_present" = true ]; then
+            ir_state="present (created $ir_created)"
+        else
+            ir_state="missing; run 'osa image build $OSS_AGENT_TAG'"
+        fi
+        printf '%-3s %-24s %-7s %s' "$OSS_AGENT_TAG" "$ir_image" "$ir_engine" "$ir_state"
+        if [ -n "$ir_configured" ]; then
+            printf '; sessions use %s' "$ir_configured"
+        fi
+        printf '\n'
+        return 0
+    fi
+
+    ir_error_json=null
+    if [ -n "$ir_error" ]; then
+        ir_error_json=$(printf '{"message":%s}' "$(json_str "$ir_error")")
+    fi
+    printf '{"agent":%s,"image":%s,"engine":%s,"present":%s,"id":%s,"created":%s,"configured":%s,"error":%s}\n' \
+        "$(json_str "$OSS_AGENT_TAG")" "$(json_str "$ir_image")" "$(json_str "$ir_engine")" \
+        "$ir_present" "$(json_str_or_null "$ir_id")" "$(json_str_or_null "$ir_created")" \
+        "$(json_str_or_null "$ir_configured")" "$ir_error_json"
 }
 
 # ---------------------------------------------------------------------------
@@ -4696,6 +5539,9 @@ opt_from=
 opt_file=
 opt_field=
 opt_profile=
+opt_stdin=0
+opt_probe=0
+opt_provider_name=
 opt_model=
 opt_continue=0
 opt_resume=
@@ -4919,6 +5765,14 @@ oss_main() {
                 shift
                 OPT_I=$((OPT_I + 1))
                 ;;
+            --provider-name)
+                [ "$#" -gt 0 ] || die_usage "option --provider-name requires a value"
+                opt_provider_name=$1
+                shift
+                OPT_I=$((OPT_I + 1))
+                ;;
+            --stdin) opt_stdin=1 ;;
+            --probe) opt_probe=1 ;;
             --model)
                 [ "$#" -gt 0 ] || die_usage "option --model requires a value"
                 opt_model=$1
@@ -5083,6 +5937,34 @@ oss_main() {
         __resolve)
             # osa resolve: resolve the pending work of the --name sandbox.
             cmd_resolve "$@"
+            ;;
+        __health-json)
+            # osa health --json: idle stop, MCP readiness, and doctor as JSON.
+            cmd_health json "$@"
+            ;;
+        __health)
+            # osa health: the same report as text.
+            cmd_health text "$@"
+            ;;
+        __providers-json)
+            # osa providers --json: setup kind, profiles, gateway, remembered.
+            cmd_providers_report json "$@"
+            ;;
+        __providers)
+            # osa providers: the same report as text.
+            cmd_providers_report text "$@"
+            ;;
+        __provider-setup)
+            # osa provider setup: non-interactive setup from stdin.
+            cmd_provider_setup_program "$@"
+            ;;
+        __image-json)
+            # osa images --json: the base image tag and whether it exists.
+            cmd_image_report json "$@"
+            ;;
+        __image)
+            # osa images: the same report as text.
+            cmd_image_report text "$@"
             ;;
         list)
             cmd_list "$@"

@@ -375,3 +375,81 @@ describe("logs streaming", () => {
     expect(result.error.kind).toBe("missing_cli");
   });
 });
+
+describe("recent logs (egress read)", () => {
+  test("stub prints the denial fixture for a one-shot read and records argv", async () => {
+    const proc = Bun.spawn({
+      cmd: [join(stubDir, "openshell"), "logs", "demo", "--since", "1h", "--source", "sandbox", "-n", "5000"],
+      env: { ...process.env, STUB_LOG: logPath },
+      stdout: "pipe",
+    });
+    const text = await new Response(proc.stdout).text();
+    expect(await proc.exited).toBe(0);
+    const lines = text.trim().split("\n");
+    expect(lines.some((line) => line.includes("DENIED /usr/bin/curl(64) -> example.com:443"))).toBe(true);
+    expect(lines.some((line) => line.includes("DENIED example.com [reason:policy_dns_ineligible]"))).toBe(true);
+    expect(lines.some((line) => line.includes("[policy:- engine:opa]"))).toBe(true);
+    expect(lines.some((line) => line.includes("[2001:db8::1]:8443"))).toBe(true);
+    expect(lines.some((line) => line.includes("CONFIG:OBSERVATION"))).toBe(true);
+    expect(lines.some((line) => line.includes("HTTP:GET [MED] DENIED"))).toBe(true);
+    expect(lines.some((line) => line.includes("\u001b[33m"))).toBe(true);
+    expect(lines.some((line) => line.includes("<img src=x onerror=alert(1)>"))).toBe(true);
+    expect(argvLog()).toContain("---\nlogs\ndemo\n--since\n1h\n--source\nsandbox\n-n\n5000\n");
+  });
+
+  test("stub fails a one-shot read with STUB_LOGS_FAIL and still answers other commands", async () => {
+    const client = makeClient({ env: { STUB_LOGS_FAIL: "1" } });
+    const logs = await client.recentLogs("demo", "1h");
+    expect(logs.ok).toBe(false);
+    if (logs.ok) return;
+    expect(logs.error.kind).toBe("exit");
+    expect(logs.error.message).toContain("gateway unreachable");
+    expect((await client.rules("demo", "pending")).ok).toBe(true);
+  });
+
+  for (const window of ["15m", "1h", "6h"] as const) {
+    test(`recentLogs passes --since ${window} with the line cap`, async () => {
+      const result = await makeClient().recentLogs("demo", window);
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.capped).toBe(false);
+      expect(result.value.lines.length).toBeGreaterThan(5);
+      expect(argvLog()).toBe(`---\nlogs\ndemo\n--since\n${window}\n--source\nsandbox\n-n\n5000\n`);
+    });
+  }
+
+  test("recentLogs refuses a window outside the enum without invoking the CLI", async () => {
+    const result = await makeClient().recentLogs("demo", "2d" as never);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("invalid_request");
+    expect(argvLog()).toBe("");
+  });
+
+  test("recentLogs flags a read that hit the line cap", async () => {
+    const file = join(workDir, "many.log");
+    writeFileSync(file, Array.from({ length: 5000 }, (_, i) => `[1.${i}] [sandbox] [INFO ] [x] line`).join("\n") + "\n");
+    const result = await makeClient({ env: { STUB_LOGS_FILE: file } }).recentLogs("demo", "6h");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.lines).toHaveLength(5000);
+    expect(result.value.capped).toBe(true);
+  });
+
+  test("recentLogs times out", async () => {
+    const client = makeClient({ env: { STUB_FAIL: "timeout" }, timeoutMs: 150 });
+    const result = await client.recentLogs("demo", "1h");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("timeout");
+  });
+
+  test("recentLogs reports a missing CLI", async () => {
+    const emptyDir = join(workDir, "empty-path");
+    mkdirSync(emptyDir, { recursive: true });
+    const result = await makeClient({ env: { PATH: emptyDir } }).recentLogs("demo", "1h");
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.error.kind).toBe("missing_cli");
+  });
+});

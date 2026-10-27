@@ -37,7 +37,10 @@ Commands:
                                 TUI (bare `opencode-oss` does the same)
   run "<prompt>"                Ensure the sandbox, run OpenCode headless, and
                                 print its JSON events
-  upload [PATH] [DEST]          Copy local files into the sandbox
+  upload [--discard] [PATH] [DEST]
+                                Refresh the workspace (no PATH or `.`), or copy
+                                PATH as-is (no baseline); --discard only
+                                applies to a refresh
   download [SANDBOX_PATH] DEST  Copy files from the sandbox to the host
   status                        Show this project's sandbox
   list                          List sandboxes on the gateway
@@ -84,6 +87,9 @@ Common options:
   --no-sync        Session commands: skip collecting changes on exit
                    (default: collect a patch and apply it only when the
                    sandbox baseline matches the host)
+  --discard        upload (full refresh only): replace a parked workspace
+                   (keeps patch files)
+  --no-git-ignore  upload: send everything, ignoring .gitignore
   --idle-stop DUR  Session commands: stop the sandbox DUR after the last
                    session closes and no OpenCode runs in it (seconds, or
                    with an s, m, or h suffix; default 1h; 0 disables)
@@ -142,6 +148,9 @@ OSS_TMP_PREFIX=opencode-oss              # /tmp/opencode-oss-stop, temp file nam
 OSS_CONFIG_EXAMPLE=docs/ai/reference/opencode.md  # named in a generated config header
 OSS_PROFILES_DIR=$repo_root/opencode-oss/providers
 OSS_CATALOG_FILE=$OSS_PROFILES_DIR/stores.tsv
+OSS_NOTE_CATALOG=$OSS_PROFILES_DIR/catalog.tsv  # profile notes for osa providers:
+OSS_NOTE_ID_COLUMN=1                     #   the profile-id column
+OSS_NOTE_COLUMN=5                        #   the note column
 OSS_CUSTOM_PROFILE_PREFIX=opencode-      # default id for a custom profile
 OSS_AGENT_NAME=OpenCode                  # named in generated profiles
 OSS_AGENT_PROCESS=opencode               # in-sandbox process the idle stop waits on
@@ -149,6 +158,7 @@ OSS_AGENT_TAG=oc                         # registry agent tag and default name p
 OSS_HOST_MCP_CONFIG=${HOME:-/tmp}/.config/opencode/opencode.json
 OSS_SANDBOX_MCP_CONFIG=/sandbox/.config/opencode/opencode.json
 OSS_MCP_PROVIDER_PREFIX=opencode-mcp-  # provider name for server <name>
+OSS_MCP_REQUIRES_JQ=1                   # mcp status and health read JSON with jq
 OSS_MCP_FIX_IMAGE='an environment image built FROM opencode-agent:local'
 OSS_MCP_FIX_DOC=docs/ai/reference/opencode.md
 
@@ -309,17 +319,11 @@ agent_doctor_extra() {
     # free tier the sandbox policy denies. Informational: it never fails.
     doctor_model=$(resolved_model)
     if [ -n "$doctor_model" ]; then
-        say "ok    model: $doctor_model"
+        doctor_check ok "model" "$doctor_model"
     else
-        say "warn  model: none set; OpenCode's default may be a model no attached profile covers (set model = \"provider/model\" in $config_file)"
+        doctor_check warn "model" "none set; OpenCode's default may be a model no attached profile covers (set model = \"provider/model\" in $config_file)"
     fi
 
-    if [ "$have_jq" -eq 0 ]; then
-        say ""
-        say "MCP readiness (informational):"
-        say "  skipped: jq not found"
-        return 0
-    fi
     doctor_mcp_section
 }
 
@@ -370,7 +374,7 @@ cmd_image_build() {
     fi
     # The base build never uses the configured `image`: that may name a derived
     # environment, and tagging the base with it would overwrite the environment.
-    image=$(resolve_setting "$opt_image" "$(env_setting IMAGE)" "" "$DEFAULT_IMAGE")
+    image=$(base_image_tag)
     set -- build
     if [ -n "$opt_opencode_version" ]; then
         set -- "$@" --build-arg "OPENCODE_VERSION=$opt_opencode_version"
@@ -378,7 +382,7 @@ cmd_image_build() {
     set -- "$@" -t "$image" "$context"
     say "Building image '$image' with $engine..."
     image_build_rc=0
-    "$engine" "$@" || image_build_rc=$?
+    run_forwarding_signals "$engine" "$@" || image_build_rc=$?
     if [ "$image_build_rc" -ne 0 ]; then
         if [ -n "$opt_opencode_version" ]; then
             err "the Dockerfile verifies a pinned sha512 per architecture; a new"
@@ -388,73 +392,6 @@ cmd_image_build() {
         die_dep "image build failed (exit status $image_build_rc)"
     fi
     say "Built image '$image'."
-}
-
-cmd_fish_install() {
-    [ "$#" -eq 0 ] || die_usage "fish install takes no arguments"
-    fish_home=${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/fish
-    failed=0
-    for entry in functions/opencode-oss.fish completions/opencode-oss.fish; do
-        src=$repo_root/fish/$entry
-        dest=$fish_home/$entry
-        if [ ! -e "$src" ]; then
-            err "missing plugin file: $src"
-            failed=1
-            continue
-        fi
-        if [ -L "$dest" ]; then
-            target=$(readlink "$dest")
-            if [ "$target" = "$src" ]; then
-                say "already installed: $dest"
-            else
-                case $target in
-                    "$repo_root"/*)
-                        ln -sfn "$src" "$dest"
-                        say "relinked: $dest"
-                        ;;
-                    *)
-                        err "skipped $dest: existing symlink points outside this repository"
-                        failed=1
-                        ;;
-                esac
-            fi
-        elif [ -e "$dest" ]; then
-            err "skipped $dest: file exists and was not installed by $PROGRAM"
-            failed=1
-        else
-            mkdir -p -- "$(dirname -- "$dest")"
-            ln -s "$src" "$dest"
-            say "linked: $dest -> $src"
-        fi
-    done
-    if [ "$failed" -ne 0 ]; then
-        exit "$EX_USAGE"
-    fi
-    say "Fish plugin installed; open a new fish session to use it."
-}
-
-cmd_fish_uninstall() {
-    [ "$#" -eq 0 ] || die_usage "fish uninstall takes no arguments"
-    fish_home=${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/fish
-    for entry in functions/opencode-oss.fish completions/opencode-oss.fish; do
-        dest=$fish_home/$entry
-        if [ -L "$dest" ]; then
-            target=$(readlink "$dest")
-            case $target in
-                "$repo_root"/*)
-                    rm -f "$dest"
-                    say "removed: $dest"
-                    ;;
-                *)
-                    say "skipped (not installed by $PROGRAM): $dest"
-                    ;;
-            esac
-        elif [ -e "$dest" ]; then
-            say "skipped (not a symlink from this repository): $dest"
-        else
-            say "not installed: $dest"
-        fi
-    done
 }
 
 # shellcheck source=../lib/oss-core.sh

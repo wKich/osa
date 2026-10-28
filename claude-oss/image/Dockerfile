@@ -24,6 +24,9 @@ ARG CLAUDE_SHA256_AMD64=356733f185fa988e6bf3aa9a555269fdd167982a2e2a80d3c8a78037
 
 ARG DEBIAN_FRONTEND=noninteractive
 
+# ripgrep is for Bash `rg`: Claude Code's own Grep and Glob tools work without
+# it, but orchestrator prompts (Conveyor's developer rules) tell the agent to
+# search with `rg -n`.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -31,6 +34,7 @@ RUN apt-get update \
         git \
         iproute2 \
         jq \
+        ripgrep \
  && rm -rf /var/lib/apt/lists/*
 
 # Install the native Claude Code binary directly. It is self-contained, so the

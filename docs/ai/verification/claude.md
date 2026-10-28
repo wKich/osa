@@ -34,7 +34,8 @@ token attached through `claude-anthropic-oauth`.
 | Version pinned | `docker run --rm claude-agent:local claude --version` |
 | Checksum enforced | `docker build --build-arg CLAUDE_VERSION=2.1.307 claude-oss/image` |
 | Sandbox user | `id` in the image |
-| Agent-only | `command -v node bun rg` in the image |
+| Agent-only | `command -v node bun` in the image |
+| Search binary | `command -v rg` in the image |
 | Guardrails immutable | `touch /etc/claude-code/managed-settings.json` as uid 1500 |
 | Profiles lint | `openshell profile lint --from claude-oss/providers` |
 
@@ -48,14 +49,15 @@ Expected: the recorded observations below.
 | Checksum enforced | fails at `sha256sum -c`; no image tagged |
 | Sandbox user | `uid=1500(sandbox) gid=1500(sandbox)` |
 | Agent-only | nothing found |
+| Search binary | `/usr/bin/rg` (added 2026-10-28) |
 | Guardrails immutable | `Permission denied` |
 | Profiles lint | `Provider profile lint passed.` |
 
 ### Stop if
 
 The printed version differs from `2.1.308 (Claude Code)`, a checksum mismatch
-still builds an image, the image runs as another uid/gid, Node, Bun, or ripgrep
-is present, uid 1500 can edit the managed settings, or a profile fails lint.
+still builds an image, the image runs as another uid/gid, Node or Bun is
+present, `rg` is missing, uid 1500 can edit the managed settings, or a profile fails lint.
 Report the command, output, and Dockerfile pin; do not tag the image as current
 or relax the guardrail file permissions.
 
@@ -156,7 +158,7 @@ Expected: the recorded observations below.
 | MCP status | `sandbox=missing … provider=missing`, fix lines name `claude-mcp-<name>` |
 | Registry | `cc    cc-ccdemo-d443 …` |
 | Teardown | sandbox deleted, state archived |
-| Search tools | no Grep/Glob tool in 2.1.308; searches run through Bash `grep`, so the image needs no ripgrep |
+| Search tools | 2026-10-28: the Grep tool works on 2.1.308 without a system ripgrep (the 2026-10-26 record said no Grep/Glob tool); `ripgrep` is installed for Bash `rg` |
 
 ### Stop if
 

@@ -150,8 +150,8 @@ path. See the [environment playbook](../environment-playbook.md).
 
 ## Differences
 
-- No Node/Bun and no ripgrep; 2.1.308 has no Grep/Glob tool, so searches use
-  Bash `grep`.
+- No Node/Bun. Claude Code's Grep and Glob tools work on their own, and the
+  image ships `ripgrep` for prompts that search with Bash `rg`.
 - `tui` is ignored; no fish plugin.
 - Profiles bind `/usr/local/bin/claude`; renaming or wrapping it breaks egress.
 

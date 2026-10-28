@@ -1790,6 +1790,7 @@ sync_exit_hook() {
         session_armed=0
         sync_project_back
     fi
+    run_prompt_release
     session_lock_release
     exit "$sync_hook_rc"
 }
@@ -2597,13 +2598,16 @@ cmd_session() {
 # unset before the sweep, so the sweep never matches itself. A caller stops
 # the run early by creating /tmp/<tmp prefix>-stop/<tag>: only this shell can
 # read its children's environment (each `sandbox exec` is its own isolation
-# domain), so the stop has to happen here.
+# domain), so the stop has to happen here. A background job's stdin is
+# /dev/null, so the agent gets the exec's stdin through fd 3 (a stdin prompt).
 # shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
 RUN_TIMEOUT_WRAPPER='tag=$1; secs=$2; shift 2
 stop=/tmp/'"$OSS_TMP_PREFIX"'-stop/$tag
 rm -f "$stop"
 export '"$OSS_ENV_PREFIX"'_RUN_TAG="$tag"
-timeout --kill-after=10 "$secs" "$@" &
+exec 3<&0
+timeout --kill-after=10 "$secs" "$@" <&3 3<&- &
+exec 3<&-
 child=$!
 while kill -0 "$child" 2>/dev/null; do
     if [ -e "$stop" ]; then kill -TERM "$child" 2>/dev/null; break; fi
@@ -2620,8 +2624,74 @@ done
 rm -f "$stop"
 exit "$rc"'
 
+# The prompt read from stdin by `run`, removed on every exit path.
+run_prompt_dir=
+
+run_prompt_release() {
+    if [ -n "$run_prompt_dir" ]; then
+        rm -rf "$run_prompt_dir"
+        run_prompt_dir=
+    fi
+}
+
+# Splits `run`'s words: the words after `--` become run_passthrough (quoted
+# for eval) when the front-end takes pass-through flags, and run_words keeps
+# the prompt words. Without the hook, every word stays part of the prompt.
+run_split_words() { # WORDS...
+    run_passthrough=
+    run_words=
+    rsw_keep=$#
+    if command -v agent_passthrough_check >/dev/null 2>&1; then
+        rsw_keep=$(($# - opt_passthrough_count))
+        [ "$rsw_keep" -ge 0 ] || rsw_keep=0
+    fi
+    rsw_i=0
+    for rsw_word in "$@"; do
+        rsw_i=$((rsw_i + 1))
+        oss_quote "$rsw_word"
+        if [ "$rsw_i" -le "$rsw_keep" ]; then
+            run_words="$run_words '$oss_quoted'"
+        else
+            run_passthrough="$run_passthrough '$oss_quoted'"
+        fi
+    done
+}
+
+# With no prompt word, or `-`, a front-end that takes a stdin prompt reads it
+# here, before any gateway call, into a private file the exec reads from. The
+# prompt never enters argv.
+run_read_stdin_prompt() {
+    run_prompt_file=
+    run_prompt_dir=$(mktemp -d "${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-prompt.XXXXXX") \
+        || die_usage "cannot create a temporary directory for the stdin prompt"
+    chmod 700 "$run_prompt_dir" 2>/dev/null || true
+    run_prompt_file=$run_prompt_dir/prompt
+    if ! (umask 077 && cat >"$run_prompt_file"); then
+        run_prompt_release
+        die_usage "could not read the prompt from stdin"
+    fi
+    if [ ! -s "$run_prompt_file" ]; then
+        run_prompt_release
+        die_usage "run read an empty prompt from stdin: pass \"<prompt>\" or pipe one in"
+    fi
+}
+
 cmd_run() {
-    [ "$#" -ge 1 ] || die_usage "usage: $PROGRAM run \"<prompt>\" [--model provider/model]"
+    run_split_words "$@"
+    eval "set -- $run_words"
+    run_prompt_stdin=0
+    if command -v agent_stdin_prompt >/dev/null 2>&1; then
+        if [ "$#" -eq 0 ] || { [ "$#" -eq 1 ] && [ "$1" = - ]; }; then
+            run_prompt_stdin=1
+            set --
+        fi
+    fi
+    if [ "$run_prompt_stdin" -eq 0 ]; then
+        [ "$#" -ge 1 ] || die_usage "usage: $PROGRAM run \"<prompt>\" [--model provider/model]"
+    fi
+    if [ -n "$run_passthrough" ]; then
+        eval "agent_passthrough_check $run_passthrough"
+    fi
     run_timeout=$(resolved_timeout)
     case $run_timeout in
         '') ;;
@@ -2637,6 +2707,9 @@ cmd_run() {
         require_caller_target 1
     fi
     agent_check_session_flags headless
+    if [ "$run_prompt_stdin" -eq 1 ]; then
+        run_read_stdin_prompt
+    fi
     require_openshell
     session_lock_name=$(resolved_name)
     session_lock_take "$session_lock_name"
@@ -2673,7 +2746,19 @@ cmd_run() {
     agent_env=
     agent_exec_env headless
     eval "set -- $agent_env -- \"\$@\""
-    case $(agent_exec_stdin) in
+    # The wrapper's agent reads the exec's stdin, so a run under it without a
+    # stdin prompt keeps the closed stdin a background job always had.
+    run_stdin_mode=$(agent_exec_stdin)
+    if [ "$run_prompt_stdin" -eq 1 ]; then
+        run_stdin_mode=prompt
+    elif [ -n "$run_timeout" ]; then
+        run_stdin_mode=null
+    fi
+    case $run_stdin_mode in
+        prompt)
+            os sandbox exec -n "$name" --no-login-shell --workdir "$workdir" "$@" \
+                <"$run_prompt_file" || run_rc=$?
+            ;;
         null)
             os sandbox exec -n "$name" --no-login-shell --workdir "$workdir" "$@" \
                 </dev/null || run_rc=$?
@@ -2682,11 +2767,195 @@ cmd_run() {
             os sandbox exec -n "$name" --no-login-shell --workdir "$workdir" "$@" || run_rc=$?
             ;;
     esac
+    run_prompt_release
     trap - INT TERM
     if [ "$session_interrupted" -eq 1 ] && [ "$run_rc" -eq 0 ]; then
         run_rc=130
     fi
     exit "$run_rc"
+}
+
+# ---------------------------------------------------------------------------
+# Caller-owned workspace sync (specs/caller-workspace-sync). `sync-in` makes
+# the caller's workdir match a host tree and records a baseline; `collect-patch`
+# hands back the workdir's changes against it as a binary patch. The baseline
+# git directory sits outside the workdir, keyed by the workdir's path, so
+# several caller workdirs in one sandbox keep separate baselines and the agent
+# never sees a repository. Nothing is written under the host state root.
+# ---------------------------------------------------------------------------
+
+caller_git_dir() { # WORKDIR
+    cgd_key=$(printf '%s' "$1" | cksum | cut -d ' ' -f 1)
+    printf '%s/caller/%s' "$(dirname -- "$(sandbox_git_dir "$1")")" "$cgd_key"
+}
+
+caller_script() { # NAME WORKDIR SCRIPT [EXTRA]
+    cs_name=$1
+    cs_workdir=$2
+    cs_script=$3
+    shift 3
+    os sandbox exec -n "$cs_name" --no-login-shell -- \
+        sh -c "$cs_script" "$PROGRAM-git" "$(caller_git_dir "$cs_workdir")" "$cs_workdir" "$@"
+}
+
+# Empties the workdir and drops the old baseline first, so a sync-in that
+# fails later leaves nothing collect-patch would accept.
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+CALLER_CLEAR_SCRIPT='set -e
+gitdir=$1 worktree=$2
+rm -rf "$gitdir"
+mkdir -p "$worktree"
+find "$worktree" -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
+
+# Prints "<commit> <files> <bytes>". A `.git` the upload brought along (a
+# linked worktree's pointer file, a plain directory's repository) is removed
+# so the workdir holds no host git metadata.
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+CALLER_BASELINE_SCRIPT='set -e
+gitdir=$1 worktree=$2
+rm -rf "$worktree/.git"
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME='"$PROGRAM"' GIT_AUTHOR_EMAIL='"$PROGRAM"'@localhost
+export GIT_COMMITTER_NAME='"$PROGRAM"' GIT_COMMITTER_EMAIL='"$PROGRAM"'@localhost
+mkdir -p "$gitdir"
+git init -q
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -m "'"$PROGRAM"' caller baseline")
+git update-ref refs/'"$PROGRAM"'/caller-base "$commit"
+files=$(git ls-tree -r "$tree" | wc -l | tr -d " ")
+bytes=$(git ls-tree -r -l "$tree" | awk "{ s += \$4 } END { printf \"%d\", s }")
+printf "%s %s %s\n" "$commit" "$files" "$bytes"'
+
+# Prints the baseline commit, or "missing".
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+CALLER_BASE_SCRIPT='export GIT_DIR=$1
+git rev-parse -q --verify refs/'"$PROGRAM"'/caller-base 2>/dev/null || printf "missing\n"'
+
+# Snapshots the workdir into refs/<program>/caller-result through a private
+# index (seeded from the baseline's for its stat cache) and prints the patch.
+# The baseline never moves, so collecting twice gives the same patch.
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+CALLER_COLLECT_SCRIPT='set -e
+export GIT_DIR=$1 GIT_WORK_TREE=$2
+export GIT_AUTHOR_NAME='"$PROGRAM"' GIT_AUTHOR_EMAIL='"$PROGRAM"'@localhost
+export GIT_COMMITTER_NAME='"$PROGRAM"' GIT_COMMITTER_EMAIL='"$PROGRAM"'@localhost
+index=$GIT_DIR/collect-index.$$
+trap '\''rm -f "$index"'\'' EXIT
+cp "$GIT_DIR/index" "$index" 2>/dev/null || :
+GIT_INDEX_FILE=$index git add -A
+tree=$(GIT_INDEX_FILE=$index git write-tree)
+commit=$(git commit-tree "$tree" -p refs/'"$PROGRAM"'/caller-base -m "'"$PROGRAM"' caller result")
+git update-ref refs/'"$PROGRAM"'/caller-result "$commit"
+git diff --binary --full-index refs/'"$PROGRAM"'/caller-base refs/'"$PROGRAM"'/caller-result'
+
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+CALLER_MANIFEST_SCRIPT='set -e
+export GIT_DIR=$1
+git diff --no-renames --name-status refs/'"$PROGRAM"'/caller-base refs/'"$PROGRAM"'/caller-result'
+
+# Shared entry checks: caller mode, a literal name and workdir, then a
+# running sandbox. Usage errors come before any gateway call.
+caller_sync_target() { # COMMAND
+    resolve_workspace_mode
+    if [ "$workspace_mode" != caller ]; then
+        die_usage "$1 is a caller interface: set ${OSS_ENV_PREFIX}_WORKSPACE=caller"
+    fi
+    require_caller_target 1
+    case $(caller_git_dir "$(resolved_workdir)") in
+        "$(resolved_workdir)"/*)
+            die_usage "$1 needs a workdir below the sandbox root, not '$(resolved_workdir)'"
+            ;;
+    esac
+}
+
+caller_require_running() { # NAME
+    crr_phase=$(sandbox_phase "$1")
+    case $crr_phase in
+        Ready) ;;
+        '') die_gateway "sandbox '$1' not found; run '$PROGRAM up' first" ;;
+        *) die_gateway "sandbox '$1' is $crr_phase, not running; run '$PROGRAM up' first" ;;
+    esac
+}
+
+cmd_sync_in() {
+    [ "$#" -eq 1 ] || die_usage "usage: $PROGRAM sync-in HOST_TREE [--json]"
+    caller_sync_target sync-in
+    [ -d "$1" ] || die_usage "sync-in: '$1' is not a directory"
+    si_tree=$(CDPATH='' cd -- "$1" && pwd -P) || die_usage "sync-in: cannot enter '$1'"
+    require_openshell
+    name=$(resolved_name)
+    workdir=$(resolved_workdir)
+    caller_require_running "$name"
+    if ! caller_script "$name" "$workdir" "$CALLER_CLEAR_SCRIPT" >/dev/null 2>&1; then
+        die_gateway "could not clear '$name:$workdir'"
+    fi
+    # The same `.gitignore`-filtered upload a managed refresh uses.
+    set -- sandbox upload
+    if [ "$opt_no_git_ignore" -eq 1 ]; then
+        set -- "$@" --no-git-ignore
+    fi
+    set -- "$@" "$name" . "$workdir"
+    (cd "$si_tree" && run_gateway "$@") >&2 || exit "$?"
+    if ! si_result=$(caller_script "$name" "$workdir" "$CALLER_BASELINE_SCRIPT" 2>/dev/null); then
+        die_gateway "uploaded, but could not record the baseline in '$name:$workdir'"
+    fi
+    # shellcheck disable=SC2086  # three space-separated fields
+    set -- $si_result
+    if [ "$opt_json" -eq 1 ]; then
+        printf '{"baseline":%s,"files":%s,"bytes":%s}\n' "$(json_str "$1")" "$2" "$3"
+    else
+        say "Synced '$si_tree' to '$name:$workdir' (baseline $1, $2 files)."
+    fi
+}
+
+cmd_collect_patch() {
+    [ "$#" -eq 0 ] || die_usage "usage: $PROGRAM collect-patch --out FILE [--json]"
+    [ -n "$opt_out" ] || die_usage "collect-patch needs --out FILE"
+    caller_sync_target collect-patch
+    cp_dir=$(dirname -- "$opt_out")
+    [ -d "$cp_dir" ] || die_usage "collect-patch: directory '$cp_dir' does not exist"
+    require_openshell
+    name=$(resolved_name)
+    workdir=$(resolved_workdir)
+    caller_require_running "$name"
+    if ! cp_base=$(caller_script "$name" "$workdir" "$CALLER_BASE_SCRIPT" 2>/dev/null); then
+        die_gateway "could not read the baseline in '$name:$workdir'"
+    fi
+    if [ "$cp_base" = missing ] || [ -z "$cp_base" ]; then
+        die_usage "no baseline in '$name:$workdir': run '$PROGRAM sync-in HOST_TREE' first"
+    fi
+    # The patch lands in a private temp file next to FILE and is renamed into
+    # place only once both steps succeed, so a failure leaves no FILE.
+    cp_tmp=$opt_out.$OSS_TMP_PREFIX.$$
+    cp_err=$cp_tmp.err
+    if ! (umask 077 && : >"$cp_tmp" && : >"$cp_err"); then
+        rm -f "$cp_tmp" "$cp_err"
+        die_usage "collect-patch: cannot write '$opt_out'"
+    fi
+    if ! caller_script "$name" "$workdir" "$CALLER_COLLECT_SCRIPT" >"$cp_tmp" 2>"$cp_err" \
+        || ! cp_manifest=$(caller_script "$name" "$workdir" "$CALLER_MANIFEST_SCRIPT" 2>>"$cp_err"); then
+        cp_detail=$(head -n 3 "$cp_err" 2>/dev/null) || cp_detail=
+        rm -f "$cp_tmp" "$cp_err"
+        die_gateway "could not collect changes from '$name:$workdir'${cp_detail:+: $cp_detail}"
+    fi
+    rm -f "$cp_err"
+    chmod 600 "$cp_tmp" 2>/dev/null || true
+    mv -f -- "$cp_tmp" "$opt_out"
+    if [ "$opt_json" -eq 1 ]; then
+        cp_files=
+        while IFS="$TAB" read -r cp_status cp_path; do
+            [ -n "$cp_status" ] || continue
+            cp_files="$cp_files${cp_files:+,}{\"status\":$(json_str "$cp_status"),\"path\":$(json_str "$cp_path")}"
+        done <<CP_MANIFEST
+$cp_manifest
+CP_MANIFEST
+        cp_empty=false
+        [ -s "$opt_out" ] || cp_empty=true
+        printf '{"empty":%s,"baseline":%s,"files":[%s]}\n' "$cp_empty" "$(json_str "$cp_base")" "$cp_files"
+    else
+        say "Wrote the changes in '$name:$workdir' to '$opt_out'."
+    fi
 }
 
 # Two jobs, split by source and destination. A full refresh (no path, or `.`,
@@ -4181,6 +4450,7 @@ setup_cleanup() {
     if [ -n "$setup_tmp" ] && [ -d "$setup_tmp" ]; then
         rm -rf "$setup_tmp"
     fi
+    run_prompt_release
     session_lock_release
 }
 
@@ -5607,6 +5877,8 @@ opt_no_sync=0
 opt_discard=0
 opt_orphan=0
 opt_json=0
+opt_passthrough_count=0
+opt_out=
 opt_from=
 opt_file=
 opt_field=
@@ -5716,6 +5988,7 @@ oss_main() {
         --session-id) die_usage "option --session-id requires a value" ;;
         --timeout) die_usage "option --timeout requires a value" ;;
         --idle-stop) die_usage "option --idle-stop requires a value" ;;
+        --out) die_usage "option --out requires a value" ;;
     esac
     OPT_I=0
     while [ "$OPT_I" -lt "$OPT_ARGC" ]; do
@@ -5905,6 +6178,13 @@ oss_main() {
                 shift
                 OPT_I=$((OPT_I + 1))
                 ;;
+            --out)
+                [ "$#" -gt 0 ] || die_usage "option --out requires a value"
+                [ -n "$1" ] || die_usage "option --out requires a non-empty value"
+                opt_out=$1
+                shift
+                OPT_I=$((OPT_I + 1))
+                ;;
             --yes) opt_yes=1 ;;
             --reason)
                 [ "$#" -gt 0 ] || die_usage "option --reason requires a value"
@@ -5930,6 +6210,9 @@ oss_main() {
             -h|--help) opt_help=1 ;;
             --)
                 unprocessed=$((OPT_ARGC - OPT_I))
+                # The words after `--` end argv; `run` splits them off as the
+                # agent's pass-through flags when the front-end allows them.
+                opt_passthrough_count=$unprocessed
                 moved=0
                 while [ "$moved" -lt "$unprocessed" ]; do
                     set -- "$@" "$1"
@@ -5937,6 +6220,10 @@ oss_main() {
                     moved=$((moved + 1))
                 done
                 OPT_I=$OPT_ARGC
+                ;;
+            -)
+                # A lone `-` is a word (`run -` reads the prompt from stdin).
+                set -- "$@" "$OPT"
                 ;;
             -*)
                 if ! agent_parse_option "$OPT" "$@"; then
@@ -5998,6 +6285,12 @@ oss_main() {
             ;;
         download)
             cmd_download "$@"
+            ;;
+        sync-in)
+            cmd_sync_in "$@"
+            ;;
+        collect-patch)
+            cmd_collect_patch "$@"
             ;;
         status)
             cmd_status "$@"

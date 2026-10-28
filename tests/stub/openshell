@@ -56,6 +56,9 @@
 #   STUB_ATTACH_FAIL      "1" makes `sandbox provider attach` fail with a
 #                         gateway error after the sandbox check
 #   STUB_DELETE_FAIL      "1" makes `sandbox delete` fail and keep the sandbox
+#   STUB_RUN_WRAPPER      "1" runs the `run --timeout` wrapper (argv0
+#                         <program>-run) locally with the exec's stdin, so the
+#                         agent it starts comes from STUB_SANDBOX_TOOLS
 
 set -eu
 
@@ -325,6 +328,17 @@ case $command_name in
                     PATH="${STUB_SANDBOX_TOOLS:+$STUB_SANDBOX_TOOLS:}$PATH" \
                         sh -c "$stub_script" "$@"
                     exit $?
+                fi
+                if [ "${STUB_RUN_WRAPPER:-0}" = 1 ] && [ "${1:-}" = sh ] && [ "${2:-}" = -c ]; then
+                    case ${4:-} in
+                        *-oss-run)
+                            stub_script=$3
+                            shift 3
+                            PATH="${STUB_SANDBOX_TOOLS:+$STUB_SANDBOX_TOOLS:}$PATH" \
+                                sh -c "$stub_script" "$@"
+                            exit $?
+                            ;;
+                    esac
                 fi
                 if [ -n "${STUB_EXEC_STDIN_LOG:-}" ]; then
                     cat >"$STUB_EXEC_STDIN_LOG"

@@ -81,15 +81,36 @@ Anthropic API key; the example model is in
 |---|---|
 | bare `claude-oss`, `claude-oss claude` | the image's API key approval step, then `claude --dangerously-skip-permissions [--model M] [session flags]` on a TTY |
 | `claude-oss run "<prompt>"` | `claude -p --output-format stream-json --verbose --dangerously-skip-permissions [--model M] [session flags] "<prompt>"` |
+| `claude-oss run` or `run -` | the same, with no prompt argument; the helper's stdin is relayed as the prompt |
+| `claude-oss run "<prompt>" -- FLAGS...` | the same, with FLAGS after the session flags and before the prompt |
 
-Both modes use `--dangerously-skip-permissions`; the root-owned managed
-settings still deny `sudo`, `su`, `ssh`, `scp`, in-sandbox `claude`
-authentication, and config edits. `run` closes stdin and streams stream-json.
+Both modes use `--dangerously-skip-permissions` unless the caller passes its
+own permission flags (below); the root-owned managed settings still deny
+`sudo`, `su`, `ssh`, `scp`, in-sandbox `claude` authentication, and config
+edits. With a prompt argument, `run` closes stdin; it always streams
+stream-json.
 The seed trusts `/sandbox/project`; an interactive API-key run first executes
 `/usr/local/libexec/claude-oss/approve-api-key`. Only `api.anthropic.com` is
 reachable. Sessions live under `/sandbox/.claude/projects/`; the default
 `/sandbox/.claude/` and `/sandbox/.claude.json` are used because `sandbox exec`
 does not pass image `ENV`.
+
+**Prompt on stdin.** With no prompt argument, or `-`, `run` reads its stdin
+to the end and relays it to `claude -p` through the exec's stdin, so a large
+prompt never appears in any command argument. Empty stdin is a usage error
+before any gateway call. This works with `--timeout`.
+
+**Pass-through.** Flags after `--` go to `claude -p` in the order given. Only
+`--permission-mode`, `--allowedTools`, `--disallowedTools`, `--add-dir`,
+`--effort` (each with one value) and `--fork-session` (no value) are allowed;
+anything else, a missing value, or `--permission-mode bypassPermissions` is a
+usage error naming the flag, before any gateway call. When
+`--permission-mode`, `--allowedTools`, or `--disallowedTools` is present, the
+helper drops `--dangerously-skip-permissions`, so the caller's rules apply.
+The managed settings still apply on top. Bare `claude-oss` and
+`claude-oss claude` reject a `--` tail. For a caller-mode orchestrator pass
+with `sync-in` and `collect-patch`, see
+[the helper reference](../../helper.md#sync-in--collect-patch).
 
 The model resolves from `--model`, then `CLAUDE_OSS_MODEL`, then config
 `model`; aliases such as `sonnet` and `opus` work, and with no model Claude

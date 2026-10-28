@@ -528,10 +528,11 @@ config key: it is an interface for programs, not a user preference.
 
 In caller mode the helper keeps no host-side session state for the sandbox:
 
-- no workspace sync — no baseline, freshness check, refresh, patch
-  collection, or parking; a `parked` or `retained` marker left for the
+- no automatic workspace sync — no baseline, freshness check, refresh,
+  patch collection, or parking; a `parked` or `retained` marker left for the
   sandbox neither blocks the run nor changes, and `--no-sync` has no
-  further effect;
+  further effect (a caller that wants a host tree in and a patch out asks
+  for it with `sync-in` and `collect-patch`, below);
 - no project registry entry and no registry check, so the caller's current
   directory never binds the sandbox name;
 - no upload when the sandbox is created;
@@ -549,6 +550,56 @@ same as in managed mode.
 MAKI_OSS_WORKSPACE=caller MAKI_OSS_IDLE_STOP=0 MAKI_OSS_SANDBOX_NAME=repo-app \
   MAKI_OSS_WORKDIR=/sandbox/tasks/t1 maki-oss run --timeout 600 "answer the task"
 ```
+
+##### sync-in / collect-patch
+
+Two caller-mode commands, on every helper, move a host working tree into the
+caller's workdir and hand the agent's edits back as a patch. They are refused
+with exit 1 outside caller mode, need the same literal name and workdir as
+`run`, and write nothing under the host state root.
+
+- `sync-in HOST_TREE [--json]` requires a running sandbox (a missing or
+  stopped one exits 3). It empties the workdir, uploads HOST_TREE with the
+  same `.gitignore` filtering as `upload` (`--no-git-ignore` turns it off), so
+  uncommitted, staged, and untracked files arrive as they are on disk, and
+  removes any `.git` the upload brought along, including a linked worktree's
+  pointer file. It then records the workdir as a baseline commit in a git
+  directory outside the workdir, keyed by the workdir's path, so the agent
+  sees no repository and several workdirs in one sandbox keep separate
+  baselines. Each `sync-in` replaces the previous baseline; a failed one
+  leaves none. `--json` prints one object:
+  `{"baseline":"<commit>","files":N,"bytes":B}`.
+- `collect-patch --out FILE [--json]` writes a binary git patch
+  (`git diff --binary --full-index`) of the workdir against the last
+  `sync-in` baseline: additions, modifications, deletions, renames, mode and
+  binary changes, never a `.git` directory the agent created. FILE is mode
+  600, appears only once collection succeeded, and is empty for an unchanged
+  workdir. The baseline does not move, so collecting twice gives the same
+  patch. Without a prior `sync-in` it exits 1 naming `sync-in` and writes no
+  FILE. `--json` prints one object:
+  `{"empty":false,"baseline":"<commit>","files":[{"status":"M","path":"a.txt"}]}`,
+  where `status` is the `git diff --name-status` letter (`A`, `M`, `D`, `T`).
+
+A full orchestrator pass over an uncommitted worktree, with `claude-oss`
+reading the prompt from stdin and the role's permission flags after `--`
+(see the Claude agent page for the allowlist):
+
+```sh
+export CLAUDE_OSS_WORKSPACE=caller CLAUDE_OSS_IDLE_STOP=0 \
+  CLAUDE_OSS_SANDBOX_NAME=task-42 CLAUDE_OSS_WORKDIR=/sandbox/tasks/t42
+claude-oss up
+claude-oss sync-in ~/src/app-wt-42 --json
+claude-oss run --timeout 1800 - \
+  -- --permission-mode acceptEdits --disallowedTools 'Bash(git commit:*)' \
+  <prompt.md >events.jsonl
+claude-oss collect-patch --out "$TMPDIR/task-42.diff" --json
+git -C ~/src/app-wt-42 apply --check "$TMPDIR/task-42.diff" &&
+  git -C ~/src/app-wt-42 apply "$TMPDIR/task-42.diff"
+claude-oss rm --yes
+```
+
+The host tree should not change between `sync-in` and `apply`; if it did,
+`git apply --check` fails and nothing is applied.
 
 ### upload / download
 

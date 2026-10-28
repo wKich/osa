@@ -132,6 +132,7 @@ new_case() {
     OPENCODE_EXIT=
     STUB_MAKI_SCRIPT=
     STUB_EXEC_SCRIPT_FAIL=
+    RUN_WRAPPER=
     GIT_TRACE_LOG=
     ATTACH_FAIL=
     DELETE_FAIL=
@@ -173,6 +174,7 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         STUB_CREATE_RACE="${CREATE_RACE:-0}" \
         STUB_ATTACH_FAIL="${ATTACH_FAIL:-0}" \
         STUB_DELETE_FAIL="${DELETE_FAIL:-0}" \
+        STUB_RUN_WRAPPER="${RUN_WRAPPER:-0}" \
         STUB_IMAGE_INSPECT="${IMAGE_INSPECT:-}" \
         STUB_BUILD_MODE="${BUILD_MODE:-}" \
         STUB_BUILD_PID_FILE="${BUILD_PID_FILE:-}" \
@@ -4951,7 +4953,7 @@ test_cc_help() {
     for cc_cmd in doctor 'image build' 'init, up' claude 'run "<prompt>"' upload download \
         status list logs 'start, stop' rm 'policy show|edit|apply' 'policy review' \
         'policy approve' 'policy reject' 'provider add|attach|list' 'provider setup' \
-        'mcp status' help; do
+        'mcp status' help 'sync-in HOST_TREE' 'collect-patch --out FILE'; do
         if ! grep -Eq "^  $(printf '%s' "$cc_cmd" | sed 's/[|.]/\\&/g')( |$)" "$OUT"; then
             bad "help does not list: $cc_cmd"
         fi
@@ -4962,6 +4964,9 @@ test_cc_help() {
         fi
     done
     assert_out_has "CLAUDE_OSS_<KEY>"
+    assert_out_has "CLAUDE_OSS_WORKSPACE=caller"
+    assert_out_has "read from stdin"
+    assert_out_has "not bypassPermissions"
     assert_out_has "claude-oss/config.toml"
 
     for cc_cmd in maki opencode fish; do
@@ -5007,6 +5012,219 @@ test_cc_run_argv() {
     run_cc run "fail please"
     assert_rc 3
     assert_out_has "partial"
+}
+
+# Asserts that the agent exec read exactly FILE on its stdin.
+assert_exec_stdin_is() { # FILE
+    if [ ! -f "$EXEC_STDIN_LOG" ]; then
+        bad "the agent exec stdin was not recorded"
+    elif ! cmp -s "$1" "$EXEC_STDIN_LOG"; then
+        bad "the agent exec stdin differs from the prompt ($(wc -c <"$EXEC_STDIN_LOG" | tr -d ' ') bytes read)"
+    fi
+}
+
+test_cc_run_stdin_prompt() {
+    begin "claude-oss run with no prompt argument, or -, relays stdin as the prompt"
+    cc_case cc-run-stdin
+    cc_ready_project
+    EXEC_STDOUT='{"type":"result","result":"OK"}'
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    ENV_CC_MODEL=claude-sonnet-5-5
+    printf 'reply OK' >"$CASE/prompt.txt"
+
+    run_cc_with_input "$CASE/prompt.txt" run
+    assert_rc 0
+    assert_out_has '{"type":"result","result":"OK"}'
+    assert_exec_stdin_is "$CASE/prompt.txt"
+    for cc_word in claude -p --output-format stream-json --verbose \
+        --dangerously-skip-permissions --model claude-sonnet-5-5; do
+        assert_log_line "$cc_word"
+    done
+    assert_log_line_missing "reply OK"
+    assert_log_line_missing "-"
+
+    reset_log
+    run_cc_with_input "$CASE/prompt.txt" run -
+    assert_rc 0
+    assert_exec_stdin_is "$CASE/prompt.txt"
+    assert_log_line_missing "reply OK"
+    assert_log_line_missing "-"
+
+    reset_log
+    run_cc_with_input "$CASE/prompt.txt" run - -- --permission-mode acceptEdits
+    assert_rc 0
+    assert_exec_stdin_is "$CASE/prompt.txt"
+    assert_log_line --permission-mode
+    assert_log_line acceptEdits
+    assert_log_line_missing --dangerously-skip-permissions
+    assert_log_line_missing "reply OK"
+}
+
+test_cc_run_stdin_large() {
+    begin "claude-oss run relays a 2 MiB stdin prompt byte for byte, never in argv"
+    cc_case cc-run-stdin-large
+    cc_ready_project
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    {
+        printf 'PROMPT-MARKER-START\n'
+        head -c 2097152 /dev/zero | tr '\0' 'x'
+        printf '\nPROMPT-MARKER-END\n'
+    } >"$CASE/prompt.txt"
+    run_cc_with_input "$CASE/prompt.txt" run -
+    assert_rc 0
+    assert_exec_stdin_is "$CASE/prompt.txt"
+    assert_log_missing "PROMPT-MARKER"
+}
+
+test_cc_run_stdin_empty() {
+    begin "claude-oss run with an empty stdin prompt is a usage error before any gateway call"
+    cc_case cc-run-stdin-empty
+    cc_ready_project
+    : >"$CASE/prompt.txt"
+    reset_log
+    run_cc_with_input "$CASE/prompt.txt" run
+    assert_rc 1
+    assert_err_has "stdin"
+    assert_log_empty "gateway was contacted"
+    run_cc_with_input "$CASE/prompt.txt" run -
+    assert_rc 1
+    assert_log_empty "gateway was contacted"
+}
+
+# A sandbox-side `claude` for the wrapper cases: it saves its stdin, then
+# sleeps SECS before printing a result event.
+fake_sandbox_claude() { # SECS
+    cat >"$CASE/sandbox-tools/claude" <<FAKE
+#!/bin/sh
+cat >"$CASE/claude-stdin"
+sleep $1
+printf '%s\n' '{"type":"result","result":"OK"}'
+FAKE
+    chmod +x "$CASE/sandbox-tools/claude"
+}
+
+test_cc_run_stdin_timeout() {
+    begin "claude-oss run --timeout hands a stdin prompt to claude and still ends it with 124"
+    if ! command -v timeout >/dev/null 2>&1; then
+        skipped "no timeout(1) on PATH"
+        return 0
+    fi
+    cc_case cc-run-stdin-timeout
+    cc_ready_project
+    RUN_WRAPPER=1
+    printf 'reply OK' >"$CASE/prompt.txt"
+    fake_sandbox_claude 0
+    ENV_TIMEOUT=30
+    run_cc_with_input "$CASE/prompt.txt" run
+    assert_rc 0
+    assert_out_has '"result":"OK"'
+    cmp -s "$CASE/prompt.txt" "$CASE/claude-stdin" \
+        || bad "claude did not read the prompt through the wrapper: $(cat "$CASE/claude-stdin" 2>/dev/null)"
+
+    fake_sandbox_claude 30
+    ENV_TIMEOUT=1
+    cc_started=$(date +%s)
+    run_cc_with_input "$CASE/prompt.txt" run
+    assert_rc 124
+    if [ $(($(date +%s) - cc_started)) -ge 15 ]; then
+        bad "the wrapper did not end claude at the timeout"
+    fi
+    cmp -s "$CASE/prompt.txt" "$CASE/claude-stdin" \
+        || bad "claude did not read the prompt before the timeout"
+}
+
+test_cc_run_passthrough_role_flags() {
+    begin "claude-oss run forwards role flags after -- and drops the permission bypass"
+    cc_case cc-run-passthrough
+    cc_ready_project
+    ENV_CC_MODEL=claude-sonnet-5-5
+    run_cc run --resume 123e4567-e89b-12d3-a456-426614174000 "do it" -- \
+        --permission-mode acceptEdits --disallowedTools "Bash(git commit:*)" \
+        --add-dir /sandbox/refs/lib --fork-session
+    assert_rc 0
+    assert_log_line_missing "--dangerously-skip-permissions"
+    for cc_word in -p --output-format stream-json --verbose \
+        --permission-mode acceptEdits --disallowedTools "Bash(git commit:*)" \
+        --add-dir /sandbox/refs/lib --fork-session "do it"; do
+        assert_log_line "$cc_word"
+    done
+    assert_log_line_before "--verbose" "--model"
+    assert_log_line_before "--model" "--resume"
+    assert_log_line_before "--resume" "--permission-mode"
+    assert_log_line_before "--permission-mode" "--disallowedTools"
+    assert_log_line_before "--fork-session" "do it"
+
+    for cc_flag in --allowedTools --disallowedTools; do
+        reset_log
+        run_cc run "do it" -- "$cc_flag" Read
+        assert_rc 0
+        assert_log_line_missing "--dangerously-skip-permissions"
+    done
+}
+
+test_cc_run_passthrough_effort_keeps_skip() {
+    begin "claude-oss run keeps the bypass when only non-permission flags pass through"
+    cc_case cc-run-passthrough-effort
+    cc_ready_project
+    run_cc run "do it" -- --effort high
+    assert_rc 0
+    assert_log_line "--dangerously-skip-permissions"
+    assert_log_line "--effort"
+    assert_log_line "high"
+    assert_log_line_before "high" "do it"
+}
+
+test_cc_run_passthrough_rejects_unknown() {
+    begin "claude-oss run refuses pass-through flags outside the allowlist before any gateway call"
+    cc_case cc-run-passthrough-unknown
+    cc_ready_project
+    for cc_flag in --mcp-config --output-format --settings --dangerously-skip-permissions; do
+        reset_log
+        run_cc run "do it" -- "$cc_flag" x
+        assert_rc 1
+        assert_err_has "$cc_flag"
+        assert_log_empty "gateway was contacted for $cc_flag"
+    done
+}
+
+test_cc_run_passthrough_rejects_bypass() {
+    begin "claude-oss run refuses --permission-mode bypassPermissions"
+    cc_case cc-run-passthrough-bypass
+    cc_ready_project
+    reset_log
+    run_cc run "do it" -- --permission-mode bypassPermissions
+    assert_rc 1
+    assert_err_has "bypassPermissions"
+    assert_log_empty "gateway was contacted"
+}
+
+test_cc_run_passthrough_missing_value() {
+    begin "claude-oss run refuses a pass-through flag with no value"
+    cc_case cc-run-passthrough-value
+    cc_ready_project
+    reset_log
+    run_cc run "do it" -- --permission-mode
+    assert_rc 1
+    assert_err_has "--permission-mode"
+    assert_log_empty "gateway was contacted"
+    run_cc run "do it" -- --allowedTools --effort high
+    assert_rc 1
+    assert_err_has "--allowedTools"
+    assert_log_empty "gateway was contacted"
+}
+
+test_cc_tui_rejects_passthrough() {
+    begin "bare claude-oss and claude-oss claude take no pass-through flags"
+    cc_case cc-tui-passthrough
+    cc_ready_project
+    INTERACTIVE=1
+    reset_log
+    run_cc claude -- --permission-mode acceptEdits
+    assert_rc 1
+    assert_log_empty "gateway was contacted"
+    run_cc -- --permission-mode acceptEdits
+    assert_rc 1
+    assert_log_empty "gateway was contacted"
 }
 
 test_cc_tui_argv() {
@@ -9007,6 +9225,311 @@ test_caller_invalid_mode() {
 }
 
 # ---------------------------------------------------------------------------
+# Caller workspace sync (specs/caller-workspace-sync): `sync-in HOST_TREE` and
+# `collect-patch --out FILE` in caller mode. The stub runs the internal git
+# scripts locally, so the simulated workdir is a real directory.
+# ---------------------------------------------------------------------------
+
+# A caller case with a running sandbox and a host git tree: tracked a.txt,
+# del.txt, and ren.txt, and an ignored bin/out.dll.
+caller_sync_case() { # NAME
+    caller_case "$1"
+    RUN_DIR=$CASE/cwd1
+    ENV_WORKDIR=$CASE/sandbox/tasks/t1
+    seed_sandbox repo-app Ready
+    HOST_TREE=$CASE/host
+    mkdir -p "$HOST_TREE/bin"
+    printf 'bin/\n' >"$HOST_TREE/.gitignore"
+    printf 'alpha\n' >"$HOST_TREE/a.txt"
+    printf 'delete me\n' >"$HOST_TREE/del.txt"
+    printf 'rename me\nwith enough lines\nto look like a rename\n' >"$HOST_TREE/ren.txt"
+    git -C "$HOST_TREE" init -q
+    git -C "$HOST_TREE" add -A
+    git -C "$HOST_TREE" -c user.name=t -c user.email=t@localhost commit -qm init
+    printf 'built\n' >"$HOST_TREE/bin/out.dll"
+    CALLER_WORKDIR=$ENV_WORKDIR
+}
+
+# jq-only JSON checks; the line fallback in assert_json_object is for osa's
+# own objects.
+assert_caller_json() { # FILTER
+    if ! command -v jq >/dev/null 2>&1; then
+        skipped "no jq on PATH"
+        return 0
+    fi
+    assert_json_object "$1"
+}
+
+test_caller_sync_in_refused_managed() {
+    begin "sync-in and collect-patch outside caller mode are usage errors before any gateway call"
+    caller_sync_case caller-sync-managed
+    ENV_WORKSPACE=
+    reset_log
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 1
+    assert_err_has "MAKI_OSS_WORKSPACE=caller"
+    assert_log_empty "gateway was contacted"
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 1
+    assert_err_has "MAKI_OSS_WORKSPACE=caller"
+    assert_log_empty "gateway was contacted"
+    [ -e "$CASE/p.diff" ] && bad "collect-patch wrote a file in managed mode"
+    return 0
+}
+
+test_caller_sync_in_requires_target() {
+    begin "sync-in and collect-patch need a literal name, a workdir, an existing tree, and --out"
+    caller_sync_case caller-sync-target
+    reset_log
+    ENV_NAME=
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 1
+    assert_err_has "MAKI_OSS_SANDBOX_NAME"
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 1
+    assert_err_has "MAKI_OSS_SANDBOX_NAME"
+    ENV_NAME=repo-app
+    ENV_WORKDIR=
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 1
+    assert_err_has "MAKI_OSS_WORKDIR"
+    ENV_WORKDIR=$CALLER_WORKDIR
+    run_maki sync-in "$CASE/missing"
+    assert_rc 1
+    assert_err_has "$CASE/missing"
+    run_maki sync-in
+    assert_rc 1
+    run_maki collect-patch
+    assert_rc 1
+    assert_err_has "--out"
+    run_maki collect-patch --out "$CASE/missing/p.diff"
+    assert_rc 1
+    assert_log_empty "gateway was contacted"
+}
+
+test_caller_sync_in_dirty_tree() {
+    begin "sync-in copies the dirty tree as it is on disk, without ignored files or .git"
+    caller_sync_case caller-sync-dirty
+    printf 'alpha changed\n' >"$HOST_TREE/a.txt"
+    printf 'new\n' >"$HOST_TREE/untracked.txt"
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 0
+    [ "$(cat "$CALLER_WORKDIR/a.txt" 2>/dev/null)" = "alpha changed" ] \
+        || bad "the modified file did not arrive: $(cat "$CALLER_WORKDIR/a.txt" 2>/dev/null)"
+    [ -f "$CALLER_WORKDIR/untracked.txt" ] || bad "the untracked file did not arrive"
+    [ -e "$CALLER_WORKDIR/bin/out.dll" ] && bad "the ignored file was uploaded"
+    [ -e "$CALLER_WORKDIR/.git" ] && bad "host git metadata reached the workdir"
+    assert_log_has "upload"
+    return 0
+}
+
+test_caller_sync_in_linked_worktree() {
+    begin "sync-in accepts a linked worktree and leaves its .git file behind"
+    caller_sync_case caller-sync-worktree
+    git -C "$HOST_TREE" worktree add -q "$CASE/linked" -b task >/dev/null 2>&1 \
+        || bad "could not create the linked worktree"
+    [ -f "$CASE/linked/.git" ] || bad "the linked worktree has no .git file"
+    run_maki sync-in "$CASE/linked"
+    assert_rc 0
+    [ -f "$CALLER_WORKDIR/a.txt" ] || bad "the worktree's files did not arrive"
+    [ -e "$CALLER_WORKDIR/.git" ] && bad "the worktree's .git file reached the workdir"
+    return 0
+}
+
+test_caller_sync_in_removes_stale() {
+    begin "sync-in removes workdir files the host tree does not have"
+    caller_sync_case caller-sync-stale
+    mkdir -p "$CALLER_WORKDIR/obj"
+    printf 'left over\n' >"$CALLER_WORKDIR/stale.txt"
+    printf 'left over\n' >"$CALLER_WORKDIR/obj/cache"
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 0
+    [ -e "$CALLER_WORKDIR/stale.txt" ] && bad "a stale file survived sync-in"
+    [ -e "$CALLER_WORKDIR/obj" ] && bad "a stale directory survived sync-in"
+    return 0
+}
+
+test_caller_sync_in_json() {
+    begin "sync-in --json prints one object with the baseline, file count, and bytes"
+    caller_sync_case caller-sync-json
+    run_maki sync-in "$HOST_TREE" --json
+    assert_rc 0
+    # .gitignore, a.txt, del.txt, ren.txt
+    assert_caller_json '.files == 4 and (.baseline | test("^[0-9a-f]{40}$")) and .bytes > 0'
+    # The baseline lives outside the workdir: git finds no repository there.
+    if git -C "$CALLER_WORKDIR" rev-parse --git-dir >/dev/null 2>&1; then
+        case $(git -C "$CALLER_WORKDIR" rev-parse --show-toplevel 2>/dev/null) in
+            "$CALLER_WORKDIR") bad "the workdir is a git repository" ;;
+        esac
+    fi
+    return 0
+}
+
+test_caller_sync_in_no_state() {
+    begin "sync-in and collect-patch keep no host-side session state"
+    caller_sync_case caller-sync-state
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 0
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 0
+    assert_no_session_state repo-app
+    [ -d "$(session_dir repo-app)" ] && bad "a session directory was created for repo-app"
+    return 0
+}
+
+test_caller_sync_in_stopped_sandbox() {
+    begin "sync-in and collect-patch on a stopped or missing sandbox fail as gateway errors"
+    caller_sync_case caller-sync-stopped
+    seed_sandbox repo-app Stopped
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 3
+    assert_err_has "repo-app"
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 3
+    rm -f "$STUB_STATE_DIR/sandboxes/repo-app"
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 3
+    assert_err_has "repo-app"
+}
+
+test_caller_sync_in_failure_clears_baseline() {
+    begin "a sync-in that fails at the baseline leaves none for collect-patch"
+    caller_sync_case caller-sync-fail
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 0
+    STUB_EXEC_SCRIPT_FAIL="caller baseline"
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 3
+    STUB_EXEC_SCRIPT_FAIL=
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 1
+    assert_err_has "sync-in"
+    [ -e "$CASE/p.diff" ] && bad "collect-patch wrote a file without a baseline"
+    return 0
+}
+
+# Runs sync-in for the case's host tree; false (after reporting) when it
+# fails, so a collect case stops before touching a missing workdir.
+caller_sync_in() { # [ARGS...]
+    run_maki sync-in "$HOST_TREE" "$@"
+    assert_rc 0
+    [ "$RC" -eq 0 ] && [ -d "$CALLER_WORKDIR" ]
+}
+
+test_caller_collect_patch_round_trip() {
+    begin "collect-patch carries edits, deletions, renames, and binary files back onto the host"
+    caller_sync_case caller-collect-trip
+    caller_sync_in || return 0
+    printf 'alpha edited\n' >"$CALLER_WORKDIR/a.txt"
+    rm -f "$CALLER_WORKDIR/del.txt"
+    mv "$CALLER_WORKDIR/ren.txt" "$CALLER_WORKDIR/renamed.txt"
+    printf 'PNG\000\001\002\377binary' >"$CALLER_WORKDIR/img.bin"
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 0
+    git -C "$HOST_TREE" apply "$CASE/p.diff" 2>"$CASE/apply.err" \
+        || bad "git apply failed: $(head -n 1 "$CASE/apply.err")"
+    cmp -s "$CALLER_WORKDIR/a.txt" "$HOST_TREE/a.txt" || bad "a.txt differs after apply"
+    [ -e "$HOST_TREE/del.txt" ] && bad "del.txt was not deleted"
+    cmp -s "$CALLER_WORKDIR/renamed.txt" "$HOST_TREE/renamed.txt" || bad "renamed.txt differs"
+    [ -e "$HOST_TREE/ren.txt" ] && bad "ren.txt was not renamed away"
+    cmp -s "$CALLER_WORKDIR/img.bin" "$HOST_TREE/img.bin" || bad "img.bin differs"
+    return 0
+}
+
+test_caller_collect_patch_empty() {
+    begin "collect-patch on an untouched workdir writes an empty patch"
+    caller_sync_case caller-collect-empty
+    caller_sync_in || return 0
+    run_maki collect-patch --out "$CASE/p.diff" --json
+    assert_rc 0
+    [ -f "$CASE/p.diff" ] || bad "no patch file was written"
+    [ -s "$CASE/p.diff" ] && bad "the patch is not empty: $(head -n 1 "$CASE/p.diff")"
+    assert_caller_json '.empty == true and .files == []'
+    return 0
+}
+
+test_caller_collect_patch_excludes_agent_git() {
+    begin "collect-patch leaves out a repository the agent created in the workdir"
+    caller_sync_case caller-collect-git
+    caller_sync_in || return 0
+    printf 'alpha edited\n' >"$CALLER_WORKDIR/a.txt"
+    (
+        cd "$CALLER_WORKDIR"
+        unset GIT_DIR GIT_WORK_TREE
+        git init -q && git add -A && git -c user.name=a -c user.email=a@localhost commit -qm agent
+    ) || bad "could not create the agent repository"
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 0
+    grep -q '^diff --git a/a.txt' "$CASE/p.diff" || bad "the edit is missing from the patch"
+    grep -q '\.git/' "$CASE/p.diff" && bad "the patch carries .git paths"
+    return 0
+}
+
+test_caller_collect_patch_idempotent() {
+    begin "collect-patch twice gives byte-identical patches"
+    caller_sync_case caller-collect-twice
+    caller_sync_in || return 0
+    printf 'alpha edited\n' >"$CALLER_WORKDIR/a.txt"
+    printf 'new\n' >"$CALLER_WORKDIR/new.txt"
+    run_maki collect-patch --out "$CASE/p1.diff"
+    assert_rc 0
+    run_maki collect-patch --out "$CASE/p2.diff"
+    assert_rc 0
+    [ -s "$CASE/p1.diff" ] || bad "the first patch is empty"
+    cmp -s "$CASE/p1.diff" "$CASE/p2.diff" || bad "the two patches differ"
+    return 0
+}
+
+test_caller_collect_patch_no_baseline() {
+    begin "collect-patch without a sync-in names sync-in and writes no file"
+    caller_sync_case caller-collect-nobase
+    mkdir -p "$CALLER_WORKDIR"
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 1
+    assert_err_has "sync-in"
+    [ -e "$CASE/p.diff" ] && bad "collect-patch wrote a file without a baseline"
+    return 0
+}
+
+test_caller_collect_patch_mode_600() {
+    begin "collect-patch writes the patch with mode 600"
+    caller_sync_case caller-collect-mode
+    caller_sync_in || return 0
+    printf 'alpha edited\n' >"$CALLER_WORKDIR/a.txt"
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 0
+    assert_file_mode "$CASE/p.diff" 600
+}
+
+test_caller_collect_patch_failure_removes_file() {
+    begin "a failed collection leaves no patch file and no temp files"
+    caller_sync_case caller-collect-fail
+    caller_sync_in || return 0
+    printf 'alpha edited\n' >"$CALLER_WORKDIR/a.txt"
+    mkdir -p "$CASE/patches"
+    STUB_EXEC_SCRIPT_FAIL="collect-index"
+    run_maki collect-patch --out "$CASE/patches/p.diff"
+    [ "$RC" -ne 0 ] || bad "collect-patch succeeded although the collection failed"
+    [ -n "$(ls -A "$CASE/patches")" ] && bad "files were left behind: $(ls -A "$CASE/patches")"
+    return 0
+}
+
+test_caller_collect_patch_json() {
+    begin "collect-patch --json reports the baseline and each changed path"
+    caller_sync_case caller-collect-json
+    caller_sync_in --json || return 0
+    cpj_base=$(sed -n 's/.*"baseline":"\([0-9a-f]*\)".*/\1/p' "$OUT")
+    printf 'alpha edited\n' >"$CALLER_WORKDIR/a.txt"
+    rm -f "$CALLER_WORKDIR/del.txt"
+    printf 'new\n' >"$CALLER_WORKDIR/new.txt"
+    run_maki collect-patch --out "$CASE/p.diff" --json
+    assert_rc 0
+    assert_caller_json ".empty == false and .baseline == \"$cpj_base\" and
+        (.files | length) == 3 and
+        (.files | map(\"\(.status) \(.path)\") | sort) == [\"A new.txt\", \"D del.txt\", \"M a.txt\"]"
+}
+
+# ---------------------------------------------------------------------------
 # Health (specs/osa-project-layer: "osa health reports a sandbox's health"):
 # each front-end's __health-json against its own doctor and mcp status text.
 # ---------------------------------------------------------------------------
@@ -9575,6 +10098,23 @@ run_test test_caller_requires_name_and_workdir
 run_test test_caller_no_policy_advisor
 run_test test_caller_run_wrapper
 run_test test_caller_invalid_mode
+run_test test_caller_sync_in_refused_managed
+run_test test_caller_sync_in_requires_target
+run_test test_caller_sync_in_dirty_tree
+run_test test_caller_sync_in_linked_worktree
+run_test test_caller_sync_in_removes_stale
+run_test test_caller_sync_in_json
+run_test test_caller_sync_in_no_state
+run_test test_caller_sync_in_stopped_sandbox
+run_test test_caller_sync_in_failure_clears_baseline
+run_test test_caller_collect_patch_round_trip
+run_test test_caller_collect_patch_empty
+run_test test_caller_collect_patch_excludes_agent_git
+run_test test_caller_collect_patch_idempotent
+run_test test_caller_collect_patch_no_baseline
+run_test test_caller_collect_patch_mode_600
+run_test test_caller_collect_patch_failure_removes_file
+run_test test_caller_collect_patch_json
 run_test test_session_sync_failure_preserves_code
 run_test test_session_plain_apply
 run_test test_session_plain_conflict_keeps_project
@@ -9665,6 +10205,16 @@ run_test test_oc_sync_plain_directory
 run_test test_oc_sync_no_git
 run_test test_cc_help
 run_test test_cc_run_argv
+run_test test_cc_run_stdin_prompt
+run_test test_cc_run_stdin_large
+run_test test_cc_run_stdin_empty
+run_test test_cc_run_stdin_timeout
+run_test test_cc_run_passthrough_role_flags
+run_test test_cc_run_passthrough_effort_keeps_skip
+run_test test_cc_run_passthrough_rejects_unknown
+run_test test_cc_run_passthrough_rejects_bypass
+run_test test_cc_run_passthrough_missing_value
+run_test test_cc_tui_rejects_passthrough
 run_test test_cc_tui_argv
 run_test test_cc_session_flags
 run_test test_cc_image_build

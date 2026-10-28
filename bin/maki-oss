@@ -53,6 +53,14 @@ Commands:
   fish install|uninstall        Install or remove the fish plugin
   help                          Show this help
 
+Caller interface (MAKI_OSS_WORKSPACE=caller, literal --name and --workdir):
+  sync-in HOST_TREE [--json]    Replace the workdir with HOST_TREE
+                                (.gitignore-filtered, no .git) and record a
+                                baseline outside it
+  collect-patch --out FILE [--json]
+                                Write the workdir's changes since sync-in as a
+                                binary git patch (mode 600)
+
 Common options:
   --name NAME      Sandbox name (default: maki-<project directory>), or the
                    provider name for provider setup

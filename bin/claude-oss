@@ -37,7 +37,12 @@ Commands:
   claude                        Ensure the sandbox and attach the Claude Code
                                 TUI (bare `claude-oss` does the same)
   run "<prompt>"                Ensure the sandbox, run Claude Code headless,
-                                and print its stream-json events
+                                and print its stream-json events; with no
+                                prompt or `-`, the prompt is read from stdin
+  run "<prompt>" -- FLAGS...    Pass Claude Code flags through: --permission-mode
+                                (not bypassPermissions), --allowedTools,
+                                --disallowedTools, --add-dir, --fork-session,
+                                --effort
   upload [--discard] [PATH] [DEST]
                                 Refresh the workspace (no PATH or `.`), or copy
                                 PATH as-is (no baseline); --discard only
@@ -57,6 +62,14 @@ Commands:
                                 generic key, or a `claude setup-token` token
   mcp status                    Report MCP server readiness in the sandbox
   help                          Show this help
+
+Caller interface (CLAUDE_OSS_WORKSPACE=caller, literal --name and --workdir):
+  sync-in HOST_TREE [--json]    Replace the workdir with HOST_TREE
+                                (.gitignore-filtered, no .git) and record a
+                                baseline outside it
+  collect-patch --out FILE [--json]
+                                Write the workdir's changes since sync-in as a
+                                binary git patch (mode 600)
 
 Common options:
   --name NAME      Sandbox name (default: cc-<project directory>), or
@@ -228,16 +241,63 @@ agent_interactive_argv() {
     cc_common_flags
 }
 
+# A caller's permission flags replace the bypass: the role rules then apply
+# inside the sandbox. Pass-through flags follow the model and session flags.
 agent_headless_argv() { # PROMPT
-    argv_add claude -p --output-format stream-json --verbose --dangerously-skip-permissions
+    argv_add claude -p --output-format stream-json --verbose
+    if [ "$cc_permission_flags" -eq 0 ]; then
+        argv_add --dangerously-skip-permissions
+    fi
     cc_common_flags
-    argv_add "$1"
+    if [ -n "$run_passthrough" ]; then
+        agent_argv="$agent_argv $run_passthrough"
+    fi
+    if [ "$run_prompt_stdin" -eq 0 ]; then
+        argv_add "$1"
+    fi
 }
 
 # `sandbox exec` leaves stdin open; closing it keeps a headless run from
-# ever waiting on input.
+# ever waiting on input. A stdin prompt is the exception the core handles.
 agent_exec_stdin() {
     printf 'null'
+}
+
+# `claude -p` with no prompt argument reads the prompt from stdin.
+# shellcheck disable=SC2329  # the core checks for the hook with `command -v`
+agent_stdin_prompt() { :; }
+
+cc_permission_flags=0
+
+# Checks the flags after `--` on `run` against the pass-through allowlist.
+# Anything else could point Claude Code at configuration the sandbox does not
+# control, or change the stream format callers parse.
+# shellcheck disable=SC2329  # called by the core through eval
+agent_passthrough_check() { # FLAGS...
+    while [ "$#" -gt 0 ]; do
+        case $1 in
+            --fork-session) ;;
+            --permission-mode|--allowedTools|--disallowedTools|--add-dir|--effort)
+                if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+                    die_usage "pass-through option $1 requires a value"
+                fi
+                case $2 in
+                    --*) die_usage "pass-through option $1 requires a value, got '$2'" ;;
+                esac
+                if [ "$1" = --permission-mode ] && [ "$2" = bypassPermissions ]; then
+                    die_usage "pass-through --permission-mode bypassPermissions is not allowed: pass no permission flags to keep the bypass"
+                fi
+                case $1 in
+                    --permission-mode|--allowedTools|--disallowedTools) cc_permission_flags=1 ;;
+                esac
+                shift
+                ;;
+            *)
+                die_usage "pass-through option $1 is not allowed after --: use --permission-mode, --allowedTools, --disallowedTools, --add-dir, --fork-session, or --effort"
+                ;;
+        esac
+        shift
+    done
 }
 
 agent_dispatch() { # CMD ARGS...

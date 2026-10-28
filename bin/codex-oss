@@ -59,6 +59,14 @@ Commands:
   mcp status                    Report MCP server readiness in the sandbox
   help                          Show this help
 
+Caller interface (CODEX_OSS_WORKSPACE=caller, literal --name and --workdir):
+  sync-in HOST_TREE [--json]    Replace the workdir with HOST_TREE
+                                (.gitignore-filtered, no .git) and record a
+                                baseline outside it
+  collect-patch --out FILE [--json]
+                                Write the workdir's changes since sync-in as a
+                                binary git patch (mode 600)
+
 Common options:
   --name NAME      Sandbox name (default: cx-<project directory>)
   --image REF      Sandbox image (default: codex-agent:local)

@@ -12,13 +12,14 @@
 // readiness, and doctor checks on request only (dashboard-health design D4);
 // the idle state on each row comes from the quick status already cached.
 //
-// The writes are `osa resolve SANDBOX ACTION --json` for a registered
-// sandbox, `osa provider setup …` with the credential on stdin
+// The writes are `osa resolve SANDBOX ACTION --json` and `osa remove SANDBOX
+// --yes --json` (add-project-remove) for a registered sandbox,
+// `osa provider setup …` with the credential on stdin
 // (dashboard-provider-wizard), and `osa image build TAG` (dashboard-image-build):
 // nothing here creates, modifies, or deletes a file itself, and the runner
 // refuses every `osa` argv except the two `status … --json` shapes,
 // `health SANDBOX --json`, `providers --json`, `images --json`, that one
-// `resolve` shape, the `provider setup` shape (only through `runWithStdin`),
+// `resolve` shape, that one `remove` shape, the `provider setup` shape (only through `runWithStdin`),
 // and `image build TAG` (only through `spawnBuild`).
 
 import {
@@ -301,6 +302,11 @@ export function resolveArgv(sandbox: string, action: ResolveAction): string[] {
   return args;
 }
 
+/** `osa remove SANDBOX --yes --json` (add-project-remove design D5). */
+export function removeArgv(sandbox: string): string[] {
+  return ["remove", sandbox, "--yes", "--json"];
+}
+
 export interface ProviderSetupFields {
   agent: AgentTag;
   profile: string;
@@ -350,7 +356,8 @@ export function isImageBuildArgv(args: readonly string[]): boolean {
  * `status PATH --quick --json`, with PATH absolute so it cannot read as an
  * option, `health SANDBOX --json`, `providers --json`, `images --json`,
  * `resolve SANDBOX ACTION --json` plus `--yes` for drop and discard only,
- * with SANDBOX a generated sandbox name, the provider setup shape, and
+ * `remove SANDBOX --yes --json`, with SANDBOX a generated sandbox name, the
+ * provider setup shape, and
  * `image build TAG`.
  */
 export function isAllowedOsaArgv(args: readonly string[]): boolean {
@@ -364,6 +371,12 @@ export function isAllowedOsaArgv(args: readonly string[]): boolean {
     const [, sandbox = "", action] = args;
     if (!SANDBOX_NAME.test(sandbox) || !isResolveAction(action)) return false;
     const expected = resolveArgv(sandbox, action);
+    return args.length === expected.length && expected.every((arg, index) => args[index] === arg);
+  }
+  if (args[0] === "remove") {
+    const sandbox = args[1] ?? "";
+    if (!SANDBOX_NAME.test(sandbox)) return false;
+    const expected = removeArgv(sandbox);
     return args.length === expected.length && expected.every((arg, index) => args[index] === arg);
   }
   const path = args[1] ?? "";
@@ -740,7 +753,7 @@ export class ProjectService {
   private readonly healthTimeoutMs: number;
   private readonly resolveTimeoutMs: number;
   private readonly rescueTimeoutMs: number;
-  /** Sandboxes with a resolve running (design D2). */
+  /** Sandboxes with a resolve or remove running (design D2). */
   private readonly resolving = new Set<string>();
 
   constructor(options: ProjectServiceOptions = {}) {
@@ -840,20 +853,40 @@ export class ProjectService {
       const message = `action must be one of ${RESOLVE_ACTIONS.join(", ")}`;
       return { status: 400, body: { error: { kind: "invalid_request", message } } };
     }
+    const timeoutMs = action === "rescue" ? this.rescueTimeoutMs : this.resolveTimeoutMs;
+    return this.runWrite(sandbox, "resolve", resolveArgv(sandbox, action), timeoutMs);
+  }
+
+  /**
+   * Runs `osa remove SANDBOX --yes --json` for a registered sandbox
+   * (add-project-remove design D5), with the same 404, 409, and exit-code
+   * mapping as `resolve`; a resolve and a remove for one sandbox exclude each
+   * other.
+   */
+  async remove(sandbox: string): Promise<ResolveReply> {
+    return this.runWrite(sandbox, "remove", removeArgv(sandbox), this.resolveTimeoutMs);
+  }
+
+  /** One `osa resolve` or `osa remove` run, mapped to a reply. */
+  private async runWrite(
+    sandbox: string,
+    command: "resolve" | "remove",
+    runArgv: string[],
+    timeoutMs: number,
+  ): Promise<ResolveReply> {
     const entry = findProject(this.stateRoot, sandbox);
     if (!entry) {
       const message = `no registered project for sandbox ${sandbox}`;
       return { status: 404, body: { error: { kind: "not_found", message } } };
     }
     if (this.resolving.has(sandbox)) {
-      const message = `a resolve for ${sandbox} is already running`;
+      const message = `a resolve or remove for ${sandbox} is already running`;
       return { status: 409, body: { error: { kind: "busy", message } } };
     }
     this.resolving.add(sandbox);
     let output: Result<OsaOutput>;
     try {
-      const timeoutMs = action === "rescue" ? this.rescueTimeoutMs : this.resolveTimeoutMs;
-      output = await this.runner.run(resolveArgv(sandbox, action), timeoutMs);
+      output = await this.runner.run(runArgv, timeoutMs);
     } finally {
       this.resolving.delete(sandbox);
       this.cache.drop(entry.host_path);
@@ -870,11 +903,11 @@ export class ProjectService {
     }
     if (!result) {
       const error = parsed.ok
-        ? { kind: "invalid_json", message: "osa resolve did not print a result object", detail }
+        ? { kind: "invalid_json", message: `osa ${command} did not print a result object`, detail }
         : { ...parsed.error, detail: detail || parsed.error.detail };
       return { status: 502, body: { exitCode, error } };
     }
-    const message = result.message || `osa resolve exited with code ${exitCode}`;
+    const message = result.message || `osa ${command} exited with code ${exitCode}`;
     return { status: 502, body: { ...result, exitCode, error: { kind: "exit", message, detail } } };
   }
 

@@ -58,6 +58,9 @@ Commands:
                                     apply, branch, or drop --yes for a
                                     retained patch; rescue or discard --yes
                                     for a parked workspace
+  remove SANDBOX --yes [--json]     Delete the sandbox on the gateway (when
+                                    it is listed) and forget its project;
+                                    refused while work is pending
   provider setup TAG --profile ID [--name NAME] [--attach SANDBOX] [--yes] [--json]
                                     Set up a provider for agent TAG from a
                                     credential read on stdin, never prompted
@@ -76,11 +79,12 @@ Options:
             whether the host changed since the last sync (changed,
             unchanged, or unknown), whether a session or resolve is
             running (busy), and the idle-stop state and deadline (idle)
-  --yes     Confirm drop or discard; for provider setup, update an
+  --yes     Confirm drop, discard, or remove; for provider setup, update an
             existing provider's credential
 
-Only resolve, provider setup, and image build change anything. Exit codes
-for resolve and provider setup: 0 done, 1 usage error, 2 refused before any
+Only resolve, remove, provider setup, and image build change anything, and
+only remove deletes a sandbox. Exit codes for resolve, remove, and provider
+setup: 0 done, 1 usage error, 2 refused before any
 change, 3 failed during the action. image build exits 0 when the image was
 built, 1 for a usage error, and the front-end's status otherwise.
 dashboard exits 1 for a usage error, 2 when Bun or the dashboard files are
@@ -405,6 +409,39 @@ cmd_resolve() {
     exit "$cr_rc"
 }
 
+# Refuses an unregistered entry, an unknown agent, or a missing --yes, and
+# runs the owning front-end's `__remove`: in the project folder, or from the
+# state root with --orphan when the folder is gone.
+cmd_remove() {
+    cm_file=$(entry_file "$opt_sandbox")
+    if [ -z "$cm_file" ]; then
+        resolve_refuse "sandbox '$opt_sandbox' is not registered; run 'osa projects' to list sandboxes"
+    fi
+    load_entry "$cm_file"
+    if [ "$e_sandbox_name" != "$opt_sandbox" ]; then
+        resolve_refuse "the registry entry $cm_file names sandbox '$e_sandbox_name', not '$opt_sandbox'"
+    fi
+    cm_front=$(front_end "$e_agent")
+    if [ -z "$cm_front" ]; then
+        resolve_refuse "sandbox '$opt_sandbox' belongs to agent '$e_agent', which osa does not know"
+    fi
+    if [ "$opt_yes" -ne 1 ]; then
+        resolve_refuse "removing '$opt_sandbox' deletes its sandbox; pass --yes to confirm. Nothing changed"
+    fi
+    set -- --name "$opt_sandbox" __remove --yes
+    cm_dir=$e_host_path
+    if [ "$e_orphan" = true ]; then
+        set -- "$@" --orphan
+        cm_dir=$state_root
+    fi
+    if [ "$opt_json" -eq 1 ]; then
+        set -- "$@" --json
+    fi
+    cm_rc=0
+    (cd "$cm_dir" && exec "$cm_front" "$@") || cm_rc=$?
+    exit "$cm_rc"
+}
+
 # Prints one object per agent (or only --agent): the owning front-end's
 # `__providers-json`, or an error object when it fails.
 cmd_providers() {
@@ -529,7 +566,7 @@ opt_profile=
 opt_name=
 opt_attach=
 
-COMMANDS='projects, status, health, providers, images, resolve, provider setup, image build, dashboard, help'
+COMMANDS='projects, status, health, providers, images, resolve, remove, provider setup, image build, dashboard, help'
 
 EX_DEP=2 # the front-ends' missing-dependency status (lib/oss-core.sh)
 OSA_BUN_MIN=1.2.0
@@ -614,7 +651,7 @@ case $cmd in
         usage
         exit 0
         ;;
-    projects|status|health|providers|images|resolve) ;;
+    projects|status|health|providers|images|resolve|remove) ;;
     dashboard) cmd_dashboard "$@" ;;
     provider|image)
         case ${1:-} in
@@ -650,8 +687,8 @@ while [ "$#" -gt 0 ]; do
             opt_quick=1
             ;;
         --yes)
-            [ "$cmd" = resolve ] || [ "$cmd" = provider-setup ] \
-                || die_usage "--yes applies to resolve and provider setup only"
+            [ "$cmd" = resolve ] || [ "$cmd" = remove ] || [ "$cmd" = provider-setup ] \
+                || die_usage "--yes applies to resolve, remove, and provider setup only"
             opt_yes=1
             ;;
         --agent)
@@ -672,8 +709,8 @@ while [ "$#" -gt 0 ]; do
             ;;
         -*) die_usage "unknown option: $1" ;;
         *)
-            if [ "$cmd" = health ]; then
-                [ -z "$opt_sandbox" ] || die_usage "health takes one SANDBOX"
+            if [ "$cmd" = health ] || [ "$cmd" = remove ]; then
+                [ -z "$opt_sandbox" ] || die_usage "$cmd takes one SANDBOX"
                 opt_sandbox=$1
                 shift
                 continue
@@ -705,6 +742,11 @@ done
 
 if [ "$cmd" = health ]; then
     [ -n "$opt_sandbox" ] || die_usage "usage: osa health SANDBOX [--json]"
+fi
+
+if [ "$cmd" = remove ]; then
+    [ -n "$opt_sandbox" ] || die_usage "usage: osa remove SANDBOX --yes [--json]"
+    opt_action=remove
 fi
 
 if [ "$cmd" = resolve ]; then
@@ -742,5 +784,6 @@ case $cmd in
     providers) cmd_providers ;;
     images) cmd_images ;;
     resolve) cmd_resolve ;;
+    remove) cmd_remove ;;
     provider-setup) cmd_provider_setup ;;
 esac

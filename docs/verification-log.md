@@ -1756,3 +1756,18 @@ exited on the signal (status -2), and `pgrep` then found no dashboard `bun`
 process. A job started with `&` from a non-interactive shell ignores SIGINT,
 as it inherits that disposition, so a plain `kill -INT` to such a job is not
 a valid check.
+
+## Project remove — 2026-10-28
+
+`add-project-remove`, on this host (macOS, Bun 1.4.2), against the local
+gateway. `make test` passed (265), `cd dashboard && bun test` passed (213),
+`bun run scripts/browser-check.ts` passed (108, including the Remove journey),
+and `make lint` and `make lint-docs` passed.
+
+With `osa dashboard --port 8799 --token …` running, two removals went through
+`POST /api/projects/:sandbox/remove`:
+
+| Case | Result |
+|---|---|
+| `cc-osa-cb62`, registered but not on the gateway (`openshell sandbox list`: no sandboxes) | HTTP 200; `changed` held the archive `sessions/cc-osa-cb62.archive-20261028104638-16810` and the registry file, with no `gateway:` item; `osa projects` no longer listed it |
+| `cc-remove-e2e-5b89`, created by `claude-oss up` in a scratch folder and `Ready` | HTTP 200; `changed` began with `gateway:cc-remove-e2e-5b89`; `openshell sandbox list` then printed `No sandboxes found.` and `osa projects` no longer listed it |

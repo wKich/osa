@@ -8,8 +8,9 @@
 // streaming with filters/pause/reconnect and disconnect cleanup, policy tabs,
 // rule approve/reject, egress denials beside the proposals, and the Projects view (registry list, attention
 // counter, patch viewer, full status) and its resolve actions (Apply with the
-// touched-file list, refusal, typed Drop, Rescue, busy rows, read-only) and the
-// idle countdown and Health panel over a state-root fixture and the stub osa,
+// touched-file list, refusal, typed Drop, Rescue, busy rows, read-only), the
+// project Remove action, and the idle countdown and Health panel over a
+// state-root fixture and the stub osa,
 // and the Setup tab: base image builds with a live log, and the provider
 // wizard with its credential handling.
 //
@@ -659,6 +660,7 @@ async function runChecks(): Promise<void> {
   await healthJourney();
   await imageJourney();
   await providerJourney();
+  await removeJourney();
 
   check(pageErrors.length === 0, `no page exceptions or console errors (${pageErrors.join("; ")})`);
 }
@@ -1212,6 +1214,104 @@ async function resolveJourney(): Promise<void> {
         ["resolve", SANDBOX.retained, "apply", "--json"],
       ]),
     "each Apply ran exactly osa resolve <sandbox> apply --json",
+  );
+  await closePage(page.id, cdp);
+}
+
+// ---------------------------------------------------------------------------
+// Remove (add-project-remove): no control in read-only mode, disabled on a
+// parked row, nothing sent without the typed name, the consequence for a
+// sandbox not on the gateway, and the row gone after a confirmed remove.
+// Runs last: it removes a fixture row.
+// ---------------------------------------------------------------------------
+
+async function removeJourney(): Promise<void> {
+  const orphanEntry = join(stateFixture.registryDir, `${SANDBOX.orphan}.toml`);
+  const answers = JSON.parse(readFileSync(osaAnswers, "utf8")) as Record<string, unknown>;
+  writeFileSync(
+    osaAnswers,
+    JSON.stringify({
+      ...answers,
+      remove: {
+        [SANDBOX.orphan]: {
+          changed: [orphanEntry],
+          message: `Removed project '${SANDBOX.orphan}'.`,
+          remove: [orphanEntry],
+        },
+      },
+    }),
+  );
+  const removeCalls = (): string[][] =>
+    (existsSync(osaLog) ? readFileSync(osaLog, "utf8").split("\n") : [])
+      .filter(Boolean)
+      .map((line) => JSON.parse(line) as string[])
+      .filter((args) => args[0] === "remove");
+  const rowOf = (sandbox: string) =>
+    `[...document.querySelectorAll("#projects-table tbody tr")].find((tr) => tr.textContent.includes(${JSON.stringify(sandbox)}))`;
+  const removeButton = (sandbox: string) =>
+    `[...${rowOf(sandbox)}.querySelectorAll("button")].find((b) => b.textContent === "Remove…")`;
+
+  const readOnlyPage = await openPage(readOnlyUrl);
+  const readOnly = readOnlyPage.cdp;
+  await waitFor(readOnly, `${rowOf(SANDBOX.orphan)} !== undefined`, "read-only rows");
+  check(
+    (await readOnly.evaluate(
+      `[...document.querySelectorAll("#projects-table button")].some((b) => b.textContent === "Remove…")`,
+    )) === false,
+    "read-only rows show no Remove action",
+  );
+  await closePage(readOnlyPage.id, readOnly);
+
+  const page = await openPage(mainUrl);
+  const cdp = page.cdp;
+  await waitFor(cdp, `${rowOf(SANDBOX.orphan)} !== undefined`, "rows");
+  await waitFor(cdp, `${rowOf(SANDBOX.orphan)}.textContent.includes("not on gateway")`, "the inventory join");
+  check(
+    (await cdp.evaluate(`(() => {
+      const row = ${rowOf(SANDBOX.parked)};
+      const button = ${removeButton(SANDBOX.parked)};
+      return button.disabled && row.textContent.includes("resolve the parked work first");
+    })()`)) === true,
+    "Remove is disabled on a parked row, with the reason shown",
+  );
+
+  await cdp.evaluate(`${removeButton(SANDBOX.orphan)}.click()`);
+  await waitFor(cdp, `${rowOf(SANDBOX.orphan)}.querySelector("input[data-confirm-key]") !== null`, "remove confirmation");
+  check(
+    (await cdp.evaluate(`${rowOf(SANDBOX.orphan)}.textContent.includes("its sandbox is not on the gateway")`)) === true,
+    "the confirmation says the project is only forgotten when its sandbox is not on the gateway",
+  );
+  await cdp.evaluate(`(() => {
+    const row = ${rowOf(SANDBOX.orphan)};
+    const input = row.querySelector("input[data-confirm-key]");
+    input.value = "mk-gone";
+    input.dispatchEvent(new Event("input"));
+    const confirm = [...row.querySelectorAll("button")].find((b) => b.textContent === "Confirm remove");
+    confirm.click();
+    confirm.disabled = false;
+    confirm.click();
+    return true;
+  })()`);
+  await Bun.sleep(500);
+  check(removeCalls().length === 0, "Remove without the exact typed sandbox name sends nothing");
+
+  await cdp.evaluate(`(() => {
+    const row = ${rowOf(SANDBOX.orphan)};
+    const input = row.querySelector("input[data-confirm-key]");
+    input.value = ${JSON.stringify(SANDBOX.orphan)};
+    input.dispatchEvent(new Event("input"));
+    [...row.querySelectorAll("button")].find((b) => b.textContent === "Confirm remove").click();
+    return true;
+  })()`);
+  await waitFor(cdp, `${rowOf(SANDBOX.orphan)} === undefined`, "the removed row to disappear", 3000);
+  check(true, "a confirmed Remove drops the row without waiting for the poll");
+  check(
+    (await cdp.evaluate(`document.getElementById("banner").textContent.includes("Removed project")`)) === true,
+    "the notice says what was removed",
+  );
+  check(
+    JSON.stringify(removeCalls()) === JSON.stringify([["remove", SANDBOX.orphan, "--yes", "--json"]]),
+    "Remove ran exactly osa remove <sandbox> --yes --json",
   );
   await closePage(page.id, cdp);
 }

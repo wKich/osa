@@ -2,7 +2,7 @@
 
 A minimal local web dashboard for osa and [OpenShell](https://docs.nvidia.com/openshell):
 the projects every agent front-end has registered with their sync state and
-`osa resolve` actions for their pending work, sandbox inventory and lifecycle, live logs over Server-Sent Events, read-only
+`osa resolve` actions for their pending work and `osa remove` to forget them, sandbox inventory and lifecycle, live logs over Server-Sent Events, read-only
 policy inspection, rule-proposal review, and a Setup tab that sets up
 providers and builds base images, without replacing `openshell term` or the
 CLIs.
@@ -128,6 +128,22 @@ changed (files, branch, rescue folder), "nothing changed" with `osa`'s message
 when it refused, or the error text when it failed. The project's rows are
 re-read at once, so a cleared `retained` or `parked` badge disappears without
 waiting for the next poll. In read-only mode none of these controls exist.
+
+### Remove
+
+Outside read-only mode, every row, orphans included, has **Remove…**. It runs
+exactly one `osa remove SANDBOX --yes --json` (see
+[`docs/helper.md`](../docs/helper.md#osa-remove)), which deletes the sandbox on
+the gateway when the gateway lists it, archives the session state, and
+removes the registry entry. Before anything is sent, the sandbox name must be
+typed, and the confirmation says what will happen: the sandbox is deleted on
+the gateway and the project forgotten, or, for a "not on gateway" row, the
+project is only forgotten. Remove is disabled, with the reason shown, while
+the row is `retained` or `parked` (resolve that work first) or a session is
+running. After a removal the projects and the inventory are re-read at once,
+so the row disappears; a refusal or failure stays on the row like a resolve
+outcome. The inventory's sandbox Delete is unchanged: it deletes only the
+sandbox and leaves the project registered.
 
 ## Setup tab
 
@@ -303,6 +319,7 @@ read-only mode:
 | `POST /api/images/:agent/build` | Runs `osa image build <agent>` for `mk`, `oc`, `cc`, or `cx` with no other argument: 202 `{build}`, 400 for another agent, 409 while any build runs (nothing spawned) |
 | `POST /api/images/build/cancel` | Cancels the running build: 200 `{build}`, 409 when nothing runs |
 | `POST /api/providers/setup` | `{agent, profile, name?, attach?, replace?, credential}`: runs `osa provider setup <agent> --profile <profile> [--name <name>] [--attach <sandbox>] [--yes] --json` with the credential on stdin, `--yes` only for `replace: true`. Refused off loopback (403 `loopback_only`, before the body is read); then 403 without the token or in read-only mode, 415 for a non-JSON body, 413 for a body over 70 KiB, 400 naming the invalid field, 409 while another setup runs. Returns `osa`'s `{ok, agent, provider, profile, outcome, attached, remembered, steps, message}` plus `exitCode`: 200 for exit 0, 409 for exit 2 (refused, nothing changed), 400 for exit 1, 502 for exit 3 (with the completed `steps`), 504 after 120 s. Every copy of the credential in `osa`'s output is replaced with `[redacted]` |
+| `POST /api/projects/:sandbox/remove` | No body: runs `osa remove <sandbox> --yes --json`. Same replies as the resolve route: 200 for exit 0, 409 for exit 2 (refused, nothing changed) or while a resolve or remove for that sandbox runs, 404 for a sandbox not in the registry, 502 for exit 3 or unparsable output, 504 after 60 s; any method but POST is 405 |
 | `POST /api/projects/:sandbox/resolve` | `{action}`, one of `apply`, `branch`, `drop`, `rescue`, `discard`: runs `osa resolve <sandbox> <action> --json`, with `--yes` added by the server for `drop` and `discard`. Returns `osa`'s `{sandbox, action, ok, changed, message}` plus `exitCode`: 200 for exit 0, 409 for exit 2 (refused, nothing changed). 400 for an unknown action, 404 for a sandbox not in the registry, 409 while a resolve for that sandbox runs, 502 for exit 3 or unparsable output (stderr in `error.detail`), 504 after 60 s (120 s for `rescue`) |
 
 CLI failures return a structured body
@@ -365,7 +382,7 @@ The dashboard is a local operator tool, not a hardened service. What it does:
   commands it can run are `status PATH --json`, `status PATH --quick --json`,
   `health SANDBOX --json`, `providers --json`, `images --json`,
   `resolve SANDBOX ACTION --json` with `--yes` for `drop` and `discard` only,
-  `provider setup TAG --profile ID [--name N] [--attach SANDBOX] [--yes]
+  `remove SANDBOX --yes --json`, `provider setup TAG --profile ID [--name N] [--attach SANDBOX] [--yes]
   --json` built from validated fields (and only with the credential on
   stdin), and `image build TAG` with nothing after the tag; one allowlist
   check in `src/projects.ts` refuses every other argv.
@@ -374,9 +391,10 @@ The dashboard is a local operator tool, not a hardened service. What it does:
   there are no build arguments, tag overrides, bind mounts, secrets, or
   `--env` values. Build output carries no credential and is gated by the
   token like logs.
-- **Project writes go through `osa resolve` only.** The dashboard itself never
-  creates, modifies, or deletes a file in the osa state root or a registered
-  host project. The resolve route is the only project route that is not GET.
+- **Project writes go through `osa resolve` and `osa remove` only.** The
+  dashboard itself never creates, modifies, or deletes a file in the osa state
+  root or a registered host project. The resolve and remove routes are the
+  only project routes that are not GET.
 
 Threat model. The dashboard guards four assets:
 
@@ -388,6 +406,8 @@ Threat model. The dashboard guards four assets:
 3. **The osa state root**, newly writable: **Drop** clears the marker and moves
    the patch into `dropped/`, **Rescue** adds a `rescue-<timestamp>/` folder,
    and **Discard** replaces the sandbox workspace and clears the marker.
+   **Remove** archives a project's session directory and deletes its registry
+   entry, after deleting its sandbox on the gateway.
 4. **Provider credentials in transit**: a credential typed into the wizard,
    from the browser to the `osa provider setup` child. Its guards:
    - loopback only: off loopback the route is refused before the body is
@@ -466,7 +486,8 @@ patch file but replaces the sandbox workspace. A leaked token is therefore
 more serious than in v1, which is another reason to keep the dashboard on
 loopback and use read-only mode wherever the token may travel.
 
-Anyone with local access to the host can already run `osa resolve`, the
+Anyone with local access to the host can already run `osa resolve`,
+`osa remove`, the
 front-ends, and the authenticated `openshell` CLI, so the dashboard adds no
 new trust boundary; it makes those capabilities reachable from a browser tab.
 It holds no credentials, so compromising it does not leak gateway secrets

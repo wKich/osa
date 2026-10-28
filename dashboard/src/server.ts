@@ -21,9 +21,10 @@
 //     state contract, status runs `osa status … --json`, health runs
 //     `osa health SANDBOX --json` on request only, and the patch route
 //     (host source code) requires the session token in both modes;
-//   - the one project write is POST /api/projects/:sandbox/resolve, behind the
-//     same mutation guard, which runs exactly one `osa resolve` for a
-//     registered sandbox with a fixed argv;
+//   - the project writes are POST /api/projects/:sandbox/resolve and
+//     POST /api/projects/:sandbox/remove, behind the same mutation guard,
+//     which run exactly one `osa resolve` or `osa remove` for a registered
+//     sandbox with a fixed argv;
 //   - POST /api/images/:agent/build runs one `osa image build TAG` at a time
 //     behind the mutation guard; the build outlives the browser, its output
 //     streams over `/events/build` (token in the URL, as with logs), and
@@ -365,6 +366,19 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
     return json(reply.body, status);
   };
 
+  // POST /api/projects/:sandbox/remove: no body; runs `osa remove SANDBOX
+  // --yes --json` (add-project-remove design D5).
+  const handleRemove = async (request: Request, sandbox: string): Promise<Response> => {
+    if (request.method.toUpperCase() !== "POST") {
+      return methodNotAllowed("POST", "the remove route accepts POST only");
+    }
+    const denied = guardMutation(request);
+    if (denied) return denied;
+    const reply = await projects.remove(sandbox);
+    const status = reply.status ?? errorStatus(reply.body.error as OpenShellError);
+    return json(reply.body, status);
+  };
+
   // GET /api/images, GET /api/images/build, POST /api/images/:agent/build,
   // POST /api/images/build/cancel (dashboard-image-build design D4).
   const handleImages = async (request: Request, segments: string[]): Promise<Response> => {
@@ -464,6 +478,9 @@ export function createDashboardServer(options: DashboardServerOptions = {}): Das
   const handleProjects = async (request: Request, segments: string[]): Promise<Response> => {
     if (segments.length === 4 && segments[3] === "resolve") {
       return handleResolve(request, segments[2] ?? "");
+    }
+    if (segments.length === 4 && segments[3] === "remove") {
+      return handleRemove(request, segments[2] ?? "");
     }
     if (request.method.toUpperCase() !== "GET") {
       return methodNotAllowed("GET", "project routes are read-only");

@@ -12,6 +12,7 @@ import {
   listProjects,
   OsaRunner,
   ProjectService,
+  removeArgv,
   resolveArgv,
   resolveOsaBinary,
   resolveStateRoot,
@@ -495,6 +496,23 @@ describe("osa runner", () => {
     }
   });
 
+  test("remove may run only the one fixed shape", () => {
+    expect(removeArgv("mk-app-1")).toEqual(["remove", "mk-app-1", "--yes", "--json"]);
+    expect(isAllowedOsaArgv(removeArgv("mk-app-1"))).toBe(true);
+    for (const args of [
+      ["remove", "mk-app-1", "--json"],
+      ["remove", "mk-app-1", "--yes"],
+      ["remove", "mk-app-1", "--json", "--yes"],
+      ["remove", "mk-app-1", "--yes", "--json", "extra"],
+      ["remove", "-x", "--yes", "--json"],
+      ["remove", "../x", "--yes", "--json"],
+      ["remove", "", "--yes", "--json"],
+      ["remove", "--yes", "--json"],
+    ]) {
+      expect({ args, allowed: isAllowedOsaArgv(args) }).toEqual({ args, allowed: false });
+    }
+  });
+
   test("a missing binary is missing_cli", async () => {
     const runner = new OsaRunner({ binary: join(fixture.dir, "no-such-osa") });
     const result = await runner.runJson(["status", "/p", "--json"], 5000);
@@ -839,5 +857,87 @@ describe("resolve", () => {
     expect(row(SANDBOX.retained).busy).toBe(true);
     expect(row(SANDBOX.parked).busy).toBe(false);
     expect(row(SANDBOX.noKind).busy).toBe(false);
+  });
+});
+
+describe("remove", () => {
+  function service(setup: StubSetup, options: { resolveTimeoutMs?: number } = {}) {
+    return new ProjectService({
+      stateRoot: fixture.stateRoot,
+      runnerOptions: { binary: osaStub, env: setup.env },
+      ...options,
+    });
+  }
+
+  test("an unregistered sandbox is 404 and runs nothing", async () => {
+    const setup = stubSetup(defaultAnswers());
+    const projects = service(setup);
+    for (const sandbox of ["not-registered", SANDBOX.future, "../projects", "-x"]) {
+      expect((await projects.remove(sandbox)).status).toBe(404);
+    }
+    expect(loggedCalls(setup.logPath)).toEqual([]);
+  });
+
+  test("runs exactly `remove SANDBOX --yes --json`; exits 0, 2, and 3 map to 200, 409, and 502", async () => {
+    const entryFile = join(fixture.stateRoot, "projects", `${SANDBOX.noKind}.toml`);
+    const setup = stubSetup({
+      ...defaultAnswers(),
+      remove: {
+        [SANDBOX.noKind]: {
+          changed: [`gateway:${SANDBOX.noKind}`, "/state/archive", entryFile],
+          message: "Removed",
+          remove: [entryFile],
+        },
+        [SANDBOX.orphan]: { exit: 3, message: "cannot list sandboxes", stderr: "openshell: down" },
+      },
+    });
+    const projects = service(setup);
+    const removed = await projects.remove(SANDBOX.noKind);
+    expect(removed).toEqual({
+      status: 200,
+      body: {
+        sandbox: SANDBOX.noKind,
+        action: "remove",
+        ok: true,
+        changed: [`gateway:${SANDBOX.noKind}`, "/state/archive", entryFile],
+        message: "Removed",
+        exitCode: 0,
+      },
+    });
+    expect(projects.list().some((row) => row.sandbox_name === SANDBOX.noKind)).toBe(false);
+
+    const refused = await projects.remove(SANDBOX.retained);
+    expect(refused.status).toBe(409);
+    expect(refused.body).toMatchObject({ ok: false, exitCode: 2, error: { kind: "refused" } });
+
+    const failed = await projects.remove(SANDBOX.orphan);
+    expect(failed.status).toBe(502);
+    expect(failed.body).toMatchObject({
+      exitCode: 3,
+      error: { kind: "exit", message: "cannot list sandboxes", detail: "openshell: down" },
+    });
+
+    expect(loggedCalls(setup.logPath).filter((argv) => argv[0] === "remove")).toEqual([
+      ["remove", SANDBOX.noKind, "--yes", "--json"],
+      ["remove", SANDBOX.retained, "--yes", "--json"],
+      ["remove", SANDBOX.orphan, "--yes", "--json"],
+    ]);
+  });
+
+  test("a remove while a resolve runs for the same sandbox is 409 and spawns nothing", async () => {
+    const setup = stubSetup({
+      ...defaultAnswers(),
+      resolve: { [SANDBOX.retained]: { apply: { delay: 0.4, changed: ["base.txt"] } } },
+      remove: { [SANDBOX.retained]: { message: "Removed" } },
+    });
+    const projects = service(setup);
+    const first = projects.resolve(SANDBOX.retained, "apply");
+    await Bun.sleep(50);
+    const second = await projects.remove(SANDBOX.retained);
+    expect(second.status).toBe(409);
+    expect(second.body.error?.kind).toBe("busy");
+    expect((await first).status).toBe(200);
+    expect(loggedCalls(setup.logPath).filter((argv) => argv[0] === "remove")).toEqual([]);
+    expect((await projects.remove(SANDBOX.retained)).status).toBe(200);
   });
 });

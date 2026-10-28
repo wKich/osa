@@ -1,7 +1,8 @@
-// Resolve actions: the one project write. Each action posts to
-// `/api/projects/:sandbox/resolve`, which runs `osa resolve`; the outcome
-// (what changed, a refusal, or an error) is shown as text through `h()`, and
-// the project's rows are refreshed at once instead of waiting for the poll.
+// Resolve actions. Each action posts to `/api/projects/:sandbox/resolve`,
+// which runs `osa resolve`; the outcome (what changed, a refusal, or an error)
+// is shown as text through `h()`, and the project's rows are refreshed at once
+// instead of waiting for the poll. Remove (projects.js) shares the outcome
+// state, the typed confirmation, and the one-action-per-sandbox rule.
 
 import { request } from "./api.js";
 import { h } from "./dom.js";
@@ -15,6 +16,7 @@ const ACTION_LABELS = {
   drop: "Drop",
   rescue: "Rescue",
   discard: "Discard",
+  remove: "Remove",
 };
 
 /** The supported registry row for a sandbox, or null. */
@@ -50,20 +52,25 @@ export async function runResolve(sandbox, action, onUpdate) {
     });
     outcome = { kind: "done", action, changed: data.changed || [], message: data.message || "" };
   } catch (error) {
-    // 409 covers osa's refusal and a resolve already running: nothing changed.
-    const refused = error.kind === "refused" || error.kind === "busy";
-    outcome = {
-      kind: refused ? "refused" : "error",
-      action,
-      changed: [],
-      message: error.message || "",
-      detail: error.detail || "",
-    };
+    outcome = failureOutcome(action, error);
   }
   state.resolveOutcome[sandbox] = outcome;
   delete state.resolveTyped[`${sandbox}:${action}`];
   if (project) await actions.refreshProject(project.host_path);
   onUpdate();
+}
+
+/** The outcome of a failed request for `action`. */
+export function failureOutcome(action, error) {
+  // 409 covers osa's refusal and an action already running: nothing changed.
+  const refused = error.kind === "refused" || error.kind === "busy";
+  return {
+    kind: refused ? "refused" : "error",
+    action,
+    changed: [],
+    message: error.message || "",
+    detail: error.detail || "",
+  };
 }
 
 /** The last outcome for a sandbox, as text nodes, or null. */
@@ -95,11 +102,12 @@ export function outcomeView(sandbox) {
 }
 
 /**
- * A typed confirmation for drop and discard: the confirm button stays
+ * A typed confirmation for drop, discard, and remove: the confirm button stays
  * disabled, and sends nothing, until the input holds the exact sandbox name.
- * The typed text lives in state so a table rebuild keeps it.
+ * The typed text lives in state so a table rebuild keeps it. `run` sends the
+ * action (default: `runResolve`).
  */
-export function typedConfirm(sandbox, action, onUpdate) {
+export function typedConfirm(sandbox, action, onUpdate, run = runResolve) {
   const key = `${sandbox}:${action}`;
   const label = ACTION_LABELS[action];
   const confirm = h("button", {
@@ -108,7 +116,7 @@ export function typedConfirm(sandbox, action, onUpdate) {
     disabled: state.resolveTyped[key] !== sandbox,
     onclick: () => {
       if (state.resolveTyped[key] !== sandbox) return;
-      runResolve(sandbox, action, onUpdate);
+      run(sandbox, action, onUpdate);
     },
   });
   const input = h("input", {

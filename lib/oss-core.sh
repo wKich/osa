@@ -489,6 +489,12 @@ sandbox_phase() {
     if ! sandbox_json=$(os sandbox list --output json); then
         die_gateway "cannot list sandboxes; is the gateway running? Try '$PROGRAM doctor'"
     fi
+    sandbox_json_phase "$1"
+}
+
+# Prints NAME's phase from the listing in $sandbox_json, or nothing when the
+# listing does not name it.
+sandbox_json_phase() { # NAME
     if [ "$have_jq" -eq 1 ]; then
         printf '%s' "$sandbox_json" \
             | jq -r --arg n "$1" '[.sandboxes[]? | select(.name == $n) | .phase][0] // empty'
@@ -2915,6 +2921,7 @@ resolve_lock_dir=
 resolve_lock_held=0
 resolve_wt=
 resolve_new_branch=
+remove_cleanup=0
 
 resolve_add_changed() { # PATH
     resolve_changed=$(append_list "$resolve_changed" "$1")
@@ -2974,6 +2981,13 @@ resolve_exit_hook() {
     if [ "$resolve_lock_held" -eq 1 ]; then
         rm -rf "$resolve_lock_dir/resolve.d"
         resolve_lock_held=0
+    fi
+    # A removed project's state is archived; drop the directory that only
+    # held the lock.
+    if [ "$remove_cleanup" -eq 1 ]; then
+        if ! rmdir "$resolve_state/locks" "$resolve_state" 2>/dev/null; then
+            warn "left $resolve_state in place: it is not empty"
+        fi
     fi
     setup_cleanup
     if [ "$resolve_finished" -eq 0 ]; then
@@ -3312,6 +3326,63 @@ cmd_resolve() {
         rescue) resolve_rescue ;;
         discard) resolve_discard ;;
     esac
+}
+
+# osa remove: deletes the --name sandbox on the gateway when the gateway lists
+# it, archives its session state, and removes its registry entry. Pending work
+# or a live session or resolve refuses before any change; a gateway failure
+# keeps the local state, so the project is never forgotten while its sandbox
+# may still exist. --orphan (from osa, outside the project folder) replaces
+# the owner check with a check that the registered folder is gone.
+cmd_remove() {
+    [ "$#" -eq 0 ] || die_usage "usage: $PROGRAM --name SANDBOX __remove --yes [--orphan] [--json]"
+    resolve_action=remove
+    resolve_name=$(resolved_name)
+    resolve_state=$(session_state_dir "$resolve_name")
+    remove_entry=$(registry_file "$resolve_name")
+    exec 3>&1 1>&2
+    trap 'resolve_exit_hook' EXIT
+    if [ ! -f "$remove_entry" ]; then
+        resolve_finish "$EX_REFUSED" "sandbox '$resolve_name' is not registered; nothing changed"
+    fi
+    rmv_owner=$(flat_value "$remove_entry" host_path)
+    if [ "$opt_orphan" -eq 1 ]; then
+        if [ -z "$rmv_owner" ] || [ -d "$rmv_owner" ]; then
+            resolve_finish "$EX_REFUSED" "sandbox '$resolve_name' is not an orphan: its project folder ${rmv_owner:-is not recorded} exists; nothing changed"
+        fi
+    elif [ "$rmv_owner" != "$project_path" ]; then
+        resolve_finish "$EX_REFUSED" "sandbox '$resolve_name' is not registered to $project_path${rmv_owner:+ (it belongs to $rmv_owner)}; nothing changed"
+    fi
+    if [ "$opt_yes" -eq 0 ]; then
+        resolve_finish "$EX_REFUSED" "removing '$resolve_name' deletes its sandbox; pass --yes to confirm. Nothing changed"
+    fi
+    resolve_lock_take
+    case $(pending_kind "$resolve_state") in
+        retained)
+            resolve_finish "$EX_REFUSED" "sandbox '$resolve_name' has a retained patch; nothing changed. Resolve it first with 'osa resolve $resolve_name apply', 'osa resolve $resolve_name branch', or 'osa resolve $resolve_name drop --yes'"
+            ;;
+        parked)
+            resolve_finish "$EX_REFUSED" "the workspace of '$resolve_name' is parked; nothing changed. Resolve it first with 'osa resolve $resolve_name rescue' or 'osa resolve $resolve_name discard --yes'"
+            ;;
+    esac
+    if ! sandbox_json=$(os sandbox list --output json); then
+        resolve_finish "$EX_FAILED" "cannot list sandboxes; is the gateway running? Nothing changed"
+    fi
+    if [ -n "$(sandbox_json_phase "$resolve_name")" ]; then
+        if ! os sandbox delete "$resolve_name"; then
+            resolve_finish "$EX_FAILED" "the gateway did not delete sandbox '$resolve_name'; the project stays registered"
+        fi
+        resolve_add_changed "gateway:$resolve_name"
+    fi
+    if archive_state_dir "$resolve_state" "project removed"; then
+        resolve_add_changed "$archive_dest"
+        remove_cleanup=1
+    fi
+    if ! registry_remove "$resolve_name"; then
+        resolve_finish "$EX_FAILED" "cannot remove the registry entry $remove_entry"
+    fi
+    resolve_add_changed "$remove_entry"
+    resolve_finish 0 "Removed project '$resolve_name'."
 }
 
 # Prints a status line, except for `__status-json`, which prints one JSON
@@ -5534,6 +5605,7 @@ opt_global_profile=0
 opt_no_git_ignore=0
 opt_no_sync=0
 opt_discard=0
+opt_orphan=0
 opt_json=0
 opt_from=
 opt_file=
@@ -5853,6 +5925,7 @@ oss_main() {
             --no-git-ignore) opt_no_git_ignore=1 ;;
             --no-sync) opt_no_sync=1 ;;
             --discard) opt_discard=1 ;;
+            --orphan) opt_orphan=1 ;;
             --json) opt_json=1 ;;
             -h|--help) opt_help=1 ;;
             --)
@@ -5937,6 +6010,10 @@ oss_main() {
         __resolve)
             # osa resolve: resolve the pending work of the --name sandbox.
             cmd_resolve "$@"
+            ;;
+        __remove)
+            # osa remove: delete the --name sandbox and forget its project.
+            cmd_remove "$@"
             ;;
         __health-json)
             # osa health --json: idle stop, MCP readiness, and doctor as JSON.

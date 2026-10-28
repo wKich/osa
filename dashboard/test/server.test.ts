@@ -1243,6 +1243,86 @@ describe("project routes", () => {
     });
   });
 
+  describe("remove route", () => {
+    function removeUrl(handle: DashboardHandle, sandbox: string = SANDBOX.noKind): string {
+      return `${base(handle)}/api/projects/${sandbox}/remove`;
+    }
+
+    async function post(
+      handle: DashboardHandle,
+      options: { sandbox?: string; headers?: Record<string, string> } = {},
+    ): Promise<{ status: number; body: Record<string, any> }> {
+      const response = await fetch(removeUrl(handle, options.sandbox), {
+        method: "POST",
+        headers: options.headers ?? authHeaders(handle),
+      });
+      return { status: response.status, body: (await response.json()) as Record<string, any> };
+    }
+
+    function removeCalls(): string[][] {
+      return osaCalls().filter((argv) => argv[0] === "remove");
+    }
+
+    beforeEach(() => {
+      const current = JSON.parse(readFileSync(osaAnswers, "utf8")) as Record<string, unknown>;
+      writeFileSync(
+        osaAnswers,
+        JSON.stringify({
+          ...current,
+          remove: {
+            [SANDBOX.noKind]: { changed: [`gateway:${SANDBOX.noKind}`], message: "Removed" },
+            [SANDBOX.retained]: { exit: 2, message: "has a retained patch" },
+          },
+        }),
+      );
+    });
+
+    test("no token, a wrong token, or read-only mode is 403 and runs nothing", async () => {
+      const handle = start({ projects: projectService() });
+      expect((await post(handle, { headers: {} })).status).toBe(403);
+      expect((await post(handle, { headers: { "x-dashboard-token": "wrong" } })).status).toBe(403);
+      const readOnly = start({ projects: projectService(), readOnly: true });
+      const refused = await post(readOnly);
+      expect(refused.status).toBe(403);
+      expect(refused.body.error.kind).toBe("read_only");
+      expect(osaCalls()).toEqual([]);
+    });
+
+    test("a valid POST runs one `osa remove`; a refusal is 409; unregistered is 404", async () => {
+      const handle = start({ projects: projectService() });
+      const removed = await post(handle);
+      expect(removed).toEqual({
+        status: 200,
+        body: {
+          sandbox: SANDBOX.noKind,
+          action: "remove",
+          ok: true,
+          changed: [`gateway:${SANDBOX.noKind}`],
+          message: "Removed",
+          exitCode: 0,
+        },
+      });
+      const refused = await post(handle, { sandbox: SANDBOX.retained });
+      expect(refused.status).toBe(409);
+      expect(refused.body.error.kind).toBe("refused");
+      expect((await post(handle, { sandbox: "not-registered" })).status).toBe(404);
+      expect(removeCalls()).toEqual([
+        ["remove", SANDBOX.noKind, "--yes", "--json"],
+        ["remove", SANDBOX.retained, "--yes", "--json"],
+      ]);
+    });
+
+    test("GET or PUT on the remove route is 405", async () => {
+      const handle = start({ projects: projectService() });
+      for (const method of ["GET", "PUT", "DELETE"]) {
+        const response = await fetch(removeUrl(handle), { method, headers: authHeaders(handle) });
+        expect(response.status).toBe(405);
+        expect(response.headers.get("allow")).toBe("POST");
+      }
+      expect(osaCalls()).toEqual([]);
+    });
+  });
+
   test("full status returns the sandbox's own entry", async () => {
     const handle = start({ projects: projectService() });
     const response = await fetch(`${base(handle)}/api/projects/${SANDBOX.retained}/status`);

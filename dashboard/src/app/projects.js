@@ -1,8 +1,9 @@
 // Projects view: every osa registry entry across agents, with its sandbox,
 // pending and orphan badges, the cached host-change result, and an on-demand
 // full status. Outside read-only mode a parked row offers Rescue and Discard;
-// a retained row's Apply, Branch, and Drop live in the patch viewer. Those
-// resolve actions are the only writes; everything else here only reads. The
+// a retained row's Apply, Branch, and Drop live in the patch viewer; and every
+// row offers Remove (`osa remove`) once nothing is pending. Those resolve and
+// remove actions are the only writes; everything else here only reads. The
 // idle cell counts down from the cached quick status, and Health opens the
 // on-demand health panel (health.js) under the row.
 
@@ -13,8 +14,11 @@ import { healthPanel, idleView, openHealth } from "./health.js";
 import { openPatch, updatePatchActions } from "./patch.js";
 import {
   disabledReason,
+  failureOutcome,
   focusedConfirmKey,
+  isResolving,
   outcomeView,
+  projectFor,
   restoreConfirmFocus,
   runResolve,
   typedConfirm,
@@ -174,6 +178,75 @@ function parkedActions(project) {
   ]);
 }
 
+/** True when the polled inventory lists the sandbox, false when it does not, null when unknown. */
+function onGateway(sandbox) {
+  if (state.inventoryKnown !== true) return null;
+  return state.sandboxes.some((entry) => entry.name === sandbox);
+}
+
+/**
+ * Runs `osa remove` for one project (add-project-remove design D5). On success
+ * the projects and the inventory are re-read at once, so the row disappears;
+ * a refusal or failure stays on the row like a resolve outcome.
+ */
+async function runRemove(sandbox, onUpdate) {
+  if (isResolving(sandbox)) return;
+  const project = projectFor(sandbox);
+  state.resolveConfirm[sandbox] = null;
+  state.resolveOutcome[sandbox] = { running: true, action: "remove" };
+  onUpdate();
+  try {
+    const data = await request(`/api/projects/${encodeURIComponent(sandbox)}/remove`, {
+      method: "POST",
+      token: true,
+    });
+    delete state.resolveOutcome[sandbox];
+    delete state.resolveTyped[`${sandbox}:remove`];
+    const changed = (data.changed || []).join(", ");
+    showNotice(`${data.message || `Removed ${sandbox}.`}${changed ? ` Changed: ${changed}` : ""}`);
+    await Promise.all([loadProjects(false), actions.loadInventory()]);
+    return;
+  } catch (error) {
+    state.resolveOutcome[sandbox] = failureOutcome("remove", error);
+  }
+  delete state.resolveTyped[`${sandbox}:remove`];
+  if (project) await refreshProject(project.host_path);
+  onUpdate();
+}
+
+/** Remove for any row: disabled while work is pending or the sandbox is busy. */
+function removeAction(project) {
+  if (state.readOnly) return null;
+  const sandbox = project.sandbox_name;
+  const reason = project.pending
+    ? `resolve the ${project.pending} work first`
+    : disabledReason(project);
+  const confirming = state.resolveConfirm[sandbox] === "remove" && !reason;
+  const listed = onGateway(sandbox);
+  let consequence = `Deletes sandbox ${sandbox} on the gateway, if it lists it, and forgets this project.`;
+  if (listed === true) consequence = `Deletes sandbox ${sandbox} on the gateway and forgets this project.`;
+  if (listed === false) consequence = `Forgets this project; its sandbox is not on the gateway.`;
+  return h("div", { class: "resolve-actions" }, [
+    h("div", { class: "actions" }, [
+      h("button", {
+        class: "danger",
+        text: "Remove…",
+        disabled: Boolean(reason),
+        title: reason || "Delete the sandbox (when the gateway lists it) and forget this project",
+        onclick: () => {
+          state.resolveConfirm[sandbox] = confirming ? null : "remove";
+          updateProjectsTable();
+        },
+      }),
+      reason ? h("span", { class: "muted", text: reason }) : null,
+    ]),
+    confirming ? h("div", { class: "warn", text: consequence }) : null,
+    confirming
+      ? typedConfirm(sandbox, "remove", updateProjectsTable, (name, _action, onUpdate) => runRemove(name, onUpdate))
+      : null,
+  ]);
+}
+
 function actionsCell(project) {
   const result = state.projectStatus[project.sandbox_name];
   let output = null;
@@ -200,6 +273,7 @@ function actionsCell(project) {
       reason ? h("span", { class: "muted", text: reason }) : null,
     ]),
     parkedActions(project),
+    removeAction(project),
     outcomeView(project.sandbox_name),
     output,
   ]);
@@ -302,7 +376,7 @@ export function renderProjects() {
       class: "muted",
       text: state.readOnly
         ? "Every project an agent front-end registered. Read-only mode: run osa resolve or the front-end in the project to act on it."
-        : "Every project an agent front-end registered. Resolve a retained patch from its patch view, or a parked workspace from its row; each action runs osa resolve.",
+        : "Every project an agent front-end registered. Resolve a retained patch from its patch view, or a parked workspace from its row; each action runs osa resolve. Remove deletes a project's sandbox and forgets the project (osa remove).",
     }),
   );
   const container = h("div", { id: "projects-table" });

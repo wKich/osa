@@ -840,9 +840,11 @@ Configuration stays per front-end (`~/.config/maki-oss/config.toml`,
 
 The helper writes a registry entry when it creates a project's sandbox (or
 first meets an existing one through `up` or a session), updates it on every
-session, and removes it on `rm`. One entry exists per project folder and
-agent. An entry whose folder no longer exists is an orphan: tools report it
-and nothing deletes it automatically. The registry holds paths, names, and
+session, and removes it on `rm` or [`osa remove`](#osa-remove). One entry
+exists per project folder and agent. An entry whose folder no longer exists
+is an orphan: tools report it and nothing deletes it automatically; `osa
+remove SANDBOX --yes` clears it, as it clears an entry whose sandbox is
+already gone from the gateway. The registry holds paths, names, and
 IDs only, never credentials or `--env` values.
 
 ### State contract (version 1)
@@ -876,16 +878,16 @@ it. A plain folder, or a host without git, records none.
 ## osa
 
 `osa` reports on the projects every front-end has registered, resolves
-their pending sync output, sets up providers and base images, and starts the
-web dashboard.
+their pending sync output, removes projects, sets up providers and base
+images, and starts the web dashboard.
 `projects`, `status`, `health`, `providers`, and `images` are read-only: they
 never create, start, stop, delete, upload to, or download from a sandbox,
 never launch an agent, never create, update, or attach a provider, never
 build, tag, or remove an image, and never write the state root. `resolve`,
-`provider setup`, and `image build` are the only commands that change
-anything, and `image build` changes only the agent's local base image tag. No
-`osa` command creates, stops, or deletes a sandbox or launches an agent; only
-`resolve rescue` may start a stopped one, and only `provider setup` may
+`remove`, `provider setup`, and `image build` are the only commands that
+change anything, and `image build` changes only the agent's local base image
+tag. No `osa` command creates or stops a sandbox or launches an agent; only
+`remove` may delete one, only `resolve rescue` may start a stopped one, and only `provider setup` may
 attach a provider to one. `projects`, `status --quick`, and `images` never
 contact the gateway. `dashboard` changes nothing itself: it starts the
 [dashboard](../dashboard/README.md), which acts only through `osa` and the
@@ -1032,6 +1034,44 @@ whose PID is no longer running is removed and ignored. If a reused PID makes
 a lock look live, check the PID the error names and, when no such session or
 resolve runs, delete `sessions/<sandbox>/locks/` by hand. The lock files are
 internal, not part of the state contract.
+
+### osa remove
+
+```sh
+osa remove SANDBOX --yes          # delete the sandbox and forget the project
+osa remove SANDBOX --yes --json   # one result object on stdout
+```
+
+`osa remove` removes one registered project, found by registry file name as
+for `osa resolve`. It runs the owning front-end's internal `__remove` command
+in the project folder, so the gateway call uses that front-end's
+configuration; for an orphan it runs it outside the folder, which is gone.
+It never prompts, and it never touches a file in the project folder. In order:
+
+1. It refuses, changing nothing and contacting no gateway, without `--yes`,
+   for an unregistered name or an agent `osa` does not know, while a session
+   or resolve holds the sandbox (the same lock as `osa resolve`), and while a
+   retained patch or a parked workspace is pending. Resolve pending work
+   first: the message names the `osa resolve` actions that clear it.
+2. It lists the gateway's sandboxes. When the gateway lists `SANDBOX`, it
+   deletes it. A failed listing or delete stops here, with the project still
+   fully registered.
+3. It archives `sessions/<sandbox>/` to `sessions/<sandbox>.archive-<stamp>`,
+   as `rm` does, and removes `projects/<sandbox>.toml`.
+
+A project whose sandbox is already gone (the dashboard's "not on gateway"
+rows, or a sandbox deleted with `openshell sandbox delete`) skips the delete.
+Running `osa remove` again after a failure in step 3 finishes the cleanup.
+
+Exit codes are those of `osa resolve`: `0` removed, `1` usage error, `2`
+refused before any change, `3` failed (the gateway listing or delete; the
+local state is kept). With `--json`, stdout is exactly one object, with
+`action` set to `remove` and `changed` listing `gateway:<sandbox>` when the
+sandbox was deleted, the archive directory, and the removed registry file:
+
+```json
+{"sandbox":"cc-app-1a2b","action":"remove","ok":true,"changed":["gateway:cc-app-1a2b","/home/u/.local/state/osa/sessions/cc-app-1a2b.archive-20261028120000-4242","/home/u/.local/state/osa/projects/cc-app-1a2b.toml"],"message":"Removed project 'cc-app-1a2b'."}
+```
 
 ### osa providers
 

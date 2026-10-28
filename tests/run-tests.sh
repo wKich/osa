@@ -134,6 +134,7 @@ new_case() {
     STUB_EXEC_SCRIPT_FAIL=
     GIT_TRACE_LOG=
     ATTACH_FAIL=
+    DELETE_FAIL=
     IMAGE_INSPECT=
     BUILD_MODE=
     BUILD_PID_FILE=
@@ -171,6 +172,7 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         STUB_JSON_COMPACT="${JSON_COMPACT:-0}" \
         STUB_CREATE_RACE="${CREATE_RACE:-0}" \
         STUB_ATTACH_FAIL="${ATTACH_FAIL:-0}" \
+        STUB_DELETE_FAIL="${DELETE_FAIL:-0}" \
         STUB_IMAGE_INSPECT="${IMAGE_INSPECT:-}" \
         STUB_BUILD_MODE="${BUILD_MODE:-}" \
         STUB_BUILD_PID_FILE="${BUILD_PID_FILE:-}" \
@@ -7195,7 +7197,7 @@ test_osa_usage() {
     assert_out_has "dashboard [--port N]"
     run_osa up
     assert_rc 1
-    assert_err_has "projects, status, health, providers, images, resolve, provider setup, image build, dashboard, help"
+    assert_err_has "projects, status, health, providers, images, resolve, remove, provider setup, image build, dashboard, help"
     run_osa projects --quick
     assert_rc 1
 }
@@ -8277,7 +8279,7 @@ test_resolve_dispatch_refusals() {
     assert_out_has "resolve SANDBOX ACTION"
     run_osa up
     assert_rc 1
-    assert_err_has "projects, status, health, providers, images, resolve, provider setup, image build, dashboard, help"
+    assert_err_has "projects, status, health, providers, images, resolve, remove, provider setup, image build, dashboard, help"
     run_osa resolve
     assert_rc 1
     run_osa resolve maki-x frobnicate
@@ -8693,6 +8695,154 @@ test_resolve_session_lock() {
     run_maki run "edit"
     assert_rc 0
     [ ! -d "$lock_dir/resolve.d" ] || bad "the stale resolve lock was not removed"
+}
+
+# ---------------------------------------------------------------------------
+# osa remove (specs/osa-project-layer: "osa removes a project", "Project
+# registry", "Session and resolve exclusion").
+# ---------------------------------------------------------------------------
+
+# Prints the archived session directories of SANDBOX, one per line.
+remove_archives() { # SANDBOX
+    find "$(state_root)/sessions" -maxdepth 1 -name "$1.archive-*" 2>/dev/null
+}
+
+# Checks that SANDBOX's project is fully registered: the entry exists and no
+# archive was made.
+assert_still_registered() { # SANDBOX WHY
+    [ -f "$(registry_entry "$1")" ] || bad "$2: the registry entry is gone"
+    [ -z "$(remove_archives "$1")" ] || bad "$2: the session state was archived"
+}
+
+test_osa_remove() {
+    begin "osa remove usage"
+    new_case remove-usage
+    mkdir -p "$CASE/project"
+    run_osa help
+    assert_rc 0
+    assert_out_has "remove SANDBOX --yes"
+    run_osa remove
+    assert_rc 1
+    run_osa remove a b --yes
+    assert_rc 1
+
+    begin "osa remove deletes a listed sandbox, archives its state, and forgets the project"
+    for rm_front in maki cc; do
+        front_case "$rm_front" "remove-listed-$rm_front"
+        RUN_DIR=$CASE/project/myproject
+        mkdir -p "$RUN_DIR"
+        run_front "$rm_front" up
+        assert_rc 0
+        rm_name=$(basename "$(find "$(state_root)/projects" -name '*.toml' | head -n 1)" .toml)
+        [ -n "$rm_name" ] || bad "$rm_front: up registered nothing"
+        reset_log
+        run_osa_for "$rm_front" remove "$rm_name" --yes --json
+        assert_rc 0
+        assert_json_object ".ok == true and .action == \"remove\" and .sandbox == \"$rm_name\" and (.changed | length) == 3 and .changed[0] == \"gateway:$rm_name\""
+        assert_invocation "sandbox delete $rm_name"
+        [ ! -f "$(registry_entry "$rm_name")" ] || bad "$rm_front: the registry entry is still there"
+        [ ! -e "$(session_dir "$rm_name")" ] || bad "$rm_front: the session directory is still there"
+        [ -n "$(remove_archives "$rm_name")" ] || bad "$rm_front: no archive was made"
+        run_osa projects --json
+        assert_json_array 0
+    done
+
+    begin "osa remove forgets a project whose sandbox is not on the gateway"
+    new_case remove-gone
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_registry_entry mk-gone-0000 mk "$(physical_dir "$RUN_DIR")"
+    reset_log
+    run_osa remove mk-gone-0000 --yes --json
+    assert_rc 0
+    assert_json_object '.ok == true and (.changed | length) == 2 and (.changed | map(startswith("gateway:")) | any | not)'
+    assert_log_line_missing "delete"
+    [ ! -f "$(registry_entry mk-gone-0000)" ] || bad "the registry entry is still there"
+
+    begin "osa remove removes an orphan, deleting its listed sandbox"
+    new_case remove-orphan
+    seed_registry_entry mk-ghost-0000 mk "$CASE/project/gone"
+    seed_sandbox mk-ghost-0000 Ready
+    reset_log
+    run_osa remove mk-ghost-0000 --yes
+    assert_rc 0
+    assert_invocation "sandbox delete mk-ghost-0000"
+    [ ! -f "$(registry_entry mk-ghost-0000)" ] || bad "the orphan's entry is still there"
+
+    begin "osa remove refuses pending work, a missing --yes, and an unregistered name"
+    new_case remove-retained
+    resolve_fixture maki plain
+    reset_log
+    run_osa remove "$RS_NAME" --yes
+    assert_rc 2
+    assert_err_has "osa resolve $RS_NAME apply"
+    assert_err_has "osa resolve $RS_NAME branch"
+    assert_err_has "osa resolve $RS_NAME drop --yes"
+    assert_log_empty "a refused remove contacted the gateway"
+    assert_still_registered "$RS_NAME" "retained"
+    [ "$(pending_value "$RS_NAME" kind)" = retained ] || bad "the marker changed"
+
+    new_case remove-parked
+    resolve_fixture maki parked
+    reset_log
+    run_osa remove "$RS_NAME" --yes --json
+    assert_rc 2
+    assert_json_object '.ok == false and .action == "remove" and .changed == [] and (.message | test("parked"))'
+    assert_err_has "osa resolve $RS_NAME rescue"
+    assert_log_empty "a refused remove contacted the gateway"
+    assert_still_registered "$RS_NAME" "parked"
+
+    new_case remove-no-yes
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    run_maki up
+    reset_log
+    run_osa remove maki-myproject
+    assert_rc 2
+    assert_err_has "--yes"
+    assert_log_empty "a remove without --yes contacted the gateway"
+    assert_still_registered maki-myproject "no --yes"
+
+    reset_log
+    run_osa remove maki-nope --yes --json
+    assert_rc 2
+    assert_json_object '.ok == false and .action == "remove" and .sandbox == "maki-nope"'
+    assert_err_has "not registered"
+    assert_log_empty "an unregistered remove contacted the gateway"
+
+    begin "osa remove keeps the local state when the gateway fails"
+    GATEWAY_DOWN=1
+    run_osa remove maki-myproject --yes --json
+    GATEWAY_DOWN=
+    assert_rc 3
+    assert_json_object '.ok == false and .changed == []'
+    assert_still_registered maki-myproject "gateway down"
+
+    DELETE_FAIL=1
+    run_osa remove maki-myproject --yes
+    DELETE_FAIL=
+    assert_rc 3
+    assert_err_has "stays registered"
+    assert_still_registered maki-myproject "delete failed"
+    [ -f "$STUB_STATE_DIR/sandboxes/maki-myproject" ] || bad "the stub sandbox is gone"
+    [ ! -d "$(session_dir maki-myproject)/locks/resolve.d" ] || bad "a failed remove kept its lock"
+
+    begin "osa remove refuses while a session holds the sandbox"
+    lock_dir=$(session_dir maki-myproject)/locks
+    mkdir -p "$lock_dir"
+    holder=$(start_holder)
+    : >"$lock_dir/session.$holder"
+    reset_log
+    run_osa remove maki-myproject --yes
+    assert_rc 2
+    assert_err_has "a session is running"
+    assert_log_empty "a remove during a session contacted the gateway"
+    assert_still_registered maki-myproject "session running"
+    kill "$holder" 2>/dev/null || true
+    wait "$holder" 2>/dev/null || true
+    rm -f "$lock_dir/session.$holder"
+    run_osa remove maki-myproject --yes
+    assert_rc 0
 }
 
 test_resolve_recovery_text() {
@@ -9319,6 +9469,7 @@ run_test test_resolve_rescue
 run_test test_resolve_discard
 run_test test_resolve_session_lock
 run_test test_resolve_recovery_text
+run_test test_osa_remove
 run_test test_help
 run_test test_usage_errors
 run_test test_config_precedence

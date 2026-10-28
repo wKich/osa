@@ -55,6 +55,7 @@
 #                         baseline failures)
 #   STUB_ATTACH_FAIL      "1" makes `sandbox provider attach` fail with a
 #                         gateway error after the sandbox check
+#   STUB_DELETE_FAIL      "1" makes `sandbox delete` fail and keep the sandbox
 
 set -eu
 
@@ -259,6 +260,10 @@ case $command_name in
                 ;;
             delete)
                 sandbox_name=${1:-}
+                if [ "${STUB_DELETE_FAIL:-0}" = 1 ]; then
+                    printf 'stub: cannot delete sandbox %s\n' "$sandbox_name" >&2
+                    exit 1
+                fi
                 rm -f "$sandboxes/$sandbox_name" "$providers/$sandbox_name"
                 if [ -n "$state" ]; then
                     rm -f "$state/ids/$sandbox_name"

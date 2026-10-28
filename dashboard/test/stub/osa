@@ -28,8 +28,14 @@
 //           "remove": [ ... ]     // files deleted on exit 0, like a cleared marker
 //         }
 //       }
+//     },
+//     "remove": {
+//       "SANDBOX": { ...the same keys as one resolve ACTION... }
 //     }
 //   }
+//
+// `remove SANDBOX --yes --json` answers from the `remove` key the way resolve
+// does (`remove` there lists the files to delete, like the registry entry).
 //
 // `images --json` answers from the fixture's `images` array, else the built-in
 // IMAGE_FIXTURES (present, missing, error with markup, configured); a tag the
@@ -65,8 +71,8 @@
 // for an unregistered path; a quick entry reports `busy` and `idle` as the
 // fixture gives them, and `idle` is `{"state": "none", ...}` when it gives
 // none. A health request for a sandbox with no answer is a usage error
-// (exit 1), like osa for an unregistered sandbox. A resolve with no answer
-// is refused with exit 2. Every other command is a usage error.
+// (exit 1), like osa for an unregistered sandbox. A resolve or remove with no
+// answer is refused with exit 2. Every other command is a usage error.
 //
 // Environment knobs:
 //   STUB_OSA_FIXTURE  JSON fixture file (default: none, every answer is [])
@@ -469,7 +475,8 @@ const resolve =
   args[0] === "resolve" &&
   args[3] === "--json" &&
   (args.length === 4 || (args.length === 5 && args[4] === "--yes"));
-if (!(quick || full || health || resolve)) {
+const remove = args[0] === "remove" && args.length === 4 && args[2] === "--yes" && args[3] === "--json";
+if (!(quick || full || health || resolve || remove)) {
   process.stderr.write(`stub osa: unsupported argv: ${args.join(" ")}\n`);
   process.exit(1);
 }
@@ -496,11 +503,12 @@ if (health) {
   process.exit(answer.exit ?? 0);
 }
 
-if (resolve) {
-  const [, sandbox, action] = args as [string, string, string];
-  const answer = fixture.resolve?.[sandbox]?.[action] ?? {
+if (resolve || remove) {
+  const sandbox = args[1]!;
+  const action = remove ? "remove" : args[2]!;
+  const answer = (remove ? fixture.remove?.[sandbox] : fixture.resolve?.[sandbox]?.[action]) ?? {
     exit: 2,
-    message: `stub osa: no resolve answer for ${sandbox} ${action}`,
+    message: `stub osa: no ${remove ? "remove" : "resolve"} answer for ${sandbox}${remove ? "" : ` ${action}`}`,
   };
   const exit = answer.exit ?? 0;
   if (answer.delay) await Bun.sleep(answer.delay * 1000);

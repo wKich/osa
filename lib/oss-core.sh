@@ -2780,13 +2780,25 @@ cmd_run() {
 # the caller's workdir match a host tree and records a baseline; `collect-patch`
 # hands back the workdir's changes against it as a binary patch. The baseline
 # git directory sits outside the workdir, keyed by the workdir's path, so
-# several caller workdirs in one sandbox keep separate baselines and the agent
-# never sees a repository. Nothing is written under the host state root.
+# several caller workdirs in one sandbox keep separate baselines. A git
+# HOST_TREE also gets a second, agent-facing repository (and a `.git` file in
+# the workdir) built from a host bundle. Both git directories are separate
+# from the workdir; that is operational separation, not an access-control
+# boundary against the same sandbox uid. Nothing is written under the host
+# state root.
 # ---------------------------------------------------------------------------
 
 caller_git_dir() { # WORKDIR
     cgd_key=$(printf '%s' "$1" | cksum | cut -d ' ' -f 1)
     printf '%s/caller/%s' "$(dirname -- "$(sandbox_git_dir "$1")")" "$cgd_key"
+}
+
+caller_repo_dir() { # WORKDIR
+    printf '%s-repo' "$(caller_git_dir "$1")"
+}
+
+caller_bundle_path() { # WORKDIR
+    printf '%s-bundle' "$(caller_git_dir "$1")"
 }
 
 caller_script() { # NAME WORKDIR SCRIPT [EXTRA]
@@ -2798,22 +2810,49 @@ caller_script() { # NAME WORKDIR SCRIPT [EXTRA]
         sh -c "$cs_script" "$PROGRAM-git" "$(caller_git_dir "$cs_workdir")" "$cs_workdir" "$@"
 }
 
-# Empties the workdir and drops the old baseline first, so a sync-in that
-# fails later leaves nothing collect-patch would accept.
+# Empties the workdir and drops the old baseline, agent repository, and a
+# stale bundle first, so a sync-in that fails later leaves nothing
+# collect-patch would accept.
 # shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
 CALLER_CLEAR_SCRIPT='set -e
-gitdir=$1 worktree=$2
-rm -rf "$gitdir"
-mkdir -p "$worktree"
+gitdir=$1 worktree=$2 repodir=$3 bundle=$4
+rm -rf "$gitdir" "$repodir" "$bundle"
+mkdir -p "$(dirname -- "$gitdir")" "$worktree"
 find "$worktree" -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
 
-# Prints "<commit> <files> <bytes>". A `.git` the upload brought along (a
-# linked worktree's pointer file, a plain directory's repository) is removed
-# so the workdir holds no host git metadata.
+# Builds the agent-facing repository from the uploaded bundle. The worktree
+# files stay uncommitted: HEAD is the host commit, the index is seeded from
+# the host tree, and a mixed reset leaves git status/diff comparing the
+# uploaded files against HEAD. The bundle is removed on every exit path.
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+CALLER_HISTORY_SCRIPT='set -e
+gitdir=$1 worktree=$2 repodir=$3 bundle=$4 commit=$5 base_name=$6 base_ref=$7 base_commit=$8
+trap '\''rm -f "$bundle"'\'' EXIT
+rm -rf "$repodir" "$worktree/.git"
+mkdir -p "$repodir" "$worktree"
+git init -q --separate-git-dir="$repodir" "$worktree"
+git --git-dir="$repodir" fetch -q --no-tags "$bundle" HEAD
+if [ -n "$base_ref" ]; then
+    git --git-dir="$repodir" fetch -q --no-tags "$bundle" "$base_ref"
+fi
+git --git-dir="$repodir" update-ref --no-deref HEAD "$commit"
+if [ -n "$base_name" ]; then
+    git --git-dir="$repodir" update-ref "refs/remotes/origin/$base_name" "$base_commit"
+fi
+GIT_DIR=$repodir GIT_WORK_TREE=$worktree git read-tree "$commit"
+GIT_DIR=$repodir GIT_WORK_TREE=$worktree git reset -q --mixed'
+
+# Prints "<commit> <files> <bytes>". With KEEPGIT=0 a `.git` the upload
+# brought along (a linked worktree's pointer file, a plain directory's
+# repository) is removed so the workdir holds no host git metadata. A git
+# HOST_TREE passes KEEPGIT=1 after the history script installed the helper's
+# own `.git` file; git ignores that file when the baseline is recorded.
 # shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
 CALLER_BASELINE_SCRIPT='set -e
-gitdir=$1 worktree=$2
-rm -rf "$worktree/.git"
+gitdir=$1 worktree=$2 keepgit=$3
+if [ "$keepgit" -eq 0 ]; then
+    rm -rf "$worktree/.git"
+fi
 export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
 export GIT_AUTHOR_NAME='"$PROGRAM"' GIT_AUTHOR_EMAIL='"$PROGRAM"'@localhost
 export GIT_COMMITTER_NAME='"$PROGRAM"' GIT_COMMITTER_EMAIL='"$PROGRAM"'@localhost
@@ -2878,17 +2917,101 @@ caller_require_running() { # NAME
     esac
 }
 
+# Resolves --base on the host. Sets si_base_commit, si_base_name (the name
+# under refs/remotes/origin), si_base_ref (the ref to carry in the bundle),
+# and si_base_temp_ref (a temporary host ref for a commit expression, which
+# has no ref of its own). Every value that reaches the sandbox is validated
+# here, before any gateway call.
+caller_resolve_base() { # TREE REF
+    crb_tree=$1
+    crb_ref=$2
+    si_base_commit=
+    si_base_name=
+    si_base_ref=
+    si_base_temp_ref=
+    if [ -z "$crb_ref" ]; then
+        return 0
+    fi
+    si_base_commit=$(git -C "$crb_tree" rev-parse -q --verify --end-of-options "$crb_ref^{commit}" 2>/dev/null) \
+        || die_usage "sync-in: --base '$crb_ref' does not name a commit in '$crb_tree'"
+    si_base_symbolic=$(git -C "$crb_tree" rev-parse -q --verify --symbolic-full-name --end-of-options "$crb_ref" 2>/dev/null) || si_base_symbolic=
+    case $si_base_symbolic in
+        refs/heads/*)
+            si_base_name=${si_base_symbolic#refs/heads/}
+            si_base_ref=$si_base_symbolic
+            ;;
+        refs/remotes/*/*)
+            si_base_name=${si_base_symbolic#refs/remotes/}
+            si_base_name=${si_base_name#*/}
+            si_base_ref=$si_base_symbolic
+            ;;
+        refs/tags/*)
+            si_base_name=base
+            si_base_ref=$si_base_symbolic
+            ;;
+        *)
+            si_base_name=base
+            si_base_temp_ref=refs/$PROGRAM-bundle/$$
+            ;;
+    esac
+    [ -n "$si_base_name" ] \
+        || die_usage "sync-in: --base '$crb_ref' does not name a usable origin ref"
+    git check-ref-format "refs/remotes/origin/$si_base_name" \
+        || die_usage "sync-in: --base '$crb_ref' does not name a usable origin ref"
+}
+
 cmd_sync_in() {
-    [ "$#" -eq 1 ] || die_usage "usage: $PROGRAM sync-in HOST_TREE [--json]"
+    [ "$#" -eq 1 ] || die_usage "usage: $PROGRAM sync-in HOST_TREE [--base REF] [--json]"
     caller_sync_target sync-in
     [ -d "$1" ] || die_usage "sync-in: '$1' is not a directory"
     si_tree=$(CDPATH='' cd -- "$1" && pwd -P) || die_usage "sync-in: cannot enter '$1'"
+    si_git=0
+    if git -C "$si_tree" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        si_git=1
+        si_head=$(git -C "$si_tree" rev-parse -q --verify --end-of-options 'HEAD^{commit}' 2>/dev/null) \
+            || die_usage "sync-in: '$si_tree' has no HEAD commit to sync"
+    fi
+    if [ -n "$opt_base_ref" ] && [ "$si_git" -eq 0 ]; then
+        die_usage "sync-in: --base '$opt_base_ref' needs a git HOST_TREE"
+    fi
+    caller_resolve_base "$si_tree" "$opt_base_ref"
     require_openshell
     name=$(resolved_name)
     workdir=$(resolved_workdir)
+    repo=$(caller_repo_dir "$workdir")
+    bundle=$(caller_bundle_path "$workdir")
     caller_require_running "$name"
-    if ! caller_script "$name" "$workdir" "$CALLER_CLEAR_SCRIPT" >/dev/null 2>&1; then
+    if ! caller_script "$name" "$workdir" "$CALLER_CLEAR_SCRIPT" "$repo" "$bundle" >/dev/null 2>&1; then
         die_gateway "could not clear '$name:$workdir'"
+    fi
+    si_bundle_tmp=
+    if [ "$si_git" -eq 1 ]; then
+        si_bundle_tmp=${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-sync.$$
+        rm -f "$si_bundle_tmp"
+        if [ -n "$si_base_temp_ref" ]; then
+            if ! git -C "$si_tree" update-ref "$si_base_temp_ref" "$si_base_commit"; then
+                die_dep "sync-in: could not prepare the base commit in '$si_tree'"
+            fi
+            si_base_ref=$si_base_temp_ref
+        fi
+        # The bundle carries HEAD and the optional base. It follows no host
+        # remotes, hooks, reflogs, stash entries, or credential helpers.
+        if [ -n "$si_base_ref" ]; then
+            set -- HEAD "$si_base_ref"
+        else
+            set -- HEAD
+        fi
+        if ! (umask 077 && git -C "$si_tree" bundle create -q "$si_bundle_tmp" "$@"); then
+            if [ -n "$si_base_temp_ref" ]; then
+                git -C "$si_tree" update-ref -d "$si_base_temp_ref" >/dev/null 2>&1 || :
+            fi
+            rm -f "$si_bundle_tmp"
+            die_dep "sync-in: could not create a git bundle for '$si_tree'"
+        fi
+        if [ -n "$si_base_temp_ref" ]; then
+            git -C "$si_tree" update-ref -d "$si_base_temp_ref" >/dev/null 2>&1 || :
+        fi
+        chmod 600 "$si_bundle_tmp" 2>/dev/null || :
     fi
     # The same `.gitignore`-filtered upload a managed refresh uses.
     set -- sandbox upload
@@ -2896,8 +3019,35 @@ cmd_sync_in() {
         set -- "$@" --no-git-ignore
     fi
     set -- "$@" "$name" . "$workdir"
-    (cd "$si_tree" && run_gateway "$@") >&2 || exit "$?"
-    if ! si_result=$(caller_script "$name" "$workdir" "$CALLER_BASELINE_SCRIPT" 2>/dev/null); then
+    if ! (cd "$si_tree" && run_gateway "$@") >&2; then
+        [ -z "$si_bundle_tmp" ] || rm -f "$si_bundle_tmp"
+        exit "$EX_GATEWAY"
+    fi
+    if [ "$si_git" -eq 1 ]; then
+        set -- sandbox upload
+        set -- "$@" "$name" "$si_bundle_tmp" "$bundle"
+        if ! (run_gateway "$@") >&2; then
+            rm -f "$si_bundle_tmp"
+            exit "$EX_GATEWAY"
+        fi
+        if ! caller_script "$name" "$workdir" "$CALLER_HISTORY_SCRIPT" \
+            "$repo" "$bundle" "$si_head" "$si_base_name" "$si_base_ref" "$si_base_commit" \
+            >/dev/null 2>&1; then
+            rm -f "$si_bundle_tmp"
+            caller_script "$name" "$workdir" "$CALLER_CLEAR_SCRIPT" "$repo" "$bundle" \
+                >/dev/null 2>&1 || :
+            die_gateway "uploaded, but could not set up history in '$name:$workdir'"
+        fi
+        rm -f "$si_bundle_tmp"
+    fi
+    if [ "$si_git" -eq 1 ]; then
+        si_keepgit=1
+    else
+        si_keepgit=0
+    fi
+    if ! si_result=$(caller_script "$name" "$workdir" "$CALLER_BASELINE_SCRIPT" "$si_keepgit" 2>/dev/null); then
+        caller_script "$name" "$workdir" "$CALLER_CLEAR_SCRIPT" "$repo" "$bundle" \
+            >/dev/null 2>&1 || :
         die_gateway "uploaded, but could not record the baseline in '$name:$workdir'"
     fi
     # shellcheck disable=SC2086  # three space-separated fields
@@ -5861,6 +6011,7 @@ opt_yes=0
 opt_reason=
 opt_full=0
 opt_base=0
+opt_base_ref=
 opt_global=0
 opt_wait=0
 opt_tail=0
@@ -5979,6 +6130,14 @@ oss_main() {
     oss_init
 
     OPT_ARGC=$#
+    # --base is a value option for `sync-in` and a boolean for `policy show`,
+    # so the parse order follows the command the caller asked for.
+    base_ref_syntax=0
+    for opt_word in "$@"; do
+        case $opt_word in
+            sync-in) base_ref_syntax=1 ;;
+        esac
+    done
     # The loop below rotates command words to the end of argv, so a value flag in
     # the last position would pull a command word back in as its own value. Catch
     # a trailing --resume/--session-id before that rotation starts.
@@ -5989,6 +6148,10 @@ oss_main() {
         --timeout) die_usage "option --timeout requires a value" ;;
         --idle-stop) die_usage "option --idle-stop requires a value" ;;
         --out) die_usage "option --out requires a value" ;;
+        --base)
+            [ "$base_ref_syntax" -eq 0 ] \
+                || die_usage "option --base requires a value"
+            ;;
     esac
     OPT_I=0
     while [ "$OPT_I" -lt "$OPT_ARGC" ]; do
@@ -6193,7 +6356,17 @@ oss_main() {
                 OPT_I=$((OPT_I + 1))
                 ;;
             --full) opt_full=1 ;;
-            --base) opt_base=1 ;;
+            --base)
+                if [ "$base_ref_syntax" -eq 1 ]; then
+                    [ "$#" -gt 0 ] || die_usage "option --base requires a value"
+                    [ -n "$1" ] || die_usage "option --base requires a non-empty value"
+                    opt_base_ref=$1
+                    shift
+                    OPT_I=$((OPT_I + 1))
+                else
+                    opt_base=1
+                fi
+                ;;
             --global) opt_global=1 ;;
             --wait) opt_wait=1 ;;
             --tail) opt_tail=1 ;;

@@ -577,25 +577,55 @@ caller's workdir and hand the agent's edits back as a patch. They are refused
 with exit 1 outside caller mode, need the same literal name and workdir as
 `run`, and write nothing under the host state root.
 
-- `sync-in HOST_TREE [--json]` requires a running sandbox (a missing or
-  stopped one exits 3). It empties the workdir, uploads HOST_TREE with the
-  same `.gitignore` filtering as `upload` (`--no-git-ignore` turns it off), so
-  uncommitted, staged, and untracked files arrive as they are on disk, and
-  removes any `.git` the upload brought along, including a linked worktree's
-  pointer file. It then records the workdir as a baseline commit in a git
-  directory outside the workdir, keyed by the workdir's path, so the agent
-  sees no repository and several workdirs in one sandbox keep separate
-  baselines. Each `sync-in` replaces the previous baseline; a failed one
-  leaves none. `--json` prints one object:
-  `{"baseline":"<commit>","files":N,"bytes":B}`.
+- `sync-in HOST_TREE [--base REF] [--json]` requires a running sandbox (a
+  missing or stopped one exits 3). It empties the workdir, uploads HOST_TREE
+  with the same `.gitignore` filtering as `upload` (`--no-git-ignore` turns it
+  off), so uncommitted, staged, and untracked files arrive as they are on
+  disk. It then records the workdir as a baseline commit in a git directory
+  outside the workdir, keyed by the workdir's path, so several workdirs in one
+  sandbox keep separate baselines. Each `sync-in` replaces the previous
+  baseline; a failed one leaves none. `--json` prints one object:
+  `{"baseline":"<commit>","files":N,"bytes":B}`, with the helper's own git
+  metadata excluded from the counts.
+
+  When HOST_TREE is a git worktree, the helper also creates a second,
+  agent-facing repository. It bundles the host `HEAD` (and the optional base),
+  uploads the bundle outside the workdir, and leaves a helper-created `.git`
+  file in the workdir pointing at a sandbox git directory. That `.git` file is
+  not a copy of the host's `.git` file or directory: host remotes, hooks,
+  reflogs, stash entries, credential helpers, and other configuration stay on
+  the host. The sandbox `HEAD` is the host commit, and the uploaded files stay
+  uncommitted, so `git log`, `git status`, and `git diff` describe the host's
+  history and its dirty tree. The index is seeded from host `HEAD`, not copied
+  from the host index, so staged changes become unstaged and a partially
+  staged file keeps its on-disk content without its staging split. The bundle
+  carries reachable history, including old blobs; a repository with secrets in
+  its past exposes them to the agent. A directory that is not a git worktree
+  keeps the earlier snapshot behavior: no history, no `.git`, and no bundle.
+
+  `--base REF` resolves `REF` to a commit on the host before any gateway call
+  and exposes it as `refs/remotes/origin/<name>`. A local or remote-tracking
+  branch keeps its short name, including slashes (`--base origin/master` makes
+  `git diff origin/master` work, and `origin/release/next` stays
+  `refs/remotes/origin/release/next`). A commit id, tag, or other commit
+  expression uses `origin/base`. An unresolvable ref, an unusable destination
+  ref, or `--base` on a non-git tree exits 1 before any gateway call.
+
+  The baseline and agent repositories are separate directories. Ordinary
+  sandbox git commands cannot address the baseline, and the baseline commit is
+  not in the agent's history; this is operational separation, not protection
+  against an agent with the same uid that explicitly tampers with the caller
+  state directory.
 - `collect-patch --out FILE [--json]` writes a binary git patch
   (`git diff --binary --full-index`) of the workdir against the last
   `sync-in` baseline: additions, modifications, deletions, renames, mode and
-  binary changes, never a `.git` directory the agent created. FILE is mode
-  600, appears only once collection succeeded, and is empty for an unchanged
-  workdir. The baseline does not move, so collecting twice gives the same
-  patch. Without a prior `sync-in` it exits 1 naming `sync-in` and writes no
-  FILE. `--json` prints one object:
+  binary changes. It never carries the helper-created `.git` file or a `.git`
+  directory the agent created. An agent commit in the workdir is captured
+  through the worktree tree, so its changes are still in the patch. FILE is
+  mode 600, appears only once collection succeeded, and is empty for an
+  unchanged workdir. The baseline does not move, so collecting twice gives the
+  same patch. Without a prior `sync-in` it exits 1 naming `sync-in` and writes
+  no FILE. `--json` prints one object:
   `{"empty":false,"baseline":"<commit>","files":[{"status":"M","path":"a.txt"}]}`,
   where `status` is the `git diff --name-status` letter (`A`, `M`, `D`, `T`).
 
@@ -607,7 +637,11 @@ reading the prompt from stdin and the role's deny and fork flags after `--`
 export MAKI_OSS_WORKSPACE=caller MAKI_OSS_IDLE_STOP=0 \
   MAKI_OSS_SANDBOX_NAME=task-42 MAKI_OSS_WORKDIR=/sandbox/tasks/t42
 maki-oss up
-maki-oss sync-in ~/src/app-wt-42 --json
+maki-oss sync-in ~/src/app-wt-42 --base origin/master --json
+# Reviewer-style commands inside the sandbox workdir:
+#   git log --oneline
+#   git diff origin/master
+#   git blame -- path/to/file
 maki-oss run --timeout 1800 - \
   -- --disallowed-tools Write,Edit --fork-session \
   <prompt.md >events.jsonl

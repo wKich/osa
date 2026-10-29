@@ -9509,6 +9509,10 @@ caller_sync_case() { # NAME
     CALLER_WORKDIR=$ENV_WORKDIR
 }
 
+caller_host_commit() { # TREE MESSAGE
+    git -C "$1" -c user.name=t -c user.email=t@localhost commit -qam "$2"
+}
+
 # jq-only JSON checks; the line fallback in assert_json_object is for osa's
 # own objects.
 assert_caller_json() { # FILTER
@@ -9567,7 +9571,7 @@ test_caller_sync_in_requires_target() {
 }
 
 test_caller_sync_in_dirty_tree() {
-    begin "sync-in copies the dirty tree as it is on disk, without ignored files or .git"
+    begin "sync-in copies the dirty tree as it is on disk, without ignored files or host .git metadata"
     caller_sync_case caller-sync-dirty
     printf 'alpha changed\n' >"$HOST_TREE/a.txt"
     printf 'new\n' >"$HOST_TREE/untracked.txt"
@@ -9577,21 +9581,27 @@ test_caller_sync_in_dirty_tree() {
         || bad "the modified file did not arrive: $(cat "$CALLER_WORKDIR/a.txt" 2>/dev/null)"
     [ -f "$CALLER_WORKDIR/untracked.txt" ] || bad "the untracked file did not arrive"
     [ -e "$CALLER_WORKDIR/bin/out.dll" ] && bad "the ignored file was uploaded"
-    [ -e "$CALLER_WORKDIR/.git" ] && bad "host git metadata reached the workdir"
+    [ -f "$CALLER_WORKDIR/.git" ] || bad "the workdir has no helper-created .git file"
+    grep -q "$HOST_TREE" "$CALLER_WORKDIR/.git" 2>/dev/null && bad "the host .git pointer reached the workdir"
     assert_log_has "upload"
     return 0
 }
 
 test_caller_sync_in_linked_worktree() {
-    begin "sync-in accepts a linked worktree and leaves its .git file behind"
+    begin "sync-in accepts a linked worktree and gives it the host history"
     caller_sync_case caller-sync-worktree
     git -C "$HOST_TREE" worktree add -q "$CASE/linked" -b task >/dev/null 2>&1 \
         || bad "could not create the linked worktree"
     [ -f "$CASE/linked/.git" ] || bad "the linked worktree has no .git file"
+    printf 'linked change\n' >"$CASE/linked/a.txt"
     run_maki sync-in "$CASE/linked"
     assert_rc 0
     [ -f "$CALLER_WORKDIR/a.txt" ] || bad "the worktree's files did not arrive"
-    [ -e "$CALLER_WORKDIR/.git" ] && bad "the worktree's .git file reached the workdir"
+    [ -f "$CALLER_WORKDIR/.git" ] || bad "the workdir has no helper-created .git file"
+    [ "$(git -C "$CALLER_WORKDIR" rev-list --count HEAD 2>/dev/null)" = 1 ] \
+        || bad "git log does not show the linked worktree's history"
+    git -C "$CALLER_WORKDIR" status --porcelain 2>/dev/null | grep -q 'a.txt' \
+        || bad "git status does not show the linked worktree's change"
     return 0
 }
 
@@ -9613,14 +9623,13 @@ test_caller_sync_in_json() {
     caller_sync_case caller-sync-json
     run_maki sync-in "$HOST_TREE" --json
     assert_rc 0
-    # .gitignore, a.txt, del.txt, ren.txt
+    # .gitignore, a.txt, del.txt, ren.txt; the helper .git file is not counted.
     assert_caller_json '.files == 4 and (.baseline | test("^[0-9a-f]{40}$")) and .bytes > 0'
-    # The baseline lives outside the workdir: git finds no repository there.
-    if git -C "$CALLER_WORKDIR" rev-parse --git-dir >/dev/null 2>&1; then
-        case $(git -C "$CALLER_WORKDIR" rev-parse --show-toplevel 2>/dev/null) in
-            "$CALLER_WORKDIR") bad "the workdir is a git repository" ;;
-        esac
-    fi
+    # The workdir is the agent repository, and the baseline lives outside it.
+    [ -f "$CALLER_WORKDIR/.git" ] || bad "the workdir is not the agent repository"
+    json_base=$(sed -n 's/.*"baseline":"\([0-9a-f]*\)".*/\1/p' "$OUT")
+    git -C "$CALLER_WORKDIR" log --all --format=%H 2>/dev/null | grep -q "^$json_base$" \
+        && bad "the baseline commit is reachable from the agent repository"
     return 0
 }
 
@@ -9708,15 +9717,19 @@ test_caller_collect_patch_empty() {
 }
 
 test_caller_collect_patch_excludes_agent_git() {
-    begin "collect-patch leaves out a repository the agent created in the workdir"
+    begin "collect-patch leaves out the helper .git file and a repository the agent created"
     caller_sync_case caller-collect-git
-    caller_sync_in || return 0
+    caller_sync_in --json || return 0
+    collect_base=$(sed -n 's/.*"baseline":"\([0-9a-f]*\)".*/\1/p' "$OUT")
     printf 'alpha edited\n' >"$CALLER_WORKDIR/a.txt"
+    rm -f "$CALLER_WORKDIR/.git"
     (
         cd "$CALLER_WORKDIR"
         unset GIT_DIR GIT_WORK_TREE
         git init -q && git add -A && git -c user.name=a -c user.email=a@localhost commit -qm agent
     ) || bad "could not create the agent repository"
+    git -C "$CALLER_WORKDIR" log --all --format=%H 2>/dev/null | grep -q "^$collect_base$" \
+        && bad "the baseline commit is reachable from the agent repository"
     run_maki collect-patch --out "$CASE/p.diff"
     assert_rc 0
     grep -q '^diff --git a/a.txt' "$CASE/p.diff" || bad "the edit is missing from the patch"
@@ -9786,6 +9799,234 @@ test_caller_collect_patch_json() {
     assert_caller_json ".empty == false and .baseline == \"$cpj_base\" and
         (.files | length) == 3 and
         (.files | map(\"\(.status) \(.path)\") | sort) == [\"A new.txt\", \"D del.txt\", \"M a.txt\"]"
+}
+
+test_caller_sync_in_history() {
+    begin "sync-in gives a git HOST_TREE the host history with the dirty tree uncommitted"
+    caller_sync_case caller-sync-history
+    printf 'beta\n' >>"$HOST_TREE/a.txt"
+    caller_host_commit "$HOST_TREE" second
+    printf 'alpha changed\n' >"$HOST_TREE/a.txt"
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 0
+    [ -f "$CALLER_WORKDIR/.git" ] || bad "the workdir has no helper-created .git file"
+    [ "$(git -C "$CALLER_WORKDIR" rev-list --count HEAD 2>/dev/null)" = 2 ] \
+        || bad "git log does not show both host commits"
+    git -C "$CALLER_WORKDIR" status --porcelain 2>/dev/null | grep -q '^ M a.txt$' \
+        || bad "git status does not show the modified file"
+    git -C "$CALLER_WORKDIR" diff -- a.txt 2>/dev/null | grep -q '^+alpha changed' \
+        || bad "git diff does not show the uncommitted change"
+    return 0
+}
+
+test_caller_sync_in_history_base() {
+    begin "sync-in --base exposes a diverged base as refs/remotes/origin/<branch>"
+    caller_sync_case caller-sync-history-base
+    base_commit=$(git -C "$HOST_TREE" rev-parse HEAD)
+    git -C "$HOST_TREE" update-ref refs/remotes/origin/master "$base_commit"
+    git -C "$HOST_TREE" checkout -qb task
+    printf 'task work\n' >>"$HOST_TREE/a.txt"
+    caller_host_commit "$HOST_TREE" task
+    run_maki sync-in "$HOST_TREE" --base origin/master
+    assert_rc 0
+    [ "$(git -C "$CALLER_WORKDIR" rev-parse refs/remotes/origin/master 2>/dev/null)" = "$base_commit" ] \
+        || bad "refs/remotes/origin/master does not name the host base commit"
+    git -C "$CALLER_WORKDIR" diff --quiet origin/master 2>/dev/null \
+        && bad "git diff origin/master does not compare the worktree with the base"
+    return 0
+}
+
+test_caller_sync_in_history_no_host_metadata() {
+    begin "sync-in does not copy host remotes, hooks, stash, or credential helpers"
+    caller_sync_case caller-sync-history-meta
+    git -C "$HOST_TREE" remote add origin https://example.invalid/repo.git
+    git -C "$HOST_TREE" config credential.helper store
+    printf '#!/bin/sh\n' >"$HOST_TREE/.git/hooks/pre-commit"
+    chmod +x "$HOST_TREE/.git/hooks/pre-commit"
+    printf 'stashed\n' >"$HOST_TREE/stash.txt"
+    git -C "$HOST_TREE" add stash.txt
+    git -C "$HOST_TREE" -c user.name=t -c user.email=t@localhost stash -q
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 0
+    [ -f "$CALLER_WORKDIR/.git" ] || bad "the workdir has no helper-created .git file"
+    bundle_upload=$(grep -- '-bundle$' "$LOG" | head -n 1)
+    [ -n "$bundle_upload" ] || bad "the bundle upload was not recorded"
+    case $bundle_upload in
+        "$CALLER_WORKDIR"/*) bad "the bundle was uploaded into the workdir" ;;
+    esac
+    grep -q "$HOST_TREE" "$CALLER_WORKDIR/.git" && bad "the .git file names a host path"
+    case_phys=$(cd "$CASE" && pwd -P)
+    case $(cat "$CALLER_WORKDIR/.git" 2>/dev/null) in
+        gitdir:*"$case_phys"/sandbox/*) ;;
+        *) bad "the .git file does not point into the sandbox" ;;
+    esac
+    [ -z "$(git -C "$CALLER_WORKDIR" remote 2>/dev/null)" ] || bad "a host remote reached the sandbox"
+    git -C "$CALLER_WORKDIR" config --local --get credential.helper >/dev/null 2>&1 \
+        && bad "the host credential helper reached the sandbox"
+    [ -z "$(git -C "$CALLER_WORKDIR" stash list 2>/dev/null)" ] || bad "a host stash entry reached the sandbox"
+    sg_repo=$(git -C "$CALLER_WORKDIR" rev-parse --git-dir 2>/dev/null)
+    [ -e "$sg_repo/hooks/pre-commit" ] && bad "a host hook reached the sandbox"
+    return 0
+}
+
+test_caller_sync_in_history_non_git_fallback() {
+    begin "a non-git HOST_TREE keeps the M1 snapshot with no history"
+    caller_sync_case caller-sync-nongit
+    rm -rf "$HOST_TREE/.git"
+    printf 'plain\n' >"$HOST_TREE/plain.txt"
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 0
+    [ -f "$CALLER_WORKDIR/plain.txt" ] || bad "the plain tree did not arrive"
+    [ -e "$CALLER_WORKDIR/.git" ] && bad "a non-git tree produced a .git entry"
+    git -C "$CALLER_WORKDIR" rev-parse --is-inside-work-tree >/dev/null 2>&1 \
+        && bad "a non-git tree produced a repository"
+    return 0
+}
+
+test_caller_sync_in_history_base_non_git() {
+    begin "sync-in --base on a non-git HOST_TREE is a usage error before any gateway call"
+    caller_sync_case caller-sync-base-nongit
+    rm -rf "$HOST_TREE/.git"
+    reset_log
+    run_maki sync-in "$HOST_TREE" --base origin/master
+    assert_rc 1
+    assert_err_has "origin/master"
+    assert_log_empty "gateway was contacted"
+}
+
+test_caller_sync_in_history_missing_base() {
+    begin "sync-in --base with an unresolvable ref is a usage error before any gateway call"
+    caller_sync_case caller-sync-base-missing
+    reset_log
+    run_maki sync-in "$HOST_TREE" --base origin/missing
+    assert_rc 1
+    assert_err_has "origin/missing"
+    assert_log_empty "gateway was contacted"
+}
+
+test_caller_sync_in_history_failure_clears_baseline() {
+    begin "a sync-in that fails while setting up history leaves no baseline"
+    caller_sync_case caller-sync-history-fail
+    STUB_EXEC_SCRIPT_FAIL="separate-git-dir"
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 3
+    STUB_EXEC_SCRIPT_FAIL=
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 1
+    assert_err_has "sync-in"
+    [ -e "$CASE/p.diff" ] && bad "collect-patch wrote a file without a baseline"
+    return 0
+}
+
+test_caller_collect_patch_history() {
+    begin "collect-patch round-trips edits made in a workdir with host history"
+    caller_sync_case caller-collect-history
+    caller_sync_in || return 0
+    printf 'alpha edited\n' >"$CALLER_WORKDIR/a.txt"
+    printf 'new\n' >"$CALLER_WORKDIR/new.txt"
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 0
+    git -C "$HOST_TREE" apply "$CASE/p.diff" 2>"$CASE/apply.err" \
+        || bad "git apply failed: $(head -n 1 "$CASE/apply.err")"
+    cmp -s "$CALLER_WORKDIR/a.txt" "$HOST_TREE/a.txt" || bad "a.txt differs after apply"
+    cmp -s "$CALLER_WORKDIR/new.txt" "$HOST_TREE/new.txt" || bad "new.txt differs after apply"
+    return 0
+}
+
+test_caller_collect_patch_agent_commit() {
+    begin "collect-patch returns changes the agent committed in the workdir"
+    caller_sync_case caller-collect-commit
+    caller_sync_in || return 0
+    printf 'committed edit\n' >"$CALLER_WORKDIR/a.txt"
+    git -C "$CALLER_WORKDIR" -c user.name=a -c user.email=a@localhost commit -qam agent \
+        || bad "could not make the agent commit"
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 0
+    grep -q '^+committed edit' "$CASE/p.diff" || bad "the agent commit is missing from the patch"
+    git -C "$HOST_TREE" apply "$CASE/p.diff" 2>"$CASE/apply.err" \
+        || bad "git apply failed: $(head -n 1 "$CASE/apply.err")"
+    grep -q '^committed edit' "$HOST_TREE/a.txt" || bad "the agent commit did not apply to the host"
+    return 0
+}
+
+test_caller_collect_patch_helper_git_excluded() {
+    begin "collect-patch excludes the helper-created .git file"
+    caller_sync_case caller-collect-helper-git
+    caller_sync_in || return 0
+    [ -f "$CALLER_WORKDIR/.git" ] || bad "the workdir has no helper-created .git file"
+    printf 'alpha edited\n' >"$CALLER_WORKDIR/a.txt"
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 0
+    grep -q '^diff --git a/a.txt' "$CASE/p.diff" || bad "the edit is missing from the patch"
+    grep -q '\.git' "$CASE/p.diff" && bad "the patch carries a .git entry"
+    return 0
+}
+
+test_caller_sync_in_history_base_naming() {
+    begin "sync-in --base names commit and tag expressions origin/base"
+    caller_sync_case caller-sync-base-naming
+    base_commit=$(git -C "$HOST_TREE" rev-parse HEAD)
+    git -C "$HOST_TREE" checkout -qb task
+    printf 'task work\n' >>"$HOST_TREE/a.txt"
+    caller_host_commit "$HOST_TREE" task
+    run_maki sync-in "$HOST_TREE" --base "$base_commit"
+    assert_rc 0
+    [ "$(git -C "$CALLER_WORKDIR" rev-parse refs/remotes/origin/base 2>/dev/null)" = "$base_commit" ] \
+        || bad "a commit id did not become origin/base"
+    git -C "$HOST_TREE" tag v1 "$base_commit"
+    run_maki sync-in "$HOST_TREE" --base v1
+    assert_rc 0
+    [ "$(git -C "$CALLER_WORKDIR" rev-parse refs/remotes/origin/base 2>/dev/null)" = "$base_commit" ] \
+        || bad "a tag did not become origin/base"
+    return 0
+}
+
+test_caller_sync_in_history_slash_branch() {
+    begin "sync-in --base preserves slashes in a branch name"
+    caller_sync_case caller-sync-slash-base
+    base_commit=$(git -C "$HOST_TREE" rev-parse HEAD)
+    git -C "$HOST_TREE" update-ref refs/remotes/origin/release/next "$base_commit"
+    git -C "$HOST_TREE" checkout -qb task
+    printf 'task work\n' >>"$HOST_TREE/a.txt"
+    caller_host_commit "$HOST_TREE" task
+    run_maki sync-in "$HOST_TREE" --base origin/release/next
+    assert_rc 0
+    [ "$(git -C "$CALLER_WORKDIR" rev-parse refs/remotes/origin/release/next 2>/dev/null)" = "$base_commit" ] \
+        || bad "the slash-containing branch name was not preserved"
+    return 0
+}
+
+test_caller_sync_in_history_rejects_unsafe_refs() {
+    begin "sync-in --base rejects invalid or unsafe refs before any gateway call"
+    caller_sync_case caller-sync-unsafe-base
+    reset_log
+    for unsafe_ref in 'refs/heads/bad..name' 'refs/heads/a b' 'refs/remotes/origin/../../etc' '--upload-pack=x'; do
+        run_maki sync-in "$HOST_TREE" --base "$unsafe_ref"
+        assert_rc 1
+        assert_err_has "$unsafe_ref"
+    done
+    assert_log_empty "gateway was contacted"
+}
+
+test_caller_sync_in_history_staging_flattened() {
+    begin "sync-in flattens staged and partially staged changes without losing on-disk content"
+    caller_sync_case caller-sync-staging
+    printf 'staged\n' >>"$HOST_TREE/a.txt"
+    git -C "$HOST_TREE" add a.txt
+    printf 'unstaged\n' >>"$HOST_TREE/a.txt"
+    printf 'staged new\n' >"$HOST_TREE/staged.txt"
+    git -C "$HOST_TREE" add staged.txt
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 0
+    cmp -s "$HOST_TREE/a.txt" "$CALLER_WORKDIR/a.txt" || bad "a.txt differs on disk"
+    cmp -s "$HOST_TREE/staged.txt" "$CALLER_WORKDIR/staged.txt" || bad "staged.txt differs on disk"
+    git -C "$CALLER_WORKDIR" diff --cached --quiet 2>/dev/null \
+        || bad "the workdir index still carries staged changes"
+    git -C "$CALLER_WORKDIR" diff -- a.txt 2>/dev/null | grep -q '^+staged$' \
+        || bad "git diff does not show the flattened staged change"
+    git -C "$CALLER_WORKDIR" diff -- a.txt 2>/dev/null | grep -q '^+unstaged$' \
+        || bad "git diff does not show the partially staged on-disk change"
+    return 0
 }
 
 # ---------------------------------------------------------------------------
@@ -10384,6 +10625,20 @@ run_test test_caller_collect_patch_no_baseline
 run_test test_caller_collect_patch_mode_600
 run_test test_caller_collect_patch_failure_removes_file
 run_test test_caller_collect_patch_json
+run_test test_caller_sync_in_history
+run_test test_caller_sync_in_history_base
+run_test test_caller_sync_in_history_no_host_metadata
+run_test test_caller_sync_in_history_non_git_fallback
+run_test test_caller_sync_in_history_base_non_git
+run_test test_caller_sync_in_history_missing_base
+run_test test_caller_sync_in_history_failure_clears_baseline
+run_test test_caller_collect_patch_history
+run_test test_caller_collect_patch_agent_commit
+run_test test_caller_collect_patch_helper_git_excluded
+run_test test_caller_sync_in_history_base_naming
+run_test test_caller_sync_in_history_slash_branch
+run_test test_caller_sync_in_history_rejects_unsafe_refs
+run_test test_caller_sync_in_history_staging_flattened
 run_test test_session_sync_failure_preserves_code
 run_test test_session_plain_apply
 run_test test_session_plain_conflict_keeps_project

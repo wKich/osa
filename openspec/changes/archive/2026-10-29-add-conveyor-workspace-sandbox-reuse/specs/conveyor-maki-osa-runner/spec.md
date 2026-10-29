@@ -1,0 +1,127 @@
+# Spec Delta
+
+## MODIFIED Requirements
+
+### Requirement: One developer pass uses the caller lifecycle
+
+For a `maki-osa` developer run, the runner SHALL use a retained sandbox bound to the existing Conveyor host workspace and a stable sandbox workdir. It SHALL create an absent container, start a stopped container, or reuse a running compatible container only after verifying ownership and absence of an active prior run. It SHALL refresh the sandbox files and patch baseline from the current host worktree with `sync-in`, run `maki-oss run -` with the prompt on stdin, collect a host temporary patch with `collect-patch`, and apply it only after `git apply --check` succeeds. The host worktree SHALL remain authoritative; success SHALL NOT remove the container.
+
+The sequence SHALL NOT create host bind mounts or pass credentials through `--env` or `--env-from`. Separate workspaces SHALL use separate containers. Runs sharing a workspace SHALL be serialized from before workspace preparation until remote quiescence and patch handling finish. Conveyor's existing task-to-worktree mapping SHALL remain unchanged; sharing a project alone SHALL NOT cause container sharing.
+
+#### Scenario: Happy path
+- **WHEN** a developer run starts for a workspace without a binding and every helper stage succeeds
+- **THEN** a caller-mode sandbox is created, the worktree is synced, Maki edits are collected and applied, and the container and conversation state are retained
+
+#### Scenario: Concurrent runs do not collide
+- **WHEN** two runs use different worktrees of the same project concurrently
+- **THEN** they use different containers and workdirs and neither observes the other's workspace files or conversations
+
+#### Scenario: Shared workspace is serialized
+- **WHEN** another run requests a workspace while an operation is active there
+- **THEN** it waits cancellably before mutating the host or sandbox workspace, while unrelated workspaces can proceed within the runner concurrency limit
+
+#### Scenario: Failure before the run cleans up
+- **WHEN** `sync-in` fails
+- **THEN** the run fails naming `sync-in`, no agent starts, temporary patch resources are cleaned up, and the container is not deleted
+
+#### Scenario: Patch failure leaves the host tree unchanged
+- **WHEN** collection succeeds but `git apply --check` fails
+- **THEN** no part of the patch is applied, the host worktree remains unchanged by the run, and the container is retained
+
+#### Scenario: Rework refreshes the baseline
+- **WHEN** a previous patch was applied and a user then edits host files before another run
+- **THEN** the retained sandbox receives those current files and a new baseline, and the next returned patch contains only that run's changes
+
+### Requirement: Cancellation stops the sandboxed run
+
+Every `maki-osa` run SHALL use a positive timeout and a unique run tag. On cancellation, the runner SHALL send the stop-file signal inside the sandbox and confirm that the remote wrapper and tagged descendants have terminated before allowing reuse. Writing the stop file or killing only the local helper SHALL NOT count as confirmed termination. A bounded recovery attempt SHALL be allowed to stop the container, but SHALL NOT delete it. If termination or stopped state cannot be confirmed, the workspace SHALL be blocked from refresh and execution until safely reconciled. Cancelled runs SHALL finish as stopped with no patch applied; timeouts SHALL report failure rather than success.
+
+#### Scenario: User stops a run
+- **WHEN** the user cancels an executing run
+- **THEN** the runner signals its unique stop file, confirms remote termination or stopped container state, retains the container, and returns stopped without applying a patch
+
+#### Scenario: Timeout expires
+- **WHEN** the helper exits 124 because its in-sandbox timeout expired
+- **THEN** the runner reports a timeout, confirms remote quiescence before reuse, retains the container, and applies no patch
+
+#### Scenario: Helper process dies alone
+- **WHEN** only the local helper dies and remote termination has not been confirmed
+- **THEN** the runner follows remote termination/recovery rather than treating local exit as proof that reuse is safe
+
+#### Scenario: Stop cannot be confirmed
+- **WHEN** the stop signal and bounded stop-state recovery cannot confirm termination
+- **THEN** the workspace is reported blocked and subsequent runs cannot sync files into it until recovery confirms it is safe
+
+## ADDED Requirements
+
+### Requirement: Workspace binding preserves explicit conversation selection
+
+The runner SHALL retain a stable workspace-to-container binding scoped to its runner ownership and gateway, independent of run id and Maki conversation id. A binding SHALL remain attached to one host worktree incarnation and SHALL NOT be reassigned to another worktree. Existing containers with unverified ownership or incompatible image, provider, engine, gateway, or execution-policy configuration SHALL NOT be silently adopted, reconfigured, or deleted. Maki conversation storage SHALL survive workspace refresh and container stop/start.
+
+The runner SHALL forward Conveyor's explicit fresh, resume, or fork choice without selecting a conversation automatically. Multiple conversations SHALL be permitted inside one retained workspace. Tasks SHALL share a binding only where Conveyor already shares their workspace.
+
+#### Scenario: Resume after rework
+- **WHEN** Conveyor supplies an existing conversation id for a later run in the same workspace
+- **THEN** the same sandbox and stable workdir are used, current host files are refreshed without erasing that conversation, and Maki resumes the supplied id
+
+#### Scenario: Fork a conversation
+- **WHEN** Conveyor requests a fork from a conversation in the retained sandbox
+- **THEN** the supplied id and fork flag reach Maki, the source conversation remains available, and the resulting conversation id is reported
+
+#### Scenario: Fresh conversation in retained workspace
+- **WHEN** Conveyor provides no resume id
+- **THEN** the container is reused but a fresh conversation starts, with no implicit continue or latest-session selection
+
+#### Scenario: Configuration mismatch
+- **WHEN** the recorded container configuration is incompatible with the requested execution configuration
+- **THEN** the run fails with recovery guidance before syncing or launching the agent and the existing container is neither deleted nor silently changed
+
+#### Scenario: Host worktree is removed and recreated
+- **WHEN** Conveyor removes a bound worktree and later creates another at the same path
+- **THEN** the old binding is retired and its container retained, and the new worktree does not silently inherit that container or its conversations
+
+### Requirement: Idle stop is distinct from explicit container removal
+
+The runner SHALL support a configurable idle-stop interval, including a disabled setting, and SHALL stop only owned containers that have no active workspace operation. Idle stop SHALL preserve container storage and conversations; later use SHALL start the same container. Automatic idle stopping SHALL NOT interrupt preparation, sync, execution, collection, or patch application. Success, failure, timeout, cancellation, runner shutdown, and removal of a Conveyor task/worktree SHALL NOT automatically delete its container. Users SHALL be given the container identity and instructions for explicit removal that explain conversation loss.
+
+#### Scenario: Idle container is stopped
+- **WHEN** the configured idle interval elapses without a new operation
+- **THEN** the container is stopped, not deleted, and a later run starts it with its conversation state preserved
+
+#### Scenario: Idle timer races with a run
+- **WHEN** a queued idle stop encounters a new or active workspace operation
+- **THEN** it rechecks activity under workspace coordination and does not stop that operation's container
+
+#### Scenario: Idle stop is disabled
+- **WHEN** the idle-stop interval is disabled
+- **THEN** inactivity does not trigger a runner-owned stop or deletion
+
+#### Scenario: Explicit removal
+- **WHEN** a user explicitly removes the container using the documented operation
+- **THEN** the container and its conversations are deleted, and later use reconciles the missing container rather than claiming its sessions survived
+
+#### Scenario: Task or host workspace is removed
+- **WHEN** Conveyor removes a task or its host worktree
+- **THEN** the container is not deleted, its retired binding remains identifiable for explicit removal, and idle stopping remains permitted
+
+### Requirement: Interrupted lifecycle is reconciled before reuse
+
+The runner SHALL retain sufficient non-secret ownership and lifecycle state to detect an interrupted active operation after restart. Before refreshing or executing in that workspace, it SHALL confirm the previous remote run is absent or terminate it safely. Uncertain remote state SHALL block reuse. A restart SHALL NOT replay an old patch; a later safe run SHALL establish a new baseline from the current host files. A successful agent result SHALL NOT permit reuse while tagged descendant processes remain active.
+
+If a previously bound container is absent, the runner SHALL report its loss and reconcile creation of a replacement without claiming conversation continuity. An unavailable requested conversation SHALL use Conveyor's existing missing-session recovery behavior; unrelated failures SHALL NOT be classified as missing sessions.
+
+#### Scenario: Runner restarts during execution
+- **WHEN** startup finds an interrupted active marker for a retained workspace
+- **THEN** the workspace cannot be synced until remote quiescence or stopped state is confirmed, and an unverifiable state remains blocked
+
+#### Scenario: Crash after host patch application
+- **WHEN** the runner restarts after applying a patch but before recording completion
+- **THEN** it does not apply that patch again and the next safe run uses the host's current content as its baseline
+
+#### Scenario: Missing container with requested resume
+- **WHEN** a user previously removed the container and Conveyor requests an old conversation
+- **THEN** loss of the old container/session is surfaced, and Conveyor's missing-session recovery can start fresh without reporting a successful resume
+
+#### Scenario: Descendants remain after agent completion
+- **WHEN** Maki emits a successful result but tagged tool processes remain alive
+- **THEN** the workspace is not released for refresh or another run until those processes are terminated or the container is confirmed stopped

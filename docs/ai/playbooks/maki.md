@@ -420,29 +420,33 @@ Helper path, smoke test first:
 
 ```sh
 cd "$PROJECT_PATH"
-maki-oss run "Reply with OK."
+printf 'Reply with OK.' | maki-oss run
 maki-oss                              # interactive session
 ```
 
-Then run the real task the same way: pass the user's task text in place of the
-smoke-test string. The helper prints Maki's JSON unchanged and syncs on exit.
+Then run the real task the same way: pipe the user's task text to `run` in
+place of the smoke-test string. The prompt stays out of the command arguments,
+the helper prints Maki's stream-json event lines unchanged, and it syncs on
+exit. Pass role tool rules after `--` (only `--disallowed-tools` and
+`--fork-session` are accepted).
 
 Raw fallback, in the raw `maki` sandbox (cheap smoke test first):
 
 ```sh
-openshell sandbox exec -n maki --workdir "$WORKDIR" --no-login-shell -- \
-  maki -p "Reply with OK." --output-format json
+printf 'Reply with OK.' | openshell sandbox exec -n maki --workdir "$WORKDIR" --no-login-shell -- \
+  maki -p --output-format stream-json --verbose
 ```
 
-Then run the real task the same way: pass the user's task text as the argument
-to `-p` in place of the smoke-test string. `sandbox exec` starts a new process,
-so it picks up the current provider placeholders. Use `--output-format json`
-for machine-readable results.
+Then run the real task the same way: pipe the user's task text in place of the
+smoke-test string. `sandbox exec` starts a new process, so it picks up the
+current provider placeholders. Use `--output-format stream-json --verbose` for
+machine-readable events; the last line is a `result` event.
 
 ### Verify
 
-Expected: the smoke-test JSON reports a successful turn with the reply `OK`;
-the real task exits `0` and its JSON contains a result rather than an error.
+Expected: the smoke-test stream ends with a `result` event reporting a
+successful turn with the reply `OK`; the real task exits `0` and its `result`
+event contains a result rather than an error.
 
 ### Stop if
 

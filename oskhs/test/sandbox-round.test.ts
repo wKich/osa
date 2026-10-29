@@ -32,7 +32,8 @@ describe("sandbox round", () => {
     let prompt = "";
     let workspace: string[] = [];
     sb.onRun = async (argv, opts) => {
-      prompt = argv.at(-1)!;
+      prompt = opts.stdin!;
+      expect(argv).not.toContain(prompt);
       const ws = sb.path(opts.env!.MAKI_OSS_WORKDIR!);
       workspace = [readFileSync(join(ws, "g_fx/README.md"), "utf8"), readFileSync(join(ws, "AGENTS.md"), "utf8")];
       expect(opts.env!.MAKI_OSS_RUN_TAG).toBe("oskhs-ab12cd34");
@@ -57,7 +58,7 @@ describe("sandbox round", () => {
     const mirrorDir = await mirrors("g/fx", "g/two");
     const sb = localSandbox();
     let prompt = "";
-    sb.onRun = async (argv) => ((prompt = argv.at(-1)!), { code: 0, stdout: '{"type":"result","is_error":false,"result":"plain answer","session_id":"S"}\n' });
+    sb.onRun = async (_argv, opts) => ((prompt = opts.stdin!), { code: 0, stdout: '{"type":"result","is_error":false,"result":"plain answer","session_id":"S"}\n' });
     const round = sandboxRound({ ctx: sb.ctx, mirrorDir, providers: [], model: "m/x", agentName: "svc_kiss", internalModels: false, stateDir: stateDir() });
     const reply = await round({ task: task() as never, project: null, prompt: "kiss-built follow-up prompt", subTask: { _id: "s1", taskId: "ab12cd34", type: "thread_instruction", prompt: "x", state: "processing" }, timeoutSec: 5 }, new AbortController().signal);
     expect(prompt).toBe("kiss-built follow-up prompt");

@@ -30,8 +30,11 @@ Commands:
   init, up                      Create or start this project's sandbox
   maki                          Ensure the sandbox and attach an interactive
                                 Maki session (bare `maki-oss` does the same)
-  run "<prompt>"                Ensure the sandbox, run Maki headless, and
-                                print its JSON output
+  run ["<prompt>"]              Ensure the sandbox, run Maki headless with
+                                stream-json events, and print them. With no
+                                prompt or `-`, reads the prompt from stdin;
+                                tool flags after `--`: --disallowed-tools
+                                VALUE, --fork-session
   upload [--discard] [PATH] [DEST]
                                 Refresh the workspace (no PATH or `.`), or copy
                                 PATH as-is (no baseline; --discard is
@@ -225,14 +228,51 @@ agent_interactive_argv() {
 }
 
 agent_headless_argv() { # PROMPT
-    argv_add maki --print --yolo --trust --output-format json
+    argv_add maki --print --yolo --trust --output-format stream-json --verbose
     maki_session_flags
-    argv_add "$1"
+    if [ -n "$run_passthrough" ]; then
+        agent_argv="$agent_argv $run_passthrough"
+    fi
+    if [ "$run_prompt_stdin" -eq 0 ]; then
+        argv_add "$1"
+    fi
 }
 
-# Maki's headless run keeps the inherited stdin.
+# `sandbox exec` leaves stdin open; closing it keeps a headless run from
+# waiting on input. A stdin prompt is the exception the core handles.
 agent_exec_stdin() {
-    printf 'tty'
+    printf 'null'
+}
+
+# `maki --print` with no prompt argument reads the prompt from stdin.
+# shellcheck disable=SC2329  # the core checks for the hook with `command -v`
+agent_stdin_prompt() { :; }
+
+# Checks the flags after `--` on `run` against the pass-through allowlist.
+# Under the fixed `--yolo` an allow list cannot narrow tools, and one-shot
+# `--print` has no `--permission-mode`, so only deny and fork flags are
+# accepted; anything else could advertise a rule that does not apply or point
+# Maki at configuration the sandbox does not control.
+# shellcheck disable=SC2329  # called by the core through eval
+agent_passthrough_check() { # FLAGS...
+    while [ "$#" -gt 0 ]; do
+        case $1 in
+            --fork-session) ;;
+            --disallowed-tools)
+                if [ "$#" -lt 2 ] || [ -z "$2" ]; then
+                    die_usage "pass-through option $1 requires a value"
+                fi
+                case $2 in
+                    --*) die_usage "pass-through option $1 requires a value, got '$2'" ;;
+                esac
+                shift
+                ;;
+            *)
+                die_usage "pass-through option $1 is not allowed after --: use --disallowed-tools or --fork-session"
+                ;;
+        esac
+        shift
+    done
 }
 
 agent_dispatch() { # CMD ARGS...

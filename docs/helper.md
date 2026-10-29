@@ -481,13 +481,30 @@ the pinned versions) is generated at [`compatibility.md`](compatibility.md).
 
 ### run
 
-Runs Maki headless with `--print --yolo --trust --output-format json`,
-streams stdout unchanged, and exits with Maki's exit code. Like `maki`, it
-ensures the sandbox first and runs the same safe sync on exit; helper messages
-go to stderr so stdout carries only Maki's output. `--model <provider/model>`
-is passed through as Maki's `--model` and overrides the config `model` key, so
-any credentialed provider can be selected without touching the interactive
-picker.
+Runs Maki headless with `--print --yolo --trust --output-format stream-json
+--verbose`, streams Maki's event lines unchanged, and exits with Maki's exit
+code. Like `maki`, it ensures the sandbox first and runs the same safe sync on
+exit; helper messages go to stderr so stdout carries only Maki's output.
+`--model <provider/model>` is passed through as Maki's `--model` and overrides
+the config `model` key, so any credentialed provider can be selected without
+touching the interactive picker.
+
+With no prompt argument, or a prompt of `-`, `run` reads its standard input to
+the end and relays it to `maki --print` as the prompt, so a large prompt never
+appears in a command argument. Empty stdin is a usage error before any gateway
+call. With a prompt argument, the helper closes stdin so the run cannot wait on
+inherited input.
+
+Flags after `--` go to Maki in the order given, after the model and session
+flags and before the prompt. Only `--disallowed-tools` (one value) and
+`--fork-session` (no value) are allowed. Anything else — including
+`--allowed-tools`, `--permission-mode`, `--output-format`, `--input-format`,
+and `--mcp-config` — is a usage error naming the flag, before any gateway
+call. Under the fixed `--yolo` an allow list cannot narrow tools, and one-shot
+`--print` has no `--permission-mode`, so forwarding either would advertise a
+boundary that does not apply. Maki's deny rules are checked before YOLO, so
+`--disallowed-tools Write,Edit` is effective. Bare `maki-oss` and
+`maki-oss maki` accept no `--` tail.
 
 The session flags apply here too — `--continue`, `--resume <ID>`, and
 `--session-id <ID>` — which is how a headless run is chained onto a previous
@@ -497,6 +514,8 @@ sandbox does.
 ```sh
 maki-oss run "fix the failing tests"
 maki-oss run --model deepseek/deepseek-chat "check the changelog"
+printf 'fix the failing tests' | maki-oss run --model deepseek/deepseek-chat
+maki-oss run "do it" -- --disallowed-tools Write,Edit --fork-session
 maki-oss run --session-id aSmokeResumeSessAbcdXy "start the migration"
 maki-oss run --resume aSmokeResumeSessAbcdXy "continue where the previous run stopped"
 maki-oss run --timeout 600 "summarize the open TODOs"
@@ -580,22 +599,22 @@ with exit 1 outside caller mode, need the same literal name and workdir as
   `{"empty":false,"baseline":"<commit>","files":[{"status":"M","path":"a.txt"}]}`,
   where `status` is the `git diff --name-status` letter (`A`, `M`, `D`, `T`).
 
-A full orchestrator pass over an uncommitted worktree, with `claude-oss`
-reading the prompt from stdin and the role's permission flags after `--`
-(see the Claude agent page for the allowlist):
+A full orchestrator pass over an uncommitted worktree, with `maki-oss`
+reading the prompt from stdin and the role's deny and fork flags after `--`
+(see the Maki reference for the allowlist):
 
 ```sh
-export CLAUDE_OSS_WORKSPACE=caller CLAUDE_OSS_IDLE_STOP=0 \
-  CLAUDE_OSS_SANDBOX_NAME=task-42 CLAUDE_OSS_WORKDIR=/sandbox/tasks/t42
-claude-oss up
-claude-oss sync-in ~/src/app-wt-42 --json
-claude-oss run --timeout 1800 - \
-  -- --permission-mode acceptEdits --disallowedTools 'Bash(git commit:*)' \
+export MAKI_OSS_WORKSPACE=caller MAKI_OSS_IDLE_STOP=0 \
+  MAKI_OSS_SANDBOX_NAME=task-42 MAKI_OSS_WORKDIR=/sandbox/tasks/t42
+maki-oss up
+maki-oss sync-in ~/src/app-wt-42 --json
+maki-oss run --timeout 1800 - \
+  -- --disallowed-tools Write,Edit --fork-session \
   <prompt.md >events.jsonl
-claude-oss collect-patch --out "$TMPDIR/task-42.diff" --json
+maki-oss collect-patch --out "$TMPDIR/task-42.diff" --json
 git -C ~/src/app-wt-42 apply --check "$TMPDIR/task-42.diff" &&
   git -C ~/src/app-wt-42 apply "$TMPDIR/task-42.diff"
-claude-oss rm --yes
+maki-oss rm --yes
 ```
 
 The host tree should not change between `sync-in` and `apply`; if it did,

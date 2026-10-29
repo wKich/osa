@@ -85,6 +85,7 @@ new_case() {
     fi
     STUB_LOG=$CASE/stub.log
     STUB_STATE_DIR=$CASE/state
+    EXEC_STDIN_LOG=
     LOG=$STUB_LOG
     OUT=$CASE/out
     ERR=$CASE/err
@@ -155,6 +156,7 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
         STUB_LOG="$STUB_LOG" \
         STUB_STATE_DIR="$STUB_STATE_DIR" \
+        STUB_EXEC_STDIN_LOG="${EXEC_STDIN_LOG:-}" \
         STUB_EXEC_STDOUT="${EXEC_STDOUT:-stub-exec-output}" \
         STUB_EXEC_EXIT="${EXEC_EXIT:-0}" \
         STUB_EXEC_CASES="${EXEC_CASES:-}" \
@@ -629,6 +631,10 @@ test_help() {
     assert_out_has "--resume"
     assert_out_has "--session-id"
     assert_out_has "survive stop/start"
+    assert_out_has "stream-json"
+    assert_out_has "stdin"
+    assert_out_has "--disallowed-tools"
+    assert_out_has "--fork-session"
     assert_out_has "mcp"
     assert_out_has "mcp status"
 }
@@ -852,7 +858,8 @@ test_run_passthrough() {
     assert_log_line "--yolo"
     assert_log_line "--trust"
     assert_log_line "--output-format"
-    assert_log_line "json"
+    assert_log_line "stream-json"
+    assert_log_line "--verbose"
     assert_log_line "fix the tests"
 
     EXEC_STDOUT='partial-output'
@@ -861,6 +868,258 @@ test_run_passthrough() {
     run_maki run "fail please"
     assert_rc 1
     assert_out_has "partial-output"
+}
+
+test_mk_run_argv() {
+    begin "maki-oss run launches maki stream-json with the model and prompt"
+    new_case mk-run-argv
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    EXEC_STDOUT='{"type":"result","result":"OK"}'
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    printf 'LEAKED-STDIN\n' >"$CASE/stdin.txt"
+
+    run_maki_with_input "$CASE/stdin.txt" run --model deepseek/deepseek-chat "check"
+    assert_rc 0
+    assert_out_has '{"type":"result","result":"OK"}'
+    for mk_word in maki --print --yolo --trust --output-format stream-json \
+        --verbose --model deepseek/deepseek-chat "check"; do
+        assert_log_line "$mk_word"
+    done
+    assert_log_line_before "--print" "--yolo"
+    assert_log_line_before "--yolo" "--trust"
+    assert_log_line_before "--trust" "--output-format"
+    assert_log_line_before "--output-format" "stream-json"
+    assert_log_line_before "stream-json" "--verbose"
+    assert_log_line_before "--verbose" "--model"
+    assert_log_line_before "--model" "deepseek/deepseek-chat"
+    assert_log_line_before "deepseek/deepseek-chat" "check"
+    assert_stdin_closed
+
+    reset_log
+    EXEC_EXIT=1
+    EXEC_STDOUT='partial'
+    run_maki run "fail please"
+    assert_rc 1
+    assert_out_has "partial"
+}
+
+test_mk_run_stdin_prompt() {
+    begin "maki-oss run with no prompt argument, or -, relays stdin as the prompt"
+    new_case mk-run-stdin
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    EXEC_STDOUT='{"type":"result","result":"OK"}'
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    printf 'reply OK' >"$CASE/prompt.txt"
+
+    run_maki_with_input "$CASE/prompt.txt" run --model deepseek/deepseek-chat
+    assert_rc 0
+    assert_out_has '{"type":"result","result":"OK"}'
+    assert_exec_stdin_is "$CASE/prompt.txt"
+    for mk_word in maki --print --yolo --trust --output-format stream-json \
+        --verbose --model deepseek/deepseek-chat; do
+        assert_log_line "$mk_word"
+    done
+    assert_log_line_missing "reply OK"
+    assert_log_line_missing "-"
+
+    reset_log
+    run_maki_with_input "$CASE/prompt.txt" run -
+    assert_rc 0
+    assert_exec_stdin_is "$CASE/prompt.txt"
+    assert_log_line_missing "reply OK"
+    assert_log_line_missing "-"
+}
+
+test_mk_run_stdin_large() {
+    begin "maki-oss run relays a 2 MiB stdin prompt byte for byte, never in argv"
+    new_case mk-run-stdin-large
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    {
+        printf 'PROMPT-MARKER-START\n'
+        head -c 2097152 /dev/zero | tr '\0' 'x'
+        printf '\nPROMPT-MARKER-END\n'
+    } >"$CASE/prompt.txt"
+
+    run_maki_with_input "$CASE/prompt.txt" run -
+    assert_rc 0
+    assert_exec_stdin_is "$CASE/prompt.txt"
+    assert_log_missing "PROMPT-MARKER"
+}
+
+test_mk_run_stdin_empty() {
+    begin "maki-oss run with an empty stdin prompt is a usage error before any gateway call"
+    new_case mk-run-stdin-empty
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    : >"$CASE/prompt.txt"
+    reset_log
+    run_maki_with_input "$CASE/prompt.txt" run
+    assert_rc 1
+    assert_err_has "stdin"
+    assert_log_empty "gateway was contacted"
+    run_maki_with_input "$CASE/prompt.txt" run -
+    assert_rc 1
+    assert_log_empty "gateway was contacted"
+}
+
+# A sandbox-side `maki` for the wrapper cases: it saves its stdin, then
+# sleeps SECS before printing a stream-json result event.
+fake_sandbox_maki() { # SECS
+    cat >"$CASE/sandbox-tools/maki" <<FAKE
+#!/bin/sh
+cat >"$CASE/maki-stdin"
+sleep $1
+printf '%s\n' '{"type":"result","result":"OK"}'
+FAKE
+    chmod +x "$CASE/sandbox-tools/maki"
+}
+
+test_mk_run_stdin_timeout() {
+    begin "maki-oss run --timeout hands a stdin prompt to maki and still ends it with 124"
+    if ! command -v timeout >/dev/null 2>&1; then
+        skipped "no timeout(1) on PATH"
+        return 0
+    fi
+    new_case mk-run-stdin-timeout
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    RUN_WRAPPER=1
+    printf 'reply OK' >"$CASE/prompt.txt"
+    fake_sandbox_maki 0
+    ENV_TIMEOUT=30
+    run_maki_with_input "$CASE/prompt.txt" run
+    assert_rc 0
+    assert_out_has '"result":"OK"'
+    assert_log_line "maki-oss-run"
+    assert_log_has "MAKI_OSS_RUN_TAG"
+    cmp -s "$CASE/prompt.txt" "$CASE/maki-stdin" \
+        || bad "maki did not read the prompt through the wrapper: $(cat "$CASE/maki-stdin" 2>/dev/null)"
+
+    fake_sandbox_maki 30
+    ENV_TIMEOUT=1
+    mk_started=$(date +%s)
+    run_maki_with_input "$CASE/prompt.txt" run
+    assert_rc 124
+    if [ $(($(date +%s) - mk_started)) -ge 15 ]; then
+        bad "the wrapper did not end maki at the timeout"
+    fi
+    cmp -s "$CASE/prompt.txt" "$CASE/maki-stdin" \
+        || bad "maki did not read the prompt before the timeout"
+}
+
+test_mk_run_stdin_with_passthrough() {
+    begin "maki-oss run combines a stdin prompt with tool flags after --"
+    new_case mk-run-stdin-passthrough
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    EXEC_STDIN_LOG=$CASE/exec-stdin
+    printf 'do it' >"$CASE/prompt.txt"
+
+    run_maki_with_input "$CASE/prompt.txt" run -- --disallowed-tools Write,Edit
+    assert_rc 0
+    assert_exec_stdin_is "$CASE/prompt.txt"
+    assert_log_line "--disallowed-tools"
+    assert_log_line "Write,Edit"
+    assert_log_line_before "--verbose" "--disallowed-tools"
+    assert_log_line_before "--disallowed-tools" "Write,Edit"
+    assert_log_line_missing "do it"
+    assert_log_line_missing "-"
+}
+
+test_mk_run_passthrough_deny_tools() {
+    begin "maki-oss run forwards deny and fork flags after -- before the prompt"
+    new_case mk-run-passthrough
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+
+    run_maki run --model deepseek/deepseek-chat "do it" -- \
+        --disallowed-tools Write,Edit --fork-session
+    assert_rc 0
+    for mk_word in --disallowed-tools Write,Edit --fork-session "do it"; do
+        assert_log_line "$mk_word"
+    done
+    assert_log_line_before "--verbose" "--model"
+    assert_log_line_before "--model" "deepseek/deepseek-chat"
+    assert_log_line_before "deepseek/deepseek-chat" "--disallowed-tools"
+    assert_log_line_before "--disallowed-tools" "Write,Edit"
+    assert_log_line_before "Write,Edit" "--fork-session"
+    assert_log_line_before "--fork-session" "do it"
+    assert_log_line_missing "--allowed-tools"
+    assert_log_line_missing "--permission-mode"
+}
+
+test_mk_run_passthrough_rejects_unknown() {
+    begin "maki-oss run refuses pass-through flags outside the allowlist before any gateway call"
+    new_case mk-run-passthrough-unknown
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    for mk_flag in --allowed-tools --permission-mode --output-format \
+        --input-format --mcp-config; do
+        reset_log
+        run_maki run "do it" -- "$mk_flag" x
+        assert_rc 1
+        assert_err_has "$mk_flag"
+        assert_log_empty "gateway was contacted for $mk_flag"
+    done
+}
+
+test_mk_run_passthrough_missing_value() {
+    begin "maki-oss run refuses a pass-through flag with no value"
+    new_case mk-run-passthrough-value
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    reset_log
+    run_maki run "do it" -- --disallowed-tools
+    assert_rc 1
+    assert_err_has "--disallowed-tools"
+    assert_log_empty "gateway was contacted"
+    run_maki run "do it" -- --disallowed-tools --fork-session
+    assert_rc 1
+    assert_err_has "--disallowed-tools"
+    assert_log_empty "gateway was contacted"
+}
+
+test_mk_tui_rejects_passthrough() {
+    begin "bare maki-oss and maki-oss maki take no pass-through flags"
+    new_case mk-tui-passthrough
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    INTERACTIVE=1
+    reset_log
+    run_maki maki -- --disallowed-tools Write
+    assert_rc 1
+    assert_log_empty "gateway was contacted"
+    run_maki -- --disallowed-tools Write
+    assert_rc 1
+    assert_log_empty "gateway was contacted"
 }
 
 test_maki_attach() {
@@ -10002,6 +10261,16 @@ run_test test_sandbox_name_validation
 run_test test_up_creates
 run_test test_up_idempotent
 run_test test_run_passthrough
+run_test test_mk_run_argv
+run_test test_mk_run_stdin_prompt
+run_test test_mk_run_stdin_large
+run_test test_mk_run_stdin_empty
+run_test test_mk_run_stdin_timeout
+run_test test_mk_run_stdin_with_passthrough
+run_test test_mk_run_passthrough_deny_tools
+run_test test_mk_run_passthrough_rejects_unknown
+run_test test_mk_run_passthrough_missing_value
+run_test test_mk_tui_rejects_passthrough
 run_test test_maki_attach
 run_test test_upload_no_mount
 run_test test_upload_prunes_tracked_deletion

@@ -85,11 +85,67 @@ The helper SHALL derive `{project}` from the name of the project's git `origin` 
 - **THEN** the second run re-checks the sandbox and continues by reusing it instead of exiting with a gateway error
 
 ### Requirement: Headless and interactive execution
-`maki-oss run "<prompt>"` SHALL execute Maki headless with `--print --yolo --trust --output-format json`, stream Maki's stdout unchanged, and exit with Maki's exit code. `maki-oss run` SHALL accept `--model <provider/model>` and pass it to Maki as its model selection. `maki-oss maki` SHALL attach an interactive TTY session running Maki in the sandbox workspace. When the `tui` setting resolves to `opencode` (config key or `MAKI_OSS_TUI`), bare `maki-oss` and `maki-oss maki` SHALL instead run the OpenCode TUI against the local `opencode-tui-bridge`, which drives Maki in the same project sandbox; this mode SHALL share the same ensure routine, model setting, and exit sync as the Maki TUI session, and the session flags `--continue`, `--resume`, and `--session-id` SHALL be refused in this mode with a usage error that names it (bridge session resume is not yet supported). Any other `tui` value SHALL be a non-zero usage error naming the key and the accepted values, and an unset `tui` SHALL keep the Maki TUI session unchanged. `maki-oss run` is unaffected by the `tui` setting.
+
+`maki-oss run "<prompt>"` SHALL execute Maki headless with `--print --yolo --trust --output-format stream-json --verbose`, stream Maki's stdout unchanged, and exit with Maki's exit code. `maki-oss run` SHALL accept `--model <provider/model>` and pass it to Maki as its model selection.
+
+When `maki-oss run` is given no prompt argument, or the prompt argument is `-`, the helper SHALL relay its own standard input to the in-sandbox `maki --print` as the prompt, and SHALL NOT place the prompt in any command argument. An empty stdin SHALL be a usage error before any gateway call.
+
+`maki-oss run` SHALL accept Maki's tool flags after a `--` separator and SHALL forward them to the in-sandbox `maki --print`, after the resolved model and session flags and in the order given. Only these flags are allowed:
+
+- `--disallowed-tools`, with exactly one value;
+- `--fork-session`, which takes no value.
+
+Any other flag after `--`, or a missing value, SHALL be a usage error before any gateway call, and the message SHALL name the rejected flag. Pass-through SHALL NOT be accepted by bare `maki-oss` or by `maki-oss maki`.
+
+`maki-oss maki` SHALL attach an interactive TTY session running Maki in the sandbox workspace. When the `tui` setting resolves to `opencode` (config key or `MAKI_OSS_TUI`), bare `maki-oss` and `maki-oss maki` SHALL instead run the OpenCode TUI against the local `opencode-tui-bridge`, which drives Maki in the same project sandbox; this mode SHALL share the same ensure routine, model setting, and exit sync as the Maki TUI session, and the session flags `--continue`, `--resume`, and `--session-id` SHALL be refused in this mode with a usage error that names it (bridge session resume is not yet supported). Any other `tui` value SHALL be a non-zero usage error naming the key and the accepted values, and an unset `tui` SHALL keep the Maki TUI session unchanged. `maki-oss run` is unaffected by the `tui` setting.
 
 #### Scenario: Headless JSON passthrough
 - **WHEN** the user runs `maki-oss run "fix the tests"` and Maki exits 0
-- **THEN** stdout contains Maki's JSON result and the helper exits 0
+- **THEN** the sandbox exec runs `maki --print --yolo --trust --output-format stream-json --verbose "fix the tests"`, stdout carries Maki's stream-json event lines unchanged, and the helper exits 0
+
+#### Scenario: Prompt from stdin
+- **WHEN** a user runs `printf 'reply OK' | maki-oss run --model deepseek/deepseek-chat` against the test stub
+- **THEN** the stub receives `--print --yolo --trust --output-format stream-json --verbose --model deepseek/deepseek-chat` with no prompt argument, and reads `reply OK` on stdin
+
+#### Scenario: Large prompt from stdin
+- **WHEN** a 2 MiB prompt is piped to `maki-oss run -`
+- **THEN** the stub reads exactly those bytes on stdin, and no command argument recorded by the openshell stub contains the prompt
+
+#### Scenario: Empty stdin refused
+- **WHEN** `maki-oss run` gets no prompt argument and stdin is empty
+- **THEN** it exits 1 before any gateway call
+
+#### Scenario: Tool flags pass through after --
+- **WHEN** a caller runs `maki-oss run "do it" -- --disallowed-tools Write,Edit --fork-session`
+- **THEN** the sandbox exec runs `maki --print --yolo --trust --output-format stream-json --verbose`, then `--disallowed-tools Write,Edit --fork-session`, then `do it`
+
+#### Scenario: Stdin prompt combines with tool flags
+- **WHEN** a caller runs `printf 'do it' | maki-oss run -- --disallowed-tools Write,Edit`
+- **THEN** the stub receives no prompt argument, reads `do it` on stdin, and receives `--disallowed-tools Write,Edit` after `--verbose`
+
+#### Scenario: Permission mode is refused
+- **WHEN** a caller runs `maki-oss run "do it" -- --permission-mode acceptEdits`
+- **THEN** it exits 1 naming `--permission-mode`, and the openshell stub records no call
+
+#### Scenario: Allow list is refused
+- **WHEN** a caller runs `maki-oss run "do it" -- --allowed-tools Read,Bash`
+- **THEN** it exits 1 naming `--allowed-tools`, and the openshell stub records no call
+
+#### Scenario: Output format cannot be overridden
+- **WHEN** a caller runs `maki-oss run "do it" -- --output-format json`
+- **THEN** it exits 1 naming `--output-format`, and the openshell stub records no call
+
+#### Scenario: Unknown flag is refused
+- **WHEN** a caller runs `maki-oss run "do it" -- --mcp-config /tmp/m.json`
+- **THEN** it exits 1 naming `--mcp-config`, and the openshell stub records no call
+
+#### Scenario: Missing pass-through value is refused
+- **WHEN** a caller runs `maki-oss run "do it" -- --disallowed-tools`
+- **THEN** it exits 1 naming `--disallowed-tools`, and the openshell stub records no call
+
+#### Scenario: Interactive mode takes no pass-through
+- **WHEN** a user runs bare `maki-oss -- --disallowed-tools Write`
+- **THEN** it exits 1 with a usage error, and no sandbox exec is recorded
 
 #### Scenario: Non-zero Maki exit propagates
 - **WHEN** Maki exits 1 in a headless run
@@ -120,6 +176,7 @@ The helper SHALL derive `{project}` from the name of the project's git `origin` 
 - **THEN** the helper exits non-zero with an error stating that session resume is unsupported in OpenCode TUI mode, and no bridge or sandbox exec is started
 
 ### Requirement: Session resume flag pass-through
+
 The helper SHALL accept `--continue`, `--resume <ID>`, and `--session-id <ID>` on bare `maki-oss`, `maki-oss maki`, and `maki-oss run "<prompt>"`, and SHALL forward them to the Maki process it execs inside the sandbox as Maki's `--continue`, `--resume <ID>`, and `--session-id <ID>` respectively. `--continue` together with `--resume` SHALL be a usage error (exit 1) that names both flags and MUST NOT launch Maki; `--session-id` SHALL be accepted alongside either of them. A missing or empty value for `--resume` or `--session-id` SHALL be a usage error. When the `tui` setting resolves to `opencode`, bare `maki-oss` and `maki-oss maki` SHALL refuse all three flags with a usage error that names OpenCode TUI mode and starts no bridge, while `maki-oss run` keeps them unchanged. On commands that do not launch Maki the flags SHALL be accepted and have no effect, exactly as `--model` behaves today. Passing resume flags SHALL NOT change what the helper syncs: the exit sync SHALL still collect only the sandbox workspace, never the sandbox's session or state directory, and the helper MUST NOT add any host-side session transcript storage.
 
 #### Scenario: Interactive session resumes the most recent conversation
@@ -128,7 +185,7 @@ The helper SHALL accept `--continue`, `--resume <ID>`, and `--session-id <ID>` o
 
 #### Scenario: Headless run resumes a session by id
 - **WHEN** the user runs `maki-oss run --resume CgADMGeR7WnHDw7NJRUfN "keep going"`
-- **THEN** the sandbox exec launches `maki --print --yolo --trust --output-format json --resume CgADMGeR7WnHDw7NJRUfN "keep going"` and stdout still carries only Maki's output
+- **THEN** the sandbox exec launches `maki --print --yolo --trust --output-format stream-json --verbose --resume CgADMGeR7WnHDw7NJRUfN "keep going"` and stdout still carries only Maki's output
 
 #### Scenario: Session flags are separated from the prompt
 - **WHEN** the user runs `maki-oss run --continue "fix the tests"`
@@ -157,7 +214,6 @@ The helper SHALL accept `--continue`, `--resume <ID>`, and `--session-id <ID>` o
 #### Scenario: Resume flags refused in OpenCode TUI mode
 - **WHEN** `tui = "opencode"` and the user runs `maki-oss run --continue "keep going"`
 - **THEN** the headless run resumes as usual, and the same flag on bare `maki-oss` exits 1 naming OpenCode TUI mode without starting a bridge
-
 ### Requirement: Project transfer in and out
 
 `maki-oss upload [path] [dest]` SHALL copy local files into the sandbox using `openshell sandbox upload` and SHALL NOT create a bind mount or any other host filesystem exposure. When the destination is the project workspace and no explicit path is given, or the explicit path is the workspace root `.`, upload SHALL refresh the tracked tree: it SHALL upload the current host tree and SHALL remove tracked files that the previous refresh placed in the workspace but the current host tree no longer contains, while preserving gitignored sandbox-local artifacts. When an explicit path other than `.` is given, upload SHALL copy only that path to the requested destination, MUST NOT substitute the current directory, and MUST NOT prune or refresh the full tree. Upload SHALL refuse to copy when the workspace is parked. A full workspace refresh with `--discard` SHALL discard the parked output and proceed, while keeping patch files on disk. A partial copy into a parked workspace SHALL be refused even with `--discard`; `--discard` applies only to a full refresh. Upload SHALL warn, without refusing, when a retained patch is unapplied. Only a full workspace refresh SHALL record the new baseline and synced pair; a partial copy-in MUST NOT alter the recorded baseline, host manifest, synced pair, or project fingerprint, and SHALL leave the workspace classification to the normal freshness check. `maki-oss download [path] [dest]` SHALL copy files from the sandbox workspace to an explicit host destination.

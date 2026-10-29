@@ -102,7 +102,6 @@ export async function removeWorkspace(ctx: Ctx, sandbox: string, taskId: string,
 export async function runMaki(ctx: Ctx, spec: RoundSpec, workdir: string): Promise<RoundResult> {
   const argv = [ctx.makiOss, "run", "--timeout", String(spec.timeoutSec)];
   if (spec.model) argv.push("--model", spec.model);
-  argv.push("--", spec.prompt);
   const tag = runTag(spec.taskId);
   const env: Record<string, string> = { ...CALLER_ENV, MAKI_OSS_SANDBOX_NAME: spec.sandbox, MAKI_OSS_WORKDIR: workdir, MAKI_OSS_RUN_TAG: tag };
   if (spec.providers.length) env.MAKI_OSS_PROVIDERS = spec.providers.join(",");
@@ -115,7 +114,9 @@ export async function runMaki(ctx: Ctx, spec: RoundSpec, workdir: string): Promi
   const stop = () => void sandboxSh(ctx, spec.sandbox, STOP_RUN, [tag]);
   spec.signal?.addEventListener("abort", stop, { once: true });
   try {
-    const out = await ctx.run(argv, { env, cwd, timeoutMs: (spec.timeoutSec + BACKSTOP_SEC) * 1000 });
+    // The prompt goes on stdin: maki-oss keeps it out of argv and `--` is
+    // reserved for tool flags.
+    const out = await ctx.run(argv, { env, cwd, stdin: spec.prompt, timeoutMs: (spec.timeoutSec + BACKSTOP_SEC) * 1000 });
     if (spec.signal?.aborted) return { kind: "failed", stage: "run", exitCode: out.code, stderr: "aborted" };
     return interpretRun(out, spec.timeoutSec);
   } finally {

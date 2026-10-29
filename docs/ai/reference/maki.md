@@ -63,8 +63,14 @@ are in `docs/ai/environment-playbook.md`; the worked example is
 - The base image starts every Maki session in YOLO mode because the sandbox, not
   Maki, is the permission boundary; the baked `permissions.toml` deny rules
   still apply.
-- Headless runs use `maki -p "<task>" --output-format json`; a store's
-  `init.lua` must keep the folder-trust block for them.
+- Headless runs use `maki --print --yolo --trust --output-format stream-json
+  --verbose`, stream the event lines unchanged, and read the prompt from stdin
+  when no prompt argument (or `-`) is given. A caller may pass
+  `--disallowed-tools` (one value) and `--fork-session` after `--`;
+  `--allowed-tools` and `--permission-mode` are refused because the fixed
+  `--yolo` cannot be narrowed by an allow list and one-shot `--print` has no
+  permission mode. A store's `init.lua` must keep the folder-trust block for
+  headless runs.
 - Maki never authenticates inside the sandbox: no `maki auth login` and no
   provider base-URL override. OAuth-only credentials have no path here.
 - Provider profiles bind `/usr/local/bin/maki`; renaming or wrapping the binary

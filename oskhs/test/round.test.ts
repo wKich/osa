@@ -79,7 +79,8 @@ describe("round", () => {
     const { ctx, calls } = fakeCtx({ phase: "Ready" });
     await runRound(ctx, spec({ model: "synthetic/m" }));
     const run = calls[index(calls, isRun)]!;
-    expect(run.argv).toEqual(["maki-oss", "run", "--timeout", "60", "--model", "synthetic/m", "--", "What is the secret word?"]);
+    expect(run.argv).toEqual(["maki-oss", "run", "--timeout", "60", "--model", "synthetic/m"]);
+    expect(run.opts.stdin).toBe("What is the secret word?");
     expect(run.opts.env).toMatchObject({
       MAKI_OSS_SANDBOX_NAME: "repo-fx",
       MAKI_OSS_WORKDIR: "/sandbox/tasks/t1",

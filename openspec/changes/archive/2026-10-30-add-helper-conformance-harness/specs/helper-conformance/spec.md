@@ -1,0 +1,107 @@
+## ADDED Requirements
+
+### Requirement: One case set runs against a selectable backend
+
+The repository SHALL provide a conformance suite that runs an unmodified case
+set against a helper backend selected at run time, without editing case bodies.
+The backend selector SHALL accept a command path, or an argv prefix, for each
+of the four agent front-ends, and SHALL default to the repository's own
+`bin/maki-oss`, `bin/opencode-oss`, `bin/claude-oss`, and `bin/codex-oss`.
+
+The suite SHALL run offline: no Docker, no gateway, no network, and only the
+stub executables under `tests/stub/` on the front of `PATH`.
+
+#### Scenario: Default backend reproduces the current behavior
+- **WHEN** a maintainer runs `make test-conformance` with no backend selected
+- **THEN** every case runs against `bin/maki-oss` and the other `bin/` front-ends, and the command exits 0
+
+#### Scenario: A second backend can be selected without touching a case
+- **WHEN** the maintainer selects a backend executable for `maki-oss` and runs the suite
+- **THEN** the same case bodies run against that executable, and no case file is modified
+
+#### Scenario: The suite runs with no network and no engine
+- **WHEN** the suite runs on a host without Docker and without a reachable gateway
+- **THEN** every case still runs and no case reports a network or engine error
+
+### Requirement: Every seam invocation is recorded
+
+For each case, the harness SHALL record every stub `openshell` invocation as
+its argv and the **names** of the environment variables it was given, in a
+stable per-case form, and write the recording to a case artifact.
+
+The recording SHALL NOT contain any environment variable's value, and SHALL NOT
+contain any value read from a credential fixture.
+
+#### Scenario: Recording captures argv order and environment names
+- **WHEN** a case that creates a sandbox runs
+- **THEN** its recording shows the `sandbox create` argv in order and the names of the environment variables supplied to the child, and no variable values
+
+#### Scenario: Two runs of one case record identically
+- **WHEN** the same case runs twice against the same backend
+- **THEN** the two recordings are byte-identical, so a golden comparison cannot fail on incidental data
+
+### Requirement: Recorded invocations match committed goldens
+
+A case that carries a committed golden file SHALL fail when its recorded
+invocations differ from the golden, and the failure SHALL name the case and
+print a line-level diff of the two recordings.
+
+A case without a golden file SHALL be recorded without being compared, and the
+suite SHALL report how many cases are unrecorded.
+
+#### Scenario: An argv change fails the case
+- **WHEN** a backend adds, removes, reorders, or renames an argument in a recorded `openshell` invocation for a golden case
+- **THEN** that case fails and the failure prints the differing lines
+
+#### Scenario: An unrecorded case does not fail
+- **WHEN** a case has no golden file
+- **THEN** the suite passes that case, records it, and reports it in the unrecorded count
+
+#### Scenario: Refreshing a golden is explicit
+- **WHEN** the maintainer runs the suite in record mode
+- **THEN** the harness rewrites the affected golden files and reports which files changed, and a normal run never writes a golden
+
+### Requirement: No credential reaches argv, state, or output
+
+The harness SHALL provide at least one case per front-end that exercises a
+credentialed provider path with fixture values, and SHALL fail when any fixture
+value appears in a recorded argv, in any file the helper writes under the state
+root, or in the helper's stdout or stderr.
+
+#### Scenario: A provider case leaks nothing
+- **WHEN** a case supplies a fixture credential through the documented channel and runs the provider path
+- **THEN** no fixture value appears in the recording, in the state tree, or in the captured output
+
+#### Scenario: A leak fails the case
+- **WHEN** a deliberately broken backend passes the fixture credential as an argument
+- **THEN** the case fails and names the argument position that carried the value
+
+### Requirement: Observable state is asserted per case
+
+For each case, the harness SHALL assert the state tree the helper produced:
+registry entry files and their fields, pending/synced/baseline marker presence
+and kind, lock presence during a run and absence after it, and the exit code and
+captured stdout/stderr of the invoked command.
+
+#### Scenario: Registry fields are asserted field by field
+- **WHEN** a case creates a project sandbox
+- **THEN** the case asserts each registry field it expects by name, and fails naming the missing or wrong field
+
+#### Scenario: A lock is observable while a run holds it
+- **WHEN** a case holds a session open
+- **THEN** the case observes the per-sandbox lock file, and observes it gone after the session ends
+
+### Requirement: Parity mode compares two backends
+
+The suite SHALL provide a parity mode that runs the same case set against two
+selected backends and reports, per case, one of: identical, divergent in
+recording, divergent in state, or divergent in exit status or output. The mode
+SHALL exit non-zero when any case diverges.
+
+#### Scenario: Identical backends report identical
+- **WHEN** parity mode runs the case set against two copies of the same backend
+- **THEN** every case reports identical and the command exits 0
+
+#### Scenario: A divergent backend is named
+- **WHEN** parity mode runs against a backend that writes a different registry field value for one case
+- **THEN** that case reports divergent in state, names the field, and the command exits non-zero while still running the remaining cases

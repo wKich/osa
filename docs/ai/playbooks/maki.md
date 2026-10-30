@@ -453,6 +453,15 @@ event contains a result rather than an error.
 The smoke test fails or reports a network or policy denial. Report the JSON and
 the policy decision; do not retry with a broader rule.
 
+A run that resumes a session fails with the proxy's placeholder-in-body 403:
+the resumed history already carries the prefix, so every further request for
+that session fails the same way. `run` refuses such a resume up front with that
+diagnosis (exit 3, variable names only); a 403 that still arrives means the
+poison came from outside that check. Do not retry the resume and do not widen
+policy; repair the history (remove the reference from the session transcript
+under the sandbox's Maki state directory, keeping a copy) or start a fresh
+session instead.
+
 ## Phase 7 — Collect results and clean up
 
 ### Run

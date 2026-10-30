@@ -2276,6 +2276,35 @@ test_run_resume_flags() {
     assert_log_missing "download"
 }
 
+test_run_resume_refuses_poisoned_session() {
+    begin "run --resume refuses a stored session that already quotes the stand-in"
+    new_case run-resume-poison
+    RUN_DIR=$CASE/project/myproject
+    mkdir -p "$RUN_DIR"
+    seed_sandbox maki-myproject Ready
+    seed_remembered_provider maki-stub
+    attach_stub_provider maki-myproject maki-stub
+    printf ' ANTHROPIC_API_KEY \n' >"$CASE/poison.txt"
+    EXEC_CASES=$CASE/exec-cases
+    printf 'resume-check|3|%s\n' "$CASE/poison.txt" >"$EXEC_CASES"
+
+    run_maki run --resume CgPOISONEDSESSION "keep going"
+    assert_rc 3
+    assert_err_has "refusing to resume"
+    # Only the variable name travels back; the stand-in value never leaves the
+    # sandbox and the agent process never starts.
+    assert_err_has "ANTHROPIC_API_KEY"
+    assert_log_line_missing "maki --print"
+    assert_log_line_missing "keep going"
+
+    # A check that cannot run must not block the resume.
+    reset_log
+    printf 'resume-check|2|\n' >"$EXEC_CASES"
+    run_maki run --resume CgPOISONEDSESSION "keep going"
+    assert_rc 0
+    assert_log_line "keep going"
+}
+
 test_session_flag_conflicts() {
     begin "--continue with --resume is refused, and session flags are inert elsewhere"
     new_case session-flag-conflicts
@@ -3711,17 +3740,20 @@ test_asset_agent_onboarding() {
 test_no_placeholder_spelling() {
     begin "no agent-readable file spells the credential placeholder"
     new_case placeholder-spelling
-    needle=$(printf 'openshell:resolve'':env:')
+    needle=$(printf '\157\160\145\156\163\150\145\154\154\072\162\145\163\157\154\166\145\072\145\156\166\072')
     hits=
-    for f in "$ROOT/AGENTS.md" "$ROOT/README.md" "$ROOT/Makefile" \
-        "$ROOT/docs"/*.md "$ROOT/docs/ai"/*.md "$ROOT/docs/ai"/*/*.md \
-        "$ROOT/examples"/*.toml \
-        "$ROOT/examples/providers"/*.yaml "$ROOT/examples/policies"/*.yaml; do
+    # Every regular file in the repository, not a hand-kept list: the sandbox
+    # receives the whole tree, so docs, openspec records, and helper sources are
+    # all agent-readable. VCS metadata, dependency trees, and local worktrees
+    # are copies, not shipped sources.
+    while IFS= read -r f; do
         [ -f "$f" ] || continue
-        if grep -qF -- "$needle" "$f"; then
+        if grep -qF -- "$needle" "$f" 2>/dev/null; then
             hits="$hits ${f#"$ROOT"/}"
         fi
-    done
+    done <<EOF
+$(find "$ROOT" \( -name .git -o -name node_modules -o -name .claude \) -prune -o -type f -print)
+EOF
     if [ -n "$hits" ]; then
         bad "placeholder prefix spelled in:$hits (reword; see AGENTS.md)"
     fi
@@ -5622,7 +5654,7 @@ test_cc_profiles_and_catalogs() {
         [ -f "$cc_dir/$cc_id.yaml" ] || bad "catalog.tsv names a missing profile: $cc_id"
     done <"$cc_dir/catalog.tsv"
     # No file under claude-oss/ or its docs spells the placeholder prefix.
-    cc_needle=$(printf 'openshell:resolve'':env:')
+    cc_needle=$(printf '\157\160\145\156\163\150\145\154\154\072\162\145\163\157\154\166\145\072\145\156\166\072')
     if cc_hits=$(grep -rlF -- "$cc_needle" "$ROOT/claude-oss" "$ROOT/docs/ai/reference/claude.md" 2>/dev/null); then
         bad "placeholder prefix spelled in: $cc_hits"
     fi
@@ -6301,7 +6333,7 @@ test_cx_profiles_and_catalogs() {
         bad "managed_config.toml names a credential or login state"
     fi
     # No file under codex-oss/ or its docs spells the placeholder prefix.
-    cx_needle=$(printf 'openshell:resolve'':env:')
+    cx_needle=$(printf '\157\160\145\156\163\150\145\154\154\072\162\145\163\157\154\166\145\072\145\156\166\072')
     if cx_hits=$(grep -rlF -- "$cx_needle" "$ROOT/codex-oss" "$ROOT/docs/ai/reference/codex.md" 2>/dev/null); then
         bad "placeholder prefix spelled in: $cx_hits"
     fi
@@ -10773,6 +10805,7 @@ run_test test_run_model_flag
 run_test test_run_timeout_flag
 run_test test_maki_resume
 run_test test_run_resume_flags
+run_test test_run_resume_refuses_poisoned_session
 run_test test_session_flag_conflicts
 run_test test_tui_config_key
 run_test test_tui_resume_flags_refused

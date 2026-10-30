@@ -14,7 +14,7 @@
 ## 3. Add the Maki reference
 
 - [x] 3.1 Add `docs/ai/reference/maki.md` with metadata (`Doc: reference-maki`, `Kind: reference`, `Agent: Maki`, `Covers: P0, P3-P8`, `Verified: not yet verified`) and the `Scope`, `Config paths`, `Profiles`, `MCP`, `Store`, `Differences`, and `See also` sections. Keep it a link index: point at `docs/helper.md`, `docs/providers.md`, `docs/mcp-migration.md`, and `docs/ai/environment-playbook.md` instead of copying their content. Verify `scripts/check-playbooks.sh` exits 0 and the file contains each section with `grep`.
-- [x] 3.2 Verify every link in the new reference resolves with `scripts/check-links.sh docs/ai/reference/maki.md`, and confirm it contains no credential value or placeholder spelling with `grep -E 'sk-|Bearer [A-Za-z0-9]|openshell:resolve:env:' docs/ai/reference/maki.md` returning no matches.
+- [x] 3.2 Verify every link in the new reference resolves with `scripts/check-links.sh docs/ai/reference/maki.md`, and confirm it contains no credential value and no spelling of the provider-placeholder prefix: `grep -nE 'sk-|Bearer [A-Za-z0-9]' docs/ai/reference/maki.md` returns no matches, and the placeholder scan in `tests/run-tests.sh` covers the file.
 
 ## 4. Update current references
 

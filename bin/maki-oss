@@ -250,6 +250,56 @@ agent_exec_stdin() {
 # shellcheck disable=SC2329  # the core checks for the hook with `command -v`
 agent_stdin_prompt() { :; }
 
+# A resumed session replays its stored transcript, and the proxy answers 403 to
+# any request body that quotes a credential stand-in, so one accidental echo in
+# the history kills every later turn of that session, across roles. The check
+# runs inside the sandbox: it reads the stand-in values from the process
+# environment and reports the variable names only, never the values and never
+# the matching lines. Exit 3 means "poisoned"; any other non-zero status only
+# means the check itself could not run, which must not block the resume.
+MAKI_RESUME_CHECK_SCRIPT='set -e
+sessions=${HOME:-/sandbox}/.local/state/maki/sessions
+file=
+if [ -n "$1" ]; then
+    file=$sessions/$1.jsonl
+else
+    for candidate in "$sessions"/*.jsonl; do
+        [ -f "$candidate" ] || continue
+        if [ -z "$file" ] || [ "$candidate" -nt "$file" ]; then
+            file=$candidate
+        fi
+    done
+fi
+[ -n "$file" ] && [ -f "$file" ] || exit 0
+found=
+for key in $(printenv | sed -n "s/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p"); do
+    case $key in
+        *_API_KEY|*_TOKEN|*_SECRET|*_SECRET_KEY) ;;
+        *) continue ;;
+    esac
+    value=$(printenv "$key" 2>/dev/null || true)
+    [ "${#value}" -ge 16 ] || continue
+    if grep -qF -- "$value" "$file"; then
+        found="$found $key"
+    fi
+done
+[ -z "$found" ] || { printf "%s\n" "$found"; exit 3; }
+'
+
+agent_resume_check() { # SANDBOX WORKDIR
+    [ "$opt_continue" -eq 1 ] || [ -n "$opt_resume" ] || return 0
+    check_out=
+    check_rc=0
+    check_out=$(os sandbox exec -n "$1" --no-login-shell --workdir "$2" -- \
+        sh -c "$MAKI_RESUME_CHECK_SCRIPT" maki-oss-resume-check "$opt_resume" \
+        </dev/null 2>/dev/null) || check_rc=$?
+    [ "$check_rc" -eq 3 ] || return 0
+    err "refusing to resume: the stored session already contains the credential stand-in for${check_out}"
+    err "the proxy rejects any request body carrying it, so the first call of the resumed turn would fail with 403 credential_placeholder_in_request_body"
+    err "repair the transcript in the sandbox (remove the reference, keeping a copy) or start a fresh session; do not widen policy or retry the resume"
+    exit "$EX_GATEWAY"
+}
+
 # Checks the flags after `--` on `run` against the pass-through allowlist.
 # Under the fixed `--yolo` an allow list cannot narrow tools, and one-shot
 # `--print` has no `--permission-mode`, so only deny and fork flags are

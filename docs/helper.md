@@ -511,6 +511,15 @@ The session flags apply here too — `--continue`, `--resume <ID>`, and
 one. The same lifetime caveat applies: the session exists only as long as the
 sandbox does.
 
+Before a `--continue` or `--resume` launch, `run` checks the stored transcript
+inside the sandbox against the credential stand-ins in that process environment
+and refuses with exit 3 if the history already quotes one: the proxy answers
+403 to any request body carrying it, so the resumed turn would fail on its
+first call. Only variable names are reported; the stand-ins, and the matching
+lines, stay in the sandbox. Repair the transcript (remove the reference,
+keeping a copy) or start a fresh session — never retry the resume or widen
+policy. A check that cannot run at all does not block the resume.
+
 ```sh
 maki-oss run "fix the failing tests"
 maki-oss run --model deepseek/deepseek-chat "check the changelog"

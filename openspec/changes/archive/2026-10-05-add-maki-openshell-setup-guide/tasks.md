@@ -18,7 +18,7 @@
 
 - [x] 3.1 Write `docs/setup-guide.md` sections: intro + isolation model; prerequisites (Docker Desktop host networking on, Enhanced Container Isolation off, OpenShell install, `openshell status`); build the Maki image; model access (import profile, create provider with `--from-existing`); sandbox policy; run Maki (interactive, headless, upload/download caveat); isolation verification; troubleshooting; next steps. Every configuration block references an `examples/` path instead of inlining a duplicate
 - [x] 3.2 Add a terms section linking to `docs/glossary.md`, and a "verified against OpenShell v0.1.2, Maki <pinned>" header that names the tested platform
-- [x] 3.3 Write `docs/verification.md` with the isolation checklist: denied egress (`curl` to a non-allowed host is blocked), placeholder-only credential (`printenv` shows `openshell:resolve:env:*`), host paths invisible (`ls /Users` fails), effective policy review (`openshell policy get <name> --full`), attached provider list, and denial logs (`openshell logs --source sandbox`); each check states its exact command and expected output
+- [x] 3.3 Write `docs/verification.md` with the isolation checklist: denied egress (`curl` to a non-allowed host is blocked), placeholder-only credential (`printenv` of the credential variable shows only the opaque stand-in, never the value), host paths invisible (`ls /Users` fails), effective policy review (`openshell policy get <name> --full`), attached provider list, and denial logs (`openshell logs --source sandbox`); each check states its exact command and expected output
 
 ## 4. AI-agent reference pack
 

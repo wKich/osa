@@ -2575,6 +2575,12 @@ cmd_session() {
     ensure_project_sandbox
     name=$(resolved_name)
     workdir=$(resolved_workdir)
+    # A resumed session replays its stored transcript; refuse one that already
+    # quotes a credential stand-in, which the proxy answers with a 403 (the
+    # same check `run` makes before its headless turn).
+    if command -v agent_resume_check >/dev/null 2>&1; then
+        agent_resume_check "$name" "$workdir"
+    fi
     model=$(resolved_model)
     arm_sync
     session_interrupted=0
@@ -2718,6 +2724,14 @@ cmd_run() {
     ensure_project_sandbox >&2
     name=$(resolved_name)
     workdir=$(resolved_workdir)
+    # A resumed session replays its stored transcript in the first request body
+    # of the new turn, so a history that already quotes a credential stand-in
+    # fails with an opaque 403 before the agent does any work. The front-end
+    # checks the stored session and refuses the resume; it runs after the
+    # sandbox exists and before any agent process starts.
+    if command -v agent_resume_check >/dev/null 2>&1; then
+        agent_resume_check "$name" "$workdir"
+    fi
     # shellcheck disable=SC2034  # read by the front-end's argv hooks
     model=$(resolved_model)
     prompt=$*

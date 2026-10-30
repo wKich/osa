@@ -1,0 +1,7 @@
+---
+build
+--build-arg
+OPENCODE_VERSION=9.9.9
+-t
+opencode-agent:local
+<repo>/opencode-oss/image

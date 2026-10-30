@@ -3,3 +3,6 @@ node_modules/
 *.log
 dashboard/.bun/
 bridge/test/captures/tui-last.*
+
+# Conformance goldens are reviewed fixtures, not run output.
+!tests/conformance/golden/*.log

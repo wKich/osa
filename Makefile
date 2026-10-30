@@ -1,6 +1,8 @@
 # osa development tasks.
 #
 #   make test          stub-backed suite (no Docker, no gateway, no network)
+#   make test-conformance  the same suite in strict conformance mode
+#   make test-conformance-self  harness self-test (normalizer + leak scan)
 #   make test-all      every suite: shell, bridge, dashboard, oskhs + MongoDB
 #   make test-oskhs    oskhs round library suite (bun, no gateway)
 #   make lint          shellcheck + fish syntax checks
@@ -10,23 +12,45 @@
 
 SHELL := /bin/sh
 
-.PHONY: test test-all test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-docs lint-profiles install-fish openspec-update sync-openspec
+.PHONY: test test-conformance test-conformance-self test-all test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-docs lint-profiles install-fish openspec-update sync-openspec
 
 test:
 	tests/run-tests.sh
 
-# The verification gate (CI runs exactly this): the shell, bridge, dashboard,
-# and oskhs suites, including the MongoTaskStore tests against
-# OSKHS_TEST_MONGO_URI. A missing prerequisite fails instead of skipping, and
-# the first failing suite is named.
+# The same case set in strict conformance mode: a case without a golden must be
+# listed in tests/conformance/excluded.txt, and a recording that differs from
+# its golden fails. Needs only POSIX sh and the stubs under tests/stub.
+test-conformance:
+	OSA_CONFORMANCE_STRICT=1 tests/run-tests.sh
+
+# Proves the normalizer cannot hide a real argv change and that the leak scan
+# catches a backend that moves a credential into argv.
+test-conformance-self:
+	tests/conformance/self-test.sh
+
+# The verification gate (CI runs exactly this): the shell suite with the
+# conformance layer in strict mode, then the bridge, dashboard, and oskhs
+# suites, including the MongoTaskStore tests against OSKHS_TEST_MONGO_URI. A
+# conformance-only failure is named as such. A missing prerequisite fails
+# instead of skipping.
 test-all:
 	@command -v bun >/dev/null 2>&1 || { echo 'test-all: bun not found (install Bun: https://bun.sh)' >&2; exit 1; }
 	@[ -n "$${OSKHS_TEST_MONGO_URI:-}" ] || { echo 'test-all: OSKHS_TEST_MONGO_URI is not set (e.g. mongodb://127.0.0.1:27017)' >&2; exit 1; }
-	@tests/run-tests.sh || { echo 'test-all: shell suite failed' >&2; exit 1; }
+	@report=$$(mktemp); \
+	OSA_CONFORMANCE_STRICT=1 OSA_CONFORMANCE_REPORT=$$report tests/run-tests.sh || { \
+		if grep -q '^failed' "$$report" 2>/dev/null; then \
+			echo 'test-all: conformance suite failed' >&2; \
+		else \
+			echo 'test-all: shell suite failed' >&2; \
+		fi; \
+		rm -f "$$report"; \
+		exit 1; \
+	}; \
+	rm -f "$$report"
 	@(cd bridge && bun test) || { echo 'test-all: bridge suite failed' >&2; exit 1; }
 	@(cd dashboard && bun test) || { echo 'test-all: dashboard suite failed' >&2; exit 1; }
 	@(cd oskhs && bun test) || { echo 'test-all: oskhs suite failed' >&2; exit 1; }
-	@echo 'test-all: shell, bridge, dashboard, and oskhs (with MongoDB) suites passed'
+	@echo 'test-all: shell, conformance, bridge, dashboard, and oskhs (with MongoDB) suites passed'
 
 # Offline oskhs suite: round library over a recording runner. No Docker,
 # gateway, or network. Skips with a message when bun is absent.
@@ -118,7 +142,7 @@ lint-docs:
 	scripts/check-playbooks.sh
 
 lint: lint-docs
-	shellcheck -x bin/maki-oss bin/opencode-oss bin/claude-oss bin/codex-oss bin/osa lib/oss-core.sh lib/osa-state.sh tests/run-tests.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode tests/stub/codex
+	shellcheck -x bin/maki-oss bin/opencode-oss bin/claude-oss bin/codex-oss bin/osa lib/oss-core.sh lib/osa-state.sh tests/run-tests.sh tests/conformance/harness.sh tests/conformance/normalize.sh tests/conformance/self-test.sh tests/conformance/backends/leaky.sh tests/conformance/backends/drift.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode tests/stub/codex
 	fish -n fish/functions/__oss_run.fish
 	fish -n fish/functions/maki-oss.fish
 	fish -n fish/conf.d/maki-oss.fish

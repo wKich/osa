@@ -1,0 +1,7 @@
+---
+build
+--build-arg
+CODEX_VERSION=9.9.9
+-t
+codex-agent:local
+<repo>/codex-oss/image

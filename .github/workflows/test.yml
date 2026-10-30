@@ -1,5 +1,8 @@
 # The repository verification gate: the same `make test-all` a maintainer
-# runs locally, with a MongoDB service for the oskhs store tests.
+# runs locally, with a MongoDB service for the oskhs store tests. The shell
+# step runs the conformance layer in strict mode as part of `make test-all`,
+# so a golden or leak failure fails this job; the conformance suite needs no
+# Bun and no extra service.
 name: test
 
 on:

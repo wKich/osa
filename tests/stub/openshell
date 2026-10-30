@@ -24,6 +24,9 @@
 #                         to STUB_ENV_LOG on `provider create|update` and
 #                         `provider refresh configure` (default: none)
 #   STUB_ENV_LOG          file receiving recorded credential env values
+#   STUB_ENV_ALLOW        env var names (space-separated, fixed order) whose
+#                         presence the argv log records as `@env NAME`, by
+#                         name only, never by value (default: none)
 #   STUB_DOWNLOAD_EXIT    exit code for `sandbox download` (default: 0)
 #   STUB_DOWNLOAD_FIXTURE host directory whose contents are copied into the
 #                         `sandbox download` destination, simulating files
@@ -67,6 +70,18 @@ if [ -n "${STUB_LOG:-}" ]; then
         printf '%s\n' '---'
         for stub_arg in "$@"; do
             printf '%s\n' "$stub_arg"
+        done
+        # Names only, from the allow-list the runner supplies: the conformance
+        # recording must never carry a value, and a credential value is exactly
+        # what a leak case looks for elsewhere. The list is fixed and ordered,
+        # so two runs record identically, and this block needs no external
+        # command (some cases run with a skeleton PATH on purpose).
+        for stub_env_name in ${STUB_ENV_ALLOW:-}; do
+            stub_env_is_set=
+            eval "stub_env_is_set=\${$stub_env_name+x}"
+            if [ "$stub_env_is_set" = x ]; then
+                printf '@env %s\n' "$stub_env_name"
+            fi
         done
     } >> "$STUB_LOG"
 fi

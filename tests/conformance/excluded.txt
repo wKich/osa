@@ -1,0 +1,9 @@
+# Cases that intentionally have no golden recording.
+#
+# One case id per line (<test function>__<case directory>), optionally followed
+# by a reason. Strict mode (make test-conformance) fails when an unrecorded
+# case is not listed here. Keep this list short and justified.
+test_default_name_hash__name-hash	the default sandbox name embeds a hash of the absolute case directory
+test_exit_surfaces_proposals_on_interrupt__advisor-exit-int	the default sandbox name embeds a hash of the absolute case directory
+test_project_name_sources__name-sources	the default sandbox name embeds a hash of the absolute case directory
+test_shared_state_root__shared-root	the default sandbox name embeds a hash of the absolute case directory

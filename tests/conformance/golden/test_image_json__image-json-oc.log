@@ -1,0 +1,6 @@
+---
+image
+inspect
+--format
+{{.Id}}|{{.Created}}
+opencode-agent:local

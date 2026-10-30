@@ -1,0 +1,5 @@
+---
+build
+-t
+maki-agent:local
+<repo>/examples/maki-image

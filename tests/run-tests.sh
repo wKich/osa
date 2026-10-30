@@ -12,8 +12,45 @@
 set -eu
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
-MAKI=$ROOT/bin/maki-oss
 STUB_DIR=$ROOT/tests/stub
+# Names the stub records for conformance: the four front-ends' settings plus
+# MAKI_VERSION, in a fixed alphabetical order. The case's credential names are
+# appended by run_maki_with_input. Values are never recorded.
+STUB_ENV_ALLOW_DEFAULT='CLAUDE_OSS_IDLE_STOP CLAUDE_OSS_IMAGE CLAUDE_OSS_INTERACTIVE
+CLAUDE_OSS_MODEL CLAUDE_OSS_RUN_TAG CLAUDE_OSS_SANDBOX_NAME CLAUDE_OSS_TIMEOUT
+CLAUDE_OSS_WORKDIR CODEX_OSS_ACCOUNT_ID CODEX_OSS_IDLE_STOP CODEX_OSS_IMAGE
+CODEX_OSS_INTERACTIVE CODEX_OSS_MODEL CODEX_OSS_RUN_TAG CODEX_OSS_SANDBOX_NAME
+CODEX_OSS_TIMEOUT CODEX_OSS_WORKDIR MAKI_OSS_IDLE_STOP MAKI_OSS_IMAGE
+MAKI_OSS_INTERACTIVE MAKI_OSS_POLICY MAKI_OSS_PROVIDERS MAKI_OSS_RUN_TAG
+MAKI_OSS_SANDBOX_NAME MAKI_OSS_TEST_ENV_VALUE MAKI_OSS_TIMEOUT MAKI_OSS_TUI
+MAKI_OSS_WORKDIR MAKI_OSS_WORKSPACE MAKI_VERSION OPENCODE_OSS_IDLE_STOP
+OPENCODE_OSS_IMAGE OPENCODE_OSS_INTERACTIVE OPENCODE_OSS_MODEL
+OPENCODE_OSS_RUN_TAG OPENCODE_OSS_SANDBOX_NAME OPENCODE_OSS_TIMEOUT
+OPENCODE_OSS_WORKDIR'
+
+# Each front-end resolves through one selectable backend: a command path or an
+# argv prefix (space-separated), so a second implementation can be run through
+# the same case bodies. Unset means the repository's own bin/ front-end.
+osa_backend() { # ENV-NAME DEFAULT
+    eval "osa_backend_value=\${$1-}"
+    if [ -n "$osa_backend_value" ]; then
+        printf '%s\n' "$osa_backend_value"
+    else
+        printf '%s\n' "$2"
+    fi
+}
+MAKI=$(osa_backend OSA_BACKEND_MAKI "$ROOT/bin/maki-oss")
+OC=$(osa_backend OSA_BACKEND_OPENCODE "$ROOT/bin/opencode-oss")
+CLAUDE=$(osa_backend OSA_BACKEND_CLAUDE "$ROOT/bin/claude-oss")
+CODEX=$(osa_backend OSA_BACKEND_CODEX "$ROOT/bin/codex-oss")
+# The case bodies keep their historical short names.
+CC=$CLAUDE
+CX=$CODEX
+
+# The conformance harness records each case's seam invocations and compares
+# them against the committed goldens.
+. "$ROOT/tests/conformance/normalize.sh"
+. "$ROOT/tests/conformance/harness.sh"
 # Session commands arm an idle-stop watcher by default; only the idle cases
 # turn it on (run_maki passes ENV_IDLE_STOP, unset means 0).
 export MAKI_OSS_IDLE_STOP=0
@@ -21,6 +58,9 @@ export MAKI_OSS_IDLE_STOP=0
 unset XDG_STATE_HOME
 
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/maki-oss-tests.XXXXXX")
+# Physical path, so a case path in helper state matches the one recordings
+# normalize (macOS /var is a symlink to /private/var).
+WORK=$(CDPATH='' cd -- "$WORK" && pwd -P)
 cleanup() {
     pkill -f "$MAKI __idle-watch" 2>/dev/null || true
     if [ "${KEEP_WORK:-0}" != 1 ]; then
@@ -51,7 +91,9 @@ run_test() {
     esac
     before_fail=$FAIL
     before_skip=$SKIP
+    CONFORMANCE_TEST=$1
     "$1"
+    conformance_case_end
     if [ "$FAIL" -ne "$before_fail" ]; then
         return 0
     fi
@@ -73,6 +115,7 @@ bad() {
 skipped() { SKIP=$((SKIP + 1)); printf 'skip %s (%s)\n' "$CURRENT" "$1"; }
 
 new_case() {
+    conformance_case_begin "$1"
     CASE=$WORK/$1
     mkdir -p "$CASE/home" "$CASE/project" "$CASE/state" "$CASE/sandbox"
     XDG_CONFIG_HOME=$CASE/home/.config
@@ -145,13 +188,14 @@ new_case() {
     RC=0
 }
 
+# shellcheck disable=SC2086  # the backend may be an argv prefix
 run_maki_with_input() { # STDIN_FILE ARGS...
     maki_input=$1
     shift
     RC=0
     (
         cd "${RUN_DIR:-$CASE/project}"
-        PATH="${PATH_OVERRIDE:-$STUB_DIR:$PATH}" \
+        PATH="${OSA_CONFORMANCE_PATH:+$OSA_CONFORMANCE_PATH:}${PATH_OVERRIDE:-$STUB_DIR:$PATH}" \
         HOME="$HOME" \
         XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
         STUB_LOG="$STUB_LOG" \
@@ -166,6 +210,7 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         STUB_PROFILE_LINT_EXIT="${PROFILE_LINT_EXIT:-}" \
         STUB_CREDENTIAL_ENV="${CREDENTIAL_ENV:-}" \
         STUB_ENV_LOG="${CREDENTIAL_LOG:-}" \
+        STUB_ENV_ALLOW="$STUB_ENV_ALLOW_DEFAULT ${CREDENTIAL_ENV:-}" \
         STUB_DOWNLOAD_EXIT="${DOWNLOAD_EXIT:-}" \
         STUB_DOWNLOAD_FIXTURE="${DOWNLOAD_FIXTURE:-}" \
         STUB_SETTINGS_EXIT="${SETTINGS_EXIT:-}" \
@@ -202,8 +247,9 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         EDITOR="${ENV_EDITOR:-true}" \
         MAKI_OSS_INTERACTIVE="${INTERACTIVE:-}" \
         MAKI_OSS_TEST_ENV_VALUE="${TEST_ENV_VALUE:-}" \
-        "$MAKI" "$@" >"$OUT" 2>"$ERR" <"$maki_input"
+        $MAKI "$@" >"$OUT" 2>"$ERR" <"$maki_input"
     ) || RC=$?
+    conformance_capture_run "$RC" "$OUT" "$ERR"
 }
 
 run_maki() {
@@ -423,32 +469,38 @@ assert_err_missing() {
     fi
 }
 
+# The stub log also carries `@env NAME` lines; argv assertions look at the
+# arguments only.
+log_argv() {
+    grep -v '^@env ' "$LOG" 2>/dev/null || true
+}
+
 assert_log_line() {
-    if ! grep -Fxq -- "$1" "$LOG" 2>/dev/null; then
+    if ! log_argv | grep -Fxq -- "$1"; then
         bad "argv log missing argument: $1"
     fi
 }
 
 assert_log_has() {
-    if ! grep -Fq -- "$1" "$LOG" 2>/dev/null; then
+    if ! log_argv | grep -Fq -- "$1"; then
         bad "argv log missing: $1"
     fi
 }
 
 assert_log_missing() {
-    if [ -f "$LOG" ] && grep -Fq -- "$1" "$LOG"; then
+    if [ -f "$LOG" ] && log_argv | grep -Fq -- "$1"; then
         bad "argv log unexpectedly contains: $1"
     fi
 }
 
 assert_log_line_missing() {
-    if [ -f "$LOG" ] && grep -Fxq -- "$1" "$LOG"; then
+    if [ -f "$LOG" ] && log_argv | grep -Fxq -- "$1"; then
         bad "argv log unexpectedly contains argument: $1"
     fi
 }
 
 sandbox_name_from_log() {
-    awk 'previous == "--name" { print; exit } { previous = $0 }' "$LOG"
+    log_argv | awk 'previous == "--name" { print; exit } { previous = $0 }'
 }
 
 assert_log_before() { # FIRST SECOND
@@ -456,8 +508,8 @@ assert_log_before() { # FIRST SECOND
         bad "argv log missing; cannot order '$1' and '$2'"
         return
     fi
-    first_seen=$(grep -n -F -m1 -- "$1" "$LOG" | cut -d: -f1)
-    second_seen=$(grep -n -F -m1 -- "$2" "$LOG" | cut -d: -f1)
+    first_seen=$(log_argv | grep -n -F -m1 -- "$1" | cut -d: -f1)
+    second_seen=$(log_argv | grep -n -F -m1 -- "$2" | cut -d: -f1)
     if [ -z "$first_seen" ] || [ -z "$second_seen" ]; then
         bad "cannot order '$1' and '$2' (one is missing)"
         return
@@ -474,8 +526,8 @@ assert_log_line_before() { # FIRST SECOND
         bad "argv log missing; cannot order '$1' and '$2'"
         return
     fi
-    first_seen=$(grep -n -Fx -m1 -- "$1" "$LOG" | cut -d: -f1)
-    second_seen=$(grep -n -Fx -m1 -- "$2" "$LOG" | cut -d: -f1)
+    first_seen=$(log_argv | grep -n -Fx -m1 -- "$1" | cut -d: -f1)
+    second_seen=$(log_argv | grep -n -Fx -m1 -- "$2" | cut -d: -f1)
     if [ -z "$first_seen" ] || [ -z "$second_seen" ]; then
         bad "cannot order '$1' and '$2' (one is missing)"
         return
@@ -2933,7 +2985,7 @@ while [ ! -f '"$CASE"'/maki-stop ]; do sleep 0.1; done'
         STUB_SANDBOX_TOOLS="$CASE/sandbox-tools" \
         STUB_MAKI_SCRIPT="$STUB_MAKI_SCRIPT" \
         MAKI_OSS_WORKDIR="$SANDBOX_WORKDIR" \
-            "$MAKI" maki >"$OUT" 2>"$ERR" </dev/null
+            $MAKI maki >"$OUT" 2>"$ERR" </dev/null
     ) || RC=$?
     wait || true
     [ "$RC" -eq 130 ] || bad "interrupted session exited $RC instead of 130"
@@ -3144,7 +3196,7 @@ test_provider_setup_sigint() {
     STUB_LOG="$STUB_LOG" \
     STUB_STATE_DIR="$STUB_STATE_DIR" \
     MAKI_OSS_INTERACTIVE=1 \
-        "$MAKI" provider setup >"$OUT" 2>"$ERR" <"$CASE/in.fifo" || RC=$?
+        $MAKI provider setup >"$OUT" 2>"$ERR" <"$CASE/in.fifo" || RC=$?
     wait || true
     if [ "$RC" -ne 130 ]; then
         bad "expected exit 130 after SIGINT, got $RC"
@@ -4497,7 +4549,7 @@ test_run_stdout_is_maki_only() {
 # values that runner always passes must have no effect on opencode-oss.
 # ---------------------------------------------------------------------------
 
-OC=$ROOT/bin/opencode-oss
+# $OC is resolved at startup from OSA_BACKEND_OPENCODE.
 
 oc_case() { # NAME
     new_case "$1"
@@ -5146,7 +5198,7 @@ test_oc_sync_no_git() {
 # runner always passes must have no effect.
 # ---------------------------------------------------------------------------
 
-CC=$ROOT/bin/claude-oss
+# $CC aliases $CLAUDE, resolved at startup from OSA_BACKEND_CLAUDE.
 CC_UUID=123e4567-e89b-12d3-a456-426614174000
 
 cc_case() { # NAME
@@ -6004,7 +6056,7 @@ test_cc_sync_no_git() {
 # runner always passes must have no effect.
 # ---------------------------------------------------------------------------
 
-CX=$ROOT/bin/codex-oss
+# $CX aliases $CODEX, resolved at startup from OSA_BACKEND_CODEX.
 CX_ACCOUNT=acct-fixture-4417
 CX_THREAD=0199aa00-0000-7000-8000-000000000001
 
@@ -7928,6 +7980,7 @@ assert_log_empty() { # WHY
 # Prints each recorded invocation as one space-joined line.
 log_invocations() {
     awk '$0 == "---" { if (line != "") print line; line = ""; next }
+        /^@env / { next }
         { line = (line == "" ? $0 : line " " $0) }
         END { if (line != "") print line }' "$LOG" 2>/dev/null
 }
@@ -10936,6 +10989,73 @@ run_test test_idle_stop_newer_session_cancels
 run_test test_idle_stop_busy_sandbox
 run_test test_idle_stop_failure_is_silent
 run_test test_no_placeholder_spelling
+# ---------------------------------------------------------------------------
+# Conformance: one credentialed case per front-end. Each takes a fixture
+# credential through its documented channel; the conformance harness scans the
+# recording, the state tree, and the captured output for the value and fails
+# the case if it appears. The goldens for these cases live with the rest.
+# ---------------------------------------------------------------------------
+
+test_conf_maki_credential() {
+    begin "conformance: maki-oss delivers a fixture credential only through the child environment"
+    new_case conf-maki-credential
+    write_fixture_profile "$CASE/fixture-profile.yaml" fixture-provider FIXTURE_KEY
+    CREDENTIAL_ENV=FIXTURE_KEY
+    CREDENTIAL_LOG=$CASE/credential-env.log
+    TEST_ENV_VALUE=fixture-conf-maki-value-2f71
+
+    run_maki provider setup --env MAKI_OSS_TEST_ENV_VALUE \
+        --profile "$CASE/fixture-profile.yaml" --yes
+    assert_rc 0
+    assert_credential_env "fixture-conf-maki-value-2f71"
+    assert_secret_absent "fixture-conf-maki-value-2f71"
+}
+
+test_conf_oc_credential() {
+    begin "conformance: opencode-oss delivers a fixture credential only through the child environment"
+    oc_case conf-oc-credential
+    oc_conf_value='fixture-conf-oc-value-4d21'
+    seed_opencode_auth "{\"synthetic\": {\"type\": \"api\", \"key\": \"$oc_conf_value\"}}"
+    CREDENTIAL_ENV=SYNTHETIC_API_KEY
+    CREDENTIAL_LOG=$CASE/credential-env.log
+
+    run_oc provider setup --from opencode --credential synthetic --yes
+    assert_rc 0
+    assert_credential_env "$oc_conf_value"
+    assert_secret_absent "$oc_conf_value"
+}
+
+test_conf_cc_credential() {
+    begin "conformance: claude-oss delivers a fixture credential only through the child environment"
+    cc_case conf-cc-credential
+    cc_conf_value='fixture-conf-cc-value-9a13'
+    CREDENTIAL_ENV=CLAUDE_CODE_OAUTH_TOKEN
+    CREDENTIAL_LOG=$CASE/credential-env.log
+    CC_TOKEN_ENV=$cc_conf_value
+
+    run_cc provider setup --env CLAUDE_CODE_OAUTH_TOKEN --yes
+    assert_rc 0
+    assert_credential_env "$cc_conf_value"
+    assert_secret_absent "$cc_conf_value"
+}
+
+test_conf_cx_credential() {
+    begin "conformance: codex-oss delivers a fixture credential only through the child environment"
+    cx_case conf-cx-credential
+    CREDENTIAL_ENV='CODEX_CHATGPT_TOKEN CODEX_OSS_REFRESH_TOKEN'
+    CREDENTIAL_LOG=$CASE/credential-env.log
+
+    run_cx provider setup --yes
+    assert_rc 0
+    assert_credential_env 'fixture-codex-refresh-7c1d'
+    assert_secret_absent 'fixture-codex-refresh-7c1d'
+}
+
+run_test test_conf_maki_credential
+run_test test_conf_oc_credential
+run_test test_conf_cc_credential
+run_test test_conf_cx_credential
+
 run_test test_oc_help
 run_test test_oc_run_argv
 run_test test_oc_tui_argv
@@ -11001,6 +11121,8 @@ run_test test_cx_sync_clean_git
 run_test test_cx_sync_dirty_host
 run_test test_cx_sync_plain_directory
 run_test test_cx_sync_no_git
+
+conformance_report
 
 printf '\n%d passed, %d failed, %d skipped\n' "$PASS" "$FAIL" "$SKIP"
 if [ "$FAIL" -ne 0 ]; then

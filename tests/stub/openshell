@@ -376,17 +376,24 @@ case $command_name in
                             && git -C "$stub_upload_src" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
                             git -C "$stub_upload_src" ls-files -co --exclude-standard \
                                 | while IFS= read -r stub_upload_file; do
-                                    [ -e "$stub_upload_src/$stub_upload_file" ] || continue
+                                    { [ -e "$stub_upload_src/$stub_upload_file" ] || [ -L "$stub_upload_src/$stub_upload_file" ]; } || continue
                                     mkdir -p "$(dirname -- "$stub_upload_dest/$stub_upload_file")"
-                                    cp -p "$stub_upload_src/$stub_upload_file" "$stub_upload_dest/$stub_upload_file"
+                                    rm -f -- "$stub_upload_dest/$stub_upload_file"
+                                    cp -P -p "$stub_upload_src/$stub_upload_file" "$stub_upload_dest/$stub_upload_file"
                                 done
                         else
                             for stub_upload_entry in "$stub_upload_src"/* "$stub_upload_src"/.[!.]* "$stub_upload_src"/..?*; do
-                                [ -e "$stub_upload_entry" ] || continue
-                                case $(basename -- "$stub_upload_entry") in
+                                { [ -e "$stub_upload_entry" ] || [ -L "$stub_upload_entry" ]; } || continue
+                                stub_upload_name=$(basename -- "$stub_upload_entry")
+                                case $stub_upload_name in
                                     .git) continue ;;
                                 esac
-                                cp -R "$stub_upload_entry" "$stub_upload_dest/"
+                                if [ -d "$stub_upload_entry" ] && [ ! -L "$stub_upload_entry" ]; then
+                                    cp -R "$stub_upload_entry" "$stub_upload_dest/"
+                                else
+                                    rm -f -- "$stub_upload_dest/$stub_upload_name"
+                                    cp -P -p "$stub_upload_entry" "$stub_upload_dest/$stub_upload_name"
+                                fi
                             done
                         fi
                     else

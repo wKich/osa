@@ -2801,6 +2801,114 @@ caller_bundle_path() { # WORKDIR
     printf '%s-bundle' "$(caller_git_dir "$1")"
 }
 
+# The incremental manifest and its dirty marker live beside the baseline and
+# repository in the sandbox caller state directory, never in the workdir and
+# never under the host state root.
+caller_manifest_path() { # WORKDIR
+    printf '%s-manifest' "$(caller_git_dir "$1")"
+}
+
+caller_manifest_dirty_path() { # WORKDIR
+    printf '%s-manifest.dirty' "$(caller_git_dir "$1")"
+}
+
+# Builds the host-filtered manifest for TREE with the same filter the upload
+# uses: `.gitignore` for a git worktree, everything when --no-git-ignore is set
+# or the tree is not a git worktree. Each record carries mode, size, content
+# hash, type, and path; the header carries the schema version and the final
+# `complete` record is the completion marker. The temp index is reused for
+# `checkout-index`, so changed files stage straight from git. At a repository
+# root the host index is copied first so clean files keep their stat cache and
+# are not rehashed; the copy never modifies the host's index.
+# shellcheck disable=SC2086  # -f is a deliberate empty-or-flag word
+caller_host_manifest() { # TREE OUT
+    chm_tree=$1
+    chm_out=$2
+    caller_manifest_build_dir=$(mktemp -d "${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-manifest.XXXXXX") \
+        || return 1
+    chm_force=
+    if [ "$opt_no_git_ignore" -eq 1 ] || [ "$si_git" -eq 0 ]; then
+        chm_force=-f
+        caller_manifest_filter=all
+    else
+        caller_manifest_filter=gitignore
+    fi
+    if [ "$si_git" -eq 1 ]; then
+        caller_manifest_history=git
+    else
+        caller_manifest_history=none
+    fi
+    chm_repo=$caller_manifest_build_dir/repo
+    chm_index=$caller_manifest_build_dir/index
+    chm_ok=0
+    if ! (umask 077 && git init -q "$chm_repo" 2>/dev/null); then
+        rm -rf "$caller_manifest_build_dir"
+        caller_manifest_build_dir=
+        return 1
+    fi
+    if [ "$si_git" -eq 1 ] \
+        && [ "$(git -C "$chm_tree" rev-parse --show-toplevel 2>/dev/null)" = "$chm_tree" ]; then
+        chm_host_index=$(git -C "$chm_tree" rev-parse --git-path index 2>/dev/null) \
+            || chm_host_index=
+        case $chm_host_index in
+            '') ;;
+            /*) ;;
+            *) chm_host_index=$chm_tree/$chm_host_index ;;
+        esac
+        if [ -n "$chm_host_index" ] && [ -f "$chm_host_index" ]; then
+            if cp -p "$chm_host_index" "$chm_index" 2>/dev/null; then
+                # The copied index names blobs that live in the host object
+                # store; an alternate lets write-tree and checkout-index read
+                # them without copying the store.
+                chm_objects=$(git -C "$chm_tree" rev-parse --git-path objects 2>/dev/null) \
+                    || chm_objects=
+                case $chm_objects in
+                    '') ;;
+                    /*) ;;
+                    *) chm_objects=$chm_tree/$chm_objects ;;
+                esac
+                if [ -n "$chm_objects" ] && [ -d "$chm_objects" ]; then
+                    (umask 077 && mkdir -p "$chm_repo/.git/objects/info" \
+                        && printf '%s\n' "$chm_objects" \
+                            >"$chm_repo/.git/objects/info/alternates") 2>/dev/null || :
+                fi
+            else
+                rm -f "$chm_index"
+            fi
+        fi
+    fi
+    if ! GIT_DIR=$chm_repo/.git GIT_WORK_TREE=$chm_tree GIT_INDEX_FILE=$chm_index \
+        git add -A $chm_force 2>/dev/null; then
+        # A stale or conflicted host index copy falls back to a fresh index.
+        rm -f "$chm_index"
+        if ! GIT_DIR=$chm_repo/.git GIT_WORK_TREE=$chm_tree GIT_INDEX_FILE=$chm_index \
+            git add -A $chm_force 2>/dev/null; then
+            rm -rf "$caller_manifest_build_dir"
+            caller_manifest_build_dir=
+            return 1
+        fi
+    fi
+    if chm_tree_id=$(GIT_DIR=$chm_repo/.git GIT_INDEX_FILE=$chm_index \
+        git write-tree 2>/dev/null) \
+        && (umask 077
+            {
+                printf 'osa-caller-manifest\t1\t%s\t%s\n' \
+                    "$caller_manifest_filter" "$caller_manifest_history"
+                GIT_DIR=$chm_repo/.git git ls-tree -r -l "$chm_tree_id" \
+                    | awk -F'\t' '{ n = split($1, a, " "); if (n >= 4) print a[1] "\t" a[4] "\t" a[3] "\t" a[2] "\t" $2 }'
+                printf 'complete\t1\n'
+            } >"$chm_out"); then
+        chm_ok=1
+    fi
+    if [ "$chm_ok" -ne 1 ]; then
+        rm -rf "$caller_manifest_build_dir"
+        caller_manifest_build_dir=
+        rm -f "$chm_out"
+        return 1
+    fi
+    return 0
+}
+
 caller_script() { # NAME WORKDIR SCRIPT [EXTRA]
     cs_name=$1
     cs_workdir=$2
@@ -2815,8 +2923,8 @@ caller_script() { # NAME WORKDIR SCRIPT [EXTRA]
 # collect-patch would accept.
 # shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
 CALLER_CLEAR_SCRIPT='set -e
-gitdir=$1 worktree=$2 repodir=$3 bundle=$4
-rm -rf "$gitdir" "$repodir" "$bundle"
+gitdir=$1 worktree=$2 repodir=$3 bundle=$4 manifest=$5 dirty=$6
+rm -rf "$gitdir" "$repodir" "$bundle" "$manifest" "$dirty"
 mkdir -p "$(dirname -- "$gitdir")" "$worktree"
 find "$worktree" -mindepth 1 -maxdepth 1 -exec rm -rf {} +'
 
@@ -2841,6 +2949,31 @@ if [ -n "$base_name" ]; then
 fi
 GIT_DIR=$repodir GIT_WORK_TREE=$worktree git read-tree "$commit"
 GIT_DIR=$repodir GIT_WORK_TREE=$worktree git reset -q --mixed'
+
+# Prints "current" when the agent repository already has this host HEAD (and
+# optional base) and the helper `.git` file is in place, so an incremental pass
+# can skip re-uploading the bundle and resetting the history.
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+CALLER_HISTORY_PROBE_SCRIPT='set -e
+worktree=$2 want_head=$3 base_name=$4 base_commit=$5
+if [ ! -f "$worktree/.git" ]; then
+    printf "stale\n"
+    exit 0
+fi
+got=$(git -C "$worktree" rev-parse -q --verify HEAD 2>/dev/null) || got=
+if [ "$got" != "$want_head" ]; then
+    printf "stale\n"
+    exit 0
+fi
+if [ -n "$base_name" ]; then
+    got_base=$(git -C "$worktree" rev-parse -q --verify \
+        "refs/remotes/origin/$base_name" 2>/dev/null) || got_base=
+    if [ "$got_base" != "$base_commit" ]; then
+        printf "stale\n"
+        exit 0
+    fi
+fi
+printf "current\n"'
 
 # Prints "<commit> <files> <bytes>". With KEEPGIT=0 a `.git` the upload
 # brought along (a linked worktree's pointer file, a plain directory's
@@ -2892,6 +3025,113 @@ git diff --binary --full-index refs/'"$PROGRAM"'/caller-base refs/'"$PROGRAM"'/c
 CALLER_MANIFEST_SCRIPT='set -e
 export GIT_DIR=$1
 git diff --no-renames --name-status refs/'"$PROGRAM"'/caller-base refs/'"$PROGRAM"'/caller-result'
+
+# Compares the previous manifest with the host manifest just uploaded. Prints
+# "F<TAB>reason" when the incremental path cannot trust its state, otherwise
+# prints one "U<TAB>path" line per new or changed host-filtered file.
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+CALLER_INCREMENTAL_COMPARE_SCRIPT='set -e
+worktree=$2 prev=$3 cur=$4 dirty=$5 filter=$6 history=$7
+if [ -e "$dirty" ]; then
+    printf "F\tdirty\n"
+    exit 0
+fi
+if [ ! -f "$prev" ] || [ ! -f "$cur" ]; then
+    printf "F\tmissing\n"
+    exit 0
+fi
+want=$(printf "osa-caller-manifest\t1\t%s\t%s" "$filter" "$history")
+head=$(sed -n 1p "$prev")
+if [ "$head" != "$want" ]; then
+    printf "F\theader\n"
+    exit 0
+fi
+if [ "$(tail -n 1 "$prev")" != "complete	1" ]; then
+    printf "F\tincomplete\n"
+    exit 0
+fi
+awk -F "\t" '\''NR==FNR {
+    if (FNR > 1 && $1 != "complete") pm[$5] = $1 " " $3
+    next
+}
+FNR > 1 && $1 != "complete" {
+    if (!($5 in pm) || pm[$5] != $1 " " $3) print "U\t" $5
+    delete pm[$5]
+}'\'' "$prev" "$cur"'
+
+# Applies a trusted incremental plan: deletes host paths that disappeared, then
+# deletes non-ignored workdir paths in neither manifest. Ignored workdir paths
+# (build outputs, package caches) survive. The helper `.git` file is skipped;
+# the history step recreates it. A non-git host leaves no agent `.git` behind.
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+CALLER_INCREMENTAL_DELETE_SCRIPT='set -e
+worktree=$2 prev=$3 cur=$4 dirty=$5 filter=$6 history=$7
+tmp=${TMPDIR:-/tmp}/'"$OSS_TMP_PREFIX"'-inc.$$
+trap '\''rm -rf "$tmp"'\'' EXIT
+mkdir -p "$tmp"
+awk -F "\t" '\''NR==FNR {
+    if (FNR > 1 && $1 != "complete") pm[$5] = 1
+    next
+}
+FNR > 1 && $1 != "complete" {
+    delete pm[$5]
+}
+END {
+    for (p in pm) print p
+}'\'' "$prev" "$cur" > "$tmp/deleted"
+while IFS= read -r path; do
+    case $path in
+        ""|/*|..|../*|*/..|*/../*) continue ;;
+    esac
+    target=$worktree/$path
+    if [ -f "$target" ] || [ -L "$target" ]; then
+        rm -f -- "$target"
+    fi
+done < "$tmp/deleted"
+awk -F "\t" '\''FNR > 1 && $1 != "complete" { print $5 }'\'' "$cur" \
+    | LC_ALL=C sort -u > "$tmp/current"
+awk -F "\t" '\''FNR > 1 && $1 != "complete" { print $5 }'\'' "$prev" \
+    | LC_ALL=C sort -u > "$tmp/previous"
+find "$worktree" -mindepth 1 -path "$worktree/.git" -prune -o \
+    \( -type f -o -type l \) -print \
+    | awk -v p="$worktree/" '\''index($0, p) == 1 { print substr($0, length(p) + 1) }'\'' \
+    | LC_ALL=C sort -u > "$tmp/work"
+comm -23 "$tmp/work" "$tmp/current" > "$tmp/notcurrent"
+comm -23 "$tmp/notcurrent" "$tmp/previous" > "$tmp/leftover"
+while IFS= read -r path; do
+    case $path in
+        ""|/*|..|../*|*/..|*/../*) continue ;;
+    esac
+    if [ "$filter" = gitignore ] \
+        && git -C "$worktree" check-ignore -q --no-index -- "$path" 2>/dev/null; then
+        continue
+    fi
+    target=$worktree/$path
+    if [ -f "$target" ] || [ -L "$target" ]; then
+        rm -f -- "$target"
+    fi
+done < "$tmp/leftover"
+if [ "$history" != git ]; then
+    rm -rf -- "$worktree/.git"
+fi
+find "$worktree" -mindepth 1 -depth -type d ! -path "$worktree/.git" \
+    -exec rmdir -- {} \; 2>/dev/null || true
+rm -f -- "$cur"'
+
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+CALLER_DIRTY_SCRIPT='set -e
+dirty=$3
+mkdir -p "$(dirname -- "$dirty")"
+printf "incremental\n" > "$dirty"'
+
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+CALLER_CLEAR_DIRTY_SCRIPT='rm -f -- "$3"'
+
+# Drops the baseline ref after a failed incremental sync, so collect-patch
+# refuses and the next sync takes the full path.
+# shellcheck disable=SC2016  # expanded by the sandbox shell, not this one
+CALLER_DROP_BASE_SCRIPT='export GIT_DIR=$1
+git update-ref -d refs/'"$PROGRAM"'/caller-base 2>/dev/null || true'
 
 # Shared entry checks: caller mode, a literal name and workdir, then a
 # running sandbox. Usage errors come before any gateway call.
@@ -2960,8 +3200,126 @@ caller_resolve_base() { # TREE REF
         || die_usage "sync-in: --base '$crb_ref' does not name a usable origin ref"
 }
 
+# Host temp files belong to this invocation only. The trap runs on every exit
+# path, including usage and gateway errors, so a failed sync leaves no staging
+# tree behind.
+caller_sync_cleanup() {
+    if [ -n "${si_stage_dir:-}" ]; then
+        rm -rf "$si_stage_dir"
+    fi
+    if [ -n "${si_manifest_build_dir:-}" ]; then
+        rm -rf "$si_manifest_build_dir"
+    fi
+    [ -z "${si_manifest_host:-}" ] || rm -f "$si_manifest_host"
+    [ -z "${si_upload_list:-}" ] || rm -f "$si_upload_list"
+    [ -z "${si_bundle_tmp:-}" ] || rm -f "$si_bundle_tmp"
+}
+
+# Compares the previous sandbox manifest with a freshly built host manifest.
+# Returns 1 when the caller must take the full path (missing, malformed,
+# incompatible, or interrupted state); on success fills si_upload_list.
+caller_incremental_ready() { # NAME WORKDIR TREE
+    cir_name=$1
+    cir_workdir=$2
+    cir_tree=$3
+    si_manifest_host=${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-manifest.$$
+    rm -f "$si_manifest_host"
+    if ! caller_host_manifest "$cir_tree" "$si_manifest_host"; then
+        si_manifest_host=
+        return 1
+    fi
+    si_sandbox_manifest=$(dirname -- "$cir_workdir")/$OSS_TMP_PREFIX-manifest.$$
+    set -- sandbox upload "$cir_name" "$si_manifest_host" "$si_sandbox_manifest"
+    if ! run_gateway "$@" >/dev/null 2>&1; then
+        return 1
+    fi
+    cir_compare=$(caller_script "$cir_name" "$cir_workdir" \
+        "$CALLER_INCREMENTAL_COMPARE_SCRIPT" \
+        "$(caller_manifest_path "$cir_workdir")" "$si_sandbox_manifest" \
+        "$(caller_manifest_dirty_path "$cir_workdir")" \
+        "$caller_manifest_filter" "$caller_manifest_history" 2>/dev/null) || return 1
+    case $cir_compare in
+        F*) return 1 ;;
+    esac
+    si_upload_list=${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-upload.$$
+    rm -f "$si_upload_list"
+    if [ -n "$cir_compare" ]; then
+        printf '%s\n' "$cir_compare" | cut -f2- >"$si_upload_list"
+    else
+        : >"$si_upload_list"
+    fi
+    return 0
+}
+
+# Stages the changed and new files from the manifest index, uploads them into
+# the existing workdir, then applies host deletions and agent-leftover deletion.
+caller_incremental_upload() { # NAME WORKDIR
+    ciu_name=$1
+    ciu_workdir=$2
+    if ! caller_script "$ciu_name" "$ciu_workdir" "$CALLER_DIRTY_SCRIPT" \
+        "$(caller_manifest_dirty_path "$ciu_workdir")" >/dev/null 2>&1; then
+        return 1
+    fi
+    if [ -s "$si_upload_list" ]; then
+        si_stage_dir=$(mktemp -d "${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-stage.XXXXXX") || return 1
+        if ! GIT_DIR=$caller_manifest_build_dir/repo/.git GIT_WORK_TREE=$si_tree \
+            GIT_INDEX_FILE=$caller_manifest_build_dir/index \
+            git checkout-index --prefix="$si_stage_dir/" --stdin \
+            >/dev/null 2>&1 <"$si_upload_list"; then
+            return 1
+        fi
+        # Upload from inside the staging tree so its paths land at the workdir
+        # root, exactly like the full `upload . WORKDIR` refresh.
+        if ! (cd "$si_stage_dir" \
+            && run_gateway sandbox upload "$ciu_name" . "$ciu_workdir") >&2; then
+            return 1
+        fi
+        rm -rf "$si_stage_dir"
+        si_stage_dir=
+    fi
+    if ! caller_script "$ciu_name" "$ciu_workdir" \
+        "$CALLER_INCREMENTAL_DELETE_SCRIPT" \
+        "$(caller_manifest_path "$ciu_workdir")" "$si_sandbox_manifest" \
+        "$(caller_manifest_dirty_path "$ciu_workdir")" \
+        "$caller_manifest_filter" "$caller_manifest_history" >/dev/null 2>&1; then
+        return 1
+    fi
+    return 0
+}
+
+# Sends the host manifest to the sandbox state path. A failure is soft for a
+# full sync (its observable behavior does not change) and fatal for an
+# incremental one, whose caller drops the baseline.
+caller_record_manifest() { # NAME WORKDIR TREE MANIFEST_PATH
+    crm_name=$1
+    crm_tree=$3
+    crm_path=$4
+    if [ -z "$si_manifest_host" ]; then
+        si_manifest_host=${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-manifest.$$.out
+        rm -f "$si_manifest_host"
+        if ! caller_host_manifest "$crm_tree" "$si_manifest_host"; then
+            si_manifest_host=
+            warn "could not build the caller manifest; the next incremental sync will use a full sync"
+            return 0
+        fi
+    fi
+    if ! run_gateway sandbox upload "$crm_name" "$si_manifest_host" "$crm_path" >/dev/null 2>&1; then
+        warn "could not record the caller manifest; the next incremental sync will use a full sync"
+        return 1
+    fi
+    return 0
+}
+
 cmd_sync_in() {
-    [ "$#" -eq 1 ] || die_usage "usage: $PROGRAM sync-in HOST_TREE [--base REF] [--json]"
+    [ "$#" -eq 1 ] || die_usage "usage: $PROGRAM sync-in HOST_TREE [--base REF] [--incremental] [--json]"
+    si_bundle_tmp=
+    si_manifest_host=
+    si_manifest_build_dir=
+    si_upload_list=
+    si_stage_dir=
+    si_sandbox_manifest=
+    si_incremental=0
+    trap 'caller_sync_cleanup' EXIT
     caller_sync_target sync-in
     [ -d "$1" ] || die_usage "sync-in: '$1' is not a directory"
     si_tree=$(CDPATH='' cd -- "$1" && pwd -P) || die_usage "sync-in: cannot enter '$1'"
@@ -2980,11 +3338,9 @@ cmd_sync_in() {
     workdir=$(resolved_workdir)
     repo=$(caller_repo_dir "$workdir")
     bundle=$(caller_bundle_path "$workdir")
+    manifest=$(caller_manifest_path "$workdir")
+    dirty=$(caller_manifest_dirty_path "$workdir")
     caller_require_running "$name"
-    if ! caller_script "$name" "$workdir" "$CALLER_CLEAR_SCRIPT" "$repo" "$bundle" >/dev/null 2>&1; then
-        die_gateway "could not clear '$name:$workdir'"
-    fi
-    si_bundle_tmp=
     if [ "$si_git" -eq 1 ]; then
         si_bundle_tmp=${TMPDIR:-/tmp}/$OSS_TMP_PREFIX-sync.$$
         rm -f "$si_bundle_tmp"
@@ -3013,32 +3369,67 @@ cmd_sync_in() {
         fi
         chmod 600 "$si_bundle_tmp" 2>/dev/null || :
     fi
-    # The same `.gitignore`-filtered upload a managed refresh uses.
-    set -- sandbox upload
-    if [ "$opt_no_git_ignore" -eq 1 ]; then
-        set -- "$@" --no-git-ignore
+    if [ "$opt_incremental" -eq 1 ] \
+        && caller_incremental_ready "$name" "$workdir" "$si_tree"; then
+        si_incremental=1
     fi
-    set -- "$@" "$name" . "$workdir"
-    if ! (cd "$si_tree" && run_gateway "$@") >&2; then
-        [ -z "$si_bundle_tmp" ] || rm -f "$si_bundle_tmp"
-        exit "$EX_GATEWAY"
+    if [ "$si_incremental" -eq 1 ]; then
+        if ! caller_incremental_upload "$name" "$workdir"; then
+            caller_script "$name" "$workdir" "$CALLER_DROP_BASE_SCRIPT" \
+                >/dev/null 2>&1 || :
+            [ -z "$si_sandbox_manifest" ] \
+                || caller_script "$name" "$workdir" "$CALLER_CLEAR_DIRTY_SCRIPT" \
+                    "$si_sandbox_manifest" >/dev/null 2>&1 || :
+            die_gateway "could not apply the incremental sync to '$name:$workdir'; the next sync will use the full path"
+        fi
+    else
+        [ -z "$si_sandbox_manifest" ] \
+            || caller_script "$name" "$workdir" "$CALLER_CLEAR_DIRTY_SCRIPT" \
+                "$si_sandbox_manifest" >/dev/null 2>&1 || :
+        if ! caller_script "$name" "$workdir" "$CALLER_CLEAR_SCRIPT" \
+            "$repo" "$bundle" "$manifest" "$dirty" >/dev/null 2>&1; then
+            die_gateway "could not clear '$name:$workdir'"
+        fi
+        # The same `.gitignore`-filtered upload a managed refresh uses.
+        set -- sandbox upload
+        if [ "$opt_no_git_ignore" -eq 1 ]; then
+            set -- "$@" --no-git-ignore
+        fi
+        set -- "$@" "$name" . "$workdir"
+        if ! (cd "$si_tree" && run_gateway "$@") >&2; then
+            exit "$EX_GATEWAY"
+        fi
     fi
-    if [ "$si_git" -eq 1 ]; then
+    si_history_current=0
+    if [ "$si_incremental" -eq 1 ] && [ "$si_git" -eq 1 ]; then
+        si_probe=$(caller_script "$name" "$workdir" "$CALLER_HISTORY_PROBE_SCRIPT" \
+            "$si_head" "$si_base_name" "$si_base_commit" 2>/dev/null) || si_probe=
+        if [ "$si_probe" = current ]; then
+            si_history_current=1
+        fi
+    fi
+    if [ "$si_git" -eq 1 ] && [ "$si_history_current" -eq 0 ]; then
         set -- sandbox upload
         set -- "$@" "$name" "$si_bundle_tmp" "$bundle"
         if ! (run_gateway "$@") >&2; then
-            rm -f "$si_bundle_tmp"
             exit "$EX_GATEWAY"
         fi
         if ! caller_script "$name" "$workdir" "$CALLER_HISTORY_SCRIPT" \
             "$repo" "$bundle" "$si_head" "$si_base_name" "$si_base_ref" "$si_base_commit" \
             >/dev/null 2>&1; then
-            rm -f "$si_bundle_tmp"
-            caller_script "$name" "$workdir" "$CALLER_CLEAR_SCRIPT" "$repo" "$bundle" \
-                >/dev/null 2>&1 || :
+            if [ "$si_incremental" -eq 1 ]; then
+                caller_script "$name" "$workdir" "$CALLER_DROP_BASE_SCRIPT" \
+                    >/dev/null 2>&1 || :
+            else
+                caller_script "$name" "$workdir" "$CALLER_CLEAR_SCRIPT" \
+                    "$repo" "$bundle" "$manifest" "$dirty" >/dev/null 2>&1 || :
+            fi
             die_gateway "uploaded, but could not set up history in '$name:$workdir'"
         fi
+    fi
+    if [ -n "$si_bundle_tmp" ]; then
         rm -f "$si_bundle_tmp"
+        si_bundle_tmp=
     fi
     if [ "$si_git" -eq 1 ]; then
         si_keepgit=1
@@ -3046,9 +3437,27 @@ cmd_sync_in() {
         si_keepgit=0
     fi
     if ! si_result=$(caller_script "$name" "$workdir" "$CALLER_BASELINE_SCRIPT" "$si_keepgit" 2>/dev/null); then
-        caller_script "$name" "$workdir" "$CALLER_CLEAR_SCRIPT" "$repo" "$bundle" \
-            >/dev/null 2>&1 || :
+        if [ "$si_incremental" -eq 1 ]; then
+            caller_script "$name" "$workdir" "$CALLER_DROP_BASE_SCRIPT" \
+                >/dev/null 2>&1 || :
+        else
+            caller_script "$name" "$workdir" "$CALLER_CLEAR_SCRIPT" \
+                "$repo" "$bundle" "$manifest" "$dirty" >/dev/null 2>&1 || :
+        fi
         die_gateway "uploaded, but could not record the baseline in '$name:$workdir'"
+    fi
+    # A full sync also records a manifest, so a later developer pass can stay
+    # incremental; the extra write does not change what the full path syncs.
+    if ! caller_record_manifest "$name" "$workdir" "$si_tree" "$manifest"; then
+        if [ "$si_incremental" -eq 1 ]; then
+            caller_script "$name" "$workdir" "$CALLER_DROP_BASE_SCRIPT" \
+                >/dev/null 2>&1 || :
+            die_gateway "incremental sync could not record its manifest in '$name:$workdir'; the next sync will use the full path"
+        fi
+    fi
+    if [ "$si_incremental" -eq 1 ]; then
+        caller_script "$name" "$workdir" "$CALLER_CLEAR_DIRTY_SCRIPT" "$dirty" \
+            >/dev/null 2>&1 || warn "could not clear the incremental marker in '$name:$workdir'"
     fi
     # shellcheck disable=SC2086  # three space-separated fields
     set -- $si_result
@@ -6025,6 +6434,7 @@ opt_runtime_credentials=0
 opt_global_profile=0
 opt_no_git_ignore=0
 opt_no_sync=0
+opt_incremental=0
 opt_discard=0
 opt_orphan=0
 opt_json=0
@@ -6377,6 +6787,7 @@ oss_main() {
             --no-attach) opt_attach=0 ;;
             --no-git-ignore) opt_no_git_ignore=1 ;;
             --no-sync) opt_no_sync=1 ;;
+            --incremental) opt_incremental=1 ;;
             --discard) opt_discard=1 ;;
             --orphan) opt_orphan=1 ;;
             --json) opt_json=1 ;;

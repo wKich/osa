@@ -577,11 +577,13 @@ caller's workdir and hand the agent's edits back as a patch. They are refused
 with exit 1 outside caller mode, need the same literal name and workdir as
 `run`, and write nothing under the host state root.
 
-- `sync-in HOST_TREE [--base REF] [--json]` requires a running sandbox (a
-  missing or stopped one exits 3). It empties the workdir, uploads HOST_TREE
-  with the same `.gitignore` filtering as `upload` (`--no-git-ignore` turns it
-  off), so uncommitted, staged, and untracked files arrive as they are on
-  disk. It then records the workdir as a baseline commit in a git directory
+- `sync-in HOST_TREE [--base REF] [--incremental] [--json]` requires a running
+  sandbox (a missing or stopped one exits 3). By default it empties the
+  workdir, uploads HOST_TREE with the same `.gitignore` filtering as `upload`
+  (`--no-git-ignore` turns it off), so uncommitted, staged, and untracked files
+  arrive as they are on disk. `--incremental` is opt-in and described below;
+  without it, the full clear-and-upload path is unchanged. It then records the
+  workdir as a baseline commit in a git directory
   outside the workdir, keyed by the workdir's path, so several workdirs in one
   sandbox keep separate baselines. Each `sync-in` replaces the previous
   baseline; a failed one leaves none. `--json` prints one object:
@@ -610,6 +612,41 @@ with exit 1 outside caller mode, need the same literal name and workdir as
   `refs/remotes/origin/release/next`). A commit id, tag, or other commit
   expression uses `origin/base`. An unresolvable ref, an unusable destination
   ref, or `--base` on a non-git tree exits 1 before any gateway call.
+
+  `--incremental` keeps the existing workdir and makes every host-filtered
+  path match HOST_TREE without clearing it. A successful full or incremental
+  sync records a versioned manifest of the host-filtered tree in the sandbox
+  caller state directory, beside the baseline and repository—never in the
+  workdir and never under the host state root. Each record carries path, type,
+  mode, size, and content hash; the header carries the schema version and the
+  filter mode (`gitignore` or `all` for `--no-git-ignore` and non-git trees),
+  and a final completion marker distinguishes a committed manifest. The
+  manifest carries no prompts or credentials.
+
+  An incremental pass uploads only new or changed paths, removes paths that
+  were in the previous manifest but are absent from HOST_TREE, and removes
+  non-ignored workdir paths that are in neither manifest (agent leftovers).
+  Paths the upload filter ignores—`node_modules/`, `bin/`, `.cache/`, build
+  outputs—survive, so a warm build tree is reused. A path that was in the
+  previous host manifest and is now ignored was host content and is still
+  removed. The helper re-runs the git history setup, so the helper-created
+  `.git` file is recreated rather than treated as a leftover, and rebuilds the
+  baseline from the new workdir, so `collect-patch` returns only changes made
+  after that sync; ignored artifacts stay outside the baseline and the patch.
+
+  The full path runs instead when the manifest is absent, unreadable, from
+  another schema version, or for a different filter, when the dirty marker says
+  a previous incremental sync did not finish, or on an explicit reset. A failed
+  incremental sync drops the baseline, so `collect-patch` refuses, and leaves
+  the dirty marker so the next `sync-in` takes the full path. A full sync
+  records a fresh manifest, so a developer pass after a read-only full sync can
+  use `--incremental` immediately.
+
+  Ignored artifacts can be large, stale, or secret-bearing; the mode is opt-in
+  per worktree and a full sync clears them. The manifest, baseline, and agent
+  repository are operational state for a same-uid process, not an access-control
+  boundary: an agent can tamper with them, while the host remains authoritative
+  for what is uploaded and what the patch may contain.
 
   The baseline and agent repositories are separate directories. Ordinary
   sandbox git commands cannot address the baseline, and the baseline commit is

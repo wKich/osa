@@ -57,9 +57,11 @@ Commands:
   help                          Show this help
 
 Caller interface (MAKI_OSS_WORKSPACE=caller, literal --name and --workdir):
-  sync-in HOST_TREE [--json]    Replace the workdir with HOST_TREE
+  sync-in HOST_TREE [--incremental] [--json]
+                                Replace the workdir with HOST_TREE
                                 (.gitignore-filtered, no .git) and record a
-                                baseline outside it
+                                baseline outside it. --incremental uploads only
+                                changed files and keeps ignored build artifacts
   collect-patch --out FILE [--json]
                                 Write the workdir's changes since sync-in as a
                                 binary git patch (mode 600)

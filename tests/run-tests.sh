@@ -9513,6 +9513,18 @@ caller_host_commit() { # TREE MESSAGE
     git -C "$1" -c user.name=t -c user.email=t@localhost commit -qam "$2"
 }
 
+# The incremental manifest lives beside the baseline in the sandbox caller
+# state directory, never in the workdir or the host state root.
+caller_manifest_file() { # WORKDIR
+    find "$(dirname -- "$1")/.maki-oss/caller" -maxdepth 1 -name '*-manifest' \
+        2>/dev/null | head -n 1
+}
+
+caller_manifest_dirty_file() { # WORKDIR
+    find "$(dirname -- "$1")/.maki-oss/caller" -maxdepth 1 -name '*-manifest.dirty' \
+        2>/dev/null | head -n 1
+}
+
 # jq-only JSON checks; the line fallback in assert_json_object is for osa's
 # own objects.
 assert_caller_json() { # FILTER
@@ -9537,6 +9549,10 @@ test_caller_sync_in_refused_managed() {
     assert_err_has "MAKI_OSS_WORKSPACE=caller"
     assert_log_empty "gateway was contacted"
     [ -e "$CASE/p.diff" ] && bad "collect-patch wrote a file in managed mode"
+    run_maki sync-in "$HOST_TREE" --incremental
+    assert_rc 1
+    assert_err_has "MAKI_OSS_WORKSPACE=caller"
+    assert_log_empty "gateway was contacted"
     return 0
 }
 
@@ -10026,6 +10042,179 @@ test_caller_sync_in_history_staging_flattened() {
         || bad "git diff does not show the flattened staged change"
     git -C "$CALLER_WORKDIR" diff -- a.txt 2>/dev/null | grep -q '^+unstaged$' \
         || bad "git diff does not show the partially staged on-disk change"
+    return 0
+}
+
+# Incremental caller sync (specs/caller-workspace-sync): the manifest records
+# the host-filtered tree, unchanged files stay put, deletion follows the host,
+# ignored artifacts survive, and any untrusted manifest falls back to full.
+
+test_caller_sync_in_incremental_full_default() {
+    begin "sync-in without --incremental keeps the full clear-and-upload behavior and records a manifest"
+    caller_sync_case caller-inc-default
+    run_maki sync-in "$HOST_TREE" --json
+    assert_rc 0
+    manifest=$(caller_manifest_file "$CALLER_WORKDIR")
+    [ -f "$manifest" ] || bad "the full sync recorded no manifest"
+    grep -q '^complete	1$' "$manifest" 2>/dev/null || bad "the manifest has no completion marker"
+    grep -q 'a.txt' "$manifest" 2>/dev/null || bad "the manifest is missing a tracked file"
+    grep -q 'untracked' "$manifest" 2>/dev/null && bad "the manifest invented an untracked file"
+    mkdir -p "$CALLER_WORKDIR/bin"
+    printf 'built\n' >"$CALLER_WORKDIR/bin/out.dll"
+    printf 'leftover\n' >"$CALLER_WORKDIR/stale.txt"
+    run_maki sync-in "$HOST_TREE"
+    assert_rc 0
+    [ -e "$CALLER_WORKDIR/bin/out.dll" ] && bad "the default path preserved an ignored artifact"
+    [ -e "$CALLER_WORKDIR/stale.txt" ] && bad "the default path preserved an agent leftover"
+    return 0
+}
+
+test_caller_sync_in_incremental_manifest_filter() {
+    begin "the incremental manifest uses the upload filter: ignored absent, uncommitted and untracked present"
+    caller_sync_case caller-inc-filter
+    printf 'alpha changed\n' >"$HOST_TREE/a.txt"
+    printf 'new\n' >"$HOST_TREE/untracked.txt"
+    run_maki sync-in "$HOST_TREE" --incremental
+    assert_rc 0
+    manifest=$(caller_manifest_file "$CALLER_WORKDIR")
+    [ -f "$manifest" ] || bad "no manifest after the fallback full sync"
+    grep -q 'untracked.txt' "$manifest" 2>/dev/null || bad "an untracked-not-ignored file is missing"
+    grep -q 'a.txt' "$manifest" 2>/dev/null || bad "a modified tracked file is missing"
+    grep -q 'bin/out.dll' "$manifest" 2>/dev/null && bad "an ignored file reached the manifest"
+    grep -qi 'token\|secret\|password\|api[_-]key' "$manifest" 2>/dev/null \
+        && bad "the manifest looks like it carries credentials"
+    return 0
+}
+
+test_caller_sync_in_incremental_rework() {
+    begin "incremental sync uploads only changes, follows host deletions, preserves ignored artifacts, and rebases the patch"
+    caller_sync_case caller-inc-rework
+    run_maki sync-in "$HOST_TREE" --incremental --json
+    assert_rc 0
+    mkdir -p "$CALLER_WORKDIR/bin"
+    printf 'built\n' >"$CALLER_WORKDIR/bin/out.dll"
+    mkdir -p "$CALLER_WORKDIR/obj"
+    printf 'leftover\n' >"$CALLER_WORKDIR/obj/left.txt"
+    printf 'alpha changed\n' >"$HOST_TREE/a.txt"
+    rm -f "$HOST_TREE/del.txt"
+    printf 'new\n' >"$HOST_TREE/new.txt"
+    printf 'untracked\n' >"$HOST_TREE/untracked.txt"
+    reset_log
+    run_maki sync-in "$HOST_TREE" --incremental --json
+    assert_rc 0
+    [ "$(cat "$CALLER_WORKDIR/a.txt" 2>/dev/null)" = "alpha changed" ] \
+        || bad "the changed file did not arrive"
+    [ -e "$CALLER_WORKDIR/del.txt" ] && bad "a host-deleted file survived"
+    [ -f "$CALLER_WORKDIR/new.txt" ] || bad "the new untracked file did not arrive"
+    [ -f "$CALLER_WORKDIR/untracked.txt" ] || bad "the untracked file did not arrive"
+    [ -e "$CALLER_WORKDIR/obj" ] && bad "a non-ignored agent leftover survived"
+    [ -f "$CALLER_WORKDIR/bin/out.dll" ] || bad "the ignored build artifact did not survive"
+    assert_log_has "maki-oss-manifest"
+    assert_log_missing "-bundle"
+    [ "$(git -C "$CALLER_WORKDIR" rev-parse --git-dir 2>/dev/null)" = "$CALLER_WORKDIR/.git" ] \
+        || grep -q 'gitdir:' "$CALLER_WORKDIR/.git" 2>/dev/null \
+        || bad "the helper .git file was damaged"
+    printf 'post\n' >>"$CALLER_WORKDIR/a.txt"
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 0
+    grep -q '^+post$' "$CASE/p.diff" || bad "the post-sync edit is missing from the patch"
+    grep -q '^+alpha changed$' "$CASE/p.diff" && bad "the patch includes pre-sync host content"
+    grep -q 'out.dll' "$CASE/p.diff" && bad "the ignored artifact reached the patch"
+    return 0
+}
+
+test_caller_sync_in_incremental_keeps_unchanged() {
+    begin "incremental sync does not touch an unchanged workdir file"
+    caller_sync_case caller-inc-unchanged
+    run_maki sync-in "$HOST_TREE" --incremental --json
+    assert_rc 0
+    before_inode=$(ls -di "$CALLER_WORKDIR/ren.txt" | awk '{print $1}')
+    before_sum=$(cksum "$CALLER_WORKDIR/ren.txt")
+    printf 'alpha changed\n' >"$HOST_TREE/a.txt"
+    run_maki sync-in "$HOST_TREE" --incremental
+    assert_rc 0
+    after_inode=$(ls -di "$CALLER_WORKDIR/ren.txt" | awk '{print $1}')
+    after_sum=$(cksum "$CALLER_WORKDIR/ren.txt")
+    [ "$before_inode" = "$after_inode" ] || bad "an unchanged file was replaced"
+    [ "$before_sum" = "$after_sum" ] || bad "an unchanged file changed content"
+    return 0
+}
+
+test_caller_sync_in_incremental_special_files() {
+    begin "incremental sync round-trips spaces, symlinks, and binary files"
+    caller_sync_case caller-inc-special
+    printf 'spaced\n' >"$HOST_TREE/sp ace.txt"
+    printf 'BIN\000\001\377' >"$HOST_TREE/img.bin"
+    ln -s a.txt "$HOST_TREE/link.txt"
+    git -C "$HOST_TREE" add -A
+    caller_host_commit "$HOST_TREE" special
+    run_maki sync-in "$HOST_TREE" --incremental --json
+    assert_rc 0
+    [ -L "$CALLER_WORKDIR/link.txt" ] || bad "the symlink did not arrive as a symlink"
+    [ "$(readlink "$CALLER_WORKDIR/link.txt")" = "a.txt" ] || bad "the symlink target changed"
+    cmp -s "$HOST_TREE/sp ace.txt" "$CALLER_WORKDIR/sp ace.txt" || bad "the spaced path differs"
+    cmp -s "$HOST_TREE/img.bin" "$CALLER_WORKDIR/img.bin" || bad "the binary file differs"
+    printf 'spaced changed\n' >"$HOST_TREE/sp ace.txt"
+    printf 'BIN\000\002\376' >"$HOST_TREE/img.bin"
+    ln -sfn del.txt "$HOST_TREE/link.txt"
+    run_maki sync-in "$HOST_TREE" --incremental
+    assert_rc 0
+    [ -L "$CALLER_WORKDIR/link.txt" ] || bad "the changed symlink stopped being a symlink"
+    [ "$(readlink "$CALLER_WORKDIR/link.txt")" = "del.txt" ] || bad "the changed symlink target did not arrive"
+    cmp -s "$HOST_TREE/sp ace.txt" "$CALLER_WORKDIR/sp ace.txt" || bad "the changed spaced path differs"
+    cmp -s "$HOST_TREE/img.bin" "$CALLER_WORKDIR/img.bin" || bad "the changed binary file differs"
+    return 0
+}
+
+test_caller_sync_in_incremental_fallback() {
+    begin "incremental sync falls back to full on a missing, malformed, version-mismatched, or interrupted manifest"
+    caller_sync_case caller-inc-fallback
+    run_maki sync-in "$HOST_TREE" --incremental
+    assert_rc 0
+    manifest=$(caller_manifest_file "$CALLER_WORKDIR")
+    [ -f "$manifest" ] || bad "the first sync recorded no manifest"
+    for fallback_state in missing malformed version dirty; do
+        mkdir -p "$CALLER_WORKDIR/bin"
+        printf 'built\n' >"$CALLER_WORKDIR/bin/out.dll"
+        case $fallback_state in
+            missing) rm -f "$manifest" ;;
+            malformed) printf 'not a manifest\n' >"$manifest" ;;
+            version) printf 'osa-caller-manifest\t99\tgitignore\tgit\ncomplete\t1\n' >"$manifest" ;;
+            dirty)
+                printf 'osa-caller-manifest\t1\tgitignore\tgit\ncomplete\t1\n' >"$manifest"
+                printf 'incremental\n' >"$manifest.dirty"
+                ;;
+        esac
+        run_maki sync-in "$HOST_TREE" --incremental --json
+        assert_rc 0
+        [ -e "$CALLER_WORKDIR/bin/out.dll" ] && bad "the $fallback_state manifest did not force a full sync"
+        [ -f "$manifest" ] || bad "the fallback did not record a manifest ($fallback_state)"
+        [ -e "$manifest.dirty" ] && bad "the dirty marker survived a successful sync ($fallback_state)"
+    done
+    return 0
+}
+
+test_caller_sync_in_incremental_failure_leaves_no_baseline() {
+    begin "a failed incremental sync leaves no baseline and the next sync takes the full path"
+    caller_sync_case caller-inc-fail
+    run_maki sync-in "$HOST_TREE" --incremental
+    assert_rc 0
+    mkdir -p "$CALLER_WORKDIR/bin"
+    printf 'built\n' >"$CALLER_WORKDIR/bin/out.dll"
+    printf 'alpha changed\n' >"$HOST_TREE/a.txt"
+    STUB_EXEC_SCRIPT_FAIL="caller baseline"
+    run_maki sync-in "$HOST_TREE" --incremental
+    assert_rc 3
+    STUB_EXEC_SCRIPT_FAIL=
+    run_maki collect-patch --out "$CASE/p.diff"
+    assert_rc 1
+    assert_err_has "sync-in"
+    [ -e "$CASE/p.diff" ] && bad "collect-patch wrote a file after a failed incremental sync"
+    run_maki sync-in "$HOST_TREE" --incremental --json
+    assert_rc 0
+    [ -e "$CALLER_WORKDIR/bin/out.dll" ] && bad "the retry trusted the interrupted manifest instead of running full"
+    [ "$(cat "$CALLER_WORKDIR/a.txt" 2>/dev/null)" = "alpha changed" ] \
+        || bad "the retry did not restore the host content"
     return 0
 }
 
@@ -10639,6 +10828,13 @@ run_test test_caller_sync_in_history_base_naming
 run_test test_caller_sync_in_history_slash_branch
 run_test test_caller_sync_in_history_rejects_unsafe_refs
 run_test test_caller_sync_in_history_staging_flattened
+run_test test_caller_sync_in_incremental_full_default
+run_test test_caller_sync_in_incremental_manifest_filter
+run_test test_caller_sync_in_incremental_rework
+run_test test_caller_sync_in_incremental_keeps_unchanged
+run_test test_caller_sync_in_incremental_special_files
+run_test test_caller_sync_in_incremental_fallback
+run_test test_caller_sync_in_incremental_failure_leaves_no_baseline
 run_test test_session_sync_failure_preserves_code
 run_test test_session_plain_apply
 run_test test_session_plain_conflict_keeps_project

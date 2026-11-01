@@ -212,6 +212,13 @@ alternative, the primary fish path SHALL be runnable from the repository root
 before anything is on `PATH` or in the fish function directory, and each
 shell's verification commands SHALL be labeled so they run only in that shell.
 
+Because every front-end command is a shim over a built binary, each shell's
+verification SHALL confirm that the command actually runs, not only that it
+resolves: `command -v` and `type -q` SHALL be followed by a check that the
+command executes the built binary and exits zero. The playbook SHALL state that
+a resolvable shim over a missing binary fails with a message naming the build
+command.
+
 #### Scenario: Shared path resolves the shared command
 
 - **WHEN** an agent completes the shared repository step and runs
@@ -253,6 +260,16 @@ shell's verification commands SHALL be labeled so they run only in that shell.
   shared `docs/helper.md` Fish setup section or the agent playbook for fish
   integration and agent-specific fallback variables, with no
   `maki-oss fish install` or `MAKI_OSS_BIN` command
+
+#### Scenario: A shim is verified by running it
+
+- **WHEN** an agent completes a front-end command's verification step
+- **THEN** the step runs the command itself and observes a zero exit status, not only a successful resolution
+
+#### Scenario: An unbuilt checkout is diagnosed
+
+- **WHEN** the binary behind a shim is absent and the verification command runs
+- **THEN** the command exits non-zero with a message naming the build command
 
 ### Requirement: Daily-driver loop separated from one-time setup
 
@@ -395,3 +412,30 @@ the claim is a measurement rather than an edited string.
 - **THEN** `docs/verification-log.md` carries a dated entry for that version,
   and the checklist in `docs/ai/verification/maki.md` was run against it rather
   than carried forward
+
+### Requirement: Core build step with its own verification
+
+The shared host playbook SHALL, after the OpenShell step and before shell
+preparation, install or verify the pinned Rust toolchain from
+`rust-toolchain.toml`, build the core with `make build`, and verify the result
+by running `osa --help` and confirming it exits 0 with the documented
+subcommand list.
+
+The step SHALL state that a missing binary makes `osa` fail with a message
+naming the build command, so a host that skips the step cannot mistake the shim
+for a working installation.
+
+#### Scenario: Build verification
+
+- **WHEN** the agent runs the core build step's verification
+- **THEN** `osa --help` exits 0 and lists the subcommands the `osa` reference documents
+
+#### Scenario: Skipped build is diagnosed, not silent
+
+- **WHEN** the build step is skipped and `osa projects` runs
+- **THEN** the command exits non-zero and its message names `make build`
+
+#### Scenario: Toolchain version is pinned in one place
+
+- **WHEN** the toolchain version in `rust-toolchain.toml` is compared with the version the playbook states
+- **THEN** they match

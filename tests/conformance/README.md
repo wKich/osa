@@ -55,8 +55,10 @@ through the recording.
 
 ## Selecting a backend
 
-Each front-end resolves from one variable at the top of `tests/run-tests.sh`:
+The `osa` command and each front-end resolve from one variable at the top of
+`tests/run-tests.sh`:
 
+- `OSA_BACKEND_OSA`
 - `OSA_BACKEND_MAKI`
 - `OSA_BACKEND_OPENCODE`
 - `OSA_BACKEND_CLAUDE`
@@ -68,6 +70,17 @@ repository's `bin/<front-end>`. No case body needs editing:
 ```sh
 OSA_BACKEND_MAKI="$PWD/target/release/maki-oss" tests/run-tests.sh
 OSA_BACKEND_MAKI="cargo run --release --" tests/run-tests.sh
+```
+
+Parity mode runs the case set twice: the first run uses these variables, the
+second uses `OSA_BACKEND_<NAME>_2`. To compare the Rust `osa` with the shell
+implementation kept in a checkout, restore that script from git as
+`bin/osa-shell` and run the `osa` cases only:
+
+```sh
+git show <revision>:bin/osa >bin/osa-shell && chmod +x bin/osa-shell
+OSA_BACKEND_OSA="$PWD/bin/osa-shell" OSA_BACKEND_OSA_2="$PWD/bin/osa" \
+    RUN_ONLY='test_osa*' tests/conformance/harness.sh parity
 ```
 
 ### Refreshing goldens

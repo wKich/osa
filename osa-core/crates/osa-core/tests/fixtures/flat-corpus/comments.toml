@@ -1,0 +1,6 @@
+
+# a comment
+  # an indented comment
+
+version = "1"
+reason = "x"   # trailing

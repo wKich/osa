@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/osa-core", "crates/stub-gateway"]
+resolver = "2"

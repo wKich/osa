@@ -7,8 +7,9 @@ context: |
   front-ends are maki-oss (Maki) and opencode-oss (OpenCode); their command
   names, environment prefixes, and config paths are unchanged by the rename.
 
-  Stack: Markdown documentation; POSIX sh helper script + fish shell plugin;
-  Bun + TypeScript for a local dashboard (no frontend framework, no build step).
+  Stack: Markdown documentation; Rust agent front-ends in osa-core with thin
+  POSIX sh shims, POSIX sh test harness + fish shell plugin; Bun + TypeScript
+  for a local dashboard (no frontend framework, no build step).
 
   Security invariants (apply to every artifact and task):
   - The OpenShell sandbox is the security boundary. Never add host bind mounts.

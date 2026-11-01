@@ -143,7 +143,7 @@ docs alone.
 
 *Partly delivered outside this plan (2026-10-26):* `opencode-oss`,
 `claude-oss`, and `codex-oss` run their agents natively over the shared
-core (`lib/oss-core.sh`); the manifest, attach/export/transfer, and the
+shared front-end core; the manifest, attach/export/transfer, and the
 B7 dependency (headless rounds for a second agent) still need checking
 against them.
 
@@ -385,7 +385,7 @@ in one go; remote gateways and resumable large seeds are B5.
   run in a sandbox; every other task still goes through KHS; the sandbox
   holds only placeholders and cannot reach prod Mongo.
 - **B1.6 — Realign with the osa core** (½). The shared helper core
-  (`lib/oss-core.sh`) changed under oskhs after B1.4; oskhs's code did not,
+  (the shared front-end core) changed under oskhs after B1.4; oskhs's code did not,
   and its offline suite records argv, so it cannot see the drift. *Found
   2026-10-26 by code reading, not yet reproduced live:*
   - *Registry binds the sandbox to a cwd.* `up` and `run` record the

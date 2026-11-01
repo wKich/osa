@@ -1,0 +1,49 @@
+[package]
+name = "osa-core"
+version = "0.1.0"
+edition = "2021"
+description = "Typed implementation of the osa command surface"
+publish = false
+
+[lib]
+name = "osa_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "osa"
+path = "src/main.rs"
+
+[[bin]]
+name = "maki-oss"
+path = "src/bin/maki-oss.rs"
+
+[[bin]]
+name = "opencode-oss"
+path = "src/bin/opencode-oss.rs"
+
+[[bin]]
+name = "claude-oss"
+path = "src/bin/claude-oss.rs"
+
+[[bin]]
+name = "codex-oss"
+path = "src/bin/codex-oss.rs"
+
+[features]
+test-support = []
+
+[dev-dependencies]
+stub-gateway = { path = "../stub-gateway" }
+tokio-stream = { version = "0.1", features = ["net"] }
+
+[dependencies]
+async-trait = "0.1"
+libc = "0.2"
+futures = "0.3"
+openshell-policy = { git = "https://github.com/NVIDIA/OpenShell", tag = "v0.1.5" }
+openshell-sdk = { git = "https://github.com/NVIDIA/OpenShell", tag = "v0.1.5" }
+prost-types = "0.14"
+tonic = { version = "0.14", features = ["tls-native-roots"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["raw_value"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }

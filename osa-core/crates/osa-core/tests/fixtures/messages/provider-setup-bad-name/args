@@ -1,0 +1,7 @@
+provider
+setup
+mk
+--profile
+maki-deepseek
+--name
+Bad_Name

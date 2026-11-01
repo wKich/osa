@@ -2,7 +2,9 @@
 # runs locally, with a MongoDB service for the oskhs store tests. The shell
 # step runs the conformance layer in strict mode as part of `make test-all`,
 # so a golden or leak failure fails this job; the conformance suite needs no
-# Bun and no extra service.
+# Bun and no extra service. The core step builds the release binary the shell
+# suite runs through `bin/osa`, then runs the core's own offline suite; a
+# missing cargo or a core failure fails the job and names the suite.
 name: test
 
 on:
@@ -27,6 +29,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      # rustup reads rust-toolchain.toml and installs the pinned toolchain (and
+      # its clippy/rustfmt components), so the version lives in one place.
+      - name: Install the pinned Rust toolchain
+        run: rustup show active-toolchain
       - name: Install shell suite tools
         run: sudo apt-get update && sudo apt-get install -y fish shellcheck
       - name: Install Bun dependencies

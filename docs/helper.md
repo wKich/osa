@@ -1,8 +1,9 @@
 # osa: the sandbox helper
 
 `bin/maki-oss`, `bin/opencode-oss`, `bin/claude-oss`, and `bin/codex-oss` are
-POSIX sh workflow layers over the OpenShell CLI for Maki, OpenCode, Claude Code,
-and Codex. They create one sandbox per project, move files in and out without
+front doors for the four agent helpers: Rust binaries built from `osa-core`
+that wrap the OpenShell CLI for Maki, OpenCode, Claude Code, and Codex. They
+create one sandbox per project, move files in and out without
 bind mounts, run the agent headless or interactively, and encode the safety
 rules from the [setup guide](setup-guide.md) so they are not retyped per
 project. Each agent's path is in its playbook — [Maki](ai/playbooks/maki.md),
@@ -68,33 +69,36 @@ make lint     # shellcheck + fish -n
 
 ### Code layout
 
-The helper is a shared core plus one front-end per agent:
+The helper is one Rust implementation plus one agent profile per front-end:
 
-- `bin/maki-oss` is the Maki front-end. It sets the identity and defaults
-  (the `MAKI_OSS_` prefix, config and state paths, image, policy, sandbox
-  name), defines the agent hooks (session argv, doctor's MCP section, the
-  provider-setup hint), and keeps the Maki-only commands: `maki` and the
-  OpenCode TUI mode. Each front-end defines its own `mcp status`,
-  `image build`, and `fish install`/`uninstall`.
-- `bin/opencode-oss` is the OpenCode front-end. It sets the `OPENCODE_OSS_`
-  identity and defaults, and defines the OpenCode session argv and TUI.
-- `bin/claude-oss` is the Claude Code front-end. It sets the `CLAUDE_OSS_`
-  identity and defaults, and defines the Claude Code session argv and TUI.
-- `bin/codex-oss` is the Codex front-end. It sets the `CODEX_OSS_` identity and
-  defaults, and defines the Codex session argv and TUI.
-- `lib/oss-core.sh` is the agent-neutral core: config, OpenShell wrappers,
-  safety checks, the session ensure and patch sync, idle stop, policy and
-  provider commands, the project registry, and argument parsing. The
-  front-end sources it and calls `oss_main`.
-- `lib/osa-state.sh` holds the shared state root and the published state
-  contract (flat TOML reading and writing, the host fingerprint). The core
-  and `bin/osa` both load it.
-- `bin/osa` is the agent-neutral, read-only reporter over every front-end's
-  projects. See [osa](#osa).
+- `osa-core/crates/osa-core/src/agent/` is the shared, agent-neutral core:
+  settings precedence, OpenShell wrappers, the safety checks, the session
+  ensure and patch sync, idle stop, policy and provider commands, the project
+  registry, resolve/remove, and argument parsing. Each module separates the
+  profile-independent flow from the per-agent values.
+- `osa-core/crates/osa-core/src/bin/maki-oss.rs` is the Maki profile: the
+  `MAKI_OSS_` identity and defaults (config and state paths, image, policy,
+  sandbox name), its session argv, doctor's MCP section, the provider-setup
+  hint, and the Maki-only commands (`maki` and the OpenCode TUI mode).
+- `osa-core/crates/osa-core/src/bin/opencode-oss.rs`,
+  `claude-oss.rs`, and `codex-oss.rs` are the other three profiles: the
+  `OPENCODE_OSS_`, `CLAUDE_OSS_`, and `CODEX_OSS_` identities and their agent
+  argv and TUI behavior.
+- `osa-core/crates/osa-core/src/state.rs` and `flat.rs` hold the shared state
+  root and the published state contract (flat TOML reading and writing, the
+  host fingerprint, locks, pending markers, idle state).
+- `bin/maki-oss`, `bin/opencode-oss`, `bin/claude-oss`, and `bin/codex-oss`
+  are shims: they resolve the built binary and `exec` it. They contain no
+  command logic.
+- `bin/osa` is the shim for the `osa` binary (`osa-core/.../main.rs`), the
+  agent-neutral, read-only reporter over every front-end's projects. See
+  [osa](#osa).
 
-Keep `lib/` next to `bin/`. The helper loads it from the repository root,
-just as it loads `examples/` and `bridge/`, so a copy of `bin/maki-oss`
-alone does not run.
+Build the binaries with `make build`. The shims look for the release build at
+`osa-core/target/release/<name>` (override with `OSA_FRONTEND_BIN`, or pick a
+backend with `OSA_BACKEND_<TAG>`), and fail with a message naming `make build`
+when it is absent. The helper still reads `examples/` and `bridge/` from the
+repository root, so a copied shim alone does not run.
 
 ## Configuration
 
@@ -128,6 +132,7 @@ defaults: [OpenCode](ai/reference/opencode.md),
 | `engine` | `MAKI_OSS_ENGINE` | `docker` | `docker` or `podman` |
 | `gateway` | `MAKI_OSS_GATEWAY` | empty | OpenShell gateway name (`-g`) |
 | `workdir` | `MAKI_OSS_WORKDIR` | `/sandbox/project` | In-sandbox project directory used by `upload`, `download`, `maki`, and `run` |
+| `tls_dir` | `MAKI_OSS_TLS_DIR` | empty | Directory holding `ca.crt`, `tls.crt`, and `tls.key` for a gateway that requires a client certificate (`--tls-dir`). Commands that reach the gateway through the typed client fail before connecting when a file is missing; without it, an mTLS gateway reports only that the endpoint is unreachable |
 | `model` | `MAKI_OSS_MODEL` | empty | Default model passed to Maki (`provider/model`); `--model` overrides it |
 | `tui` | `MAKI_OSS_TUI` | empty | Interactive TUI for bare `maki-oss` and `maki-oss maki`: empty keeps Maki's own TUI, `opencode` runs the OpenCode TUI against the local bridge; any other value is a usage error. `run` ignores it |
 | `idle_stop` | `MAKI_OSS_IDLE_STOP` | `1h` | Stop the sandbox this long after the last session closes (seconds, or with an `s`, `m`, or `h` suffix); `0` disables it. `--idle-stop` overrides it. See [Idle stop](#idle-stop) |
@@ -959,8 +964,8 @@ maki-oss fish install
 maki-oss fish uninstall
 ```
 
-`opencode-oss` has the same subcommand (one implementation in
-`lib/oss-core.sh`), symlinking its own `fish/functions/opencode-oss.fish` and
+`opencode-oss` has the same subcommand (one shared implementation),
+symlinking its own `fish/functions/opencode-oss.fish` and
 `fish/completions/opencode-oss.fish`.
 Neither installs `fish/completions/osa.fish`; fisher picks it up with the
 rest of `fish/completions/`, or link it by hand.
@@ -1042,6 +1047,13 @@ attach a provider to one. `projects`, `status --quick`, and `images` never
 contact the gateway. `dashboard` changes nothing itself: it starts the
 [dashboard](../dashboard/README.md), which acts only through `osa` and the
 gateway actions its spec allows.
+
+The `osa` surface is provided by the Rust core binary built from `osa-core/`:
+`make build` builds it and prints its path. `bin/osa` is a POSIX `sh` shim that
+`exec`s that binary and, when it is absent, exits non-zero with a message naming
+`make build` — a host that skipped the build cannot mistake the shim for a
+working installation. The toolchain is pinned in `rust-toolchain.toml`, and the
+first build needs network access for crates.io.
 
 Agent tags: `mk` (`maki-oss`), `oc` (`opencode-oss`), `cc` (`claude-oss`),
 `cx` (`codex-oss`).

@@ -1,0 +1,52 @@
+osa: report on the projects the agent front-ends have registered.
+
+Usage:
+  osa <command> [options]
+
+Commands:
+  projects [--json]                 List every registered project
+  status [PATH] [--json] [--quick]  Report the project at PATH (default: .)
+                                    for each agent registered there
+  health SANDBOX [--json]           Report the sandbox's idle stop, MCP
+                                    readiness, and doctor checks
+  providers [--agent TAG] [--json]  List each agent's setup profiles, the
+                                    gateway's providers, and the remembered
+                                    providers
+  images [--json]                   Report each agent's base image tag and
+                                    whether it exists locally
+  resolve SANDBOX ACTION [--yes] [--json]
+                                    Resolve the sandbox's pending work:
+                                    apply, branch, or drop --yes for a
+                                    retained patch; rescue or discard --yes
+                                    for a parked workspace
+  remove SANDBOX --yes [--json]     Delete the sandbox on the gateway (when
+                                    it is listed) and forget its project;
+                                    refused while work is pending
+  provider setup TAG --profile ID [--name NAME] [--attach SANDBOX] [--yes] [--json]
+                                    Set up a provider for agent TAG from a
+                                    credential read on stdin, never prompted
+  image build TAG                   Build agent TAG's base image
+  dashboard [--port N] [--host ADDR] [--token T] [--read-only] [--open]
+                                    Run the web dashboard in the foreground
+                                    (needs Bun >= 1.2.0; Ctrl-C stops it)
+  help                              Show this help
+
+Agent tags: mk (maki-oss), oc (opencode-oss), cc (claude-oss), cx (codex-oss).
+
+Options:
+  --json    Print one JSON array (health, resolve, and provider setup: one
+            JSON object) on stdout and nothing else
+  --quick   Skip the gateway and the tree hash: report the pending kind,
+            whether the host changed since the last sync (changed,
+            unchanged, or unknown), whether a session or resolve is
+            running (busy), and the idle-stop state and deadline (idle)
+  --yes     Confirm drop, discard, or remove; for provider setup, update an
+            existing provider's credential
+
+Only resolve, remove, provider setup, and image build change anything, and
+only remove deletes a sandbox. Exit codes for resolve, remove, and provider
+setup: 0 done, 1 usage error, 2 refused before any
+change, 3 failed during the action. image build exits 0 when the image was
+built, 1 for a usage error, and the front-end's status otherwise.
+dashboard exits 1 for a usage error, 2 when Bun or the dashboard files are
+missing, and with the dashboard's status otherwise.

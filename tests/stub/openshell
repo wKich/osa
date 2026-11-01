@@ -519,6 +519,22 @@ case $command_name in
     status)
         printf '{\n  "status": "connected",\n  "gateway": "stub",\n  "version": "0.1.2-stub"\n}\n'
         ;;
+    gateway)
+        # Endpoint discovery for the typed client: the same document the real
+        # CLI prints. `STUB_GATEWAY_DOWN=1` already failed above.
+        case ${1:-} in
+            info)
+                # The suite exports the address of the gateway it started, so a
+                # case that reaches the gateway through the typed client talks
+                # to that process rather than to a hardcoded port.
+                stub_gateway_server=${STUB_GATEWAY_SERVER:-http://127.0.0.1:8080}
+                printf '{\n  "gateway": "stub",\n  "server": "%s",\n  "auth": null,\n  "status": "Connected",\n  "version": "0.1.2-stub",\n  "compute_drivers": [],\n  "extensions": []\n}\n' "$stub_gateway_server"
+                ;;
+            *)
+                exit 1
+                ;;
+        esac
+        ;;
     provider)
         action=${1:-}
         if [ "$#" -gt 0 ]; then

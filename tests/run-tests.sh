@@ -47,6 +47,18 @@ CODEX=$(osa_backend OSA_BACKEND_CODEX "$ROOT/bin/codex-oss")
 CC=$CLAUDE
 CX=$CODEX
 
+# The helper's process name as it appears in a command line. A front-end shim
+# execs the built binary, so a pattern that also drops the directory still
+# finds the session whether the backend is the shim or the binary itself.
+helper_process_name() { # BACKEND
+    # Word splitting is intentional: a backend may be an argv prefix.
+    # shellcheck disable=SC2086
+    set -- $1
+    hpn_last=
+    for hpn_word; do hpn_last=$hpn_word; done
+    printf '%s' "${hpn_last##*/}"
+}
+
 # The conformance harness records each case's seam invocations and compares
 # them against the committed goldens.
 . "$ROOT/tests/conformance/normalize.sh"
@@ -61,8 +73,59 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/maki-oss-tests.XXXXXX")
 # Physical path, so a case path in helper state matches the one recordings
 # normalize (macOS /var is a symlink to /private/var).
 WORK=$(CDPATH='' cd -- "$WORK" && pwd -P)
+
+# Cases that reach the gateway through the typed client talk to one stub
+# gateway for the whole run. Its state directory is a symlink the case setup
+# repoints, so each case sees its own state without paying for a process per
+# case.
+GATEWAY_STATE=$WORK/gateway-state
+GATEWAY_PID=
+GATEWAY_SERVER=
+start_gateway() {
+    [ -z "$GATEWAY_PID" ] || return 0
+    gateway_bin=$ROOT/osa-core/target/release/stub-gateway
+    [ -x "$gateway_bin" ] || gateway_bin=$ROOT/osa-core/target/debug/stub-gateway
+    if [ ! -x "$gateway_bin" ]; then
+        printf 'note: stub-gateway is not built; a case that uses the typed client will fail (run make build)\n' >&2
+        return 0
+    fi
+    # Started from a subshell so the gateway is not a child of this script: a
+    # case that runs a bare `wait` (the interrupt cases do) would otherwise
+    # block on a server that never exits.
+    (
+        STUB_STATE_DIR=$GATEWAY_STATE \
+        STUB_LOG=$WORK/gateway.log \
+        STUB_GATEWAY_PORT=0 \
+            "$gateway_bin" >"$WORK/gateway.out" 2>"$WORK/gateway.err" &
+        printf '%s\n' "$!" >"$WORK/gateway.pid"
+    )
+    gateway_tries=0
+    while [ ! -s "$WORK/gateway.out" ]; do
+        gateway_tries=$((gateway_tries + 1))
+        if [ "$gateway_tries" -gt 200 ]; then
+            printf 'note: stub-gateway did not start: %s\n' \
+                "$(cat "$WORK/gateway.err" 2>/dev/null)" >&2
+            GATEWAY_PID=
+            return 0
+        fi
+        sleep 0.05
+    done
+    GATEWAY_SERVER=$(sed -n 's/^stub-gateway listening on //p' "$WORK/gateway.out" | sed -n 1p)
+    GATEWAY_PID=$(cat "$WORK/gateway.pid" 2>/dev/null || true)
+    STUB_GATEWAY_SERVER=$GATEWAY_SERVER
+    export STUB_GATEWAY_SERVER
+}
+
+stop_gateway() {
+    if [ -n "$GATEWAY_PID" ]; then
+        kill "$GATEWAY_PID" 2>/dev/null || true
+        GATEWAY_PID=
+    fi
+    unset STUB_GATEWAY_SERVER
+}
 cleanup() {
-    pkill -f "$MAKI __idle-watch" 2>/dev/null || true
+    pkill -f "$(helper_process_name "$MAKI") __idle-watch" 2>/dev/null || true
+    stop_gateway
     if [ "${KEEP_WORK:-0}" != 1 ]; then
         rm -rf "$WORK"
     fi
@@ -118,6 +181,7 @@ new_case() {
     conformance_case_begin "$1"
     CASE=$WORK/$1
     mkdir -p "$CASE/home" "$CASE/project" "$CASE/state" "$CASE/sandbox"
+    ln -sfn "$CASE/state" "$GATEWAY_STATE"
     XDG_CONFIG_HOME=$CASE/home/.config
     HOME=$CASE/home
     SANDBOX_WORKDIR=$CASE/sandbox/project
@@ -1698,9 +1762,42 @@ test_status_list_logs() {
     assert_out_has "Image:     maki-agent:local (configured)"
     assert_out_has "Providers: maki-anthropic"
 
+    # This is the one case that reaches the gateway through the typed client,
+    # so it is the only one that starts a gateway: a process living for the
+    # whole run perturbs the signal-timing cases.
+    start_gateway
     run_maki list
     assert_rc 0
-    assert_log_has "list"
+    # Converted to the typed client: the table is rendered here from the
+    # gateway's answer, and the CLI is asked only for the endpoint. The status
+    # read above still passes --output json, so a block of `sandbox`, `list`,
+    # then an environment line is the CLI path coming back.
+    assert_out_has "NAME"
+    assert_out_has "maki-myproject  1970-01-01 00:00:00  Ready"
+    assert_log_has "gateway"
+    if tr '\n' '|' <"$STUB_LOG" | grep -Fq 'sandbox|list|@env'; then
+        bad "list invoked the sandbox command again: $(tr '\n' ' ' <"$STUB_LOG")"
+    fi
+
+    # One code path renders for every front-end, so the table is identical.
+    cp "$OUT" "$CASE/list-maki"
+    OC_NAME_PIN='oc-{project}'
+    CC_NAME_PIN='cc-{project}'
+    CX_NAME_PIN='cx-{project}'
+    CX_CODEX_LOG=$CASE/codex.log
+    for list_frontend in oc cc cx; do
+        "run_$list_frontend" list
+        assert_rc 0
+        cmp -s "$CASE/list-maki" "$OUT" \
+            || bad "list output through $list_frontend differs from maki-oss"
+    done
+
+    # An empty gateway says so instead of printing a bare header row.
+    reset_state
+    run_maki list
+    assert_rc 0
+    assert_out_has "No sandboxes found."
+    stop_gateway
 
     run_maki logs --tail --since 5m --level info -n 50
     assert_rc 0
@@ -2965,11 +3062,11 @@ while [ ! -f '"$CASE"'/maki-stop ]; do sleep 0.1; done'
             sleep 0.1
             tries=$((tries + 1))
         done
-        pkill -INT -f "$MAKI maki" 2>/dev/null || true
+        pkill -INT -f "$(helper_process_name "$MAKI") maki" 2>/dev/null || true
         sleep 1
         touch "$CASE/maki-stop"
         sleep 5
-        pkill -KILL -f "$MAKI maki" 2>/dev/null || true
+        pkill -KILL -f "$(helper_process_name "$MAKI") maki" 2>/dev/null || true
     ) &
     RC=0
     (
@@ -3184,9 +3281,9 @@ test_provider_setup_sigint() {
     (
         exec 3>"$CASE/in.fifo"
         sleep 2
-        pkill -INT -f "$MAKI provider setup" 2>/dev/null || true
+        pkill -INT -f "$(helper_process_name "$MAKI") provider setup" 2>/dev/null || true
         sleep 3
-        pkill -KILL -f "$MAKI provider setup" 2>/dev/null || true
+        pkill -KILL -f "$(helper_process_name "$MAKI") provider setup" 2>/dev/null || true
     ) &
     RC=0
     TMPDIR="$CASE/tmp" \
@@ -3785,6 +3882,27 @@ test_asset_agent_onboarding() {
     done
 }
 
+# The SDK tag in the crate manifest and the gateway version the host playbook
+# installs are one OpenShell release; `make compat-drift` fails on a mismatch.
+test_pin_drift() {
+    begin "the SDK tag and the gateway version are the same release"
+    new_case pin-drift
+    "$ROOT/scripts/pin-drift.sh" >"$OUT" 2>"$ERR" || bad "the pin check failed"
+    tag=$(sed -n 's/^.*openshell-sdk *= *{[^}]*tag *= *"\([^"]*\)".*$/\1/p' \
+        "$ROOT/osa-core/crates/osa-core/Cargo.toml" | sed -n 1p)
+    [ -n "$tag" ] || bad "the crate manifest pins no SDK tag"
+    printf 'OPENSHELL_VERSION=v9.9.9 sh\n' >"$CASE/playbook.md"
+    if MANIFEST="$ROOT/osa-core/crates/osa-core/Cargo.toml" \
+        PLAYBOOK="$CASE/playbook.md" \
+        "$ROOT/scripts/pin-drift.sh" >"$OUT" 2>"$ERR"; then
+        bad "a deliberate pin mismatch passed"
+    fi
+    assert_err_has "$tag"
+    assert_err_has "v9.9.9"
+    grep -Fq "$tag" "$ROOT/docs/ai/host-playbook.md" \
+        || bad "the host playbook does not state the same release"
+}
+
 # The placeholder prefix is never written in this repository. OpenShell's proxy
 # answers 403 to any request body containing it, and Maki sends loaded context
 # in every request body, so one literal spelling in a file the agent reads
@@ -3796,15 +3914,17 @@ test_no_placeholder_spelling() {
     hits=
     # Every regular file in the repository, not a hand-kept list: the sandbox
     # receives the whole tree, so docs, openspec records, and helper sources are
-    # all agent-readable. VCS metadata, dependency trees, and local worktrees
-    # are copies, not shipped sources.
+    # all agent-readable. VCS metadata, dependency trees, local worktrees, and
+    # the Rust build directory are copies, not shipped sources: osa-core/target
+    # is gitignored, so a session sync never carries it, and it now holds the
+    # dependency crates' own compiled strings.
     while IFS= read -r f; do
         [ -f "$f" ] || continue
         if grep -qF -- "$needle" "$f" 2>/dev/null; then
             hits="$hits ${f#"$ROOT"/}"
         fi
     done <<EOF
-$(find "$ROOT" \( -name .git -o -name node_modules -o -name .claude \) -prune -o -type f -print)
+$(find "$ROOT" \( -name .git -o -name node_modules -o -name .claude -o -path "$ROOT/osa-core/target" \) -prune -o -type f -print)
 EOF
     if [ -n "$hits" ]; then
         bad "placeholder prefix spelled in:$hits (reword; see AGENTS.md)"
@@ -4051,7 +4171,7 @@ test_interrupt_still_collects_patch() {
     run_maki maki &
     helper_pid=$!
     sleep 1
-    pkill -INT -f "$MAKI maki" 2>/dev/null || true
+    pkill -INT -f "$(helper_process_name "$MAKI") maki" 2>/dev/null || true
     wait "$helper_pid" 2>/dev/null || true
     patch_file=$(find "$(session_dir maki-myproject)" -maxdepth 1 -name 'patch-*.patch' -type f 2>/dev/null | head -n 1)
     [ -n "$patch_file" ] || bad "no patch was collected after SIGINT"
@@ -7715,13 +7835,14 @@ test_registry_fingerprint() {
     fi
 }
 
-OSA=$ROOT/bin/osa
+OSA=$(osa_backend OSA_BACKEND_OSA "$ROOT/bin/osa")
 
 # Runs osa with the same stub environment as the front-ends, which its full
 # status calls.
 run_osa() { # ARGS...
     osa_rc=0
     (
+        # shellcheck disable=SC2030  # MAKI stays subshell-local on purpose.
         MAKI=$OSA
         run_maki_with_input /dev/null "$@"
         exit "$RC"
@@ -8217,6 +8338,7 @@ test_provider_setup_program() {
 run_osa_with_input() { # STDIN_FILE ARGS...
     osa_rc=0
     (
+        # shellcheck disable=SC2030  # MAKI stays subshell-local on purpose.
         MAKI=$OSA
         run_maki_with_input "$@"
         exit "$RC"
@@ -8546,7 +8668,8 @@ iso_epoch() { # TIME
 }
 
 idle_state_of() { # DIR [SECS]
-    (. "$ROOT/lib/osa-state.sh" && idle_state "$@")
+    # shellcheck disable=SC2031  # MAKI is the global backend; run_osa's assignment is subshell-local.
+    $MAKI __idle-state "$@"
 }
 
 # Field N (1-based) of an idle_state line.
@@ -8688,6 +8811,7 @@ front_case() { # FRONT NAME
 run_osa_for() { # FRONT ARGS...
     rof_rc=0
     (
+        # shellcheck disable=SC2030  # these names stay subshell-local on purpose.
         MAKI=$OSA
         OC=$OSA
         CC=$OSA
@@ -9137,6 +9261,10 @@ test_resolve_rescue() {
 
     begin "resolve rescue starts a stopped sandbox and says so"
     printf 'Stopped\n' >"$STUB_STATE_DIR/sandboxes/$RS_NAME"
+    # The rescue directory is named after the local second, with a pid suffix
+    # only when that name is already taken. Crossing the second boundary keeps
+    # the second directory's name deterministic for the recording.
+    sleep 1
     run_osa resolve "$RS_NAME" rescue
     assert_rc 0
     assert_out_has "Started sandbox '$RS_NAME'"
@@ -9379,6 +9507,13 @@ test_osa_remove() {
     assert_rc 3
     assert_json_object '.ok == false and .changed == []'
     assert_still_registered maki-myproject "gateway down"
+    # Discovery fails first, names the gateway, the sources it tried, and the
+    # fix, and the registry entry survives.
+    assert_err_has "gateway 'local' is unreachable"
+    assert_err_has "the --gateway flag"
+    assert_err_has "OPENSHELL_GATEWAY"
+    assert_err_has "openshell gateway info"
+    assert_err_has "openshell status"
 
     DELETE_FAIL=1
     run_osa remove maki-myproject --yes
@@ -10213,11 +10348,13 @@ test_caller_sync_in_incremental_keeps_unchanged() {
     caller_sync_case caller-inc-unchanged
     run_maki sync-in "$HOST_TREE" --incremental --json
     assert_rc 0
+    # shellcheck disable=SC2012  # ls -di is the portable inode probe.
     before_inode=$(ls -di "$CALLER_WORKDIR/ren.txt" | awk '{print $1}')
     before_sum=$(cksum "$CALLER_WORKDIR/ren.txt")
     printf 'alpha changed\n' >"$HOST_TREE/a.txt"
     run_maki sync-in "$HOST_TREE" --incremental
     assert_rc 0
+    # shellcheck disable=SC2012  # ls -di is the portable inode probe.
     after_inode=$(ls -di "$CALLER_WORKDIR/ren.txt" | awk '{print $1}')
     after_sum=$(cksum "$CALLER_WORKDIR/ren.txt")
     [ "$before_inode" = "$after_inode" ] || bad "an unchanged file was replaced"
@@ -10988,6 +11125,7 @@ run_test test_idle_stop_after_sighup
 run_test test_idle_stop_newer_session_cancels
 run_test test_idle_stop_busy_sandbox
 run_test test_idle_stop_failure_is_silent
+run_test test_pin_drift
 run_test test_no_placeholder_spelling
 # ---------------------------------------------------------------------------
 # Conformance: one credentialed case per front-end. Each takes a fixture

@@ -131,7 +131,7 @@ reference pack.
   moves to `dropped/` in the session directory, where `git apply` can still
   use it.
 - **Project layer** — the agent-neutral part of the helpers (in
-  `lib/oss-core.sh` and `lib/osa-state.sh`) that binds host project folders
+  `osa-core/crates/osa-core/src/agent/`) that binds host project folders
   to sandboxes and syncs them, between the agent front-ends (`maki-oss`,
   `opencode-oss`, `claude-oss`, `codex-oss`) and the `openshell` CLI. `osa`
   reports on it.

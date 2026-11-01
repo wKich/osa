@@ -136,6 +136,11 @@ curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh \
 openshell status
 ```
 
+The typed gateway client is consumed from source at that same release: the
+`openshell-sdk` git tag in `osa-core/crates/osa-core/Cargo.toml` and the gateway
+version installed here are one OpenShell release, and `make compat-drift` fails
+naming both when they diverge.
+
 If `openshell status` is not `Connected`, restart the gateway service and
 re-verify before proceeding — never continue on a disconnected gateway:
 
@@ -169,6 +174,33 @@ git clone https://github.com/wKich/osa.git osa
 cd osa
 ```
 
+#### Rust toolchain and the core binary
+
+`osa` is a Rust binary built from `osa-core/`; `bin/osa` is only a shim. The
+toolchain is pinned in `rust-toolchain.toml` (version `1.98.1`). If `rustup` is
+missing, install it from https://rustup.rs first, then let it read the pin and
+build:
+
+```sh
+rustup show active-toolchain   # installs the pinned toolchain on first use
+make build                     # prints the path of the built binary
+```
+
+The first build needs network access for crates.io; the committed `Cargo.lock`
+keeps later builds reproducible.
+
+Verify the binary through the shim before the `PATH` step below:
+
+```sh
+bin/osa --help
+```
+
+Expected: exit status 0 and the documented subcommand list (`projects`,
+`status`, `health`, `providers`, `images`, `resolve`, `remove`, `provider
+setup`, `image build`, `dashboard`, `help`). If the binary is missing, every
+`osa` command exits non-zero with a message naming `make build` — run the build
+rather than falling back to anything else.
+
 Put the repository's `bin/` on `PATH` (for example in `~/.zshrc`) so the shared
 reporter resolves:
 
@@ -186,17 +218,22 @@ Maki-specific sequence. Claude Code and Codex have no fish plugin.
 
 ```sh
 for helper in osa maki-oss opencode-oss claude-oss codex-oss; do
-  command -v "$helper"
+  command -v "$helper" && "$helper" --help >/dev/null || echo "failed: $helper"
 done
 ```
 
-Expected: each command resolves to this repository's `bin/`; `osa` is the
-read-only reporter, and the other four are the agent front-ends.
+Expected: each command resolves to this repository's `bin/`, and each `--help`
+exits 0. `osa` is the read-only reporter (a shim over the built `osa` binary),
+and the other four are the agent front-ends (shims over their built binaries);
+`osa --help` lists the documented subcommands, and each front-end's help lists
+the shared commands without the other agents' agent-specific ones. A shim whose
+binary is missing fails with a message naming `make build` instead of running.
 
 ### Stop if
 
-A helper resolves to another installation or not at all. Report which path and
-shell failed; do not mix shell-specific integration steps into this shared
+A helper resolves to another installation or not at all, or a front-end's
+`--help` exits non-zero even though `make build` succeeded. Report which path
+and command failed; do not mix shell-specific integration steps into this shared
 check.
 
 ## Handoff

@@ -6,3 +6,6 @@ bridge/test/captures/tui-last.*
 
 # Conformance goldens are reviewed fixtures, not run output.
 !tests/conformance/golden/*.log
+
+# The Rust core build output.
+osa-core/target/

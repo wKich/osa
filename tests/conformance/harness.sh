@@ -276,6 +276,7 @@ conformance_parity_run() {
 
     OSA_CONFORMANCE_ARTIFACTS=$conformance_parity_b \
     OSA_CONFORMANCE_COMPARE=0 \
+    OSA_BACKEND_OSA=${OSA_BACKEND_OSA_2:-$OSA} \
     OSA_BACKEND_MAKI=${OSA_BACKEND_MAKI_2:-$MAKI} \
     OSA_BACKEND_OPENCODE=${OSA_BACKEND_OPENCODE_2:-$OC} \
     OSA_BACKEND_CLAUDE=${OSA_BACKEND_CLAUDE_2:-$CLAUDE} \
@@ -364,6 +365,7 @@ if [ "${0##*/}" = harness.sh ]; then
                 eval "osa_backend_parity_value=\${$1-}"
                 printf '%s\n' "${osa_backend_parity_value:-$2}"
             }
+            OSA=$(osa_backend_parity OSA_BACKEND_OSA "$ROOT/bin/osa")
             MAKI=$(osa_backend_parity OSA_BACKEND_MAKI "$ROOT/bin/maki-oss")
             OC=$(osa_backend_parity OSA_BACKEND_OPENCODE "$ROOT/bin/opencode-oss")
             CLAUDE=$(osa_backend_parity OSA_BACKEND_CLAUDE "$ROOT/bin/claude-oss")

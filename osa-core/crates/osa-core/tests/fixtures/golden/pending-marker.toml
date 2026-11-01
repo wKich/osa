@@ -1,0 +1,8 @@
+version = "1"
+kind = "retained"
+patch = "/home/me/.local/state/osa/sessions/maki-project-1a2b/retained.patch"
+sandbox = "maki-project-1a2b"
+sandbox_id = "id-1a2b"
+created = "2026-01-02T03:06:07Z"
+reason = "the sandbox changed files the host did not"
+result_tree = "tree-1a2b"

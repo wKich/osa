@@ -1,6 +1,8 @@
 # osa development tasks.
 #
+#   make build         build the Rust core and print the binary path
 #   make test          stub-backed suite (no Docker, no gateway, no network)
+#   make test-core     the Rust core's offline unit and integration tests
 #   make test-conformance  the same suite in strict conformance mode
 #   make test-conformance-self  harness self-test (normalizer + leak scan)
 #   make test-all      every suite: shell, bridge, dashboard, oskhs + MongoDB
@@ -12,10 +14,26 @@
 
 SHELL := /bin/sh
 
-.PHONY: test test-conformance test-conformance-self test-all test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-docs lint-profiles install-fish openspec-update sync-openspec
+# The Rust core: one workspace, one binary named `osa`. The toolchain is
+# pinned in rust-toolchain.toml; the first build needs crates.io.
+OSA_CORE_MANIFEST := osa-core/Cargo.toml
+OSA_CORE_BIN := osa-core/target/release/osa
+
+.PHONY: build test test-core test-conformance test-conformance-self test-all test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-docs lint-profiles install-fish openspec-update sync-openspec
+
+build:
+	cargo build --release --manifest-path $(OSA_CORE_MANIFEST)
+	@printf '%s\n' "$(CURDIR)/$(OSA_CORE_BIN)"
+	@test -x "$(CURDIR)/$(OSA_CORE_BIN)"
 
 test:
 	tests/run-tests.sh
+
+# Offline: temporary state roots and stub executables only, so no gateway,
+# Docker, or network at runtime.
+test-core:
+	@command -v cargo >/dev/null 2>&1 || { echo 'test-core: cargo not found (install the pinned Rust toolchain from rust-toolchain.toml)' >&2; exit 1; }
+	cargo test --workspace --manifest-path $(OSA_CORE_MANIFEST)
 
 # The same case set in strict conformance mode: a case without a golden must be
 # listed in tests/conformance/excluded.txt, and a recording that differs from
@@ -35,7 +53,9 @@ test-conformance-self:
 # instead of skipping.
 test-all:
 	@command -v bun >/dev/null 2>&1 || { echo 'test-all: bun not found (install Bun: https://bun.sh)' >&2; exit 1; }
+	@command -v cargo >/dev/null 2>&1 || { echo 'test-all: cargo not found (install the pinned Rust toolchain from rust-toolchain.toml)' >&2; exit 1; }
 	@[ -n "$${OSKHS_TEST_MONGO_URI:-}" ] || { echo 'test-all: OSKHS_TEST_MONGO_URI is not set (e.g. mongodb://127.0.0.1:27017)' >&2; exit 1; }
+	@$(MAKE) --no-print-directory build >/dev/null || { echo 'test-all: core build failed' >&2; exit 1; }
 	@report=$$(mktemp); \
 	OSA_CONFORMANCE_STRICT=1 OSA_CONFORMANCE_REPORT=$$report tests/run-tests.sh || { \
 		if grep -q '^failed' "$$report" 2>/dev/null; then \
@@ -47,10 +67,11 @@ test-all:
 		exit 1; \
 	}; \
 	rm -f "$$report"
+	@$(MAKE) --no-print-directory test-core || { echo 'test-all: core suite failed' >&2; exit 1; }
 	@(cd bridge && bun test) || { echo 'test-all: bridge suite failed' >&2; exit 1; }
 	@(cd dashboard && bun test) || { echo 'test-all: dashboard suite failed' >&2; exit 1; }
 	@(cd oskhs && bun test) || { echo 'test-all: oskhs suite failed' >&2; exit 1; }
-	@echo 'test-all: shell, conformance, bridge, dashboard, and oskhs (with MongoDB) suites passed'
+	@echo 'test-all: shell, conformance, core, bridge, dashboard, and oskhs (with MongoDB) suites passed'
 
 # Offline oskhs suite: round library over a recording runner. No Docker,
 # gateway, or network. Skips with a message when bun is absent.
@@ -117,10 +138,13 @@ compat:
 	bun scripts/gen-compat.ts
 	git diff --exit-code docs/compatibility.md
 
-# Contract drift gate: re-capture the installed OpenCode contract and report
-# route/schema deltas against the vendored copy. Skips with a message when a
-# required binary is absent; never part of `make test`.
+# Contract drift gate: first the SDK/gateway pin (the typed client and the
+# gateway must be the same OpenShell release, checked offline), then a
+# re-capture of the installed OpenCode contract against the vendored copy. The
+# contract half skips with a message when a required binary is absent; never
+# part of `make test`.
 compat-drift:
+	@scripts/pin-drift.sh
 	@if command -v bun >/dev/null 2>&1; then \
 		bun scripts/compat-drift.ts; \
 	else \
@@ -142,7 +166,7 @@ lint-docs:
 	scripts/check-playbooks.sh
 
 lint: lint-docs
-	shellcheck -x bin/maki-oss bin/opencode-oss bin/claude-oss bin/codex-oss bin/osa lib/oss-core.sh lib/osa-state.sh tests/run-tests.sh tests/conformance/harness.sh tests/conformance/normalize.sh tests/conformance/self-test.sh tests/conformance/backends/leaky.sh tests/conformance/backends/drift.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode tests/stub/codex
+	shellcheck -x bin/maki-oss bin/opencode-oss bin/claude-oss bin/codex-oss bin/osa tests/run-tests.sh tests/conformance/harness.sh tests/conformance/normalize.sh tests/conformance/self-test.sh tests/conformance/backends/leaky.sh tests/conformance/backends/drift.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode tests/stub/codex
 	fish -n fish/functions/__oss_run.fish
 	fish -n fish/functions/maki-oss.fish
 	fish -n fish/conf.d/maki-oss.fish
@@ -150,6 +174,8 @@ lint: lint-docs
 	fish -n fish/functions/opencode-oss.fish
 	fish -n fish/completions/opencode-oss.fish
 	fish -n fish/completions/osa.fish
+	cargo fmt --all --manifest-path $(OSA_CORE_MANIFEST) -- --check
+	cargo clippy --workspace --manifest-path $(OSA_CORE_MANIFEST) -- -D warnings
 
 # Lints the shipped provider profiles against the real openshell CLI. Skips
 # with a clear message when the CLI is absent; not part of `make test`.

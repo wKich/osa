@@ -1,0 +1,108 @@
+claude-oss: run Claude Code in an OpenShell sandbox.
+
+Usage:
+  claude-oss <command> [options] [arguments]
+
+Commands:
+  doctor                        Check prerequisites (CLI, gateway, engine,
+                                image, policy, providers, model)
+  image build                   Build the Claude Code sandbox image
+  init, up                      Create or start this project's sandbox
+  claude                        Ensure the sandbox and attach the Claude Code
+                                TUI (bare `claude-oss` does the same)
+  run "<prompt>"                Ensure the sandbox, run Claude Code headless,
+                                and print its stream-json events; with no
+                                prompt or `-`, the prompt is read from stdin
+  run "<prompt>" -- FLAGS...    Pass Claude Code flags through: --permission-mode
+                                (not bypassPermissions), --allowedTools,
+                                --disallowedTools, --add-dir, --fork-session,
+                                --effort
+  upload [--discard] [PATH] [DEST]
+                                Refresh the workspace (no PATH or `.`), or copy
+                                PATH as-is (no baseline); --discard only
+                                applies to a refresh
+  download [SANDBOX_PATH] DEST  Copy files from the sandbox to the host
+  status                        Show this project's sandbox
+  list                          List sandboxes on the gateway
+  logs                          Show sandbox logs
+  start, stop                   Start or stop the sandbox
+  rm [--yes]                    Delete the sandbox (confirmation required)
+  policy show|edit|apply        Work with the sandbox policy
+  policy review                 List pending network-rule proposals
+  policy approve CHUNK_ID       Approve one proposal (confirmation required)
+  policy reject CHUNK_ID        Reject one proposal (--reason sent to agent)
+  provider add|attach|list      Work with provider credentials
+  provider setup                Set up a provider from a stored key, a
+                                generic key, or a `claude setup-token` token
+  mcp status                    Report MCP server readiness in the sandbox
+  help                          Show this help
+
+Caller interface (CLAUDE_OSS_WORKSPACE=caller, literal --name and --workdir):
+  sync-in HOST_TREE [--incremental] [--json]
+                                Replace the workdir with HOST_TREE
+                                (.gitignore-filtered, no .git) and record a
+                                baseline outside it. --incremental uploads only
+                                changed files and keeps ignored build artifacts
+  collect-patch --out FILE [--json]
+                                Write the workdir's changes since sync-in as a
+                                binary git patch (mode 600)
+
+Common options:
+  --name NAME      Sandbox name (default: cc-<project directory>), or
+                   the provider name for provider setup
+  --image REF      Sandbox image (default: claude-agent:local)
+  --policy FILE    Sandbox policy YAML
+  --provider NAME  Attach a provider at creation (repeatable)
+  --cpu QTY        CPU limit (for example: 2, 500m)
+  --memory QTY     Memory limit (for example: 4Gi)
+  --engine NAME    Container engine: docker or podman
+  --gateway NAME   OpenShell gateway to use
+  --tls-dir DIR    Directory with the gateway's mtls ca.crt, tls.crt, and tls.key
+  --workdir PATH   In-sandbox project directory (default: /sandbox/project)
+  --env KEY=VALUE  Non-secret environment variable at creation (repeatable);
+                   for provider setup, the host variable name to read
+  --env-from SPEC  Sandbox environment variable read from the caller's
+                   environment: KEY or KEY=ENVVAR (repeatable); the
+                   credential check covers the sandbox name and the source name
+  --allow-env KEY  Allow a credential-like key passed with --env or --env-from
+                   (repeatable)
+  --model SPEC     Model for sessions and run (an alias such as sonnet, or a
+                   full model name); passed as --model
+  --continue (-c)  Session commands: continue the most recent session
+  --resume ID (-r ID)
+                   Session commands: continue session ID
+  --session-id ID  Session commands: use session ID (a UUID) for a new session
+  --timeout SECS   run: end Claude Code inside the sandbox after SECS seconds
+                   (exit 124)
+  --no-sync        Session commands: skip collecting changes on exit
+                   (default: collect a patch and apply it only when the
+                   sandbox baseline matches the host)
+  --idle-stop DUR  Session commands: stop the sandbox DUR after the last
+                   session closes and no Claude Code runs in it (seconds, or
+                   with an s, m, or h suffix; default 1h; 0 disables)
+  --yes            Skip confirmation prompts (rm, policy approve, policy set,
+                   provider setup)
+  --from STORE     provider setup credential store: maki or opencode
+  --file PATH      provider setup JSON credential file
+  --field PATH     Field path to read from --file (default: .api_key)
+  --profile FILE   provider setup profile file (default: the curated catalog)
+  --attach         provider setup: attach the provider to the project sandbox
+  --no-attach      provider setup: never attach, even interactively
+  --tail, --since, --source, --level, -n  Options for logs
+  --full, --base   Options for policy show
+  --reason TEXT    Reason for policy reject (sent to the agent)
+  --type, --credential, --config, --from-existing, --runtime-credentials,
+  --global-profile  Options for provider add (provider setup uses
+                   --credential as the store slug)
+  --claude-version V
+                   Build argument for image build (default: the version the
+                   Dockerfile pins)
+
+Exit codes: 0 success, 1 usage error, 2 dependency error, 3 gateway error.
+
+Configuration is resolved from flags, then CLAUDE_OSS_<KEY> environment
+variables, then the config file below, then built-in defaults:
+
+  ${XDG_CONFIG_HOME:-$HOME/.config}/claude-oss/config.toml
+
+See claude-oss/README.md and docs/ai/reference/claude.md.

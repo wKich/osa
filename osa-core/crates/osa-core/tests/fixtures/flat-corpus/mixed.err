@@ -1,0 +1,2 @@
+mixed.toml:2: expected: key = "value"
+mixed.toml:4: unexpected text after value for <key>

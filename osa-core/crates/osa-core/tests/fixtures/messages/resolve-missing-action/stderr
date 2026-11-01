@@ -1,0 +1,2 @@
+osa: usage: osa resolve SANDBOX ACTION [--yes] [--json]
+Run 'osa help' for usage.

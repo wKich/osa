@@ -7,3 +7,4 @@ test_default_name_hash__name-hash	the default sandbox name embeds a hash of the 
 test_exit_surfaces_proposals_on_interrupt__advisor-exit-int	the default sandbox name embeds a hash of the absolute case directory
 test_project_name_sources__name-sources	the default sandbox name embeds a hash of the absolute case directory
 test_shared_state_root__shared-root	the default sandbox name embeds a hash of the absolute case directory
+test_pin_drift__pin-drift	the pin check reads two manifests and contacts no gateway

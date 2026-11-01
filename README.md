@@ -60,12 +60,14 @@ If you prefer to do it yourself, the commands below build the Maki base. Use
 the [quickstart](docs/ai/quickstart.md) for OpenCode, Claude Code, or Codex.
 
 Prerequisites: OpenShell CLI v0.1.5 with a running gateway (`openshell status`),
-Docker Engine 28+, `git`, `curl`, and optionally `jq` and `fish`. On a bare
-host, start with the [host playbook](docs/ai/host-playbook.md).
+Docker Engine 28+, `git`, `curl`, and the pinned Rust toolchain (`rustup`). The
+helper is a Rust binary built from `osa-core/`. Optionally `jq` and `fish`. On
+a bare host, start with the [host playbook](docs/ai/host-playbook.md).
 
 ```sh
 git clone https://github.com/wKich/osa.git
 cd osa
+make build                  # build the Rust helper (first build needs crates.io)
 ./bin/maki-oss image build  # build the sandbox image
 ./bin/maki-oss doctor       # verify the built image and host
 export PATH="$PWD/bin:$PATH"  # add to ~/.zshrc or config.fish
@@ -159,8 +161,8 @@ sandboxes by hand is a chore. osa gives you:
   patch for review, and uncollected sandbox output parks the workspace instead
   of being overwritten.
 - 🐟 **Fish-native for Maki and OpenCode** — a fisher-compatible plugin with
-  completions, plus a plain POSIX `sh` helper for everyone else. Claude Code
-  and Codex have no fish plugin.
+  completions, plus one Rust helper behind a POSIX `sh` shim for everyone
+  else. Claude Code and Codex have no fish plugin.
 - 📊 **Dashboard** — `osa dashboard --open` starts a minimal
   [Bun](https://bun.sh) web UI ([`dashboard/`](dashboard/)) to monitor and
   manage your projects and OpenShell sandboxes.

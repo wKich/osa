@@ -22,8 +22,8 @@ through the `openshell` CLI and project state from the osa state root.
   [Provider setup](#provider-setup)).
 - A gateway reachable from this host. Remote gateways are out of scope for v1.
 - For the Projects view: the `osa` command (the repository's `bin/osa` is used
-  by default) and the projects registered by `maki-oss`, `opencode-oss`,
-  `claude-oss`, or `codex-oss`.
+  by default; build it with `make build`) and the projects registered by
+  `maki-oss`, `opencode-oss`, `claude-oss`, or `codex-oss`.
 
 ## Quick start
 

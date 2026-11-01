@@ -63,8 +63,10 @@ maki-oss help
 Development checks live in the `Makefile`:
 
 ```sh
-make test     # stub-backed suite: no Docker, no gateway, no network
-make lint     # shellcheck + fish -n
+make build     # build the Rust helper binaries and osa
+make test      # stub-backed front-end suite: no Docker, no gateway, no network
+make test-core # Rust core unit and integration tests
+make lint      # docs, shellcheck, fish -n, cargo fmt, and clippy
 ```
 
 ### Code layout

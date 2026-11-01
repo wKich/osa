@@ -49,7 +49,8 @@ macOS: install Homebrew, then Docker Desktop or OrbStack. Docker Desktop needs
 Linux: install Docker Engine 28+ and make it runnable without root (docker
 group or rootless). Landlock ABI v3 needs Linux 6.2 or newer.
 
-You need `git` and `curl` for the clone and the installer.
+You need `git` and `curl` for the clone and the installer, and the pinned Rust
+toolchain (`rustup`) for `make build`; the helper is a Rust binary.
 
 Install OpenShell v0.1.5 and confirm the gateway:
 
@@ -61,12 +62,14 @@ openshell status        # Status: Connected
 
 Details and install fallbacks: [`host-playbook.md`](host-playbook.md).
 
-### 2. Clone and put `bin/` on `PATH`
+### 2. Clone, build, and put `bin/` on `PATH`
 
 ```sh
 git clone https://github.com/wKich/osa.git
 cd osa
-export PATH="$PWD/bin:$PATH"        # add to ~/.zshrc or config.fish
+make build                           # build the Rust helper
+./bin/maki-oss --help                # fails with a make build hint until built
+export PATH="$PWD/bin:$PATH"         # add to ~/.zshrc or config.fish
 command -v maki-oss                  # or opencode-oss, claude-oss, codex-oss
 ```
 

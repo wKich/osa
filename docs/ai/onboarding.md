@@ -97,7 +97,7 @@ an absent tool on a bare host is expected and is installed in `P1`.
 |---|---|---|---|---|
 | P0 Preflight / audit | [host playbook](host-playbook.md) Phase 1; optional `maki --version` | host playbook Phase 1 | host playbook Phase 1 | host playbook Phase 1; `codex --version` |
 | P1 Host tools | host playbook Phase 2 | host playbook Phase 2 | host playbook Phase 2 | host playbook Phase 2; install host `codex` |
-| P2 Repository + helper | host playbook Phase 3; [Shell preparation](playbooks/maki.md#shell-preparation); `command -v maki-oss` | host playbook Phase 3; `command -v opencode-oss` | host playbook Phase 3; `command -v claude-oss` | host playbook Phase 3; `command -v codex-oss` |
+| P2 Repository + helper | host playbook Phase 3 (`make build`); [Shell preparation](playbooks/maki.md#shell-preparation); `maki-oss --help` | host playbook Phase 3 (`make build`); `opencode-oss --help` | host playbook Phase 3 (`make build`); `claude-oss --help` | host playbook Phase 3 (`make build`); `codex-oss --help` |
 | P3 Image | `maki-oss image build` ([Phase 1](playbooks/maki.md)) | `opencode-oss image build` ([Phase 1](playbooks/opencode.md)) | `claude-oss image build` ([Phase 1](playbooks/claude.md)) | `codex-oss image build` ([Phase 1](playbooks/codex.md)) |
 | P4 Provider | `maki-oss provider setup` (or `--stdin --profile ID`); `doctor` ([Phase 2](playbooks/maki.md)) | `opencode-oss provider setup` (or `--stdin --profile ID`); `doctor` ([Phase 2](playbooks/opencode.md)) | `claude-oss provider setup` (or `--stdin --profile ID`); `doctor`; host token only when needed ([Phase 2](playbooks/claude.md)) | `codex-oss provider setup`; `doctor`; host-only ChatGPT login, no stdin form ([Phase 2](playbooks/codex.md)) |
 | P5 Sandbox | `maki-oss up` ([Phases 3-4](playbooks/maki.md)) | `opencode-oss up` ([Phases 3-4](playbooks/opencode.md)) | `claude-oss up` ([Phases 3-4](playbooks/claude.md)) | `codex-oss up` ([Phases 3-4](playbooks/codex.md)) |
@@ -214,10 +214,13 @@ changing anything.
 
 ### Helper on `PATH`
 
-The helper runs on the host, not in the sandbox. Clone the repository, put
-`bin/` on `PATH`, then verify the matching command resolves:
+The helper runs on the host, not in the sandbox. Clone the repository,
+`make build` the Rust helper, put `bin/` on `PATH`, then verify the matching
+command resolves and its binary exists:
 
 ```sh
+make build
+./bin/maki-oss --help   # exit 0 once the binary exists
 command -v maki-oss
 command -v opencode-oss
 command -v claude-oss

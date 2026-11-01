@@ -105,9 +105,10 @@ credential; do not extract tokens or accept a key in the conversation.
 
 ## Shell preparation
 
-Run this after the shared host playbook has put the repository's `bin/` on
-`PATH`, and before the helper alternatives in Phases 1-2. Choose exactly one
-primary path per shell; verify it before moving on.
+Run this after the shared host playbook has built the helper (`make build`)
+and put the repository's `bin/` on `PATH`, and before the helper alternatives
+in Phases 1-2. Choose exactly one primary path per shell; verify it before
+moving on.
 
 ### Run
 
@@ -137,25 +138,29 @@ repository, then `PATH`.
 POSIX shells (zsh, bash, …) — run this block:
 
 ```sh
-command -v maki-oss
+command -v maki-oss && maki-oss --help >/dev/null
 ```
 
 fish — run this block:
 
 ```sh
-fish -c 'type -q maki-oss'                   # the fish function resolves
+fish -c 'type -q maki-oss; and maki-oss --help >/dev/null'
 ls ~/.config/fish/completions/maki-oss.fish  # completions installed
 ```
 
 Expected: `command -v maki-oss` (POSIX) or the fish check resolves to this
-repository's `bin/maki-oss`, and the fish completion file exists. Run each
-block only in the shell it names — `type -q` is a fish builtin and errors
-under zsh and bash.
+repository's `bin/maki-oss`, each `--help` exits 0, and the fish completion
+file exists. A shim whose binary is missing exits non-zero with a message
+naming `make build`; run the build instead of treating resolution as success.
+Run each block only in the shell it names — `type -q` is a fish builtin and
+errors under zsh and bash.
 
 ### Stop if
 
-The helper resolves to another installation or the fish completion is missing.
-Report which path or shell failed; do not mix the two shell paths.
+The helper resolves to another installation, a `--help` exits non-zero, or the
+fish completion is missing. A shim over a missing binary names `make build` —
+run it rather than working around the shim. Report which path or shell failed;
+do not mix the two shell paths.
 
 ## Phase 1 — Build the image
 

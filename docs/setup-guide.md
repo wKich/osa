@@ -25,6 +25,8 @@ This guide starts from a clone of this repository, with the helper on `PATH`:
 ```sh
 git clone https://github.com/wKich/osa.git
 cd osa
+make build                          # build the Rust helper
+./bin/maki-oss --help               # exit 0 once the binary exists
 export PATH="$PWD/bin:$PATH"        # persist in ~/.zshrc or config.fish
 ```
 
@@ -66,6 +68,8 @@ advisor, policy prover, and the rest) is defined in
 | OpenShell CLI + gateway | `openshell status` | `Status: Connected`, version `0.1.5` |
 | Host platform | `uname -m` | `arm64` on Apple Silicon; Linux amd64/arm64 also supported |
 | `git` and `curl` | `git --version`; `curl --version` | both resolve |
+| Rust toolchain (pinned) | `rustup show active-toolchain` | resolves via `rust-toolchain.toml` |
+| Built helper | `make build`, then `bin/osa --help` | exit 0; a shim whose binary is missing names `make build` |
 
 **Docker Desktop settings (macOS):** OpenShell needs containers to reach the
 host-local gateway.

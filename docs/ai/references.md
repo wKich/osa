@@ -61,6 +61,12 @@ passthrough, so its displayed output never depends on the parser. Upstream docs
 may describe newer behavior (JSON output, other fields); when the gateway floor
 rises, swap the text parse for JSON without changing behavior.
 
+## Project toolchain
+
+| Topic | Link | Verified against |
+|---|---|---|
+| Rust toolchain installer, pinned by the repository's `rust-toolchain.toml` | [rustup](https://rustup.rs) | `1.98.1` |
+
 ## Maki
 
 | Topic | Link | Verified against |

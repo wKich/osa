@@ -213,7 +213,7 @@ maki-myproject
 sh
 -c
 tag=$1; secs=$2; shift 2
-stop=/tmp/maki-oss-stop/$tag
+stop=<tmp>/<entry>/$tag
 rm -f "$stop"
 export MAKI_OSS_RUN_TAG="$tag"
 exec 3<&0
@@ -519,7 +519,7 @@ maki-myproject
 sh
 -c
 tag=$1; secs=$2; shift 2
-stop=/tmp/maki-oss-stop/$tag
+stop=<tmp>/<entry>/$tag
 rm -f "$stop"
 export MAKI_OSS_RUN_TAG="$tag"
 exec 3<&0

@@ -277,7 +277,7 @@ cc-myproject
 sh
 -c
 tag=$1; secs=$2; shift 2
-stop=/tmp/claude-oss-stop/$tag
+stop=<tmp>/<entry>/$tag
 rm -f "$stop"
 export CLAUDE_OSS_RUN_TAG="$tag"
 exec 3<&0
@@ -670,7 +670,7 @@ cc-myproject
 sh
 -c
 tag=$1; secs=$2; shift 2
-stop=/tmp/claude-oss-stop/$tag
+stop=<tmp>/<entry>/$tag
 rm -f "$stop"
 export CLAUDE_OSS_RUN_TAG="$tag"
 exec 3<&0

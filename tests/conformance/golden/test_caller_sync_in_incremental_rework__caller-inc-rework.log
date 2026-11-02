@@ -153,7 +153,7 @@ sh
 -c
 set -e
 worktree=$2 prev=$3 cur=$4 dirty=$5 filter=$6 history=$7
-tmp=${TMPDIR:-/tmp}/maki-oss-inc.$$
+tmp=${TMPDIR:-<tmp>}/maki-oss-inc.$$
 trap 'rm -rf "$tmp"' EXIT
 mkdir -p "$tmp"
 awk -F "\t" 'NR==FNR {

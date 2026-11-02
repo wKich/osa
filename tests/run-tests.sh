@@ -662,7 +662,9 @@ assert_file_mode() { # FILE MODE
         bad "missing file: $1"
         return
     fi
-    current_mode=$(stat -f '%Lp' "$1" 2>/dev/null || stat -c '%a' "$1" 2>/dev/null)
+    # GNU stat accepts -f (it prints filesystem information), so the GNU form
+    # must be tried first: the BSD fallback is the one that fails on Linux.
+    current_mode=$(stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1" 2>/dev/null)
     if [ "$current_mode" != "$2" ]; then
         bad "expected mode $2 on $1, got ${current_mode:-unknown}"
     fi
@@ -1275,10 +1277,12 @@ test_download() {
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
     seed_sandbox maki-myproject Ready
-    run_maki download /sandbox/project/out ./out
+    # A source that is not the repository's own path: the suite also runs with
+    # the repository checked out at the sandbox's default workdir.
+    run_maki download /sandbox/artifacts/out ./out
     assert_rc 0
     assert_log_has "download"
-    assert_log_line "/sandbox/project/out"
+    assert_log_line "/sandbox/artifacts/out"
     assert_log_line "./out"
 }
 

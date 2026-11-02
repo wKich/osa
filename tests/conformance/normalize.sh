@@ -66,9 +66,12 @@ conformance_normalize() {
 
     sed -E \
         -e "s#${cn_case}#<case>#g" \
+        -e 's#<case>/sandbox/project#<case>/<fixture-workdir>#g' \
         -e "s#${cn_work}#<work>#g" \
         -e "s#${cn_repo}#<repo>#g" \
+        -e 's#<case>/<fixture-workdir>#<case>/sandbox/project#g' \
         -e "s#${cn_tmp}#<tmp>#g" \
+        -e 's#/tmp#<tmp>#g' \
         -e 's#[0-9a-f]{40}#<commit>#g' \
         -e 's#id-[A-Za-z0-9_.-]*-[0-9][0-9]*-[0-9][0-9]*#<sandbox-id>#g' \
         -e 's#caller/[0-9]+#caller/<key>#g' \

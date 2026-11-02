@@ -20,7 +20,7 @@ json
 sandbox
 download
 maki-myproject
-/sandbox/project/out
+/sandbox/artifacts/out
 ./out
 @env MAKI_OSS_IDLE_STOP
 @env MAKI_OSS_IMAGE

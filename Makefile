@@ -7,6 +7,7 @@
 #   make test-conformance-self  harness self-test (normalizer + leak scan)
 #   make test-all      every suite: shell, bridge, dashboard, oskhs + MongoDB
 #   make test-oskhs    oskhs round library suite (bun, no gateway)
+#   make verify-dev-environment  prove the development image is usable
 #   make lint          shellcheck + fish syntax checks
 #   make lint-profiles lint every example provider profile with the real CLI
 #   make install-fish  symlink the fish plugin into the user's config
@@ -19,7 +20,7 @@ SHELL := /bin/sh
 OSA_CORE_MANIFEST := osa-core/Cargo.toml
 OSA_CORE_BIN := osa-core/target/release/osa
 
-.PHONY: build test test-core test-conformance test-conformance-self test-all test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-docs lint-profiles install-fish openspec-update sync-openspec
+.PHONY: build test test-core test-conformance test-conformance-self verify-dev-environment test-all test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-docs lint-profiles install-fish openspec-update sync-openspec
 
 build:
 	cargo build --release --manifest-path $(OSA_CORE_MANIFEST)
@@ -28,6 +29,14 @@ build:
 
 test:
 	tests/run-tests.sh
+
+# Proves the development image (examples/environments/dev) is usable. Run it
+# inside that image: every pinned runtime resolves, the front end builds with
+# the network off, and the suites pass against the image's loopback MongoDB.
+# It fails naming the first missing or mismatched runtime and never skips a
+# check.
+verify-dev-environment:
+	@scripts/verify-dev-environment.sh
 
 # Offline: temporary state roots and stub executables only, so no gateway,
 # Docker, or network at runtime.
@@ -47,31 +56,12 @@ test-conformance-self:
 	tests/conformance/self-test.sh
 
 # The verification gate (CI runs exactly this): the shell suite with the
-# conformance layer in strict mode, then the bridge, dashboard, and oskhs
-# suites, including the MongoTaskStore tests against OSKHS_TEST_MONGO_URI. A
-# conformance-only failure is named as such. A missing prerequisite fails
-# instead of skipping.
+# conformance layer in strict mode, then the core, bridge, dashboard, and oskhs
+# suites, including the MongoTaskStore tests against OSKHS_TEST_MONGO_URI. The
+# body is scripts/test-all.sh, which runs without make so an agent can run the
+# same gate inside a sandbox (make cannot spawn a child process there).
 test-all:
-	@command -v bun >/dev/null 2>&1 || { echo 'test-all: bun not found (install Bun: https://bun.sh)' >&2; exit 1; }
-	@command -v cargo >/dev/null 2>&1 || { echo 'test-all: cargo not found (install the pinned Rust toolchain from rust-toolchain.toml)' >&2; exit 1; }
-	@[ -n "$${OSKHS_TEST_MONGO_URI:-}" ] || { echo 'test-all: OSKHS_TEST_MONGO_URI is not set (e.g. mongodb://127.0.0.1:27017)' >&2; exit 1; }
-	@$(MAKE) --no-print-directory build >/dev/null || { echo 'test-all: core build failed' >&2; exit 1; }
-	@report=$$(mktemp); \
-	OSA_CONFORMANCE_STRICT=1 OSA_CONFORMANCE_REPORT=$$report tests/run-tests.sh || { \
-		if grep -q '^failed' "$$report" 2>/dev/null; then \
-			echo 'test-all: conformance suite failed' >&2; \
-		else \
-			echo 'test-all: shell suite failed' >&2; \
-		fi; \
-		rm -f "$$report"; \
-		exit 1; \
-	}; \
-	rm -f "$$report"
-	@$(MAKE) --no-print-directory test-core || { echo 'test-all: core suite failed' >&2; exit 1; }
-	@(cd bridge && bun test) || { echo 'test-all: bridge suite failed' >&2; exit 1; }
-	@(cd dashboard && bun test) || { echo 'test-all: dashboard suite failed' >&2; exit 1; }
-	@(cd oskhs && bun test) || { echo 'test-all: oskhs suite failed' >&2; exit 1; }
-	@echo 'test-all: shell, conformance, core, bridge, dashboard, and oskhs (with MongoDB) suites passed'
+	@scripts/test-all.sh
 
 # Offline oskhs suite: round library over a recording runner. No Docker,
 # gateway, or network. Skips with a message when bun is absent.

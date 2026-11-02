@@ -1,0 +1,61 @@
+# OpenShell sandbox policy for developing osa itself.
+#
+# Create the development sandbox with it, from the image in
+# examples/environments/dev:
+#
+#   docker build -t osa-dev:local examples/environments/dev
+#   openshell sandbox create --name osa-dev --from osa-dev:local \
+#     --policy examples/policies/osa-dev-environment.yaml -- sleep infinity
+#
+# It is examples/policies/maki-minimal.yaml plus the two read-only paths the
+# development image's tools need:
+#
+#   /sys/devices/system/cpu  the MongoDB server's allocator sizes its per-CPU
+#                            caches from it. Without it mongod aborts at
+#                            startup with `NumPossibleCPUsNoCache:
+#                            cpus.has_value() (false)`, and the full gate
+#                            (`scripts/test-all.sh`) cannot run its store
+#                            tests.
+#   /dev/zero                the suites' oversized-input cases build their
+#                            payload from it.
+#   /dev/pts                 the bridge suite allocates PTYs for its terminal
+#                            cases; without it every terminal case fails.
+#
+# The first two are reads. The PTY directory is writable, and it is the only
+# writable path this policy adds: allocating a pseudo-terminal needs it, and it
+# stays local to the sandbox. None of them can widen egress. Keep them here
+# rather than in maki-minimal.yaml: no base image runs MongoDB or the test
+# suite, so only a development sandbox needs them. Filesystem, Landlock, and
+# process settings are fixed at sandbox creation.
+version: 1
+
+filesystem_policy:
+  include_workdir: true
+  read_only:
+    - /usr
+    - /lib
+    - /bin
+    - /etc
+    - /proc
+    - /dev/urandom
+    - /var/log
+    # CPU topology for the MongoDB allocator (see the header).
+    - /sys/devices/system/cpu
+    # Payload source for the suites' oversized-input cases (see the header).
+    - /dev/zero
+  read_write:
+    - /sandbox
+    - /tmp
+    - /dev/null
+    # PTY allocation for the bridge suite's terminal cases (see the header).
+    - /dev/pts
+
+landlock:
+  # Fail sandbox startup if the filesystem rules cannot be applied; do not
+  # silently run without them.
+  compatibility: hard_requirement
+
+process:
+  # Must match the USER in examples/environments/dev/Dockerfile.
+  run_as_user: "1500"
+  run_as_group: "1500"

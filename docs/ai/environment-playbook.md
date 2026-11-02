@@ -379,6 +379,9 @@ a personal environment store outside the repository.
   credentials, profiles, MCP, and store shape.
 - [`examples/environments/reference/README.md`](../../examples/environments/reference/README.md)
   — the Maki worked example.
+- [`docs/ai/dev-environment.md`](dev-environment.md) — the repository-owned
+  development store and the in-sandbox authoring loop, when the project you
+  develop is osa itself.
 - [`docs/ai/onboarding.md`](onboarding.md) — choose the agent path.
 - [`docs/helper.md`](../helper.md) — shared helper commands and configuration.
 - [`docs/providers.md`](../providers.md) — provider profiles and setup.

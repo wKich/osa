@@ -61,6 +61,32 @@ The sandbox has no egress; the image is built to be used that way.
 - A missing dependency is a reason to rebuild the image, never to add a
   registry endpoint to a policy.
 
+## The in-sandbox control plane
+
+The development image also carries the marker for a dev-only control plane,
+[`insandbox-gateway`](../../osa-core/crates/insandbox-gateway/README.md). It
+serves the OpenShell surface over a state root where a sandbox is a directory
+and `exec` is a real local child, so the front-ends' own lifecycle can run
+inside one sandbox:
+
+```sh
+cargo build --release -p insandbox-gateway
+scripts/run-insandbox-plane.sh
+```
+
+The plane prints its non-guarantee and then its loopback URL. It binds loopback
+and speaks plaintext only; bearer tokens and mutual TLS are refused, not
+downgraded. Commands it execs resolve its private `openshell` shim (gateway
+information and sandbox upload/download only) through a `PATH` entry scoped to
+that child tree. The shim is never installed in a system bin directory.
+
+**The plane is not a boundary.** It provides **no isolation**, enforces **no
+policy**, and brokers no credential. Its safety comes only from the outer
+sandbox it refuses to start outside of, and nothing it reports is evidence
+about the OpenShell policy, provider substitution, or the sandbox user. Treat
+a plane-backed run exactly like any other in-sandbox run: it covers
+orchestration, parsing, and transport, never isolation.
+
 ## What the loop proves — and what it does not
 
 The loop supports **parsing, transport, and suite runs**: the shell suite and

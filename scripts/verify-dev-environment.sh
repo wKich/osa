@@ -31,6 +31,12 @@ fail() {
 # shellcheck disable=SC1090
 . "$pins"
 
+# The marker the dev-only control plane's gate requires. It is installed only
+# by this image, so a missing marker is a stale image, not a plane bug.
+[ -r /etc/osa-dev/insandbox ] \
+    || fail "the development image marker /etc/osa-dev/insandbox is missing (rebuild examples/environments/dev)"
+printf 'ok   sandbox marker %s\n' /etc/osa-dev/insandbox
+
 check_present() {
     command -v "$1" >/dev/null 2>&1 \
         || fail "$1 not found: the image must carry it (rebuild examples/environments/dev)"
@@ -101,6 +107,13 @@ printf '\n== offline build ==\n'
     || fail "the front end did not build with the network off (the image's Cargo cache does not cover osa-core/Cargo.lock)"
 [ -x "$root/osa-core/target/release/osa" ] \
     || fail "the build produced no binary at osa-core/target/release/osa"
+
+# The dev-only plane is built on demand, and must build offline too.
+(cd "$root" && CARGO_NET_OFFLINE=true cargo build --release \
+    --manifest-path osa-core/Cargo.toml -p insandbox-gateway) \
+    || fail "the in-sandbox control plane did not build with the network off"
+[ -x "$root/osa-core/target/release/insandbox-gateway" ] \
+    || fail "the build produced no binary at osa-core/target/release/insandbox-gateway"
 
 ## 4. The stub-backed suite.
 

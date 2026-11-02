@@ -113,11 +113,14 @@ COPY --chown=root:root scripts/start-mongodb.sh /usr/local/bin/osa-dev-start-mon
 RUN chmod 0755 /usr/local/bin/osa-dev-entrypoint /usr/local/bin/osa-dev-start-mongodb
 
 # The pins the verification target compares against. Root-owned and read-only
-# to the sandbox user, like every other system path.
+# to the sandbox user, like every other system path. The `insandbox` marker is
+# what the dev-only control plane's gate looks for; only this image installs it.
 RUN install -d -m 0755 /etc/osa-dev \
  && printf 'RUST_CHANNEL=%s\nBUN_VERSION=%s\nOPENSPEC_VERSION=%s\nMONGODB_VERSION=%s\nMONGOSH_VERSION=%s\nOSA_DEV_AGENT=%s\n' \
         "$RUST_CHANNEL" "$BUN_VERSION" "$OPENSPEC_VERSION" "$MONGODB_VERSION" "$MONGOSH_VERSION" "$OSA_DEV_AGENT" \
-        > /etc/osa-dev/pins.env
+        > /etc/osa-dev/pins.env \
+ && printf 'insandbox-control-plane\n' > /etc/osa-dev/insandbox \
+ && chmod 0444 /etc/osa-dev/insandbox
 
 # Everything below runs as the sandbox identity, so the toolchain, the caches,
 # and the database all land under /sandbox owned by uid/gid 1500.

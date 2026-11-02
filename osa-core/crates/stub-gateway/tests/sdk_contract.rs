@@ -36,6 +36,22 @@ async fn connect(url: String) -> OpenShellClient {
 }
 
 #[tokio::test]
+async fn the_shared_sdk_surface_contract_passes() {
+    let dir = state_dir("shared-contract");
+    let stub = Stub::new(&dir, None);
+    let url = serve(stub.clone()).await;
+    let client = connect(url).await;
+
+    sdk_contract_cases::run(&client).await;
+
+    // The shared case list is the same one the plane runs.
+    assert!(sdk_contract_cases::CASES.contains(&"exec"));
+    assert_eq!(sdk_contract_cases::CASES.len(), 12);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
 async fn health_and_sandbox_lifecycle_round_trip() {
     let dir = state_dir("lifecycle");
     let stub = Stub::new(&dir, None);

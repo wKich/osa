@@ -1,3 +1,12 @@
 [workspace]
-members = ["crates/osa-core", "crates/stub-gateway"]
+members = [
+    "crates/osa-core",
+    "crates/stub-gateway",
+    "crates/sdk-contract-cases",
+    "crates/insandbox-gateway",
+]
+# The product build is the front end and the offline stub it tests against.
+# The dev-only crates are built when named, and by `cargo test --workspace`,
+# so a released front-end never grows a control plane.
+default-members = ["crates/osa-core", "crates/stub-gateway"]
 resolver = "2"

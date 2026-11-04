@@ -14,6 +14,12 @@
 > **Record, not checklist.** The commands below are recorded and abridged.
 > The executable helper checks are in
 > [the playbook Phase 5](../playbooks/opencode.md#phase-5--run-the-isolation-checks).
+>
+> **Boundary claims come from the gate.** The isolation checks this page
+> explains — refused egress, the credential stand-in, host paths, uid/gid, bind
+> mounts, and the denial in the gateway log — are automated by
+> `make test-boundary` ([the claim table](claims.md#the-boundary-gate)). Run
+> the gate for a boundary claim; the commands below are the reproduction.
 
 The canonical OpenCode verification record. It reorganizes the verification
 tables from [`opencode-oss/README.md`](../../../opencode-oss/README.md) into
@@ -99,6 +105,10 @@ not edit `examples/` or widen the policy floor to make the comparison pass.
 ## Check 3 — Sandbox isolation, credentials, and egress
 
 ### Run
+
+**Automated by `make test-boundary`** for the filesystem floor, the credential
+stand-in, and the denied egress; the policy review and the placeholder-spelling
+scan are the reproduction of what the gate asserts.
 
 | Check | Command (abridged) |
 |---|---|

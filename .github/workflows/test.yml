@@ -5,6 +5,12 @@
 # Bun and no extra service. The core step builds the release binary the shell
 # suite runs through `bin/osa`, then runs the core's own offline suite; a
 # missing cargo or a core failure fails the job and names the suite.
+#
+# The boundary gate (`make test-boundary`) is deliberately not a job here: it
+# needs a reachable OpenShell gateway, a container engine with the project
+# image, and a sandbox holding a provider, and it must fail rather than skip
+# when they are absent. The decision and the prerequisites are recorded in
+# docs/ai/verification/claims.md (`### CI`).
 name: test
 
 on:

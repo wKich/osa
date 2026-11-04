@@ -10,11 +10,22 @@
 # sandbox runs it directly: `make` cannot spawn a child process there, so every
 # target that needs a subshell has a script behind it.
 #
+# Optional ROOT argument (used by tests/boundary/gate.sh): run the same suite
+# over another checkout instead of this script's repository. The boundary gate
+# passes the throwaway tree a sandbox patch was applied to; `make test-all`
+# passes nothing, so its meaning is unchanged.
+#
 # POSIX sh only.
 
 set -u
 
 root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P) || exit 1
+if [ "$#" -gt 0 ] && [ -n "$1" ]; then
+    root=$(CDPATH='' cd -- "$1" && pwd -P) || {
+        echo "test-all: not a directory: $1" >&2
+        exit 1
+    }
+fi
 cd "$root" || exit 1
 
 command -v bun >/dev/null 2>&1 \

@@ -14,6 +14,12 @@
 > **Record, not checklist.** The commands below are recorded and abridged.
 > The executable helper checks are in
 > [the playbook Phase 5](../playbooks/codex.md#phase-5--run-the-isolation-checks).
+>
+> **Boundary claims come from the gate.** The isolation checks this page
+> explains — refused egress, the credential stand-in, host paths, uid/gid, bind
+> mounts, and the denial in the gateway log — are automated by
+> `make test-boundary` ([the claim table](claims.md#the-boundary-gate)). Run
+> the gate for a boundary claim; the commands below are the reproduction.
 
 The canonical Codex verification record. It reorganizes the recorded run from
 [`codex-oss/README.md`](../../../codex-oss/README.md) into `## Check` blocks; it
@@ -68,6 +74,10 @@ do not tag the image as current or relax the guardrail permissions.
 ## Check 2 — Credential, gateway refresh, and egress
 
 ### Run
+
+**The stand-in and the egress denial are automated by `make test-boundary`**;
+the refresh schedule, the login-state scan, and the rate-limit case are the
+Codex-specific reproduction.
 
 | Check | Command |
 |---|---|

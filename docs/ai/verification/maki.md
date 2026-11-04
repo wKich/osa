@@ -30,6 +30,12 @@ test -n "$SANDBOX"
 Checks 1-6 use `"$SANDBOX"`. Checks 7-9 create and use their own helper sandbox
 names.
 
+Checks 1, 2, 3, and 6 are automated by `make test-boundary`
+([`tests/boundary/checks.sh`](../../../tests/boundary/checks.sh), described in
+[the claim table](claims.md#the-boundary-gate)). Run the gate for a boundary
+claim; the commands below reproduce what it asserts and explain the expected
+output. Checks 7-9 stay hand-run: they cover the helper path, not the boundary.
+
 The recorded run for this repository is in
 [`docs/verification-log.md`](../../verification-log.md).
 
@@ -50,6 +56,9 @@ Maki 0.6.4; check 7 records the 2026-10-26 sync pass, which used
 ## Check 1 — Denied egress
 
 ### Run
+
+**Automated by `make test-boundary`.** The command below is the reproduction;
+the gate asserts the refusal and the policy scan.
 
 ```sh
 openshell sandbox exec -n "$SANDBOX" --no-login-shell -- \
@@ -73,18 +82,22 @@ the effective policy (`openshell policy get "$SANDBOX" --full`); do not add
 
 ### Run
 
+**Automated by `make test-boundary`.** The command below is the reproduction;
+the gate asserts the shape and never prints the value.
+
 ```sh
 openshell sandbox exec -n "$SANDBOX" --no-login-shell -- printenv ANTHROPIC_API_KEY
 ```
 
 ### Verify
 
-Expected: output is a gateway-issued placeholder, not a key: a revision-scoped
-token ending in `_ANTHROPIC_API_KEY` (for example
-`v<digits>_ANTHROPIC_API_KEY`). It must never start with `sk-ant-`
-or otherwise contain the real key. An empty value means the provider was
-attached after the process started; `sandbox exec` starts a new process, so
-verify the attachment with check 5 first.
+Expected: output is a gateway-issued placeholder, not a key. It ends in
+`_ANTHROPIC_API_KEY` — the gateway binds the value to the variable name — and
+it is a short opaque token (61 characters against OpenShell v0.1.7 on
+2026-11-04). It must never start with `sk-ant-` or otherwise contain the real
+key. The gate asserts that shape and never prints the value. An empty value
+means the provider was attached after the process started; `sandbox exec`
+starts a new process, so verify the attachment with check 5 first.
 
 ### Stop if
 
@@ -95,6 +108,10 @@ not echo the value; rotate the key before continuing.
 ## Check 3 — Host paths invisible
 
 ### Run
+
+**Automated by `make test-boundary`.** The commands below are the
+reproduction; the gate also asserts uid/gid 1500 and the absence of a bind
+mount.
 
 ```sh
 openshell sandbox exec -n "$SANDBOX" --no-login-shell -- ls /Users
@@ -177,6 +194,9 @@ line.
 ## Check 6 — Denial logs
 
 ### Run
+
+**Automated by `make test-boundary`.** The command below is the reproduction;
+the gate names the gateway version it read the log against.
 
 ```sh
 openshell logs "$SANDBOX" --since 5m --source sandbox

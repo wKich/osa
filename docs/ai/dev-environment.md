@@ -36,9 +36,24 @@ binary, uid/gid 1500, and `/sandbox` home.
 
    It fails naming the first missing or mismatched runtime, and it never
    reports success for a check it skipped.
-4. **Work, then move files back.** The sandbox is the only copy of what you
-   edit there: download before you delete it, exactly as with any other project
-   in a sandbox.
+4. **Work, then hand the work back as a patch.** The sandbox is the only copy
+   of what you edit there. In caller mode, `maki-oss collect-patch --out FILE`
+   (the same command on the other helper names) writes the workdir's changes as
+   a binary patch against the `sync-in` baseline; on the managed path, download
+   before you delete the sandbox, exactly as with any other project in a
+   sandbox. The patch is the only thing that crosses to the host.
+5. **Let the host run the gate.** Nothing runs automatically on a patch the
+   sandbox produced — no watcher, no hook, no auto-apply. A person (or a
+   scheduled job on a host that has a gateway) runs:
+
+   ```sh
+   make test-boundary BOUNDARY_ARGS='--sandbox NAME --patch FILE --base COMMIT'
+   ```
+
+   It creates a throwaway checkout at `COMMIT`, refuses a patch that does not
+   match it, applies the patch, runs the fixed command set, and prints a
+   boundary record. A sandbox run — including everything in this page — is
+   never a boundary claim.
 
 Inside the sandbox, call the scripts rather than `make`: an OpenShell sandbox
 refuses `execve` from `make`'s child process, so every make target that spawns
@@ -126,6 +141,15 @@ It does **not** prove isolation. Running the project's tests inside a sandbox
 says nothing about the sandbox boundary: only the OpenShell policy, the
 provider placeholder substitution, and the non-root sandbox user do that.
 Nothing in this environment store changes them, and no result from this loop is
-evidence about them. The isolation checklist stays the separate, host-side
-pages starting at
-[`docs/ai/verification/maki.md`](verification/maki.md).
+evidence about them.
+
+The boundary claim comes from the host-only gate, `make test-boundary`
+([`tests/boundary/gate.sh`](../../tests/boundary/gate.sh)): it runs the suite
+gate, the live journey run, and the scripted isolation checks, and prints a
+record whose verdict is `passed`, `failed`, or `incomplete`. The pages under
+[`docs/ai/verification/`](verification/) explain each check the gate asserts;
+the claim table is
+[`docs/ai/verification/claims.md`](verification/claims.md#the-boundary-gate).
+The gate does not run automatically and is not a hosted-CI job: it needs a
+reachable OpenShell gateway, a container engine with the project image, and a
+sandbox holding a provider.

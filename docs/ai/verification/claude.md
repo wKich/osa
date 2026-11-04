@@ -14,6 +14,12 @@
 > **Record, not checklist.** The commands below are recorded and abridged.
 > The executable helper checks are in
 > [the playbook Phase 5](../playbooks/claude.md#phase-5--run-the-isolation-checks).
+>
+> **Boundary claims come from the gate.** The isolation checks this page
+> explains — refused egress, the credential stand-in, host paths, uid/gid, bind
+> mounts, and the denial in the gateway log — are automated by
+> `make test-boundary` ([the claim table](claims.md#the-boundary-gate)). Run
+> the gate for a boundary claim; the commands below are the reproduction.
 
 The canonical Claude Code verification record. It reorganizes the verification
 table from [`claude-oss/README.md`](../../../claude-oss/README.md) into
@@ -65,6 +71,9 @@ or relax the guardrail file permissions.
 
 ### Run
 
+**The stand-in is automated by `make test-boundary`**; the two end-to-end
+credential kinds are the per-agent reproduction.
+
 | Check | Command |
 |---|---|
 | Opaque stand-in | `printenv ANTHROPIC_API_KEY CLAUDE_CODE_OAUTH_TOKEN \| cut -c1-9` |
@@ -91,6 +100,10 @@ token or log in inside the sandbox.
 ## Check 3 — Session isolation, TUI, and egress
 
 ### Run
+
+**The filesystem floor, uid/gid, and the egress denial are automated by
+`make test-boundary`**; the TUI, resume, and deny-under-bypass cases are the
+per-agent reproduction.
 
 | Check | Command |
 |---|---|

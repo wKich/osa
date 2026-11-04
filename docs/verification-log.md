@@ -1879,3 +1879,62 @@ patch was applied. Cases 7.2-7.7, 8, and 9 were not run.
 
 The OpenCode, Claude Code, and Codex playbooks and verification pages were not
 re-run against v0.1.7 and still record their v0.1.5 runs.
+
+## Boundary gate record format — 2026-11-04
+
+`make test-boundary` (`tests/boundary/gate.sh`) prints a record when it
+finishes. A boundary run is recorded by copying that block here; it is not
+reconstructed from memory. The format, field by field:
+
+```text
+boundary record
+  gateway: OpenShell 0.1.7
+  agent: maki 0.6.5
+  engine: docker 29.4.0
+  image: maki-agent:local (sha256:<image id>)
+  patch: <commit> | none (working tree <commit>)
+  checks:
+    egress-denied: pass
+    credential-shape: pass
+    host-paths: pass
+    sandbox-user: pass
+    no-bind-mount: pass
+    gateway-log-refusal: pass
+  verdict: passed
+```
+
+- `gateway` is the version `openshell status` reports; it is the version the
+  gateway-log check reads the OCFS lines against.
+- `agent` is the version the image's `maki --version` prints, `engine` the
+  engine and its server version, `image` the reference and the image id.
+- `patch` is the commit the gate applied a sandbox patch to, or `none` with
+  the working-tree commit when the gate ran without `--patch`.
+- `checks` lists every check the gate ran and its outcome (`pass`, `fail`, or
+  `manual`). A check that did not run is recorded `manual` with its reason,
+  never omitted.
+- `verdict` is `passed`, `failed`, or `incomplete`. Only `passed` is a boundary
+  pass; a run with a `manual` check, a dry run, or any failed part reads
+  `incomplete` or `failed` and must not be recorded as a pass:
+
+```text
+boundary record
+  gateway: OpenShell 0.1.7
+  agent: maki 0.6.5
+  engine: docker 29.4.0
+  image: maki-agent:local (sha256:<image id>)
+  patch: none (working tree <commit>)
+  checks:
+    egress-denied: pass
+    credential-shape: pass
+    host-paths: pass
+    sandbox-user: pass
+    no-bind-mount: pass
+    gateway-log-refusal: pass
+    policy-review: manual
+  verdict: incomplete
+```
+
+A record names provider variables only; it never contains a credential value, a
+request body, or a literal placeholder string. A record written from a run
+inside a sandbox is not a boundary record — see
+[`docs/ai/verification/claims.md`](ai/verification/claims.md#the-boundary-gate).

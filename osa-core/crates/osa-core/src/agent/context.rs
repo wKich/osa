@@ -178,18 +178,28 @@ impl Context {
             .get_or_init(|| {
                 let endpoint = gateway::discover(self.gateway().as_deref())
                     .map_err(|error| Failure::new(error.code(), error.message()))?;
-                if std::env::var("OSA_GATEWAY_TRANSPORT").as_deref() == Ok("cli") {
-                    return Ok(
+                let client: Arc<dyn Gateway> =
+                    if std::env::var("OSA_GATEWAY_TRANSPORT").as_deref() == Ok("cli") {
                         Arc::new(gateway::cli_transport::CliGateway::new(endpoint))
-                            as Arc<dyn Gateway>,
-                    );
-                }
-                let identity = self.identity()?;
-                let client = gateway::block_on(gateway::sdk::SdkGateway::connect_with(
-                    endpoint, identity,
-                ))
-                .map_err(|error| Failure::new(error.code(), error.message()))?;
-                Ok(Arc::new(client) as Arc<dyn Gateway>)
+                    } else {
+                        let identity = self.identity()?;
+                        let client = gateway::block_on(gateway::sdk::SdkGateway::connect_with(
+                            endpoint, identity,
+                        ))
+                        .map_err(|error| Failure::new(error.code(), error.message()))?;
+                        Arc::new(client)
+                    };
+                // The end-to-end suite's one recording entry point. It exists
+                // only in a test-support build; a release binary has neither
+                // the branch nor the type.
+                #[cfg(feature = "test-support")]
+                let client: Arc<dyn Gateway> = match gateway::transcript_dir() {
+                    Some(dir) => {
+                        Arc::new(gateway::record::RecordingGateway::appending(client, dir))
+                    }
+                    None => client,
+                };
+                Ok(client)
             })
             .clone()
     }

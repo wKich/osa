@@ -145,7 +145,7 @@ pub fn arm(ctx: &Context, name: &str, seconds: u64) {
 
 /// `__idle-watch NAME PID SECS [--gateway G]`: waits for the session to exit,
 /// stamps the close, sleeps, and stops the sandbox when it is still idle.
-pub fn watch(profile: &AgentProfile, args: &[std::ffi::OsString]) -> Outcome {
+pub fn watch(profile: &'static AgentProfile, args: &[std::ffi::OsString]) -> Outcome {
     let words: Vec<String> = args
         .iter()
         .map(|word| word.to_string_lossy().into_owned())
@@ -190,32 +190,30 @@ pub fn watch(profile: &AgentProfile, args: &[std::ffi::OsString]) -> Outcome {
         return Ok(());
     }
     let scan_script = scan_script(profile.agent_command);
-    let scan = {
-        let mut command = Command::new("openshell");
-        if let Some(gateway) = &gateway {
-            command.arg("-g").arg(gateway);
-        }
-        command
-            .args([
-                "sandbox",
-                "exec",
-                "-n",
-                &name,
-                "--no-login-shell",
-                "--",
-                "sh",
-                "-c",
-                &scan_script,
-                &format!("{}-idle", profile.name),
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
+    // The scan and the stop are gateway operations like any other: the typed
+    // client carries them (or the CLI transport when it is explicitly
+    // selected), so the idle path does not need a CLI-only exec seam. A
+    // watcher that cannot build a client records the failure and leaves the
+    // sandbox running, exactly as a failed CLI scan did.
+    let options = super::cli::Options {
+        gateway,
+        ..super::cli::Options::default()
     };
+    let config = super::config::load(profile).unwrap_or_default();
+    let ctx = super::context::Context::new(profile, options, config);
+    let scan = ctx.exec_buffered(
+        &name,
+        vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            scan_script,
+            format!("{}-idle", profile.name),
+        ],
+        None,
+        true,
+    );
     let answer = scan
-        .ok()
-        .filter(|output| output.status.success())
+        .filter(|output| output.exit_code == 0)
         .map(|output| String::from_utf8_lossy(&output.stdout).trim().to_string())
         .unwrap_or_default();
     match answer.as_str() {
@@ -229,19 +227,7 @@ pub fn watch(profile: &AgentProfile, args: &[std::ffi::OsString]) -> Outcome {
             return Ok(());
         }
     }
-    let mut command = Command::new("openshell");
-    if let Some(gateway) = &gateway {
-        command.arg("-g").arg(gateway);
-    }
-    let stopped = command
-        .args(["sandbox", "stop", &name])
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false);
-    if stopped {
+    if ctx.stop_sandbox(&name).is_ok() {
         log(&dir, &format!("stopped session={pid}"));
     } else {
         log(&dir, &format!("stop-failed session={pid}"));

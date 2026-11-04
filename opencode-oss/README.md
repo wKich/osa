@@ -18,7 +18,7 @@ below lists the plain `docker` and `openshell` commands it runs.
 
 | Path | What it is |
 |---|---|
-| `image/Dockerfile` | Base image `opencode-agent:local`: pinned native OpenCode 2.1.4, uid/gid 1500, no Node/Bun, no MCP, no plugins |
+| `image/Dockerfile` | Base image `opencode-agent:local`: pinned native OpenCode 2.2.5, uid/gid 1500, no Node/Bun, no MCP, no plugins |
 | `image/config/opencode.json` | Global config baked to `/sandbox/.config/opencode/opencode.json`: no self-update, no sharing, deny rules |
 | `providers/opencode-*.yaml` | OpenShell provider profiles bound to `/usr/local/bin/opencode` |
 | `providers/catalog.tsv` | Profile → OpenCode provider ID, env var, example model |
@@ -78,7 +78,7 @@ helper does.
 
 ```sh
 docker build -t opencode-agent:local opencode-oss/image
-docker run --rm opencode-agent:local opencode --version   # opencode v2.1.4
+docker run --rm opencode-agent:local opencode --version   # opencode v2.2.5
 ```
 
 The Dockerfile downloads the platform tarball from npm:
@@ -211,7 +211,7 @@ openshell provider delete opencode-synthetic   # optional
 deny `edit`/`write` under `/sandbox/.config/**`, so the agent cannot rewrite
 its own rules. There is no allow rule. The rules hold under `--auto`.
 
-Notes for 2.1.4:
+Notes for 2.2.5:
 
 - The shell tool's permission action is `shell`, not `bash`.
 - The `write` tool is checked as `edit`.

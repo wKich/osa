@@ -3,8 +3,10 @@
 //! [`RecordingGateway`] wraps any [`Gateway`], forwards every call unchanged,
 //! and writes a normalized transcript of each request to a directory the
 //! constructor is given. It is compiled only under the `test-support` feature,
-//! so a shipped binary cannot construct one, and it reads no environment
-//! variable, so setting one cannot turn recording on in a release build.
+//! so a shipped binary cannot construct one, and the type itself reads no
+//! environment variable. The opt-in lives in the test-support client wrapper
+//! ([`super::transcript_dir`]), which passes the directory explicitly; a release
+//! build has neither the wrapper nor this type.
 //!
 //! Normalization keeps only what identifies the request — the operation, the
 //! target, and the non-secret fields, sorted by name. No credential value is
@@ -79,16 +81,32 @@ pub struct RecordingGateway {
     inner: Arc<dyn Gateway>,
     dir: PathBuf,
     sequence: AtomicUsize,
+    /// One `<dir>/operations.log` for the whole process, appended under
+    /// O_APPEND so a second recorder process (the idle watcher) lands after the
+    /// first instead of overwriting its files.
+    appended: bool,
 }
 
 impl RecordingGateway {
-    /// Record into `dir`, which the caller owns and deletes. Nothing is read
-    /// from the environment: an explicit directory is the only way in.
+    /// Record one file per request into `dir`, which the caller owns and
+    /// deletes. Nothing is read from the environment: an explicit directory is
+    /// the only way in.
     pub fn new(inner: Arc<dyn Gateway>, dir: impl AsRef<Path>) -> Self {
         RecordingGateway {
             inner,
             dir: dir.as_ref().to_path_buf(),
             sequence: AtomicUsize::new(0),
+            appended: false,
+        }
+    }
+
+    /// Record every request into one append-only `operations.log` in `dir`.
+    /// The file is the transcript of a whole case, including calls made by a
+    /// second process such as the idle watcher.
+    pub fn appending(inner: Arc<dyn Gateway>, dir: impl AsRef<Path>) -> Self {
+        RecordingGateway {
+            appended: true,
+            ..RecordingGateway::new(inner, dir)
         }
     }
 
@@ -98,12 +116,26 @@ impl RecordingGateway {
     }
 
     fn record(&self, entry: Entry) {
-        let sequence = self.sequence.fetch_add(1, Ordering::SeqCst) + 1;
-        let name = format!("{sequence:04}-{}.log", entry.operation);
-        let path = self.dir.join(name);
         // A transcript is a test artifact; a write failure must not look like a
         // gateway failure, so it is surfaced as a panic in the test process.
         let _ = fs::create_dir_all(&self.dir);
+        if self.appended {
+            use std::io::Write;
+            let path = self.dir.join("operations.log");
+            let mut file = fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .expect("transcript opened");
+            // One write per entry, separated by a blank line, so two recorder
+            // processes append whole blocks instead of interleaving lines.
+            file.write_all(format!("{}\n", entry.normalize()).as_bytes())
+                .expect("transcript written");
+            return;
+        }
+        let sequence = self.sequence.fetch_add(1, Ordering::SeqCst) + 1;
+        let name = format!("{sequence:04}-{}.log", entry.operation);
+        let path = self.dir.join(name);
         fs::write(&path, entry.normalize()).expect("transcript written");
     }
 }
@@ -215,7 +247,14 @@ impl Gateway for RecordingGateway {
             .field("no_login_shell", exec.request.no_login_shell.to_string())
             .field("tty", exec.tty.to_string())
             .field("size", format!("{:?}", exec.size))
-            .field("env", exec.env.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>().join(","));
+            .field(
+                "env",
+                exec.env
+                    .iter()
+                    .map(|(key, _)| key.clone())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
         self.record(entry);
         self.inner.exec_interactive(exec, input, sink).await
     }
@@ -294,6 +333,20 @@ impl Gateway for RecordingGateway {
     async fn approve_rule(&self, sandbox: &str, chunk: &str) -> Result<(), GatewayError> {
         self.record(Entry::new("approve_rule", sandbox).field("chunk_id", chunk));
         self.inner.approve_rule(sandbox, chunk).await
+    }
+
+    async fn reject_rule(
+        &self,
+        sandbox: &str,
+        chunk: &str,
+        reason: &str,
+    ) -> Result<(), GatewayError> {
+        self.record(
+            Entry::new("reject_rule", sandbox)
+                .field("chunk_id", chunk)
+                .field("reason", reason),
+        );
+        self.inner.reject_rule(sandbox, chunk, reason).await
     }
 }
 
@@ -450,6 +503,14 @@ mod tests {
         async fn approve_rule(&self, _sandbox: &str, _chunk: &str) -> Result<(), GatewayError> {
             Ok(())
         }
+        async fn reject_rule(
+            &self,
+            _sandbox: &str,
+            _chunk: &str,
+            _reason: &str,
+        ) -> Result<(), GatewayError> {
+            Ok(())
+        }
     }
 
     fn sandbox_spec() -> SandboxSpec {
@@ -588,6 +649,32 @@ mod tests {
         std::env::remove_var("OSA_GATEWAY_TRANSCRIPT");
         assert!(!names.is_empty());
         assert!(!elsewhere.exists(), "the environment named a directory");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_appending_mode_writes_one_ordered_log_for_the_whole_process() {
+        let dir = transcript_dir("append");
+        let recording = RecordingGateway::appending(Stub::new(), &dir);
+        super::super::block_on(async {
+            recording.health().await.expect("health");
+            recording.list_sandboxes().await.expect("list");
+        });
+        let names: Vec<String> = fs::read_dir(&dir)
+            .expect("dir")
+            .map(|entry| {
+                entry
+                    .expect("entry")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        assert_eq!(names, vec!["operations.log".to_string()]);
+        let text = fs::read_to_string(dir.join("operations.log")).expect("log");
+        let health = text.find("op=health").expect("health block");
+        let list = text.find("op=list_sandboxes").expect("list block");
+        assert!(health < list, "{text}");
         let _ = fs::remove_dir_all(&dir);
     }
 

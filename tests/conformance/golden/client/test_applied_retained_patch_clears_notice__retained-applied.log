@@ -66,19 +66,6 @@ sh
 mkdir -p "$1"
 maki-oss-git
 <case>/sandbox/project
-@env MAKI_OSS_IDLE_STOP
-@env MAKI_OSS_IMAGE
-@env MAKI_OSS_INTERACTIVE
-@env MAKI_OSS_POLICY
-@env MAKI_OSS_PROVIDERS
-@env MAKI_OSS_RUN_TAG
-@env MAKI_OSS_SANDBOX_NAME
-@env MAKI_OSS_TEST_ENV_VALUE
-@env MAKI_OSS_TIMEOUT
-@env MAKI_OSS_TUI
-@env MAKI_OSS_WORKDIR
-@env MAKI_OSS_WORKSPACE
-@env MAKI_VERSION
 ---
 sandbox
 exec
@@ -110,19 +97,6 @@ printf "%s\n" "$tree"
 maki-oss-git
 <case>/sandbox/.maki-oss/git
 <case>/sandbox/project
-@env MAKI_OSS_IDLE_STOP
-@env MAKI_OSS_IMAGE
-@env MAKI_OSS_INTERACTIVE
-@env MAKI_OSS_POLICY
-@env MAKI_OSS_PROVIDERS
-@env MAKI_OSS_RUN_TAG
-@env MAKI_OSS_SANDBOX_NAME
-@env MAKI_OSS_TEST_ENV_VALUE
-@env MAKI_OSS_TIMEOUT
-@env MAKI_OSS_TUI
-@env MAKI_OSS_WORKDIR
-@env MAKI_OSS_WORKSPACE
-@env MAKI_VERSION
 ---
 sandbox
 exec
@@ -140,19 +114,6 @@ git update-ref refs/maki-oss/base refs/maki-oss/result
 maki-oss-git
 <case>/sandbox/.maki-oss/git
 <case>/sandbox/project
-@env MAKI_OSS_IDLE_STOP
-@env MAKI_OSS_IMAGE
-@env MAKI_OSS_INTERACTIVE
-@env MAKI_OSS_POLICY
-@env MAKI_OSS_PROVIDERS
-@env MAKI_OSS_RUN_TAG
-@env MAKI_OSS_SANDBOX_NAME
-@env MAKI_OSS_TEST_ENV_VALUE
-@env MAKI_OSS_TIMEOUT
-@env MAKI_OSS_TUI
-@env MAKI_OSS_WORKDIR
-@env MAKI_OSS_WORKSPACE
-@env MAKI_VERSION
 ---
 sandbox
 provider
@@ -170,19 +131,6 @@ maki-repo
 <case>/sandbox/project
 --
 maki
-@env MAKI_OSS_IDLE_STOP
-@env MAKI_OSS_IMAGE
-@env MAKI_OSS_INTERACTIVE
-@env MAKI_OSS_POLICY
-@env MAKI_OSS_PROVIDERS
-@env MAKI_OSS_RUN_TAG
-@env MAKI_OSS_SANDBOX_NAME
-@env MAKI_OSS_TEST_ENV_VALUE
-@env MAKI_OSS_TIMEOUT
-@env MAKI_OSS_TUI
-@env MAKI_OSS_WORKDIR
-@env MAKI_OSS_WORKSPACE
-@env MAKI_VERSION
 ---
 sandbox
 exec
@@ -207,19 +155,6 @@ git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result
 maki-oss-git
 <case>/sandbox/.maki-oss/git
 <case>/sandbox/project
-@env MAKI_OSS_IDLE_STOP
-@env MAKI_OSS_IMAGE
-@env MAKI_OSS_INTERACTIVE
-@env MAKI_OSS_POLICY
-@env MAKI_OSS_PROVIDERS
-@env MAKI_OSS_RUN_TAG
-@env MAKI_OSS_SANDBOX_NAME
-@env MAKI_OSS_TEST_ENV_VALUE
-@env MAKI_OSS_TIMEOUT
-@env MAKI_OSS_TUI
-@env MAKI_OSS_WORKDIR
-@env MAKI_OSS_WORKSPACE
-@env MAKI_VERSION
 ---
 sandbox
 exec
@@ -237,44 +172,99 @@ git rev-parse -q --verify refs/maki-oss/result^{tree} 2>/dev/null || true
 maki-oss-git
 <case>/sandbox/.maki-oss/git
 <case>/sandbox/project
-@env MAKI_OSS_IDLE_STOP
-@env MAKI_OSS_IMAGE
-@env MAKI_OSS_INTERACTIVE
-@env MAKI_OSS_POLICY
-@env MAKI_OSS_PROVIDERS
-@env MAKI_OSS_RUN_TAG
-@env MAKI_OSS_SANDBOX_NAME
-@env MAKI_OSS_TEST_ENV_VALUE
-@env MAKI_OSS_TIMEOUT
-@env MAKI_OSS_TUI
-@env MAKI_OSS_WORKDIR
-@env MAKI_OSS_WORKSPACE
-@env MAKI_VERSION
 ---
 rule
 get
 maki-repo
 --status
 pending
-@env MAKI_OSS_IDLE_STOP
-@env MAKI_OSS_IMAGE
-@env MAKI_OSS_INTERACTIVE
-@env MAKI_OSS_POLICY
-@env MAKI_OSS_PROVIDERS
-@env MAKI_OSS_RUN_TAG
-@env MAKI_OSS_SANDBOX_NAME
-@env MAKI_OSS_TEST_ENV_VALUE
-@env MAKI_OSS_TIMEOUT
-@env MAKI_OSS_TUI
-@env MAKI_OSS_WORKDIR
-@env MAKI_OSS_WORKSPACE
-@env MAKI_VERSION
 @client
 provider list --names
 sandbox get maki-repo --output json
 sandbox get maki-repo --output json
+sandbox exec -n maki-repo --no-login-shell -- sh -c mkdir -p "$1" maki-oss-git <case>/sandbox/project
+sandbox exec -n maki-repo --no-login-shell --workdir <case>/sandbox/project -- sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+if ! git rev-parse -q --verify refs/maki-oss/base >/dev/null 2>&1; then
+    printf "missing\n"
+    exit 0
+fi
+index=$gitdir/tree-index.$$
+rm -f "$index"
+if ! GIT_INDEX_FILE=$index git add -A 2>/dev/null; then
+    rm -f "$index"
+    printf "missing\n"
+    exit 0
+fi
+tree=$(GIT_INDEX_FILE=$index git write-tree)
+rm -f "$index"
+printf "%s\n" "$tree" maki-oss-git <case>/sandbox/.maki-oss/git <case>/sandbox/project
+sandbox exec -n maki-repo --no-login-shell --workdir <case>/sandbox/project -- sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=maki-oss GIT_AUTHOR_EMAIL=maki-oss@localhost
+export GIT_COMMITTER_NAME=maki-oss GIT_COMMITTER_EMAIL=maki-oss@localhost
+mkdir -p "$gitdir" "$worktree"
+git init -q
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -m "maki-oss baseline")
+git update-ref refs/maki-oss/base "$commit"
+printf "%s\n" "$tree" maki-oss-git <case>/sandbox/.maki-oss/git <case>/sandbox/project
 sandbox provider list maki-repo --output json
+sandbox exec -n maki-repo --tty --workdir <case>/sandbox/project -- maki
+sandbox exec -n maki-repo --no-login-shell --workdir <case>/sandbox/project -- sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=maki-oss GIT_AUTHOR_EMAIL=maki-oss@localhost
+export GIT_COMMITTER_NAME=maki-oss GIT_COMMITTER_EMAIL=maki-oss@localhost
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -p refs/maki-oss/base -m "maki-oss result")
+git update-ref refs/maki-oss/result "$commit"
+git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result maki-oss-git <case>/sandbox/.maki-oss/git <case>/sandbox/project
+sandbox exec -n maki-repo --no-login-shell --workdir <case>/sandbox/project -- sh -c set -e
+export GIT_DIR=$1
+git rev-parse -q --verify refs/maki-oss/result^{tree} 2>/dev/null || true maki-oss-git <case>/sandbox/.maki-oss/git <case>/sandbox/project
+rule get maki-repo --status pending
 provider list --names
 sandbox get maki-repo --output json
 sandbox get maki-repo --output json
+sandbox exec -n maki-repo --no-login-shell -- sh -c mkdir -p "$1" maki-oss-git <case>/sandbox/project
+sandbox exec -n maki-repo --no-login-shell --workdir <case>/sandbox/project -- sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+if ! git rev-parse -q --verify refs/maki-oss/base >/dev/null 2>&1; then
+    printf "missing\n"
+    exit 0
+fi
+index=$gitdir/tree-index.$$
+rm -f "$index"
+if ! GIT_INDEX_FILE=$index git add -A 2>/dev/null; then
+    rm -f "$index"
+    printf "missing\n"
+    exit 0
+fi
+tree=$(GIT_INDEX_FILE=$index git write-tree)
+rm -f "$index"
+printf "%s\n" "$tree" maki-oss-git <case>/sandbox/.maki-oss/git <case>/sandbox/project
+sandbox exec -n maki-repo --no-login-shell --workdir <case>/sandbox/project -- sh -c set -e
+export GIT_DIR=$1
+git update-ref refs/maki-oss/base refs/maki-oss/result maki-oss-git <case>/sandbox/.maki-oss/git <case>/sandbox/project
 sandbox provider list maki-repo --output json
+sandbox exec -n maki-repo --tty --workdir <case>/sandbox/project -- maki
+sandbox exec -n maki-repo --no-login-shell --workdir <case>/sandbox/project -- sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=maki-oss GIT_AUTHOR_EMAIL=maki-oss@localhost
+export GIT_COMMITTER_NAME=maki-oss GIT_COMMITTER_EMAIL=maki-oss@localhost
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -p refs/maki-oss/base -m "maki-oss result")
+git update-ref refs/maki-oss/result "$commit"
+git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result maki-oss-git <case>/sandbox/.maki-oss/git <case>/sandbox/project
+sandbox exec -n maki-repo --no-login-shell --workdir <case>/sandbox/project -- sh -c set -e
+export GIT_DIR=$1
+git rev-parse -q --verify refs/maki-oss/result^{tree} 2>/dev/null || true maki-oss-git <case>/sandbox/.maki-oss/git <case>/sandbox/project
+rule get maki-repo --status pending

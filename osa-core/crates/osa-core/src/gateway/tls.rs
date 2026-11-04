@@ -96,7 +96,8 @@ mod tests {
 
     #[test]
     fn the_material_is_never_printed() {
-        let identity = ClientIdentity::new(b"ca".to_vec(), b"cert".to_vec(), b"secret-key".to_vec());
+        let identity =
+            ClientIdentity::new(b"ca".to_vec(), b"cert".to_vec(), b"secret-key".to_vec());
         let printed = format!("{identity:?}");
         assert!(printed.contains("redacted"), "{printed}");
         assert!(!printed.contains("secret-key"), "{printed}");

@@ -268,7 +268,7 @@ fn not_ported(profile: &AgentProfile, command: &str) -> Outcome {
 
 /// The detached watcher's entry point. The port of its behavior is a later
 /// slice; the dispatch order above is what keeps the command line stable.
-fn idle_watch(profile: &AgentProfile, args: &[OsString]) -> i32 {
+fn idle_watch(profile: &'static AgentProfile, args: &[OsString]) -> i32 {
     match super::idle::watch(profile, args) {
         Ok(()) => 0,
         Err(failure) => {

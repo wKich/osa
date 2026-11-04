@@ -31,6 +31,8 @@ maki-my-app-dir
 json
 @client
 sandbox get maki-my-app-dir --output json
+sandbox create --name maki-my-app-dir --from maki-agent:local --policy <parsed> --detach
+sandbox get maki-my-app-dir --output json
 sandbox get maki-my-app-dir --output json
 sandbox get maki-my-app-dir --output json
 sandbox get maki-my-app-dir --output json

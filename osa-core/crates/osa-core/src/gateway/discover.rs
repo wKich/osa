@@ -9,10 +9,12 @@
 //! an undocumented format owned by OpenShell, and one change to it would break
 //! every command at once.
 //!
-//! A gateway that reports an authentication mode the client cannot express
-//! (mTLS client certificates) fails here, before any operation, rather than
-//! silently falling back to the CLI: a per-operation fallback would make the
-//! transport depend on host configuration and give one command two behaviors.
+//! Discovery reports the authentication mode but does not judge it: an mTLS
+//! gateway is reachable when the caller supplies a client identity (the
+//! `--tls-dir` / `tls_dir` setting), and the typed transport decides whether it
+//! can express the mode. There is no per-operation fallback to the CLI: a
+//! per-operation fallback would make the transport depend on host
+//! configuration and give one command two behaviors.
 
 use std::sync::{Arc, OnceLock};
 
@@ -110,15 +112,12 @@ impl Discovery {
         }
     }
 
-    /// Resolve the endpoint once. An unsupported authentication mode is a
-    /// discovery failure, so it is memoized like any other.
+    /// Resolve the endpoint once. The transport decides whether it can express
+    /// the reported authentication mode; the CLI transport serves every mode,
+    /// and the typed transport serves mTLS only with a client identity.
     pub fn resolve(&self) -> Result<Endpoint, GatewayError> {
         self.resolved
-            .get_or_init(|| {
-                let endpoint = self.source.info(self.explicit.as_deref())?;
-                endpoint.ensure_supported()?;
-                Ok(endpoint)
-            })
+            .get_or_init(|| self.source.info(self.explicit.as_deref()))
             .clone()
     }
 }
@@ -200,26 +199,14 @@ mod tests {
     }
 
     #[test]
-    fn an_mtls_gateway_fails_naming_the_mode_and_the_alternatives() {
+    fn an_mtls_gateway_is_reported_and_the_transport_decides() {
         let source = Counting::answering(Ok(endpoint(AuthMode::Mtls)));
         let discovery = Discovery::new(None, source.clone());
-        let error = discovery.resolve().expect_err("mtls is unsupported");
-        assert_eq!(
-            error,
-            GatewayError::UnsupportedAuth {
-                mode: "mtls".to_string()
-            }
-        );
-        let message = error.message();
-        assert!(message.contains("'mtls'"), "{message}");
-        assert!(message.contains("bearer-token"), "{message}");
-        assert!(message.contains("plaintext"), "{message}");
-        // No fallback: the CLI is not asked a second time, and the failure is
-        // memoized like a success.
-        let again = discovery.resolve().expect_err("still unsupported");
-        assert_eq!(again, error);
+        let resolved = discovery.resolve().expect("discovered");
+        assert_eq!(resolved.auth, AuthMode::Mtls);
+        // The answer is memoized like any other; the CLI is asked once.
+        assert_eq!(discovery.resolve().expect("resolved").auth, AuthMode::Mtls);
         assert_eq!(source.calls.load(Ordering::SeqCst), 1);
-        assert_eq!(error.code(), 2);
     }
 
     #[test]

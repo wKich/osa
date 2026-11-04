@@ -179,7 +179,7 @@ REPO_ROOT=$(pwd)
 Raw fallback:
 
 ```sh
-docker build --build-arg MAKI_VERSION=0.6.5 -t maki-agent:local examples/maki-image
+docker build --build-arg MAKI_VERSION=0.7.0 -t maki-agent:local examples/maki-image
 docker run --rm maki-agent:local maki --version
 IMAGE=maki-agent:local
 REPO_ROOT=$(pwd)
@@ -203,14 +203,14 @@ For a user-owned store, follow the environment playbook
 
 ### Verify
 
-Expected: the build succeeds and prints `maki 0.6.5`; `./bin/maki-oss doctor`
+Expected: the build succeeds and prints `maki 0.7.0`; `./bin/maki-oss doctor`
 exits `0` (its image check now passes) and every line reads `ok` except the
 optional `jq` warning; when a derived image is used, its tag matches the
 helper's `image` setting.
 
 ### Stop if
 
-The build fails, the printed version is not `maki 0.6.5`, or `maki-oss doctor`
+The build fails, the printed version is not `maki 0.7.0`, or `maki-oss doctor`
 reports `warn` or `fail` for anything except the optional `jq` warning. Report
 the build or doctor output and the pinned version instead of tagging the image
 as current.

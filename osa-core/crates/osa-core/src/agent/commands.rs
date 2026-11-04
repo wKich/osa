@@ -673,7 +673,10 @@ pub fn provider_add(ctx: &Context, args: &[OsString]) -> Outcome {
         .configs
         .iter()
         .filter(|pair| !pair.is_empty())
-        .filter_map(|pair| pair.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())))
+        .filter_map(|pair| {
+            pair.split_once('=')
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+        })
         .collect();
     ctx.create_provider(crate::gateway::ProviderSpec {
         name: provider.into(),
@@ -894,18 +897,7 @@ pub fn policy(ctx: &Context, args: &[OsString]) -> Outcome {
                     "policy reject requires --reason (the agent receives it and can narrow its request)",
                 ));
             };
-            run_argv(
-                ctx,
-                &[
-                    "rule".to_string(),
-                    "reject".to_string(),
-                    name.clone(),
-                    "--chunk-id".to_string(),
-                    chunk.clone(),
-                    "--reason".to_string(),
-                    reason.clone(),
-                ],
-            )?;
+            ctx.reject_rule(&name, &chunk, reason)?;
             ctx.say(&format!("Rejected proposal '{chunk}' on '{name}'."));
             Ok(())
         }
@@ -1233,7 +1225,10 @@ fn listing(sandboxes: &[crate::gateway::Sandbox]) -> Vec<String> {
         .unwrap_or(0)
         .max(4);
     let mut lines: Vec<String> = Vec::with_capacity(sandboxes.len() + 1);
-    lines.push(format!("{:<name_width$}  {:<19}  {}", "NAME", "CREATED", "PHASE"));
+    lines.push(format!(
+        "{:<name_width$}  {:<19}  {}",
+        "NAME", "CREATED", "PHASE"
+    ));
     for sandbox in sandboxes {
         lines.push(format!(
             "{:<name_width$}  {:<19}  {}",

@@ -32,6 +32,7 @@ list
 --names
 @client
 provider list --names
+provider create --name codex-chatgpt --type codex-chatgpt --credential CODEX_CHATGPT_TOKEN --global-profile
 sandbox get cx-myproject --output json
 provider list --names
 sandbox get cx-myproject --output json

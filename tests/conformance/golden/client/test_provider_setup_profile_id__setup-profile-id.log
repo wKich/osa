@@ -1,4 +1,6 @@
 @transport client
 @client
 provider list --names
+provider create --name maki-deepseek --type maki-deepseek --credential DEEPSEEK_API_KEY --global-profile
 provider list --names
+provider create --name my-generated --type my-generated --credential GEN_KEY --global-profile

@@ -107,28 +107,25 @@ repository root, so a copied shim alone does not run.
 The core reaches OpenShell in one of two ways, and the split is explicit in
 `osa-core/crates/osa-core/src/gateway/`:
 
-- **Typed client** (`gateway/sdk.rs`, `openshell-sdk` v0.1.7): sandbox `get`,
-  `list`, `start`, `stop`, and `delete`, the readiness and deletion waits, log
-  streaming (`logs`), provider `list`/`attach`/`detach`, and rule approval.
-  Streamed exec, provider creation, and rule listing are implemented and tested
-  at the client seam; their commands keep the CLI for the reasons below.
-- **OpenShell CLI** (`gateway/cli.rs`): everything the client does not cover.
-  File upload and download stay here because the curated client has no transfer
-  method and `raw_grpc` coverage for it is unverified. Endpoint discovery,
-  gateway status, policy show/apply, settings, and provider profile
-  import/lint also stay on the CLI.
-- **Exempt command paths**, recorded here rather than left implicit:
-  - `sandbox create` keeps the CLI so the create arguments (`--from`,
-    `--policy`, `--cpu`, `--memory`, `--provider`, `--env`, `--env-from`) stay
-    visible in one place and the create-race exit status is unchanged.
-  - The interactive agent session (`maki-oss run`, `maki-oss` bare) runs
-    `openshell sandbox exec` because the typed exec cannot inherit a terminal's
-    stdin or TTY. Script and probe execs also keep the CLI so their per-run
-    fixtures reach the sandbox unchanged.
-  - `provider add` and `provider setup` keep `openshell provider create`
-    because `--from-existing` and `--global-profile` have no request field.
-  - `policy review` and the pending-proposal note keep `openshell rule get`
-    because they render the CLI's full policy text.
+- **Typed client** (`gateway/sdk.rs`, `openshell-sdk` v0.1.7): every covered
+  operation — sandbox `create`, `get`, `list`, `start`, `stop`, and `delete`,
+  the readiness and deletion waits, exec (buffered, streamed, and interactive,
+  with stdin, TTY, and resize frames), log streaming (`logs`), provider
+  `create`/`list`/`attach`/`detach`, and rule `get`/`list`/`approve`.
+  `policy review` and the pending-proposal note render their text from the
+  structured rule listing; `provider create` carries the command's options
+  (`--from-existing`, `--global-profile`, `--runtime-credentials`, named
+  credential fields, and config pairs), and a named credential field resolves
+  from the caller's environment into the one request field that carries it.
+- **OpenShell CLI** (`gateway/cli.rs`): the operations no transport should
+  hide — file upload and download (the curated client has no transfer method
+  and `raw_grpc` coverage for it is unverified), endpoint discovery, gateway
+  info and status, policy show and apply, settings, and provider profile
+  import and lint. Every remaining `openshell` spawn is one of those commands
+  or the selectable CLI transport itself.
+- **Parity gate**: `scripts/test-all.sh` runs the converted case set over both
+  transports (typed client, then `OSA_GATEWAY_TRANSPORT=cli`) and fails on any
+  verdict other than `identical` or `transport-changed`.
 
 `OSA_GATEWAY_TRANSPORT=cli` selects the CLI transport for every covered
 operation instead of the typed client. It is the rollback path and how the
@@ -1540,7 +1537,7 @@ surprises:
 ## Manual verification (historical)
 
 This records an earlier run against OpenShell 0.1.2 and Maki 0.6.0. The
-current pins are OpenShell v0.1.7 and Maki 0.6.5; current runs are in
+current pins are OpenShell v0.1.7 and Maki 0.7.0; current runs are in
 [`docs/verification-log.md`](verification-log.md). A full dry run against a real
 OpenShell 0.1.2 gateway (macOS 26.5, Apple
 Silicon, Docker Engine 29.4.0 via OrbStack, `maki-agent:local` built from

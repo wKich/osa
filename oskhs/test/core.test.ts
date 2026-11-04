@@ -21,7 +21,14 @@ const stubDir = join(root, "tests/stub");
 async function startGateway(stateDir: string): Promise<{ server: string; stop: () => void }> {
   const bin = join(root, "osa-core/target/release/stub-gateway");
   const proc = Bun.spawn([bin], {
-    env: { ...process.env, STUB_STATE_DIR: stateDir, STUB_GATEWAY_PORT: "0" },
+    // The helper execs through the typed client now, so the answer fixture
+    // reaches the gateway, not the CLI stub.
+    env: {
+      ...process.env,
+      STUB_STATE_DIR: stateDir,
+      STUB_GATEWAY_PORT: "0",
+      STUB_EXEC_STDOUT: answerLine,
+    },
     stdout: "pipe",
     stderr: "pipe",
   });

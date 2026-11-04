@@ -104,6 +104,8 @@ maki-deepseek
 @client
 provider list --names
 sandbox get mk-demo-1a2b --output json
+provider create --name maki-deepseek --type maki-deepseek --credential DEEPSEEK_API_KEY --global-profile
 sandbox get mk-demo-1a2b --output json
+sandbox provider attach mk-demo-1a2b maki-deepseek
 provider list --names
 provider list --names

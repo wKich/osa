@@ -131,7 +131,10 @@ impl SdkGateway {
             }
             SdkError::Auth { status, .. } => GatewayError::Unauthenticated {
                 endpoint: endpoint.gateway.clone(),
-                status: status.as_ref().map(|status| status.code() as u16).unwrap_or(401),
+                status: status
+                    .as_ref()
+                    .map(|status| status.code() as u16)
+                    .unwrap_or(401),
             },
             SdkError::Connect { .. } | SdkError::Io { .. } => Self::unreachable(endpoint, false),
             other => GatewayError::Failed {
@@ -280,7 +283,10 @@ impl Gateway for SdkGateway {
             }
         }
         for pair in &spec.env_from {
-            if let Some((key, _)) = pair.split_once('=') {
+            // `--env-from NAME` may arrive bare; the gateway reads the value
+            // from its own environment, so the request carries the name only.
+            let key = pair.split_once('=').map(|(key, _)| key).unwrap_or(pair);
+            if !key.is_empty() {
                 environment.insert(key.to_string(), String::new());
             }
         }
@@ -487,7 +493,9 @@ impl Gateway for SdkGateway {
                     },
                     Ok(None) => break,
                     Err(status) => {
-                        let _ = sender.send(Event::Error(status.message().to_string())).await;
+                        let _ = sender
+                            .send(Event::Error(status.message().to_string()))
+                            .await;
                         break;
                     }
                 }
@@ -781,9 +789,7 @@ impl Gateway for SdkGateway {
         for key in spec.credential_keys.iter().filter(|key| !key.is_empty()) {
             let value = std::env::var(key).map_err(|_| GatewayError::Failed {
                 operation: "provider create",
-                detail: format!(
-                    "requires local env var '{key}' to be set to a non-empty value"
-                ),
+                detail: format!("requires local env var '{key}' to be set to a non-empty value"),
             })?;
             if value.trim().is_empty() {
                 return Err(GatewayError::Failed {
@@ -951,6 +957,29 @@ impl Gateway for SdkGateway {
                 detail: status.message().to_string(),
             })
     }
+
+    async fn reject_rule(
+        &self,
+        sandbox: &str,
+        chunk: &str,
+        reason: &str,
+    ) -> Result<(), GatewayError> {
+        self.client
+            .raw_grpc()
+            .reject_draft_chunk(proto::RejectDraftChunkRequest {
+                workspace_scope: Self::scope(),
+                sandbox: sandbox.to_string(),
+                chunk_id: chunk.to_string(),
+                reason: reason.to_string(),
+                ..Default::default()
+            })
+            .await
+            .map(|_| ())
+            .map_err(|status| GatewayError::Failed {
+                operation: "rule reject",
+                detail: status.message().to_string(),
+            })
+    }
 }
 
 /// A spawned stream producer that is cancelled when its owner is dropped.
@@ -1071,4 +1100,26 @@ fn resource_limits(cpu: Option<&str>, memory: Option<&str>) -> Option<prost_type
         },
     );
     Some(Struct { fields })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn an_mtls_endpoint_without_an_identity_is_refused_before_connecting() {
+        let endpoint = Endpoint {
+            gateway: "local".to_string(),
+            server: "http://127.0.0.1:1".to_string(),
+            auth: AuthMode::Mtls,
+            version: "0.1.7".to_string(),
+        };
+        match SdkGateway::connect_with(endpoint, None).await {
+            Ok(_) => panic!("an mtls endpoint needs a client identity"),
+            Err(error) => assert!(
+                matches!(error, GatewayError::UnsupportedAuth { ref mode } if mode == "mtls"),
+                "{error:?}"
+            ),
+        }
+    }
 }

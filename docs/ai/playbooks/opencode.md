@@ -44,7 +44,7 @@ behavior is in [`docs/helper.md`](../../helper.md), provider profiles in
   profile's example model.
 - The project path to upload (optional; skip the upload steps to work in an
   empty sandbox workspace).
-- The pinned OpenCode version is `2.1.4` from
+- The pinned OpenCode version is `2.2.5` from
   [`opencode-oss/image/Dockerfile`](../../../opencode-oss/image/Dockerfile);
   no host OpenCode CLI is required.
 
@@ -73,7 +73,7 @@ IMAGE=opencode-agent:local
 REPO_ROOT=$(pwd)
 ```
 
-The base image is agent-only: pinned OpenCode `2.1.4`, uid/gid 1500, no
+The base image is agent-only: pinned OpenCode `2.2.5`, uid/gid 1500, no
 Node/Bun runtime, no MCP server, no plugin, and no credential. A personal
 config, MCP server, plugin, or skill belongs in an environment image built
 `FROM opencode-agent:local`; follow
@@ -91,12 +91,12 @@ Without the matching checksums the build fails rather than skipping the check.
 
 Expected: `opencode-oss image build` prints
 `Built image 'opencode-agent:local'.`; `docker run --rm opencode-agent:local
-opencode --version` prints `opencode v2.1.4`. The provider and model checks in
+opencode --version` prints `opencode v2.2.5`. The provider and model checks in
 `opencode-oss doctor` are completed in Phase 2.
 
 ### Stop if
 
-The build fails, the printed version is not `opencode v2.1.4`, or a checksum
+The build fails, the printed version is not `opencode v2.2.5`, or a checksum
 fails. Report the build output and the pinned version instead of tagging the
 image as current.
 

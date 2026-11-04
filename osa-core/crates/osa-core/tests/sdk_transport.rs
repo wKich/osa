@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use osa_core::gateway::sdk::SdkGateway;
 use osa_core::gateway::{
-    AuthMode, ChunkSink, Credential, Endpoint, ExecRequest, Gateway, GatewayError, LogOptions,
-    ProviderSpec, SandboxSpec,
+    AuthMode, ChunkSink, Credential, Endpoint, ExecRequest, Gateway, GatewayError, InteractiveExec,
+    LogOptions, ProviderSpec, SandboxSpec,
 };
 use stub_gateway::Stub;
 
@@ -162,8 +162,9 @@ async fn create_and_start_and_stop_run_over_the_client() {
     // The record carries the full create spec, so the argument surface the
     // conformance cases pin stays reviewable after the conversion.
     assert!(
-        stub.requests().iter().any(|line| line
-            == "sandbox create --name demo --from maki-agent:local --detach"),
+        stub.requests()
+            .iter()
+            .any(|line| line == "sandbox create --name demo --from maki-agent:local --detach"),
         "{:?}",
         stub.requests()
     );
@@ -546,5 +547,113 @@ async fn an_interrupt_ends_a_streamed_exec_and_releases_the_stream() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
     assert_eq!(stub.active_streams(), 0, "the exec stream stayed open");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn an_interactive_exec_streams_output_and_reports_the_exit_separately() {
+    let dir = state_dir("interactive");
+    let stub = Stub::new(&dir, None).with_exec("interactive chunk\n", 9);
+    seed_sandbox(&dir, "demo", "Ready");
+    let transport = gateway(stub).await;
+
+    let (_sender, receiver) = tokio::sync::mpsc::channel(4);
+    let mut written = Counter { bytes: Vec::new() };
+    let status = transport
+        .exec_interactive(
+            InteractiveExec {
+                request: ExecRequest {
+                    sandbox: "demo".to_string(),
+                    command: vec!["sh".to_string(), "-c".to_string(), "true".to_string()],
+                    workdir: Some("/sandbox".to_string()),
+                    no_login_shell: false,
+                    stdin: Some(b"prompt".to_vec()),
+                    timeout: None,
+                },
+                env: vec![("MAKI_MODEL".to_string(), "x".to_string())],
+                tty: true,
+                size: Some((120, 40)),
+                interrupt: None,
+            },
+            receiver,
+            &mut written,
+        )
+        .await
+        .expect("interactive exec");
+    assert_eq!(written.bytes, b"interactive chunk\n");
+    assert_eq!(status.code, 9);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn provider_create_resolves_named_fields_from_the_environment() {
+    const KEY: &str = "OSA_TEST_PROVIDER_FIELD";
+    const SENTINEL: &str = "sentinel-field-value";
+    let dir = state_dir("provider-fields");
+    let stub = Stub::new(&dir, None);
+    let transport = gateway(stub.clone()).await;
+    std::env::set_var(KEY, SENTINEL);
+
+    transport
+        .create_provider(ProviderSpec {
+            name: "maki-anthropic".to_string(),
+            profile: "maki-anthropic".to_string(),
+            from_existing: true,
+            global_profile: true,
+            runtime_credentials: false,
+            credential_keys: vec![KEY.to_string()],
+            config: vec![("region".to_string(), "eu".to_string())],
+            credential_key: None,
+            credential: None,
+        })
+        .await
+        .expect("provider");
+    std::env::remove_var(KEY);
+
+    assert_eq!(
+        stub.supplied_credentials(),
+        vec![(KEY.to_string(), SENTINEL.to_string())]
+    );
+    // The value travels in the request field and nowhere in the recording.
+    for request in stub.requests() {
+        assert!(!request.contains(SENTINEL), "{request}");
+    }
+    assert!(
+        stub.requests()
+            .iter()
+            .any(|line| line
+                == "provider create --name maki-anthropic --type maki-anthropic --credential OSA_TEST_PROVIDER_FIELD --config region=eu --global-profile"),
+        "{:?}",
+        stub.requests()
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn rule_rejection_targets_one_chunk_and_carries_its_reason() {
+    let dir = state_dir("reject");
+    let stub = Stub::new(&dir, None);
+    seed_sandbox(&dir, "demo", "Ready");
+    std::fs::create_dir_all(dir.join("rules")).expect("rules");
+    std::fs::write(
+        dir.join("rules").join("demo"),
+        "chunk-1|allow-api|/usr/bin/curl|api.example.test:443|clean\nchunk-2|allow-dns|/usr/bin/dig|dns.example.test:53|review\n",
+    )
+    .expect("chunks");
+    let transport = gateway(stub.clone()).await;
+
+    transport
+        .reject_rule("demo", "chunk-2", "Scope this to docs/ paths only.")
+        .await
+        .expect("rejected");
+    let remaining = transport.list_rules("demo").await.expect("listed");
+    assert_eq!(remaining.rules.len(), 1);
+    assert_eq!(remaining.rules[0].chunk_id.as_deref(), Some("chunk-1"));
+    assert!(
+        stub.requests().iter().any(|line| line
+            == "rule reject demo --chunk-id chunk-2 --reason Scope this to docs/ paths only."),
+        "{:?}",
+        stub.requests()
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

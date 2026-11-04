@@ -20,6 +20,9 @@
 #   OSA_CONFORMANCE_STRICT=1     fail an unrecorded case not in excluded.txt
 #   OSA_CONFORMANCE_ARTIFACTS=D  artifact root (default: $WORK/conformance)
 #   OSA_BACKEND_<FRONTEND>_2     parity's second backend for a front-end
+#   OSA_PARITY_TRANSPORT=cli     parity's second run selects the CLI transport
+#                                (the first always uses the typed client)
+#   OSA_PARITY_RUN_ONLY=<glob>   parity runs only the matching cases
 #
 # Transport: a case declares the transport its converted operation family uses
 # with `conformance_transport client` (the suite's `new_case` declares `client`
@@ -363,9 +366,13 @@ conformance_parity_run() {
     conformance_parity_status_a=0
     conformance_parity_status_b=0
 
+    # The first run always uses the typed client, even if the caller's
+    # environment selects the CLI: parity must compare client against CLI.
     OSA_CONFORMANCE_ARTIFACTS=$conformance_parity_a \
     OSA_CONFORMANCE_COMPARE=0 \
-        "$ROOT/tests/run-tests.sh" || conformance_parity_status_a=$?
+    RUN_ONLY=${OSA_PARITY_RUN_ONLY:-} \
+        env -u OSA_GATEWAY_TRANSPORT "$ROOT/tests/run-tests.sh" \
+        || conformance_parity_status_a=$?
 
     OSA_CONFORMANCE_ARTIFACTS=$conformance_parity_b \
     OSA_CONFORMANCE_COMPARE=0 \
@@ -374,6 +381,8 @@ conformance_parity_run() {
     OSA_BACKEND_OPENCODE=${OSA_BACKEND_OPENCODE_2:-$OC} \
     OSA_BACKEND_CLAUDE=${OSA_BACKEND_CLAUDE_2:-$CLAUDE} \
     OSA_BACKEND_CODEX=${OSA_BACKEND_CODEX_2:-$CODEX} \
+    RUN_ONLY=${OSA_PARITY_RUN_ONLY:-} \
+    OSA_GATEWAY_TRANSPORT=${OSA_PARITY_TRANSPORT:-} \
         "$ROOT/tests/run-tests.sh" || conformance_parity_status_b=$?
 
     conformance_parity_divergent=0

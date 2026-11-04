@@ -1,10 +1,36 @@
 @transport client
 @client
 sandbox get cc-myproject --output json
+sandbox create --name cc-myproject --from claude-agent:local --policy <parsed> --env CLAUDE_CODE_OAUTH_TOKEN=x --detach
+sandbox get cc-myproject --output json
 sandbox get cc-myproject --output json
 sandbox get cc-myproject --output json
 sandbox provider list cc-myproject --output json
 sandbox get cc-myproject --output json
+sandbox exec -n cc-myproject --no-login-shell --workdir <case>/sandbox/project -- sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+if ! git rev-parse -q --verify refs/claude-oss/base >/dev/null 2>&1; then
+    printf "missing\n"
+    exit 0
+fi
+index=$gitdir/tree-index.$$
+rm -f "$index"
+if ! GIT_INDEX_FILE=$index git add -A 2>/dev/null; then
+    rm -f "$index"
+    printf "missing\n"
+    exit 0
+fi
+tree=$(GIT_INDEX_FILE=$index git write-tree)
+rm -f "$index"
+printf "%s\n" "$tree" claude-oss-git <case>/sandbox/.claude-oss/git <case>/sandbox/project
+sandbox exec -n cc-myproject --no-login-shell --workdir <case>/sandbox/project -- sh -c set -e
+worktree=$2
+if [ -n "$(find "$worktree" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)" ]; then
+    printf "nonempty\n"
+else
+    printf "empty\n"
+fi claude-oss-git <case>/sandbox/.claude-oss/git <case>/sandbox/project
 sandbox get cc-myproject --output json
 sandbox get cc-myproject --output json
 sandbox delete cc-myproject

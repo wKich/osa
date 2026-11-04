@@ -7,7 +7,7 @@ link rot in one place.
 
 **Verified against OpenShell v0.1.7 on 2026-11-04, Maki v0.6.5, and OpenCode
 v2.1.4 on 2026-10-25; Claude Code v2.1.308 and Codex v0.164.0 on 2026-10-26.**
-Maki `v0.6.5` is pinned in
+Maki `v0.7.0` is pinned in
 `examples/maki-image/Dockerfile`; re-verify the links and version notes after
 any project publishes a release. The OpenCode, Claude Code, and Codex
 playbooks and verification pages record their last full run at OpenShell

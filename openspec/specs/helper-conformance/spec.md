@@ -139,6 +139,10 @@ output.
 backends declare different transports for a case and agree on state, exit
 status, and output. Every other divergence SHALL fail the run.
 
+The repository gate SHALL run parity over the converted case set, once with the
+typed client and once with `OSA_GATEWAY_TRANSPORT=cli`, and SHALL fail on any
+verdict other than identical or `transport-changed`.
+
 #### Scenario: Identical backends report identical
 - **WHEN** parity mode runs the case set against two copies of the same backend
 - **THEN** every case reports identical and the command exits 0
@@ -154,3 +158,7 @@ status, and output. Every other divergence SHALL fail the run.
 #### Scenario: A divergent backend is named
 - **WHEN** parity mode runs against a backend that writes a different registry field value for one case
 - **THEN** that case reports divergent in state, names the field, and the command exits non-zero while still running the remaining cases
+
+#### Scenario: The gate runs parity over the converted set
+- **WHEN** the repository gate runs
+- **THEN** it compares the converted cases over both transports and fails on any divergence

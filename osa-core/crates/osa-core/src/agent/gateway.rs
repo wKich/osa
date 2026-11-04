@@ -135,6 +135,10 @@ impl Context {
         self.gateway_call(|client| gateway::block_on(client.approve_rule(name, chunk)))
     }
 
+    pub fn reject_rule(&self, name: &str, chunk: &str, reason: &str) -> Outcome {
+        self.gateway_call(|client| gateway::block_on(client.reject_rule(name, chunk, reason)))
+    }
+
     pub fn rule_names(&self, name: &str, pending_only: bool) -> Result<Vec<String>, Failure> {
         let listing = self.gateway_call(|client| gateway::block_on(client.list_rules(name)))?;
         Ok(listing
@@ -285,9 +289,8 @@ impl Context {
     }
 
     pub fn attached_providers(&self, name: &str) -> Result<Vec<String>, Failure> {
-        self.attached_provider_names(name).map_err(|_| {
-            Failure::gateway(format!("cannot list providers attached to '{name}'"))
-        })
+        self.attached_provider_names(name)
+            .map_err(|_| Failure::gateway(format!("cannot list providers attached to '{name}'")))
     }
 
     /// Every provider name on the gateway.

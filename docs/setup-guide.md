@@ -105,12 +105,12 @@ Connected.
 ## 3. Build the Maki image
 
 [`examples/maki-image/Dockerfile`](../examples/maki-image/Dockerfile) pins the
-Maki release with `ARG MAKI_VERSION=0.6.5`, installs the static binary to
+Maki release with `ARG MAKI_VERSION=0.7.0`, installs the static binary to
 `/usr/local/bin/maki`, creates the non-root `sandbox` user (uid/gid 1500), and
 bakes the global Maki configuration into `/sandbox/.config/maki/`.
 
 ```sh
-docker build --build-arg MAKI_VERSION=0.6.5 -t maki-agent:local examples/maki-image
+docker build --build-arg MAKI_VERSION=0.7.0 -t maki-agent:local examples/maki-image
 ```
 
 Verify the build and the baked configuration:
@@ -120,7 +120,7 @@ docker run --rm maki-agent:local maki --version
 docker run --rm maki-agent:local ls /sandbox/.config/maki
 ```
 
-Expected: `maki 0.6.5`, and `init.lua`, `mcp.toml`, and `permissions.toml` in
+Expected: `maki 0.7.0`, and `init.lua`, `mcp.toml`, and `permissions.toml` in
 the config directory. This is the **base image**: the agent runtime and safety
 baseline only. `init.lua` pre-answers folder trust for `/sandbox/**` and starts
 every session in YOLO mode, because the sandbox is the permission boundary

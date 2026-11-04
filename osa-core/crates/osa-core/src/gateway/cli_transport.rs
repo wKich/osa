@@ -52,10 +52,7 @@ impl CliGateway {
     fn failed(operation: &'static str, output: &std::process::Output) -> GatewayError {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let detail = if detail.is_empty() {
-            format!(
-                "exit status {}",
-                crate::process::exit_code(output.status)
-            )
+            format!("exit status {}", crate::process::exit_code(output.status))
         } else {
             detail
         };
@@ -87,11 +84,12 @@ impl Gateway for CliGateway {
         if !output.status.success() {
             return Err(Self::failed("sandbox list", &output));
         }
-        super::sandboxes(&String::from_utf8_lossy(&output.stdout))
-            .map_err(|error| GatewayError::Failed {
+        super::sandboxes(&String::from_utf8_lossy(&output.stdout)).map_err(|error| {
+            GatewayError::Failed {
                 operation: "sandbox list",
                 detail: error.to_string(),
-            })
+            }
+        })
     }
 
     async fn get_sandbox(&self, name: &str) -> Result<Option<Sandbox>, GatewayError> {
@@ -148,17 +146,13 @@ impl Gateway for CliGateway {
         let output = self.run(&words)?;
         if !output.status.success() {
             if String::from_utf8_lossy(&output.stderr).contains("already exists") {
-                return Err(GatewayError::AlreadyExists {
-                    sandbox: spec.name,
-                });
+                return Err(GatewayError::AlreadyExists { sandbox: spec.name });
             }
             return Err(Self::failed("sandbox create", &output));
         }
         self.get_sandbox(&spec.name)
             .await?
-            .ok_or(GatewayError::NotFound {
-                sandbox: spec.name,
-            })
+            .ok_or(GatewayError::NotFound { sandbox: spec.name })
     }
 
     async fn start_sandbox(&self, name: &str) -> Result<Sandbox, GatewayError> {
@@ -336,9 +330,14 @@ impl Gateway for CliGateway {
             let chunks = chunks.clone();
             readers.push(std::thread::spawn(move || pump(pipe, chunks)));
         }
+        let initial_stdin = request.stdin.clone().unwrap_or_default();
         let writer = child_stdin.take().map(|mut pipe| {
             std::thread::spawn(move || {
                 let mut input = input;
+                if !initial_stdin.is_empty() {
+                    let _ = pipe.write_all(&initial_stdin);
+                    let _ = pipe.flush();
+                }
                 while let Some(frame) = input.blocking_recv() {
                     match frame {
                         ExecInput::Stdin(bytes) => {
@@ -499,14 +498,7 @@ impl Gateway for CliGateway {
     }
 
     async fn attached_providers(&self, sandbox: &str) -> Result<Vec<String>, GatewayError> {
-        let output = self.run(&[
-            "sandbox",
-            "provider",
-            "list",
-            sandbox,
-            "--output",
-            "json",
-        ])?;
+        let output = self.run(&["sandbox", "provider", "list", sandbox, "--output", "json"])?;
         if !output.status.success() {
             return Err(Self::failed("sandbox provider list", &output));
         }
@@ -543,7 +535,9 @@ impl Gateway for CliGateway {
             .await?
             .rules
             .into_iter()
-            .find(|rule| rule.name == name && (!pending_only || rule.status.as_deref() == Some("pending"))))
+            .find(|rule| {
+                rule.name == name && (!pending_only || rule.status.as_deref() == Some("pending"))
+            }))
     }
 
     async fn list_rules(&self, sandbox: &str) -> Result<RuleListing, GatewayError> {
@@ -558,6 +552,26 @@ impl Gateway for CliGateway {
         self.status_only(
             &["rule", "approve", sandbox, "--chunk-id", chunk],
             "rule approve",
+        )
+    }
+
+    async fn reject_rule(
+        &self,
+        sandbox: &str,
+        chunk: &str,
+        reason: &str,
+    ) -> Result<(), GatewayError> {
+        self.status_only(
+            &[
+                "rule",
+                "reject",
+                sandbox,
+                "--chunk-id",
+                chunk,
+                "--reason",
+                reason,
+            ],
+            "rule reject",
         )
     }
 }
@@ -622,10 +636,7 @@ fn parse_rules(text: &str) -> RuleListing {
 }
 
 /// Read one child pipe into the chunk channel as bytes arrive.
-fn pump(
-    mut pipe: impl std::io::Read,
-    chunks: tokio::sync::mpsc::Sender<Vec<u8>>,
-) {
+fn pump(mut pipe: impl std::io::Read, chunks: tokio::sync::mpsc::Sender<Vec<u8>>) {
     let mut buffer = [0u8; 4096];
     loop {
         match pipe.read(&mut buffer) {

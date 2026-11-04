@@ -81,5 +81,6 @@ maki-opencode-go
 @env OPENCODE_API_KEY
 @client
 provider list --names
+provider create --name maki-opencode-go --type maki-opencode-go --credential OPENCODE_API_KEY --global-profile
 sandbox get maki-project --output json
 provider list --names

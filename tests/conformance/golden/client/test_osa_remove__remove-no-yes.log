@@ -28,6 +28,8 @@ delete
 maki-myproject
 @client
 sandbox get maki-myproject --output json
+sandbox create --name maki-myproject --from maki-agent:local --policy <parsed> --detach
+sandbox get maki-myproject --output json
 sandbox get maki-myproject --output json
 sandbox list --output json
 sandbox delete maki-myproject

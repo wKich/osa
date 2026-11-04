@@ -39,6 +39,17 @@ if ! OSA_CONFORMANCE_STRICT=1 OSA_CONFORMANCE_REPORT="$report" tests/run-tests.s
 fi
 rm -f "$report"
 
+# The converted set has to behave the same over both transports: run it once
+# with the typed client and once with the CLI selector, then compare state,
+# exit status, output, and the declared transport. Only `identical` and
+# `transport-changed` pass.
+if ! OSA_PARITY_TRANSPORT=cli \
+    OSA_PARITY_RUN_ONLY='test_up_creates,test_mk_run_stdin_prompt,test_session_plain_apply,test_provider_setup_curated,test_provider_wrappers,test_session_create_race_reuses,test_run_timeout_flag,test_policy_review_lists_chunks,test_exit_surfaces_pending_proposals,test_oc_provider_setup' \
+    tests/conformance/harness.sh parity; then
+    echo 'test-all: converted-set parity failed' >&2
+    exit 1
+fi
+
 cargo test --workspace --manifest-path osa-core/Cargo.toml \
     || { echo 'test-all: core suite failed' >&2; exit 1; }
 (cd bridge && bun test) || { echo 'test-all: bridge suite failed' >&2; exit 1; }

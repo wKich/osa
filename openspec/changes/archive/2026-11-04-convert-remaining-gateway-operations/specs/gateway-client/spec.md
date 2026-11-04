@@ -7,7 +7,7 @@ The core SHALL perform each covered gateway operation through a single
 covered operations SHALL be: sandbox create, start, stop, delete, get, and
 list; readiness and deletion waits; exec (buffered, streamed, and interactive);
 log streaming; provider create, list, attach, and detach; and rule get, list,
-and approve.
+approve, and reject.
 
 For a covered operation, no code path SHALL construct gateway argv or parse
 gateway command output. The only `openshell` calls that remain SHALL be file

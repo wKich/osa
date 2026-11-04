@@ -118,30 +118,9 @@ create
 opencode-acme-router
 --type
 opencode-acme-router
---from-existing
+--credential
+ACME_ROUTER_API_KEY
 --global-profile
-@env MAKI_OSS_IDLE_STOP
-@env MAKI_OSS_IMAGE
-@env MAKI_OSS_INTERACTIVE
-@env MAKI_OSS_POLICY
-@env MAKI_OSS_PROVIDERS
-@env MAKI_OSS_RUN_TAG
-@env MAKI_OSS_SANDBOX_NAME
-@env MAKI_OSS_TEST_ENV_VALUE
-@env MAKI_OSS_TIMEOUT
-@env MAKI_OSS_TUI
-@env MAKI_OSS_WORKDIR
-@env MAKI_OSS_WORKSPACE
-@env MAKI_VERSION
-@env OPENCODE_OSS_IDLE_STOP
-@env OPENCODE_OSS_IMAGE
-@env OPENCODE_OSS_INTERACTIVE
-@env OPENCODE_OSS_MODEL
-@env OPENCODE_OSS_RUN_TAG
-@env OPENCODE_OSS_SANDBOX_NAME
-@env OPENCODE_OSS_TIMEOUT
-@env OPENCODE_OSS_WORKDIR
-@env ACME_ROUTER_API_KEY
 ---
 sandbox
 get
@@ -150,4 +129,5 @@ oc-project
 json
 @client
 provider list --names
+provider create --name opencode-acme-router --type opencode-acme-router --credential ACME_ROUTER_API_KEY --global-profile
 sandbox get oc-project --output json

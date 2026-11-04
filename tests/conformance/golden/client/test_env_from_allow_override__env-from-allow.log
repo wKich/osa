@@ -31,23 +31,16 @@ maki-project
 --from
 maki-agent:local
 --policy
-<repo>/examples/policies/maki-minimal.yaml
---detach
+<parsed>
 --env-from
 MY_TOKEN
-@env MAKI_OSS_IDLE_STOP
-@env MAKI_OSS_IMAGE
-@env MAKI_OSS_INTERACTIVE
-@env MAKI_OSS_POLICY
-@env MAKI_OSS_PROVIDERS
-@env MAKI_OSS_RUN_TAG
-@env MAKI_OSS_SANDBOX_NAME
-@env MAKI_OSS_TEST_ENV_VALUE
-@env MAKI_OSS_TIMEOUT
-@env MAKI_OSS_TUI
-@env MAKI_OSS_WORKDIR
-@env MAKI_OSS_WORKSPACE
-@env MAKI_VERSION
+--detach
+---
+sandbox
+get
+maki-project
+--output
+json
 ---
 sandbox
 get
@@ -55,5 +48,7 @@ maki-project
 --output
 json
 @client
+sandbox get maki-project --output json
+sandbox create --name maki-project --from maki-agent:local --policy <parsed> --env-from MY_TOKEN --detach
 sandbox get maki-project --output json
 sandbox get maki-project --output json

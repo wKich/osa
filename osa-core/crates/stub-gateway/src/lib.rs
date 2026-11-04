@@ -211,7 +211,6 @@ impl Stub {
         }
     }
 
-
     fn fixtures_dir(&self) -> PathBuf {
         self.state.join("fixtures")
     }
@@ -271,7 +270,10 @@ impl Stub {
         let text = self
             .fixture("rules")
             .or_else(|| fs::read_to_string(self.state.join("rules").join(sandbox)).ok());
-        (version, text.map(|text| parse_rules(&text)).unwrap_or_default())
+        (
+            version,
+            text.map(|text| parse_rules(&text)).unwrap_or_default(),
+        )
     }
 
     /// Run one exec the way the CLI stub does: internal sandbox scripts and
@@ -307,14 +309,34 @@ impl Stub {
                 .unwrap_or_default();
             let script = command[2].clone();
             let args: Vec<String> = command[3..].to_vec();
+            let stdin = request.stdin.clone();
+            let git_trace = self
+                .fixture("exec.git-trace")
+                .map(|text| text.trim().to_string())
+                .unwrap_or_default();
             let output = tokio::task::spawn_blocking(move || {
+                use std::io::Write;
                 let mut process = std::process::Command::new("sh");
-                process.arg("-c").arg(&script).args(&args);
+                process
+                    .arg("-c")
+                    .arg(&script)
+                    .args(&args)
+                    .stdin(std::process::Stdio::piped())
+                    .stdout(std::process::Stdio::piped())
+                    .stderr(std::process::Stdio::piped());
                 if !tools.is_empty() {
                     let path = std::env::var("PATH").unwrap_or_default();
                     process.env("PATH", format!("{tools}:{path}"));
                 }
-                process.output()
+                if !git_trace.is_empty() {
+                    process.env("GIT_TRACE", &git_trace);
+                }
+                let mut child = process.spawn()?;
+                if let Some(pipe) = child.stdin.take() {
+                    let mut pipe = pipe;
+                    let _ = pipe.write_all(&stdin);
+                }
+                child.wait_with_output()
             })
             .await;
             if let Ok(Ok(output)) = output {
@@ -335,7 +357,10 @@ impl Stub {
         if let Some(path) = self.fixture("exec.stdin-log") {
             let _ = fs::write(path.trim(), &request.stdin);
         }
-        if matches!(command.first().map(String::as_str), Some("maki" | "opencode" | "claude" | "codex")) {
+        if matches!(
+            command.first().map(String::as_str),
+            Some("maki" | "opencode" | "claude" | "codex")
+        ) {
             if let Some(script) = self.fixture("exec.maki-script") {
                 let workdir = request.workdir.clone();
                 let _ = tokio::task::spawn_blocking(move || {
@@ -387,13 +412,16 @@ impl Stub {
 
     fn set_id(&self, name: &str) -> std::io::Result<()> {
         fs::create_dir_all(self.ids_dir())?;
+        // The same shape the CLI stub writes: name, epoch, pid. The
+        // conformance normalizer collapses it, so a state digest compares the
+        // two transports without inventing a stable id.
+        let epoch = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or(0);
         fs::write(
             self.ids_dir().join(name),
-            format!(
-                "id-{name}-{}-{}",
-                std::process::id(),
-                self.ids_dir().display()
-            ),
+            format!("id-{name}-{epoch}-{}", std::process::id()),
         )
     }
 
@@ -409,7 +437,10 @@ impl Stub {
 
     fn set_attached(&self, name: &str, providers: &[String]) -> std::io::Result<()> {
         fs::create_dir_all(self.providers_dir())?;
-        fs::write(self.providers_dir().join(name), providers.join("\n"))
+        fs::write(
+            self.providers_dir().join(name),
+            format!("{}\n", providers.join("\n")),
+        )
     }
 
     fn forget(&self, name: &str) -> std::io::Result<()> {
@@ -469,7 +500,10 @@ impl Stub {
         if !names.iter().any(|known| known == name) {
             names.push(name.to_string());
         }
-        fs::write(self.state.join("providers.list"), names.join("\n"))
+        fs::write(
+            self.state.join("providers.list"),
+            format!("{}\n", names.join("\n")),
+        )
     }
 
     fn approve(&self, sandbox: &str, chunk: &str) -> Result<(), String> {
@@ -493,7 +527,6 @@ impl Stub {
         Ok(())
     }
 }
-
 
 /// `chunk-id|rule-name|binary|host:port|verdict` lines, one chunk each.
 fn parse_rules(text: &str) -> Vec<proto::PolicyChunk> {
@@ -533,7 +566,6 @@ fn parse_rules(text: &str) -> Vec<proto::PolicyChunk> {
     chunks
 }
 
-
 /// The CLI create argv the request stands for, so the create argument surface
 /// stays reviewable after the conversion. The policy arrives parsed, so the
 /// request's policy presence is recorded by name only.
@@ -555,12 +587,18 @@ fn create_words(request: &proto::CreateSandboxRequest) -> Vec<String> {
             words.push("--policy".to_string());
             words.push("<parsed>".to_string());
         }
-        if let Some(resources) = spec.template.as_ref().and_then(|template| template.resources.as_ref()) {
+        if let Some(resources) = spec
+            .template
+            .as_ref()
+            .and_then(|template| template.resources.as_ref())
+        {
             if let Some(limits) = resources.fields.get("limits") {
                 if let Some(prost_types::value::Kind::StructValue(limits)) = limits.kind.as_ref() {
                     for key in ["cpu", "memory"] {
                         if let Some(value) = limits.fields.get(key) {
-                            if let Some(prost_types::value::Kind::StringValue(value)) = value.kind.as_ref() {
+                            if let Some(prost_types::value::Kind::StringValue(value)) =
+                                value.kind.as_ref()
+                            {
                                 words.push(format!("--{key}"));
                                 words.push(value.clone());
                             }
@@ -573,17 +611,23 @@ fn create_words(request: &proto::CreateSandboxRequest) -> Vec<String> {
             words.push("--provider".to_string());
             words.push(provider.clone());
         }
-        let mut names: Vec<String> = spec.environment.keys().cloned().collect();
-        names.sort();
-        for name in names {
-            words.push("--env".to_string());
-            words.push(name);
+        let mut environment: Vec<(&String, &String)> = spec.environment.iter().collect();
+        environment.sort();
+        for (name, value) in environment {
+            // An empty value is how the request carries `--env-from NAME`:
+            // the gateway reads that variable from its own environment.
+            if value.is_empty() {
+                words.push("--env-from".to_string());
+                words.push(name.clone());
+            } else {
+                words.push("--env".to_string());
+                words.push(format!("{name}={value}"));
+            }
         }
     }
     words.push("--detach".to_string());
     words
 }
-
 
 /// The exec argv the request stands for, so a converted exec keeps the same
 /// seam shape as the CLI it replaced.
@@ -603,8 +647,11 @@ fn exec_words(request: &proto::ExecSandboxRequest, tty: bool) -> Vec<String> {
         words.push("--workdir".to_string());
         words.push(request.workdir.clone());
     }
-    let mut environment: Vec<(String, String)> =
-        request.environment.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let mut environment: Vec<(String, String)> = request
+        .environment
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     environment.sort();
     for (key, value) in environment {
         words.push("--env".to_string());
@@ -1347,7 +1394,12 @@ impl OpenShell for Stub {
         let mut fields: Vec<&String> = provider.credentials.keys().collect();
         fields.sort();
         if let Ok(mut supplied) = self.credentials.lock() {
-            supplied.extend(provider.credentials.iter().map(|(k, v)| (k.clone(), v.clone())));
+            supplied.extend(
+                provider
+                    .credentials
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone())),
+            );
         }
         // The case's credential log names where a fixture value is expected to
         // land; it lives outside the state root so the leak scan stays honest.
@@ -1358,7 +1410,9 @@ impl OpenShell for Stub {
                 values.sort();
                 for value in values {
                     use std::io::Write;
-                    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+                    if let Ok(mut file) =
+                        fs::OpenOptions::new().create(true).append(true).open(&path)
+                    {
                         let _ = writeln!(file, "{value}");
                     }
                 }
@@ -1900,8 +1954,21 @@ impl OpenShell for Stub {
         &self,
         request: tonic::Request<proto::RejectDraftChunkRequest>,
     ) -> std::result::Result<tonic::Response<proto::RejectDraftChunkResponse>, tonic::Status> {
-        Err(tonic::Status::unimplemented(
-            "stub-gateway: reject_draft_chunk",
+        let request = request.into_inner();
+        self.record(&[
+            "rule",
+            "reject",
+            &request.sandbox,
+            "--chunk-id",
+            &request.chunk_id,
+            "--reason",
+            &request.reason,
+        ]);
+        // Rejecting a chunk the case never seeded still succeeds: the write is
+        // recorded, and there is nothing to remove.
+        let _ = self.approve(&request.sandbox, &request.chunk_id);
+        Ok(tonic::Response::new(
+            proto::RejectDraftChunkResponse::default(),
         ))
     }
 

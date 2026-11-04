@@ -148,13 +148,32 @@ ERR=
 
 begin() { CURRENT=$1; }
 
-# RUN_ONLY=<glob> runs only the test functions whose name matches it.
-run_test() {
+# RUN_ONLY=<glob> runs only the test functions whose name matches it; a
+# comma-separated list runs every matching function.
+run_only_matches() { # TEST-NAME
+    [ -n "${RUN_ONLY:-}" ] || return 0
+    case $RUN_ONLY in
+        *,*)
+            run_only_hit=0
+            for run_only_pattern in $(printf '%s' "$RUN_ONLY" | tr ',' ' '); do
+                # shellcheck disable=SC2254  # the patterns are globs on purpose
+                case $1 in
+                    $run_only_pattern) run_only_hit=1 ;;
+                esac
+            done
+            [ "$run_only_hit" = 1 ]
+            return
+            ;;
+    esac
     # shellcheck disable=SC2254  # RUN_ONLY is a glob on purpose
     case $1 in
-        ${RUN_ONLY:-*}) ;;
-        *) return 0 ;;
+        $RUN_ONLY) return 0 ;;
+        *) return 1 ;;
     esac
+}
+
+run_test() {
+    run_only_matches "$1" || return 0
     before_fail=$FAIL
     before_skip=$SKIP
     CONFORMANCE_TEST=$1
@@ -322,6 +341,9 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         if [ "${RUN_WRAPPER:-0}" = 1 ]; then : >"$stub_fixtures/exec.run-wrapper"; fi
         if [ -d "$CASE/sandbox-tools" ]; then
             printf '%s\n' "$CASE/sandbox-tools" >"$stub_fixtures/exec.tools"
+        fi
+        if [ -n "${GIT_TRACE_LOG:-}" ]; then
+            printf '%s\n' "$GIT_TRACE_LOG" >"$stub_fixtures/exec.git-trace"
         fi
         if [ -n "${EXEC_STDIN_LOG:-}" ]; then
             printf '%s\n' "$EXEC_STDIN_LOG" >"$stub_fixtures/exec.stdin-log"
@@ -1001,7 +1023,6 @@ test_up_creates() {
     assert_log_line "--from"
     assert_log_line "maki-agent:local"
     assert_log_line "--policy"
-    assert_log_line "$ROOT/examples/policies/maki-minimal.yaml"
     assert_log_line "--detach"
     assert_log_line "--provider"
     assert_log_line "maki-anthropic"
@@ -1970,7 +1991,6 @@ test_provider_wrappers() {
     assert_log_line "my-anthropic"
     assert_log_line "--type"
     assert_log_line "maki-anthropic"
-    assert_log_line "--from-existing"
 
     reset_log
     run_maki provider attach maki-anthropic
@@ -2013,7 +2033,8 @@ test_provider_setup_curated() {
     assert_log_has "create"
     assert_log_line "maki-opencode-go"
     assert_log_line "--type"
-    assert_log_line "--from-existing"
+    assert_log_line "--credential"
+    assert_log_line "OPENCODE_API_KEY"
     assert_log_line "--global-profile"
     assert_log_line_missing "update"
     assert_credential_env "fixture-opencode-go-key"
@@ -2177,7 +2198,7 @@ test_provider_setup_update() {
 }
 
 test_provider_setup_attach() {
-    begin "provider setup attaches to the project sandbox with --wait"
+    begin "provider setup attaches to the project sandbox"
     new_case setup-attach
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
@@ -2190,7 +2211,6 @@ test_provider_setup_attach() {
     assert_rc 0
     assert_log_has "attach"
     assert_log_line "maki-myproject"
-    assert_log_line "--wait"
     assert_out_has "attached"
     assert_secret_absent "fixture-attach-key"
 }
@@ -3840,7 +3860,7 @@ test_example_config() {
     assert_log_line "maki-agent:local"
     assert_log_line "2"
     assert_log_line "4Gi"
-    assert_log_has "maki-minimal.yaml"
+    assert_log_has "--policy"
 }
 
 test_asset_agent_onboarding() {
@@ -5099,7 +5119,8 @@ test_oc_provider_setup() {
     assert_log_before "lint" "import"
     assert_log_line "create"
     assert_log_line "opencode-synthetic"
-    assert_log_line "--from-existing"
+    assert_log_line "--credential"
+    assert_log_line "SYNTHETIC_API_KEY"
     assert_out_has "Provider 'opencode-synthetic' created."
     assert_out_has "example model: synthetic/hf:zai-org/GLM-5.3"
     assert_out_has "model = \"synthetic/hf:zai-org/GLM-5.3\" in $XDG_CONFIG_HOME/opencode-oss/config.toml"
@@ -5238,7 +5259,7 @@ test_oc_isolation() {
     assert_rc 0
     assert_log_line "oc-myproject"
     assert_log_line "opencode-agent:local"
-    assert_log_line "$ROOT/opencode-oss/policies/minimal.yaml"
+    assert_log_line "--policy"
     assert_log_line_missing "maki-only:tag"
 
     reset_log
@@ -6080,7 +6101,7 @@ test_cc_isolation_and_registry() {
     assert_rc 0
     assert_log_line "cc-myproject"
     assert_log_line "claude-agent:local"
-    assert_log_line "$ROOT/claude-oss/policies/minimal.yaml"
+    assert_log_line "--policy"
     assert_log_line_missing "maki-only:tag"
     [ "$(registry_value cc-myproject agent)" = cc ] || bad "the registry entry is not agent cc"
 
@@ -6900,7 +6921,7 @@ test_cx_isolation_and_registry() {
     assert_rc 0
     assert_log_line "cx-myproject"
     assert_log_line "codex-agent:local"
-    assert_log_line "$ROOT/codex-oss/policies/minimal.yaml"
+    assert_log_line "--policy"
     assert_log_line_missing "maki-only:tag"
     [ "$(registry_value cx-myproject agent)" = cx ] || bad "the registry entry is not agent cx"
 
@@ -8225,7 +8246,7 @@ test_provider_setup_stdin() {
     CREDENTIAL_LOG=$CASE/credential-env.log
     run_maki_with_input "$(stdin_file 'fixture-stdin-key\n')" provider setup --stdin --profile maki-deepseek
     assert_rc 0
-    assert_invocation "provider create --name maki-deepseek --type maki-deepseek --from-existing --global-profile"
+    assert_invocation "provider create --name maki-deepseek --type maki-deepseek --credential DEEPSEEK_API_KEY --global-profile"
     assert_credential_env fixture-stdin-key
     assert_secret_absent fixture-stdin-key
     assert_out_missing "[y/N]"
@@ -8288,7 +8309,7 @@ test_provider_setup_profile_id() {
     run_maki_with_input "$(stdin_file 'fixture-id-key')" provider setup --stdin --profile my-generated
     assert_rc 0
     assert_log_line "$XDG_CONFIG_HOME/maki-oss/profiles/my-generated.yaml"
-    assert_invocation "provider create --name my-generated --type my-generated --from-existing --global-profile"
+    assert_invocation "provider create --name my-generated --type my-generated --credential GEN_KEY --global-profile"
 
     begin "provider setup refuses an unsafe or unknown profile id before the gateway"
     for psp_id in ../x no-such-profile; do
@@ -8419,7 +8440,7 @@ test_provider_setup_program() {
         [ "$(out_value '.steps | join(",")')" = linted,imported,created,remembered ] \
             || bad "steps: $(out_value '.steps')"
     fi
-    assert_out_has "created maki-deepseek and remembered it; attach to 'mk-demo-1a2b' failed: stub: attach of maki-deepseek timed out waiting for the supervisor"
+    assert_out_has "created maki-deepseek and remembered it; attach to 'mk-demo-1a2b' failed: sandbox provider attach failed: stub: attach of maki-deepseek timed out waiting for the supervisor"
     assert_secret_absent fixture-program-key
 
     begin "__provider-setup --probe refuses a login agent and passes a stdin agent"
@@ -8495,8 +8516,8 @@ test_osa_provider_setup() {
         --attach mk-demo-1a2b --json
     assert_rc 0
     assert_invocation "profile lint -f $ROOT/examples/providers/maki-deepseek.yaml"
-    assert_invocation "provider create --name maki-deepseek --type maki-deepseek --from-existing --global-profile"
-    assert_invocation "sandbox provider attach mk-demo-1a2b maki-deepseek --wait"
+    assert_invocation "provider create --name maki-deepseek --type maki-deepseek --credential DEEPSEEK_API_KEY --global-profile"
+    assert_invocation "sandbox provider attach mk-demo-1a2b maki-deepseek"
     assert_out_has '"outcome":"created"'
     assert_out_has '"attached":"mk-demo-1a2b"'
     # The probe runs with stdin closed and osa execs the front-end, so the

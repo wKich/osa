@@ -30,6 +30,15 @@ pub mod tls;
 #[cfg(feature = "test-support")]
 pub mod record;
 
+/// The end-to-end suite's transcript directory. Test-support builds only: a
+/// release binary cannot record, and setting this variable there does nothing.
+#[cfg(feature = "test-support")]
+pub fn transcript_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("OSA_E2E_TRANSCRIPT_DIR")
+        .filter(|value| !value.is_empty())
+        .map(std::path::PathBuf::from)
+}
+
 pub use credential::Credential;
 pub use discover::{discover, AuthMode, Discovery, Endpoint};
 pub use error::GatewayError;
@@ -520,6 +529,13 @@ pub trait Gateway: Send + Sync {
     /// Approve exactly one draft chunk. There is deliberately no bulk
     /// approval here: egress widens one chunk at a time.
     async fn approve_rule(&self, sandbox: &str, chunk: &str) -> Result<(), GatewayError>;
+    /// Reject exactly one draft chunk, with the reason the agent receives.
+    async fn reject_rule(
+        &self,
+        sandbox: &str,
+        chunk: &str,
+        reason: &str,
+    ) -> Result<(), GatewayError>;
 }
 
 /// Run one future on the process's runtime.

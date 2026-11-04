@@ -97,6 +97,7 @@ leak_output=$(
     OSA_CONFORMANCE_LEAK_ENV=FIXTURE_KEY \
     RUN_ONLY=test_conf_maki_credential \
     KEEP_WORK=0 \
+    OSA_GATEWAY_TRANSPORT=cli \
         "$ROOT/tests/run-tests.sh" 2>&1
 ) && leak_rc=0 || leak_rc=$?
 case $leak_output in

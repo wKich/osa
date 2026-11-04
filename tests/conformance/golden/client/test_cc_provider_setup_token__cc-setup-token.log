@@ -119,5 +119,6 @@ cc-project
 json
 @client
 provider list --names
+provider create --name claude-anthropic-oauth --type claude-anthropic-oauth --credential CLAUDE_CODE_OAUTH_TOKEN --global-profile
 provider list --names
 sandbox get cc-project --output json

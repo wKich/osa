@@ -15,9 +15,9 @@ FROM ubuntu:24.04
 # Pinned OpenCode release and the npm sha512 integrity of each platform
 # tarball (hex of `npm view @opencode/<pkg>@<version> dist.integrity`). Bump
 # all three together. Independent of the TUI bridge's OpenCode pin.
-ARG OPENCODE_VERSION=2.1.4
-ARG OPENCODE_SHA512_ARM64=76bc342d6306d2789a13de1e3d79b587baa314165945c4990f781a72dde1c773983d77aca7bc6b3add1b9f7b2271835437a7e88c446b0ca47a8d8ad79995feac
-ARG OPENCODE_SHA512_AMD64=d3f1f8c110c05b8840e4858de38d17c03ad10136ef4f7727a3e514b2a1729d3bb44de1973400e32b60197ef84d4dfc89695c826bebfb56107eafb821b8c6b911
+ARG OPENCODE_VERSION=2.2.5
+ARG OPENCODE_SHA512_ARM64=3b8a8ecbf5916109a10a5301ff9a816a861fcda0cad7e3c945039f53cd22c728f9aee41b0b1ada1fe556d94c876fa4563a552fe357de73e8ac77ad8bbc2bb0b8
+ARG OPENCODE_SHA512_AMD64=a0f393f84326773e7a1e74853d157067441354be5d79f84e69c9f0cdaceed173ae09652d10a87c89c227df6dd27422eda99b738ee5359adea9dbfd7757ddd65a
 
 ARG DEBIAN_FRONTEND=noninteractive
 

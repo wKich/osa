@@ -2034,8 +2034,7 @@ fn exec_sandbox(
         StdinMode::Inherit => None,
         StdinMode::Null => Some(Vec::new()),
         StdinMode::File(path) => Some(
-            fs::read(&path)
-                .map_err(|_| Failure::usage("could not read the prompt from stdin"))?,
+            fs::read(&path).map_err(|_| Failure::usage("could not read the prompt from stdin"))?,
         ),
     };
     let interrupt = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -2045,6 +2044,9 @@ fn exec_sandbox(
         pumps.push(start_input_pump(sender.clone()));
         pumps.push(start_resize_pump(sender.clone()));
     }
+    // A scripted exec carries its stdin in the request; closing the input
+    // side lets the transport deliver EOF to the process.
+    drop(sender);
     let exec = crate::gateway::InteractiveExec {
         request: crate::gateway::ExecRequest {
             sandbox: name.to_string(),
@@ -2110,10 +2112,7 @@ impl Drop for RawTerminal {
 fn terminal_size() -> Option<(u16, u16)> {
     unsafe {
         let mut size: libc::winsize = std::mem::zeroed();
-        if libc::ioctl(0, libc::TIOCGWINSZ, &mut size) == 0
-            && size.ws_col > 0
-            && size.ws_row > 0
-        {
+        if libc::ioctl(0, libc::TIOCGWINSZ, &mut size) == 0 && size.ws_col > 0 && size.ws_row > 0 {
             return Some((size.ws_col, size.ws_row));
         }
     }
@@ -2136,9 +2135,9 @@ fn start_input_pump(
                 {
                     break;
                 }
-            } else if read == 0 {
-                break;
-            } else if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+            } else if read == 0
+                || std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted
+            {
                 break;
             }
         }

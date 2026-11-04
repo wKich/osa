@@ -36,6 +36,8 @@ delete
 cc-myproject
 @client
 sandbox get cc-myproject --output json
+sandbox create --name cc-myproject --from claude-agent:local --policy <parsed> --detach
+sandbox get cc-myproject --output json
 sandbox get cc-myproject --output json
 sandbox list --output json
 sandbox delete cc-myproject

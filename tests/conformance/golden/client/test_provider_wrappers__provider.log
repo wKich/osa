@@ -22,6 +22,7 @@ provider
 list
 --names
 @client
+provider create --name my-anthropic --type maki-anthropic
 sandbox get maki-myproject --output json
 sandbox provider attach maki-myproject maki-anthropic
 provider list --names

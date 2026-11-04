@@ -177,14 +177,7 @@ pub fn interactive(ctx: &Context) -> Outcome {
             "Attach provider '{provider_name}' to sandbox '{sandbox_name}'? [y/N] "
         ))?;
         if matches!(reply.trim(), "y" | "Y" | "yes" | "YES") {
-            ctx.run_gateway(&[
-                "sandbox",
-                "provider",
-                "attach",
-                &sandbox_name,
-                &provider_name,
-                "--wait",
-            ])?;
+            ctx.attach_provider(&sandbox_name, &provider_name)?;
             ctx.say(&format!(
                 "Provider '{provider_name}' attached to '{sandbox_name}'."
             ));
@@ -996,12 +989,15 @@ fn run_setup(ctx: &Context, progress: &mut Progress, program: bool) -> Outcome {
     progress.profile = profile_id.clone();
     ctx.require_openshell()?;
 
-    let names = ctx.provider_names().map(|names| names.join("\n")).map_err(|_| {
-        Failure::gateway(format!(
-            "cannot list providers; is the gateway running? Try '{} doctor'",
-            ctx.program()
-        ))
-    })?;
+    let names = ctx
+        .provider_names()
+        .map(|names| names.join("\n"))
+        .map_err(|_| {
+            Failure::gateway(format!(
+                "cannot list providers; is the gateway running? Try '{} doctor'",
+                ctx.program()
+            ))
+        })?;
     let provider_exists = names.lines().any(|line| line == provider_name);
     if provider_exists && !ctx.options.yes && !interactive {
         if program {
@@ -1121,15 +1117,7 @@ fn run_setup(ctx: &Context, progress: &mut Progress, program: bool) -> Outcome {
             }
             if attach_now {
                 progress.doing = format!("attach to '{sandbox}'");
-                let attach = [
-                    "sandbox".to_string(),
-                    "provider".to_string(),
-                    "attach".to_string(),
-                    sandbox.clone(),
-                    provider_name.clone(),
-                    "--wait".to_string(),
-                ];
-                gateway_step(ctx, &attach, program)?;
+                ctx.attach_provider(&sandbox, &provider_name)?;
                 progress.steps.push("attached");
                 progress.attached = Some(sandbox.clone());
                 ctx.say(&format!(
@@ -1503,12 +1491,15 @@ fn codex_setup(ctx: &Context) -> Outcome {
     }
     ctx.require_openshell()?;
     let interactive = ctx.is_interactive();
-    let names = ctx.provider_names().map(|names| names.join("\n")).map_err(|_| {
-        Failure::gateway(format!(
-            "cannot list providers; is the gateway running? Try '{} doctor'",
-            ctx.program()
-        ))
-    })?;
+    let names = ctx
+        .provider_names()
+        .map(|names| names.join("\n"))
+        .map_err(|_| {
+            Failure::gateway(format!(
+                "cannot list providers; is the gateway running? Try '{} doctor'",
+                ctx.program()
+            ))
+        })?;
     let exists = names.lines().any(|line| line == CX_PROVIDER);
     if exists && !options.yes {
         if !interactive {
@@ -1727,14 +1718,7 @@ fn codex_setup(ctx: &Context) -> Outcome {
             ))?;
         }
         if attach_now {
-            ctx.run_gateway(&[
-                "sandbox",
-                "provider",
-                "attach",
-                &sandbox,
-                CX_PROVIDER,
-                "--wait",
-            ])?;
+            ctx.attach_provider(&sandbox, CX_PROVIDER)?;
             ctx.say(&format!(
                 "Provider '{CX_PROVIDER}' attached to '{sandbox}'."
             ));

@@ -1,6 +1,8 @@
 @transport client
 @client
 sandbox get maki-myproject --output json
+sandbox create --name maki-myproject --from maki-agent:local --policy <parsed> --provider maki-stub --detach
+sandbox get maki-myproject --output json
 sandbox get maki-myproject --output json
 sandbox get maki-myproject --output json
 sandbox provider list maki-myproject --output json

@@ -1,0 +1,42 @@
+op=get_sandbox
+target=<sandbox>
+
+op=create_sandbox
+target=<sandbox>
+cpu=
+env=PATH
+env_from=
+image=osa-dev:local
+memory=
+policy=<repo>/examples/policies/maki-minimal.yaml
+providers=e2e-noop
+
+op=get_sandbox
+target=<sandbox>
+
+op=get_sandbox
+target=<sandbox>
+
+op=get_sandbox
+target=<sandbox>
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=maki-oss GIT_AUTHOR_EMAIL=maki-oss@localhost
+export GIT_COMMITTER_NAME=maki-oss GIT_COMMITTER_EMAIL=maki-oss@localhost
+mkdir -p "$gitdir" "$worktree"
+git init -q
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -m "maki-oss baseline")
+git update-ref refs/maki-oss/base "$commit"
+printf "%s\n" "$tree" maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+
+op=get_sandbox
+target=<sandbox>
+

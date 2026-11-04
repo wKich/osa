@@ -1,0 +1,6 @@
+up=ok
+stop.rc=ok
+stop.phase=ok
+start.rc=ok
+start.phase=ok
+status.phase=ok

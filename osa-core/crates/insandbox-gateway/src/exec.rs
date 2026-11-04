@@ -45,6 +45,10 @@ enum Stream {
     Err,
 }
 
+/// The channel an interactive exec's stdin arrives on. Dropping it closes the
+/// child's stdin, which is how an interactive command sees end-of-input.
+pub type InputSender = mpsc::Sender<Vec<u8>>;
+
 /// Spawn `command` in `cwd` with exactly `env`, stream its output, and report
 /// its exit code. `stdin` is written to the child and closed.
 pub fn run(
@@ -54,6 +58,27 @@ pub fn run(
     stdin: Vec<u8>,
     timeout: Option<Duration>,
 ) -> Result<EventStream, ExecError> {
+    let (events, input) = interactive(command, cwd, env, stdin, timeout)?;
+    // Dropping the input closes the child's stdin after the initial bytes.
+    drop(input);
+    Ok(events)
+}
+
+/// Spawn `command` and keep its stdin open: the returned sender forwards later
+/// input frames, and dropping it closes stdin. `stdin` is written first, so a
+/// request that carries its input needs no frames. Output and the exit code
+/// arrive on the returned stream exactly as in [`run`].
+///
+/// No terminal is allocated: a `tty` request is served with pipes, so the
+/// child sees no terminal. The plane models orchestration, not terminal
+/// behavior; a full-screen agent needs a real gateway.
+pub fn interactive(
+    command: Vec<String>,
+    cwd: PathBuf,
+    env: Vec<(OsString, OsString)>,
+    stdin: Vec<u8>,
+    timeout: Option<Duration>,
+) -> Result<(EventStream, InputSender), ExecError> {
     let Some((program, args)) = command.split_first() else {
         return Err(ExecError::EmptyCommand);
     };
@@ -77,15 +102,24 @@ pub fn run(
                 let _ = sender.send(Ok(stderr_event(message.into_bytes()))).await;
                 let _ = sender.send(Ok(exit_event(127))).await;
             });
-            return Ok(ReceiverStream::new(receiver));
+            let (input, _) = mpsc::channel(1);
+            return Ok((ReceiverStream::new(receiver), input));
         }
         Err(error) => return Err(ExecError::Spawn(error.to_string())),
     };
 
+    let (input, mut frames) = mpsc::channel::<Vec<u8>>(8);
     if let Some(mut handle) = child.stdin.take() {
         tokio::spawn(async move {
             use tokio::io::AsyncWriteExt;
-            let _ = handle.write_all(&stdin).await;
+            if !stdin.is_empty() && handle.write_all(&stdin).await.is_err() {
+                return;
+            }
+            while let Some(bytes) = frames.recv().await {
+                if handle.write_all(&bytes).await.is_err() {
+                    return;
+                }
+            }
             let _ = handle.shutdown().await;
         });
     }
@@ -175,7 +209,7 @@ pub fn run(
         let _ = sender.send(Ok(exit_event(code))).await;
     });
 
-    Ok(ReceiverStream::new(receiver))
+    Ok((ReceiverStream::new(receiver), input))
 }
 
 fn exit_code_of(status: &std::process::ExitStatus) -> i32 {
@@ -280,6 +314,28 @@ mod tests {
         assert!(stdout.is_empty());
         assert_eq!(exit, 127);
         assert!(String::from_utf8_lossy(&stderr).contains("osa-definitely-not-a-command"));
+    }
+
+    #[tokio::test]
+    async fn interactive_input_reaches_the_child_and_closing_it_ends_the_input() {
+        let (stream, input) = interactive(
+            vec![
+                "sh".into(),
+                "-c".into(),
+                "while read line; do echo \"got:$line\"; done".into(),
+            ],
+            std::env::temp_dir(),
+            path_env(),
+            Vec::new(),
+            None,
+        )
+        .expect("stream");
+        input.send(b"first\n".to_vec()).await.expect("sent");
+        input.send(b"second\n".to_vec()).await.expect("sent");
+        drop(input);
+        let (stdout, stderr, exit) = collect(stream).await;
+        assert_eq!(exit, 0, "stderr: {}", String::from_utf8_lossy(&stderr));
+        assert_eq!(String::from_utf8_lossy(&stdout), "got:first\ngot:second\n");
     }
 
     #[tokio::test]

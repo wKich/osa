@@ -1,19 +1,22 @@
-//! The two-subcommand `openshell` shim.
+//! The `openshell` shim.
 //!
-//! Discovery and file transfer are CLI-only by design, so the plane needs a
-//! shim. It is installed into the state root's `shim/` directory and is usable
-//! only because the plane prepends that directory to `PATH` for its own child
-//! process tree. It is never written to a system bin directory.
+//! Discovery, file transfer, and the helper scripts' `sandbox exec` form are
+//! CLI-only by design, so the plane needs a shim. It is installed into the
+//! state root's `shim/` directory and is usable only because the plane
+//! prepends that directory to `PATH` for its own child process tree. It is
+//! never written to a system bin directory.
 //!
 //! The shim script delegates to this binary's `__openshell` subcommand, so the
 //! path checks live in one place and are the same ones the tests exercise.
 
+use std::collections::HashMap;
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use crate::state::StateRoot;
 use crate::transfer;
+use crate::{child_environment, rewrite_sandbox_path};
 
 /// The environment variable that names the state root for the shim.
 pub const STATE_ROOT_ENV: &str = "IN_SANDBOX_GATEWAY_STATE_ROOT";
@@ -72,7 +75,7 @@ pub fn run(args: &[OsString]) -> ExitCode {
         .map(|word| word.to_string_lossy().into_owned())
         .collect();
     match dispatch(&words) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(error) => {
             eprintln!("insandbox-gateway shim: {error}");
             ExitCode::from(2)
@@ -80,7 +83,7 @@ pub fn run(args: &[OsString]) -> ExitCode {
     }
 }
 
-fn dispatch(words: &[String]) -> Result<(), String> {
+fn dispatch(words: &[String]) -> Result<ExitCode, String> {
     let mut words = words;
     // `openshell -g NAME ...` is accepted and ignored: the plane is the only
     // gateway this shim can reach.
@@ -94,21 +97,104 @@ fn dispatch(words: &[String]) -> Result<(), String> {
     match words {
         [gateway, info, ..] if gateway == "gateway" && info == "info" => {
             if words.len() == 4 && words[2] == "--output" && words[3] == "json" {
-                print_gateway_info()
+                print_gateway_info()?;
+                Ok(ExitCode::SUCCESS)
             } else {
                 Err(format!("unsupported form: {}", words.join(" ")))
             }
         }
+        // `doctor` asks the CLI for connection state; the shim answers from
+        // the same baked endpoint it gives discovery, and never from a socket.
+        [status, output, format]
+            if status == "status" && output == "--output" && format == "json" =>
+        {
+            print_status()?;
+            Ok(ExitCode::SUCCESS)
+        }
         [sandbox, verb, rest @ ..] if sandbox == "sandbox" && verb == "upload" => {
             let positionals = positionals(rest, &["--no-git-ignore"])?;
-            upload(&positionals)
+            upload(&positionals)?;
+            Ok(ExitCode::SUCCESS)
         }
         [sandbox, verb, rest @ ..] if sandbox == "sandbox" && verb == "download" => {
             let positionals = positionals(rest, &[])?;
-            download(&positionals)
+            download(&positionals)?;
+            Ok(ExitCode::SUCCESS)
         }
+        [sandbox, verb, rest @ ..] if sandbox == "sandbox" && verb == "exec" => exec(rest),
         _ => Err(format!("unsupported subcommand: {}", words.join(" "))),
     }
+}
+
+/// `openshell sandbox exec` as the helper scripts use it: `-n NAME`, then
+/// `-- no-login-shell` flags, then `--`, then the command. The child runs
+/// directly with the same environment layering and sandbox-path rewriting the
+/// plane applies to a typed exec, and its exit code is its own. No login shell
+/// is ever added; the shim only ever runs the argv it was given.
+fn exec(rest: &[String]) -> Result<ExitCode, String> {
+    let mut name: Option<String> = None;
+    let mut workdir = String::new();
+    let mut command: Vec<String> = Vec::new();
+    let mut index = 0;
+    while index < rest.len() {
+        match rest[index].as_str() {
+            "--" => {
+                command = rest[index + 1..].to_vec();
+                break;
+            }
+            "-n" | "--name" => {
+                index += 1;
+                name = rest.get(index).cloned();
+            }
+            "--workdir" | "-w" => {
+                index += 1;
+                workdir = rest.get(index).cloned().unwrap_or_default();
+            }
+            "--no-login-shell" => {}
+            word if word.starts_with('-') => {
+                return Err(format!("unsupported exec flag: {word}"));
+            }
+            _ => {
+                command = rest[index..].to_vec();
+                break;
+            }
+        }
+        index += 1;
+    }
+    let name = name.ok_or_else(|| "sandbox exec needs -n NAME".to_string())?;
+    if command.is_empty() {
+        return Err("sandbox exec needs a command after --".to_string());
+    }
+    let state = state_root()?;
+    let phase = state
+        .phase(&name)
+        .ok_or_else(|| format!("sandbox '{name}' not found"))?;
+    if phase == "Stopped" {
+        return Err(format!("sandbox '{name}' is stopped; start it before exec"));
+    }
+    let root = state.root_dir(&name);
+    let cwd =
+        transfer::workdir(&root, &workdir).map_err(|error| format!("sandbox exec: {error}"))?;
+    let root_text = root.display().to_string();
+    let argv: Vec<String> = command
+        .iter()
+        .map(|word| rewrite_sandbox_path(word, &root_text))
+        .collect();
+    let server = std::env::var(SERVER_ENV).unwrap_or_default();
+    let exe = std::env::var_os(BIN_ENV)
+        .map(PathBuf::from)
+        .or_else(|| std::env::current_exe().ok())
+        .unwrap_or_default();
+    let env = child_environment(&state, &server, &exe, &name, &HashMap::new());
+    let status = std::process::Command::new(&argv[0])
+        .args(&argv[1..])
+        .current_dir(cwd)
+        .env_clear()
+        .envs(env)
+        .status()
+        .map_err(|error| format!("sandbox exec: could not start '{}': {error}", argv[0]))?;
+    let code = status.code().unwrap_or(1).clamp(0, 255) as u8;
+    Ok(ExitCode::from(code))
 }
 
 fn positionals(rest: &[String], flags: &[&str]) -> Result<Vec<String>, String> {
@@ -135,6 +221,20 @@ fn print_gateway_info() -> Result<(), String> {
         .unwrap_or_else(|_| "0.1.5-insandbox".to_string());
     println!(
         "{{\"gateway\":\"insandbox\",\"server\":\"{server}\",\"auth\":null,\"status\":\"Connected\",\"version\":\"{version}\"}}"
+    );
+    Ok(())
+}
+
+fn print_status() -> Result<(), String> {
+    let server = std::env::var(SERVER_ENV)
+        .map_err(|_| format!("{SERVER_ENV} is not set; run this through the plane's child tree"))?;
+    if server.trim().is_empty() {
+        return Err(format!("{SERVER_ENV} is empty"));
+    }
+    let version = std::env::var("IN_SANDBOX_GATEWAY_VERSION")
+        .unwrap_or_else(|_| "0.1.5-insandbox".to_string());
+    println!(
+        "{{\"gateway\":\"insandbox\",\"server\":\"{server}\",\"status\":\"connected\",\"version\":\"{version}\"}}"
     );
     Ok(())
 }

@@ -1,0 +1,11 @@
+up=ok
+sync.rc=ok
+agent.rc=ok
+collect.rc=ok
+collect.edited=ok
+collect.created=ok
+collect.patch=ok
+collect.no_git=ok
+collect.applies=ok
+collect.applied_edit=ok
+collect.applied_create=ok

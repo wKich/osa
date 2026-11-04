@@ -1,0 +1,66 @@
+#!/bin/sh
+# Scripted agent shared body. The four front-end commands are thin wrappers so
+# the argv the session builds reaches one deterministic script.
+#
+# Inputs:
+#   E2E_AGENT_NAME  the command name the front-end invoked (maki, opencode, ...)
+#   E2E_BASE        the record directory's parent (default: the uploaded tree's
+#                   parent, /sandbox/.e2e, derived from this script's path)
+#   E2E_MODE        edit (default), patch, fail, slow, or noop. The suite writes
+#                   <base>/mode; the variable is the test harness's override.
+#   E2E_WORKDIR     the directory to edit (default: the current directory)
+#
+# Effects are fixed: the same mode always writes the same bytes. The argument
+# vector and working directory are recorded outside the project workdir so
+# they never become part of a collected patch.
+set -eu
+
+name=${E2E_AGENT_NAME:-${0##*/}}
+base=${E2E_BASE:-$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)}
+mode=${E2E_MODE:-}
+if [ -z "$mode" ]; then
+    mode=$(cat "$base/mode" 2>/dev/null || printf 'edit\n')
+fi
+workdir=${E2E_WORKDIR:-$(pwd -P)}
+
+records=$base/records/$name
+mkdir -p "$records"
+printf '%s\n' "$workdir" >"$records/cwd"
+: >"$records/argv"
+for argument in "$@"; do
+    printf '%s\n' "$argument" >>"$records/argv"
+done
+
+printf 'cwd=%s\n' "$workdir"
+
+edit() {
+    printf 'after\n' >"$workdir/edited.md"
+    printf 'created\n' >"$workdir/created.txt"
+    rm -f "$workdir/deleted.txt"
+}
+
+case $mode in
+    noop)
+        ;;
+    fail)
+        edit
+        printf 'scripted agent failure\n' >&2
+        exit 7
+        ;;
+    slow)
+        edit
+        : >"$records/started"
+        sleep 600
+        ;;
+    patch)
+        printf 'after\n' >"$workdir/edited.md"
+        printf 'created\n' >"$workdir/created.txt"
+        ;;
+    edit)
+        edit
+        ;;
+    *)
+        printf 'unknown scripted agent mode: %s\n' "$mode" >&2
+        exit 2
+        ;;
+esac

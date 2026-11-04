@@ -1,0 +1,6 @@
+up=ok
+offline.sync_rc=ok
+offline.agent_rc=ok
+offline.collect_rc=ok
+offline.empty=ok
+offline.no_network=ok

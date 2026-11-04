@@ -3,8 +3,8 @@
 //! Two entry shapes:
 //!
 //! - the plane itself, gated to an osa sandbox and a loopback plaintext bind;
-//! - `__openshell`, the private shim's delegate, which serves only gateway
-//!   information and sandbox upload/download.
+//! - `__openshell`, the private shim's delegate, which serves gateway
+//!   information, sandbox upload/download, and the helper scripts' exec form.
 
 use std::ffi::OsString;
 use std::process::ExitCode;

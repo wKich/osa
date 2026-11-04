@@ -33,7 +33,8 @@ adapter table, and `examples/environments/reference/` is its Maki worked
 example.
 
 - **Shared:** `onboarding.md` (the router), `host-playbook.md`,
-  `environment-playbook.md`, `references.md`, `document-contract.md`.
+  `environment-playbook.md`, `references.md`, `document-contract.md`, and
+  `verification/claims.md` (the layer-claim table).
 - **Maki:** `playbooks/maki.md`, `reference/maki.md`,
   `verification/maki.md`.
 - **OpenCode:** `playbooks/opencode.md`, `reference/opencode.md`,

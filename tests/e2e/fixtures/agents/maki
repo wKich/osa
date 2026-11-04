@@ -1,0 +1,6 @@
+#!/bin/sh
+# Scripted maki: the session's argv reaches the shared deterministic body.
+set -eu
+E2E_AGENT_NAME=maki
+export E2E_AGENT_NAME
+exec "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/agent" "$@"

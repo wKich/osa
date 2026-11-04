@@ -1,0 +1,6 @@
+#!/bin/sh
+# Scripted opencode: the session's argv reaches the shared deterministic body.
+set -eu
+E2E_AGENT_NAME=opencode
+export E2E_AGENT_NAME
+exec "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/agent" "$@"

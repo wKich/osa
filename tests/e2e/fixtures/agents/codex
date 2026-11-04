@@ -1,0 +1,6 @@
+#!/bin/sh
+# Scripted codex: the session's argv reaches the shared deterministic body.
+set -eu
+E2E_AGENT_NAME=codex
+export E2E_AGENT_NAME
+exec "$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)/agent" "$@"

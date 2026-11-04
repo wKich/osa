@@ -21,7 +21,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::io::{self, Write};
 use std::net::SocketAddr;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -47,6 +47,44 @@ pub struct Plane {
     exe: PathBuf,
     server: String,
 }
+
+/// Rewrite an absolute `/sandbox` path to the sandbox's directory. The helper
+/// scripts and the agent image speak the sandbox's own `/sandbox`; the plane
+/// runs a local child and has no chroot, so the path is translated before the
+/// child starts. A substring is rewritten only at a path boundary, so a script
+/// body's `${HOME:-/sandbox}` and a `PATH` entry both translate and ordinary
+/// words containing "sandbox" do not.
+pub(crate) fn rewrite_sandbox_path(value: &str, root: &str) -> String {
+    const NEEDLE: &str = "/sandbox";
+    let mut out = String::with_capacity(value.len() + root.len());
+    let mut rest = value;
+    while let Some(position) = rest.find(NEEDLE) {
+        let before = rest[..position].chars().next_back();
+        let after = rest[position + NEEDLE.len()..].chars().next();
+        let boundary_before = matches!(
+            before,
+            None | Some(':' | '=' | ' ' | '(' | '\'' | '"' | '-')
+        );
+        let boundary_after = matches!(after, None | Some('/' | ':' | '}' | '\'' | '"' | ' '));
+        out.push_str(&rest[..position]);
+        if boundary_before && boundary_after {
+            out.push_str(root);
+        }
+        out.push_str(NEEDLE);
+        rest = &rest[position + NEEDLE.len()..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// The rewritten argv, workdir, environment, and timeout an exec of either
+/// kind shares.
+type ExecSetup = (
+    Vec<String>,
+    PathBuf,
+    Vec<(OsString, OsString)>,
+    Option<Duration>,
+);
 
 impl Plane {
     pub fn new(state: StateRoot, exe: PathBuf, server: String) -> Self {
@@ -81,34 +119,53 @@ impl Plane {
     }
 
     /// The environment every exec child receives: the invoking environment,
-    /// the request's variables, and the path-scoped shim last.
+    /// the create request's pairs, the exec request's variables, and the
+    /// path-scoped shim last. The shim is prefixed to whatever `PATH` those
+    /// layers named (or the plane's own when none did), so a create-time
+    /// `PATH` survives.
     fn child_env(
         &self,
+        name: &str,
         requested: &std::collections::HashMap<String, String>,
     ) -> Vec<(OsString, OsString)> {
-        let mut env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
-        for (key, value) in requested {
-            env.retain(|(known, _)| known != OsStr::new(key));
-            env.push((OsString::from(key), OsString::from(value)));
+        child_environment(&self.state, &self.server, &self.exe, name, requested)
+    }
+
+    /// The parts an exec of either kind shares: the phase guard, the resolved
+    /// workdir, the child environment, the timeout, and the rewritten argv.
+    fn exec_setup(&self, request: &proto::ExecSandboxRequest) -> Result<ExecSetup, Status> {
+        let name = &request.sandbox;
+        let phase = self
+            .state
+            .phase(name)
+            .ok_or_else(|| Status::not_found(format!("sandbox {name} not found")))?;
+        if phase == "Stopped" {
+            return Err(Status::failed_precondition(format!(
+                "sandbox {name} is stopped; start it before exec"
+            )));
         }
-        env.retain(|(key, _)| key != OsStr::new("PATH"));
-        let mut path = OsString::from(self.state.shim_dir());
-        path.push(":");
-        path.push(std::env::var_os("PATH").unwrap_or_default());
-        env.push((OsString::from("PATH"), path));
-        env.push((
-            OsString::from(shim::STATE_ROOT_ENV),
-            self.state.root().as_os_str().to_os_string(),
-        ));
-        env.push((
-            OsString::from(shim::SERVER_ENV),
-            OsString::from(&self.server),
-        ));
-        env.push((
-            OsString::from(shim::BIN_ENV),
-            self.exe.as_os_str().to_os_string(),
-        ));
-        env
+        if request.command.is_empty() {
+            return Err(Status::invalid_argument("exec command is required"));
+        }
+        let root = self.state.root_dir(name);
+        let workdir = transfer::workdir(&root, &request.workdir)
+            .map_err(|error| Status::invalid_argument(error.to_string()))?;
+        let timeout = request
+            .execution_timeout
+            .as_ref()
+            .map(|value| {
+                duration_of(value)
+                    .ok_or_else(|| Status::invalid_argument("execution timeout is negative"))
+            })
+            .transpose()?;
+        let env = self.child_env(name, &request.environment);
+        let root = root.display().to_string();
+        let command = request
+            .command
+            .iter()
+            .map(|argument| rewrite_sandbox_path(argument, &root))
+            .collect();
+        Ok((command, workdir, env, timeout))
     }
 
     fn sandbox(&self, name: &str) -> Result<proto::Sandbox, Status> {
@@ -141,6 +198,52 @@ pub async fn serve_on(listener: TcpListener, plane: Plane) -> io::Result<()> {
         .serve_with_incoming(incoming)
         .await
         .map_err(io::Error::other)
+}
+
+/// The environment every exec child receives: the invoking environment, the
+/// create request's pairs, the exec request's variables, and the path-scoped
+/// shim last. Sandbox paths in every layer are rewritten to the plane's real
+/// directory, since a plane child has no chroot.
+pub(crate) fn child_environment(
+    state: &StateRoot,
+    server: &str,
+    exe: &Path,
+    name: &str,
+    requested: &std::collections::HashMap<String, String>,
+) -> Vec<(OsString, OsString)> {
+    let root = state.root_dir(name).display().to_string();
+    let rewrite = |value: &str| rewrite_sandbox_path(value, &root);
+    let mut env: Vec<(OsString, OsString)> = std::env::vars_os()
+        .map(|(key, value)| (key, OsString::from(rewrite(&value.to_string_lossy()))))
+        .collect();
+    for (key, value) in state.environment(name) {
+        env.retain(|(known, _)| known != OsStr::new(&key));
+        env.push((OsString::from(key), OsString::from(rewrite(&value))));
+    }
+    for (key, value) in requested {
+        env.retain(|(known, _)| known != OsStr::new(key));
+        env.push((OsString::from(key), OsString::from(rewrite(value))));
+    }
+    let base = env
+        .iter()
+        .find(|(key, _)| key == OsStr::new("PATH"))
+        .map(|(_, value)| value.clone())
+        .unwrap_or_else(|| std::env::var_os("PATH").unwrap_or_default());
+    env.retain(|(key, _)| key != OsStr::new("PATH"));
+    let mut path = OsString::from(state.shim_dir());
+    path.push(":");
+    path.push(base);
+    env.push((OsString::from("PATH"), path));
+    env.push((
+        OsString::from(shim::STATE_ROOT_ENV),
+        state.root().as_os_str().to_os_string(),
+    ));
+    env.push((OsString::from(shim::SERVER_ENV), OsString::from(server)));
+    env.push((
+        OsString::from(shim::BIN_ENV),
+        exe.as_os_str().to_os_string(),
+    ));
+    env
 }
 
 /// The startup lines, in the order the contract requires: the non-guarantee
@@ -306,16 +409,30 @@ impl OpenShell for Plane {
             .as_ref()
             .map(|spec| spec.providers.clone())
             .unwrap_or_default();
-        let record = self.state.create(&name, &providers).map_err(|error| {
-            use state::CreateError;
-            match error {
-                CreateError::AlreadyExists(name) => {
-                    Status::already_exists(format!("sandbox {name} already exists"))
+        let mut environment: Vec<(String, String)> = request
+            .spec
+            .as_ref()
+            .map(|spec| {
+                spec.environment
+                    .iter()
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        environment.sort();
+        let record = self
+            .state
+            .create_with(&name, &providers, &environment)
+            .map_err(|error| {
+                use state::CreateError;
+                match error {
+                    CreateError::AlreadyExists(name) => {
+                        Status::already_exists(format!("sandbox {name} already exists"))
+                    }
+                    CreateError::InvalidName(_) => Status::invalid_argument(error.to_string()),
+                    CreateError::Io(detail) => Status::internal(detail),
                 }
-                CreateError::InvalidName(_) => Status::invalid_argument(error.to_string()),
-                CreateError::Io(detail) => Status::internal(detail),
-            }
-        })?;
+            })?;
         Ok(Response::new(proto::SandboxResponse {
             sandbox: Some(sandbox_proto(&record)),
             service_urls: Default::default(),
@@ -521,37 +638,13 @@ impl OpenShell for Plane {
         request: Request<proto::ExecSandboxRequest>,
     ) -> std::result::Result<Response<Self::ExecSandboxStream>, Status> {
         let request = request.into_inner();
-        let name = request.sandbox;
-        let phase = self
-            .state
-            .phase(&name)
-            .ok_or_else(|| Status::not_found(format!("sandbox {name} not found")))?;
-        if phase == "Stopped" {
-            return Err(Status::failed_precondition(format!(
-                "sandbox {name} is stopped; start it before exec"
-            )));
-        }
         if request.tty {
             return Err(Status::unimplemented(
-                "insandbox-gateway: exec_sandbox with a tty (interactive exec)",
+                "insandbox-gateway: exec_sandbox with a tty; use exec_sandbox_interactive",
             ));
         }
-        if request.command.is_empty() {
-            return Err(Status::invalid_argument("exec command is required"));
-        }
-        let root = self.state.root_dir(&name);
-        let workdir = transfer::workdir(&root, &request.workdir)
-            .map_err(|error| Status::invalid_argument(error.to_string()))?;
-        let timeout = request
-            .execution_timeout
-            .as_ref()
-            .map(|value| {
-                duration_of(value)
-                    .ok_or_else(|| Status::invalid_argument("execution timeout is negative"))
-            })
-            .transpose()?;
-        let env = self.child_env(&request.environment);
-        let stream = exec::run(request.command, workdir, env, request.stdin, timeout)
+        let (command, workdir, env, timeout) = self.exec_setup(&request)?;
+        let stream = exec::run(command, workdir, env, request.stdin, timeout)
             .map_err(|error| Status::internal(error.to_string()))?;
         Ok(Response::new(Box::pin(stream) as Self::ExecSandboxStream))
     }
@@ -796,18 +889,83 @@ impl OpenShell for Plane {
 
     async fn exec_sandbox_interactive(
         &self,
-        _request: Request<tonic::Streaming<proto::ExecSandboxInput>>,
+        request: Request<tonic::Streaming<proto::ExecSandboxInput>>,
     ) -> std::result::Result<Response<Self::ExecSandboxInteractiveStream>, Status> {
-        Err(Status::unimplemented(
-            "insandbox-gateway: exec_sandbox_interactive",
+        let mut frames = request.into_inner();
+        let mut start = None;
+        let mut early = Vec::new();
+        while start.is_none() {
+            match frames.message().await? {
+                Some(frame) => match frame.payload {
+                    Some(proto::exec_sandbox_input::Payload::Start(request)) => {
+                        start = Some(request);
+                    }
+                    Some(proto::exec_sandbox_input::Payload::Stdin(bytes)) => early.extend(bytes),
+                    Some(proto::exec_sandbox_input::Payload::Resize(_)) | None => {}
+                },
+                None => break,
+            }
+        }
+        let request = start
+            .ok_or_else(|| Status::invalid_argument("the interactive exec needs a start frame"))?;
+        let (command, workdir, env, timeout) = self.exec_setup(&request)?;
+        let mut stdin = request.stdin;
+        stdin.extend(early);
+        let (events, input) = exec::interactive(command, workdir, env, stdin, timeout)
+            .map_err(|error| Status::internal(error.to_string()))?;
+        // The request half stays open for input frames; closing it closes the
+        // child's stdin, and dropping the response stream ends the process.
+        tokio::spawn(async move {
+            while let Ok(Some(frame)) = frames.message().await {
+                if let Some(proto::exec_sandbox_input::Payload::Stdin(bytes)) = frame.payload {
+                    if input.send(bytes).await.is_err() {
+                        return;
+                    }
+                }
+            }
+            drop(input);
+        });
+        Ok(Response::new(
+            Box::pin(events) as Self::ExecSandboxInteractiveStream
         ))
     }
 
     async fn create_provider(
         &self,
-        _request: Request<proto::CreateProviderRequest>,
+        request: Request<proto::CreateProviderRequest>,
     ) -> std::result::Result<Response<proto::ProviderResponse>, Status> {
-        Err(Status::unimplemented("insandbox-gateway: create_provider"))
+        let provider = request
+            .into_inner()
+            .provider
+            .ok_or_else(|| Status::invalid_argument("provider is required"))?;
+        let name = provider
+            .metadata
+            .as_ref()
+            .map(|metadata| metadata.name.trim().to_string())
+            .filter(|name| !name.is_empty())
+            .ok_or_else(|| Status::invalid_argument("provider name is required"))?;
+        // Only the name is recorded. The plane brokers no credential: a
+        // value in the request is dropped here and never reaches the state
+        // root or a transcript.
+        let added = self
+            .state
+            .add_provider(&name)
+            .map_err(|error| Status::internal(error.to_string()))?;
+        if !added {
+            return Err(Status::already_exists(format!(
+                "provider {name} already exists"
+            )));
+        }
+        Ok(Response::new(proto::ProviderResponse {
+            provider: Some(proto::Provider {
+                metadata: Some(proto::ObjectMeta {
+                    name,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }))
     }
 
     async fn get_provider(
@@ -830,7 +988,22 @@ impl OpenShell for Plane {
         &self,
         _request: Request<proto::ListProvidersRequest>,
     ) -> std::result::Result<Response<proto::ListProvidersResponse>, Status> {
-        Err(Status::unimplemented("insandbox-gateway: list_providers"))
+        let providers = self
+            .state
+            .provider_names()
+            .into_iter()
+            .map(|name| proto::Provider {
+                metadata: Some(proto::ObjectMeta {
+                    name,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .collect();
+        Ok(Response::new(proto::ListProvidersResponse {
+            providers,
+            next_page_token: String::new(),
+        }))
     }
 
     async fn list_provider_profiles(
@@ -1313,5 +1486,42 @@ mod tests {
             "the non-guarantee precedes the listener: {text}"
         );
         assert!(text.contains("http://127.0.0.1:4444"));
+    }
+
+    #[test]
+    fn a_sandbox_path_is_rewritten_only_at_a_boundary() {
+        let root = "/private/plane/sandboxes/demo/root";
+        let cases = [
+            ("/sandbox", "/private/plane/sandboxes/demo/root/sandbox"),
+            (
+                "/sandbox/project",
+                "/private/plane/sandboxes/demo/root/sandbox/project",
+            ),
+            (
+                "cd /sandbox && ls",
+                "cd /private/plane/sandboxes/demo/root/sandbox && ls",
+            ),
+            (
+                "${HOME:-/sandbox}",
+                "${HOME:-/private/plane/sandboxes/demo/root/sandbox}",
+            ),
+            (
+                "PATH=/sandbox/bin:/usr/bin",
+                "PATH=/private/plane/sandboxes/demo/root/sandbox/bin:/usr/bin",
+            ),
+            (
+                "ROOT=/sandbox",
+                "ROOT=/private/plane/sandboxes/demo/root/sandbox",
+            ),
+            (
+                "'/sandbox/.e2e'",
+                "'/private/plane/sandboxes/demo/root/sandbox/.e2e'",
+            ),
+            ("apply_patch /sandboxx", "apply_patch /sandboxx"),
+            ("an unanchored word: sandbox", "an unanchored word: sandbox"),
+        ];
+        for (input, expected) in cases {
+            assert_eq!(rewrite_sandbox_path(input, root), expected, "{input}");
+        }
     }
 }

@@ -1,0 +1,10 @@
+up=ok
+session.rc=ok
+pending.marker=ok
+pending.kind=ok
+resolve.rc=ok
+resolve.marker=ok
+resolve.branch=ok
+resolve.branch_content=ok
+resolve.worktree_kept=ok
+resolve.dirty_kept=ok

@@ -4,8 +4,9 @@ node_modules/
 dashboard/.bun/
 bridge/test/captures/tui-last.*
 
-# Conformance goldens are reviewed fixtures, not run output.
+# Conformance goldens and e2e recordings are reviewed fixtures, not run output.
 !tests/conformance/golden/**/*.log
+!tests/e2e/recordings/**/*.log
 
 # The Rust core build output.
 osa-core/target/

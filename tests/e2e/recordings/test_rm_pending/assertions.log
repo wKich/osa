@@ -1,0 +1,11 @@
+up=ok
+session.rc=ok
+pending.kind=ok
+pending.listed=ok
+rm.refused=ok
+rm.message=ok
+rm.sandbox_kept=ok
+resolve.rc=ok
+resolve.marker=ok
+rm.rc=ok
+rm.deleted=ok

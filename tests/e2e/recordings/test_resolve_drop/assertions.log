@@ -1,0 +1,8 @@
+up=ok
+session.rc=ok
+pending.marker=ok
+pending.kind=ok
+resolve.rc=ok
+resolve.marker=ok
+resolve.dropped_file=ok
+resolve.worktree_kept=ok

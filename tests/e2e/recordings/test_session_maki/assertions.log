@@ -1,0 +1,11 @@
+up=ok
+session.rc=ok
+session.edited=ok
+session.created=ok
+session.deleted=ok
+session.cwd=ok
+session.argv=ok
+session.registry=ok
+session.baseline=ok
+session.synced=ok
+session.host_clean=ok

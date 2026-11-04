@@ -78,6 +78,21 @@ fn run_shim(running: &Running, args: &[&str]) -> std::process::Output {
         .expect("shim runs")
 }
 
+/// The real gateway does not create a workdir at sandbox create; the
+/// front-end's first mkdir does. Tests that exec in `/sandbox/project`
+/// create it the same way.
+async fn make_workdir(client: &OpenShellClient, name: &str) {
+    // A stopped sandbox refuses the exec; the test that stops it still calls
+    // the helper, so a failure here is tolerated and the real exec reports it.
+    let _ = client
+        .exec(
+            name,
+            &["sh".into(), "-c".into(), "mkdir -p /sandbox/project".into()],
+            ExecOptions::default(),
+        )
+        .await;
+}
+
 fn exec(
     client: &OpenShellClient,
     name: &str,
@@ -87,6 +102,7 @@ fn exec(
     let name = name.to_string();
     let script = script.to_string();
     async move {
+        make_workdir(&client, &name).await;
         client
             .exec(
                 &name,
@@ -195,6 +211,7 @@ async fn exec_streams_the_first_line_before_the_process_exits() {
     let running = start("stream").await;
     let client = connect(&running.url).await;
     create(&client, "demo", &[]).await;
+    make_workdir(&client, "demo").await;
 
     let mut stream = client
         .raw_grpc()
@@ -303,10 +320,9 @@ async fn an_escaping_path_is_refused_and_names_itself() {
 
     let outside = running.dir.join("outside.txt");
     std::fs::write(&outside, b"inert\n").expect("outside file");
-    let link = running
-        .state
-        .root_dir("demo")
-        .join("sandbox/project/escape");
+    let project = running.state.root_dir("demo").join("sandbox/project");
+    std::fs::create_dir_all(&project).expect("project");
+    let link = project.join("escape");
     std::os::unix::fs::symlink(&outside, &link).expect("symlink");
 
     let stolen = running.dir.join("stolen.txt");
@@ -351,6 +367,47 @@ async fn the_shim_answers_gateway_info_and_nothing_else() {
     let unsupported = run_shim(&running, &["sandbox", "exec", "demo"]);
     assert!(!unsupported.status.success());
     assert!(String::from_utf8_lossy(&unsupported.stderr).contains("sandbox exec"));
+    let _ = std::fs::remove_dir_all(&running.dir);
+}
+
+#[tokio::test]
+async fn a_shim_exec_runs_in_the_sandbox_with_rewritten_paths() {
+    let running = start("shim-exec").await;
+    let client = connect(&running.url).await;
+    create(&client, "demo", &[]).await;
+    let root = running.state.root_dir("demo");
+    std::fs::create_dir_all(root.join("sandbox/project")).expect("project");
+    std::fs::write(
+        root.join("sandbox/project/note.txt"),
+        "from the workspace\n",
+    )
+    .expect("note");
+
+    let output = run_shim(
+        &running,
+        &[
+            "sandbox",
+            "exec",
+            "-n",
+            "demo",
+            "--no-login-shell",
+            "--",
+            "sh",
+            "-c",
+            "printf '%s\\n' \"$PWD\"; cat /sandbox/project/note.txt",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "shim exec failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains(&root.join("sandbox").display().to_string()),
+        "the child's cwd is the sandbox root: {stdout}"
+    );
+    assert!(stdout.contains("from the workspace"), "{stdout}");
     let _ = std::fs::remove_dir_all(&running.dir);
 }
 
@@ -458,6 +515,7 @@ async fn exec_uses_the_request_environment() {
     let client = connect(&running.url).await;
     create(&client, "demo", &[]).await;
 
+    make_workdir(&client, "demo").await;
     let result = client
         .exec(
             "demo",
@@ -567,4 +625,174 @@ fn a_host_run_exits_non_zero_without_opening_a_listener() {
         "a refused run opens no listener"
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_create_environment_reaches_the_exec_child() {
+    let running = start("create-env").await;
+    let client = connect(&running.url).await;
+    client
+        .create_sandbox(SandboxSpec {
+            name: Some("demo".to_string()),
+            image: Some("osa-dev:local".to_string()),
+            environment: HashMap::from([("OSA_CREATE_VAR".to_string(), "ready".to_string())]),
+            ..Default::default()
+        })
+        .await
+        .expect("created");
+    assert_eq!(
+        running.state.environment("demo"),
+        vec![("OSA_CREATE_VAR".to_string(), "ready".to_string())]
+    );
+    let result = exec(&client, "demo", "printf %s \"$OSA_CREATE_VAR\"")
+        .await
+        .expect("exec");
+    assert_eq!(result.exit_code, 0);
+    assert_eq!(String::from_utf8_lossy(&result.stdout), "ready");
+    let _ = std::fs::remove_dir_all(&running.dir);
+}
+
+#[tokio::test]
+async fn provider_create_and_list_record_names_and_no_value() {
+    let running = start("providers").await;
+    let client = connect(&running.url).await;
+    let request = proto::CreateProviderRequest {
+        provider: Some(proto::Provider {
+            metadata: Some(proto::ObjectMeta {
+                name: "e2e-noop".to_string(),
+                ..Default::default()
+            }),
+            credentials: HashMap::from([(
+                "E2E_FIXTURE_CREDENTIAL".to_string(),
+                "sentinel-value-not-stored".to_string(),
+            )]),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+    client
+        .raw_grpc()
+        .create_provider(request.clone())
+        .await
+        .expect("created");
+    let duplicate = client.raw_grpc().create_provider(request).await;
+    assert!(duplicate.is_err(), "a duplicate provider is refused");
+    assert_eq!(running.state.provider_names(), vec!["e2e-noop".to_string()]);
+    let listed = client
+        .raw_grpc()
+        .list_providers(proto::ListProvidersRequest::default())
+        .await
+        .expect("listed")
+        .into_inner();
+    assert_eq!(listed.providers.len(), 1);
+    assert_eq!(
+        listed.providers[0]
+            .metadata
+            .as_ref()
+            .expect("metadata")
+            .name,
+        "e2e-noop"
+    );
+    // The value never reaches the state root.
+    for entry in walk(&running.dir) {
+        let text = std::fs::read_to_string(&entry).unwrap_or_default();
+        assert!(
+            !text.contains("sentinel-value-not-stored"),
+            "a credential value reached {}",
+            entry.display()
+        );
+    }
+    let _ = std::fs::remove_dir_all(&running.dir);
+}
+
+#[tokio::test]
+async fn an_interactive_exec_streams_input_and_reports_the_exit() {
+    let running = start("interactive").await;
+    let client = connect(&running.url).await;
+    create(&client, "demo", &[]).await;
+    make_workdir(&client, "demo").await;
+
+    let (sender, receiver) = tokio::sync::mpsc::channel(4);
+    sender
+        .send(proto::ExecSandboxInput {
+            payload: Some(proto::exec_sandbox_input::Payload::Start(
+                proto::ExecSandboxRequest {
+                    sandbox: "demo".to_string(),
+                    command: vec![
+                        "sh".to_string(),
+                        "-c".to_string(),
+                        "read line; echo \"got:$line\"; echo err >&2; exit 3".to_string(),
+                    ],
+                    workdir: "/sandbox/project".to_string(),
+                    tty: true,
+                    ..Default::default()
+                },
+            )),
+        })
+        .await
+        .expect("start frame");
+    let mut stream = client
+        .raw_grpc()
+        .exec_sandbox_interactive(tokio_stream::wrappers::ReceiverStream::new(receiver))
+        .await
+        .expect("interactive exec")
+        .into_inner();
+    sender
+        .send(proto::ExecSandboxInput {
+            payload: Some(proto::exec_sandbox_input::Payload::Stdin(
+                b"hello\n".to_vec(),
+            )),
+        })
+        .await
+        .expect("stdin frame");
+    drop(sender);
+
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    let mut exit = None;
+    while let Some(event) = stream.message().await.expect("event") {
+        match event.payload {
+            Some(proto::exec_sandbox_event::Payload::Stdout(chunk)) => stdout.extend(chunk.data),
+            Some(proto::exec_sandbox_event::Payload::Stderr(chunk)) => stderr.extend(chunk.data),
+            Some(proto::exec_sandbox_event::Payload::Exit(status)) => {
+                exit = Some(status.exit_code);
+            }
+            None => {}
+        }
+    }
+    assert_eq!(String::from_utf8_lossy(&stdout), "got:hello\n");
+    assert_eq!(String::from_utf8_lossy(&stderr), "err\n");
+    assert_eq!(exit, Some(3));
+    let _ = std::fs::remove_dir_all(&running.dir);
+}
+
+fn walk(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return files;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            files.extend(walk(&path));
+        } else if path.is_file() {
+            files.push(path);
+        }
+    }
+    files
+}
+
+#[tokio::test]
+async fn the_shim_answers_doctor_status_from_the_baked_endpoint() {
+    let running = start("status").await;
+    let output = run_shim(&running, &["status", "--output", "json"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("\"status\":\"connected\""), "{text}");
+    assert!(text.contains(&running.url), "{text}");
+    let _ = std::fs::remove_dir_all(&running.dir);
 }

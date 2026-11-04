@@ -94,8 +94,20 @@ pub fn upload(root: &Path, local: &Path, dest: &str) -> Result<PathBuf, Transfer
     if let Some(parent) = target.parent() {
         fs::create_dir_all(parent).map_err(|error| TransferError::io(dest, error))?;
     }
-    fs::copy(local, &target).map_err(|error| TransferError::io(dest, error))?;
+    copy_over(local, &target, dest)?;
     Ok(target)
+}
+
+/// Copy `source` onto `target`, replacing an existing file. A previous upload
+/// copied the source's permissions, so a read-only file (a git object, for
+/// example) would otherwise refuse the overwrite; replacing it is what an
+/// upload means.
+fn copy_over(source: &Path, target: &Path, requested: &str) -> Result<(), TransferError> {
+    if target.is_file() {
+        fs::remove_file(target).map_err(|error| TransferError::io(requested, error))?;
+    }
+    fs::copy(source, target).map_err(|error| TransferError::io(requested, error))?;
+    Ok(())
 }
 
 /// Copy the sandbox path `sandbox_path` out to `local_dest`. Returns the
@@ -280,8 +292,7 @@ fn copy_tree_in(
                 fs::create_dir_all(parent)
                     .map_err(|error| TransferError::io(&child_request, error))?;
             }
-            fs::copy(entry.path(), &target)
-                .map_err(|error| TransferError::io(&child_request, error))?;
+            copy_over(&entry.path(), &target, &child_request)?;
         }
         // Sockets, pipes, and devices are not copied; a sandbox exec cannot
         // use the host's anyway.
@@ -337,6 +348,7 @@ fn copy_tree_out(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
 
     fn scratch(label: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -366,6 +378,21 @@ mod tests {
             fs::read(&local).expect("local"),
             fs::read(&out).expect("out")
         );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_second_upload_replaces_a_read_only_file() {
+        let dir = scratch("read-only");
+        let root = dir.join("root");
+        let local = dir.join("local.txt");
+        fs::write(&local, b"first\n").expect("local");
+        let target = upload(&root, &local, "/sandbox/project/local.txt").expect("first upload");
+
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o444)).expect("read-only");
+        fs::write(&local, b"second\n").expect("local");
+        upload(&root, &local, "/sandbox/project/local.txt").expect("second upload");
+        assert_eq!(fs::read(&target).expect("target"), b"second\n");
         let _ = fs::remove_dir_all(&dir);
     }
 

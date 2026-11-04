@@ -1,0 +1,9 @@
+up=ok
+sync1.rc=ok
+agent1.rc=ok
+collect1.rc=ok
+sync2.rc=ok
+agent2.rc=ok
+collect2.rc=ok
+determinism.patch=ok
+determinism.json=ok

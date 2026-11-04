@@ -1,0 +1,53 @@
+op=get_sandbox
+target=<sandbox>
+
+op=create_sandbox
+target=<sandbox>
+cpu=
+env=PATH
+env_from=
+image=osa-dev:local
+memory=
+policy=<repo>/examples/policies/maki-minimal.yaml
+providers=e2e-noop
+
+op=get_sandbox
+target=<sandbox>
+
+op=stop_sandbox
+target=<sandbox>
+
+op=start_sandbox
+target=<sandbox>
+
+op=get_sandbox
+target=<sandbox>
+
+op=attached_providers
+target=<sandbox>
+
+op=get_sandbox
+target=<sandbox>
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+if ! git rev-parse -q --verify refs/maki-oss/base >/dev/null 2>&1; then
+    printf "missing\n"
+    exit 0
+fi
+index=$gitdir/tree-index.$$
+rm -f "$index"
+if ! GIT_INDEX_FILE=$index git add -A 2>/dev/null; then
+    rm -f "$index"
+    printf "missing\n"
+    exit 0
+fi
+tree=$(GIT_INDEX_FILE=$index git write-tree)
+rm -f "$index"
+printf "%s\n" "$tree" maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+

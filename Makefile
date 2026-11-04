@@ -5,6 +5,8 @@
 #   make test-core     the Rust core's offline unit and integration tests
 #   make test-conformance  the same suite in strict conformance mode
 #   make test-conformance-self  harness self-test (normalizer + leak scan)
+#   make test-e2e      end-to-end suite on a host against a real gateway
+#   make test-e2e-local  the same suite inside an osa sandbox against the plane
 #   make test-all      every suite: shell, bridge, dashboard, oskhs + MongoDB
 #   make test-oskhs    oskhs round library suite (bun, no gateway)
 #   make verify-dev-environment  prove the development image is usable
@@ -20,7 +22,7 @@ SHELL := /bin/sh
 OSA_CORE_MANIFEST := osa-core/Cargo.toml
 OSA_CORE_BIN := osa-core/target/release/osa
 
-.PHONY: build test test-core test-conformance test-conformance-self verify-dev-environment test-all test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-docs lint-profiles install-fish openspec-update sync-openspec
+.PHONY: build test test-core test-conformance test-conformance-self test-e2e test-e2e-local verify-dev-environment test-all test-oskhs test-bridge test-ui test-journeys test-journeys-live compat compat-drift maki-drift lint lint-docs lint-profiles install-fish openspec-update sync-openspec
 
 build:
 	cargo build --release --manifest-path $(OSA_CORE_MANIFEST)
@@ -55,6 +57,21 @@ test-conformance:
 # catches a backend that moves a credential into argv.
 test-conformance-self:
 	tests/conformance/self-test.sh
+
+# End-to-end suite against a real gateway: the four front-ends, sessions,
+# caller-mode sync, lifecycle, pending work, and the committed host recording
+# comparison. Not part of `make test`. Skips with a named reason when the
+# test-support binaries, the OpenShell CLI, or the gateway are absent; the
+# suite itself prints that reason.
+test-e2e:
+	@tests/e2e/run.sh host
+
+# The same scenario set inside an osa sandbox against the insandbox control
+# plane. Build the test-support binaries first with `scripts/build-e2e.sh`;
+# inside a sandbox make cannot spawn a child, so call the suite directly there.
+# Not part of `make test`.
+test-e2e-local:
+	@tests/e2e/run.sh local
 
 # The verification gate (CI runs exactly this): the shell suite with the
 # conformance layer in strict mode, then the core, bridge, dashboard, and oskhs
@@ -157,7 +174,7 @@ lint-docs:
 	scripts/check-playbooks.sh
 
 lint: lint-docs
-	shellcheck -x bin/maki-oss bin/opencode-oss bin/claude-oss bin/codex-oss bin/osa tests/run-tests.sh tests/conformance/harness.sh tests/conformance/normalize.sh tests/conformance/self-test.sh tests/conformance/backends/leaky.sh tests/conformance/backends/drift.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode tests/stub/codex
+	shellcheck -x bin/maki-oss bin/opencode-oss bin/claude-oss bin/codex-oss bin/osa tests/run-tests.sh tests/conformance/harness.sh tests/conformance/normalize.sh tests/conformance/self-test.sh tests/conformance/backends/leaky.sh tests/conformance/backends/drift.sh tests/stub/openshell tests/stub/docker tests/stub/bun tests/stub/opencode tests/stub/codex tests/e2e/run.sh tests/e2e/cases.sh tests/e2e/parity.sh scripts/build-e2e.sh
 	fish -n fish/functions/__oss_run.fish
 	fish -n fish/functions/maki-oss.fish
 	fish -n fish/conf.d/maki-oss.fish

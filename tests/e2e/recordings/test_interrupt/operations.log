@@ -1,0 +1,277 @@
+op=get_sandbox
+target=<sandbox>
+
+op=create_sandbox
+target=<sandbox>
+cpu=
+env=PATH
+env_from=
+image=osa-dev:local
+memory=
+policy=<repo>/examples/policies/maki-minimal.yaml
+providers=e2e-noop
+
+op=get_sandbox
+target=<sandbox>
+
+op=list_providers
+target=<gateway>
+
+op=get_sandbox
+target=<sandbox>
+
+op=get_sandbox
+target=<sandbox>
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c mkdir -p "$1" maki-oss-git /sandbox/project
+no_login_shell=true
+workdir=
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+if ! git rev-parse -q --verify refs/maki-oss/base >/dev/null 2>&1; then
+    printf "missing\n"
+    exit 0
+fi
+index=$gitdir/tree-index.$$
+rm -f "$index"
+if ! GIT_INDEX_FILE=$index git add -A 2>/dev/null; then
+    rm -f "$index"
+    printf "missing\n"
+    exit 0
+fi
+tree=$(GIT_INDEX_FILE=$index git write-tree)
+rm -f "$index"
+printf "%s\n" "$tree" maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=maki-oss GIT_AUTHOR_EMAIL=maki-oss@localhost
+export GIT_COMMITTER_NAME=maki-oss GIT_COMMITTER_EMAIL=maki-oss@localhost
+mkdir -p "$gitdir" "$worktree"
+git init -q
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -m "maki-oss baseline")
+git update-ref refs/maki-oss/base "$commit"
+printf "%s\n" "$tree" maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+export GIT_DIR=$1
+tree=$3
+if [ -z "$tree" ] || [ -z "$(git ls-tree -r --name-only "$tree" 2>/dev/null | head -n 1)" ]; then
+    printf "empty\n"
+else
+    printf "nonempty\n"
+fi maki-oss-git /sandbox/.maki-oss/git /sandbox/project <commit>
+no_login_shell=true
+workdir=/sandbox/project
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=maki-oss GIT_AUTHOR_EMAIL=maki-oss@localhost
+export GIT_COMMITTER_NAME=maki-oss GIT_COMMITTER_EMAIL=maki-oss@localhost
+mkdir -p "$gitdir" "$worktree"
+git init -q
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -m "maki-oss baseline")
+git update-ref refs/maki-oss/base "$commit"
+printf "%s\n" "$tree" maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+
+op=attached_providers
+target=<sandbox>
+
+op=exec_interactive
+target=<sandbox>
+command=maki --print --yolo --trust --output-format stream-json --verbose e2e interrupt prompt
+env=
+no_login_shell=true
+size=None
+tty=false
+workdir=/sandbox/project
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=maki-oss GIT_AUTHOR_EMAIL=maki-oss@localhost
+export GIT_COMMITTER_NAME=maki-oss GIT_COMMITTER_EMAIL=maki-oss@localhost
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -p refs/maki-oss/base -m "maki-oss result")
+git update-ref refs/maki-oss/result "$commit"
+git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+export GIT_DIR=$1
+git rev-parse -q --verify refs/maki-oss/result^{tree} 2>/dev/null || true maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+export GIT_DIR=$1
+git update-ref refs/maki-oss/base refs/maki-oss/result maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+
+op=list_rules
+target=<sandbox>
+
+op=get_sandbox
+target=<sandbox>
+
+op=attached_providers
+target=<sandbox>
+
+op=get_sandbox
+target=<sandbox>
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+if ! git rev-parse -q --verify refs/maki-oss/base >/dev/null 2>&1; then
+    printf "missing\n"
+    exit 0
+fi
+index=$gitdir/tree-index.$$
+rm -f "$index"
+if ! GIT_INDEX_FILE=$index git add -A 2>/dev/null; then
+    rm -f "$index"
+    printf "missing\n"
+    exit 0
+fi
+tree=$(GIT_INDEX_FILE=$index git write-tree)
+rm -f "$index"
+printf "%s\n" "$tree" maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+
+op=list_providers
+target=<gateway>
+
+op=get_sandbox
+target=<sandbox>
+
+op=get_sandbox
+target=<sandbox>
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c mkdir -p "$1" maki-oss-git /sandbox/project
+no_login_shell=true
+workdir=
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+if ! git rev-parse -q --verify refs/maki-oss/base >/dev/null 2>&1; then
+    printf "missing\n"
+    exit 0
+fi
+index=$gitdir/tree-index.$$
+rm -f "$index"
+if ! GIT_INDEX_FILE=$index git add -A 2>/dev/null; then
+    rm -f "$index"
+    printf "missing\n"
+    exit 0
+fi
+tree=$(GIT_INDEX_FILE=$index git write-tree)
+rm -f "$index"
+printf "%s\n" "$tree" maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=maki-oss GIT_AUTHOR_EMAIL=maki-oss@localhost
+export GIT_COMMITTER_NAME=maki-oss GIT_COMMITTER_EMAIL=maki-oss@localhost
+mkdir -p "$gitdir" "$worktree"
+git init -q
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -m "maki-oss baseline")
+git update-ref refs/maki-oss/base "$commit"
+printf "%s\n" "$tree" maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+
+op=attached_providers
+target=<sandbox>
+
+op=exec_interactive
+target=<sandbox>
+command=maki --print --yolo --trust --output-format stream-json --verbose e2e after interrupt
+env=
+no_login_shell=true
+size=None
+tty=false
+workdir=/sandbox/project
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=maki-oss GIT_AUTHOR_EMAIL=maki-oss@localhost
+export GIT_COMMITTER_NAME=maki-oss GIT_COMMITTER_EMAIL=maki-oss@localhost
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -p refs/maki-oss/base -m "maki-oss result")
+git update-ref refs/maki-oss/result "$commit"
+git diff --binary --full-index refs/maki-oss/base refs/maki-oss/result maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+export GIT_DIR=$1
+git rev-parse -q --verify refs/maki-oss/result^{tree} 2>/dev/null || true maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+
+op=exec_buffered
+target=<sandbox>
+command=sh -c set -e
+export GIT_DIR=$1
+git update-ref refs/maki-oss/base refs/maki-oss/result maki-oss-git /sandbox/.maki-oss/git /sandbox/project
+no_login_shell=true
+workdir=/sandbox/project
+
+op=list_rules
+target=<sandbox>
+

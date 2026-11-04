@@ -40,25 +40,33 @@ Every refusal exits non-zero before any listener is opened.
     providers    # attached provider names, one per line
     rules        # recorded policy chunks, not proved decisions
     logs         # recorded log lines
-    root/        # the sandbox filesystem; /sandbox/project lives here
+    root/        # the sandbox filesystem; a workdir appears only when created
   shim/openshell # the private PATH shim
 ```
 
 `create`, `start`, `stop`, and `delete` are transitions on the `phase` record;
 `delete` removes the directory and its recorded provider attachments. `exec`
 runs a real local child in the sandbox workdir with the invoking environment
-plus the request's variables and streams its output. Upload and download are
-copies; there is no bind mount, and a path that resolves outside the sandbox
-directory — including through a symlink — is refused before anything is
-written, with the path named.
+plus the request's variables and streams its output. Like the real gateway it
+creates the sandbox root but not a workdir, so the first `mkdir` comes from the
+client, and an exec whose workdir does not exist is refused. Upload and
+download are copies; there is no bind mount, and a path that resolves outside
+the sandbox directory — including through a symlink — is refused before
+anything is written, with the path named. An upload replaces read-only files,
+so a repeated refresh overwrites earlier copies.
 
 ## The shim
 
-The typed client covers `exec` and the sandbox lifecycle, so the shim covers
-only the two CLI-only responsibilities: `gateway info --output json` and
-`sandbox upload` / `sandbox download`. It is written to `<state>/shim/openshell`
-and is found only because the plane prepends that directory to `PATH` for its
-own child process tree. It is never installed in a system bin directory.
+The typed client covers `exec` and the sandbox lifecycle, but the front-ends
+also shell out to the CLI. The shim answers `gateway info --output json` and
+`status --output json`, and serves `sandbox upload`, `sandbox download`, and
+`sandbox exec`. The exec form is the one the helper scripts use (`-n NAME
+--no-login-shell -- COMMAND...`); it runs a real local child with the same
+environment layering and sandbox-path rewriting as a typed exec, and its exit
+code is the child's. No login shell is ever added. The shim is written to
+`<state>/shim/openshell` and is found only because the plane prepends that
+directory to `PATH` for its own child process tree. It is never installed in a
+system bin directory.
 
 ## Launching it
 
@@ -77,12 +85,15 @@ for example the repository's own front-ends — resolve the shim and can answer
 
 The end-to-end behavior is covered by
 `cargo test -p insandbox-gateway --test plane`, including
-`exec_through_the_plane_answers_gateway_info_through_the_shim`.
+`exec_through_the_plane_answers_gateway_info_through_the_shim` and
+`an_interactive_exec_streams_input_and_reports_the_exit`.
 
 ## What the plane does not do
 
 - No isolation, no container runtime, no nested sandbox.
 - No policy enforcement and no egress decision.
 - No credential brokering; credentials stay in provider profiles on the host.
-- No TTY or interactive exec in this cut; the operation is reported as
-  unimplemented rather than approximated.
+- No terminal. An interactive exec is served with pipes: input frames reach the
+  child's stdin and output streams back, but the child sees no TTY. A
+  full-screen front-end needs a real gateway; the end-to-end suite runs
+  headless runs.

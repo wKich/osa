@@ -1,0 +1,18 @@
+#!/bin/sh
+# The plane cannot start containers, so the local suite supplies the two engine
+# answers `doctor` asks for. This fixture is never on the host-mode PATH.
+set -eu
+case ${1:-} in
+    version)
+        exit 0
+        ;;
+    image)
+        shift
+        case ${1:-} in
+            inspect)
+                exit 0
+                ;;
+        esac
+        ;;
+esac
+exit 0

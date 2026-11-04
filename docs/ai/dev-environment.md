@@ -77,8 +77,9 @@ scripts/run-insandbox-plane.sh
 The plane prints its non-guarantee and then its loopback URL. It binds loopback
 and speaks plaintext only; bearer tokens and mutual TLS are refused, not
 downgraded. Commands it execs resolve its private `openshell` shim (gateway
-information and sandbox upload/download only) through a `PATH` entry scoped to
-that child tree. The shim is never installed in a system bin directory.
+information, sandbox upload/download, and the helper scripts' exec form)
+through a `PATH` entry scoped to that child tree. The shim is never installed
+in a system bin directory.
 
 **The plane is not a boundary.** It provides **no isolation**, enforces **no
 policy**, and brokers no credential. Its safety comes only from the outer
@@ -86,6 +87,33 @@ sandbox it refuses to start outside of, and nothing it reports is evidence
 about the OpenShell policy, provider substitution, or the sandbox user. Treat
 a plane-backed run exactly like any other in-sandbox run: it covers
 orchestration, parsing, and transport, never isolation.
+
+## The end-to-end suite
+
+The full scenario set — the four front-ends, sessions, caller-mode sync,
+lifecycle, pending work, and the host-recording comparison — is what proves the
+front-ends' orchestration works together. Build its binaries once:
+
+```sh
+scripts/build-e2e.sh
+```
+
+Then run it against the control plane from inside the sandbox, calling the
+script rather than `make` for the reason above:
+
+```sh
+tests/e2e/run.sh local
+```
+
+On a host with a real gateway, `make test-e2e` runs the same cases through the
+real transport and compares each run with the committed recordings. Neither
+target joins `make test`; each skips with a named reason when the test-support
+binaries, the OpenShell CLI, or the gateway are absent.
+
+The suite's summary states the layer it covers — session orchestration — and
+that it proves nothing about isolation, policy, egress, or credential brokering.
+The full mapping of suites to layers is the claim table in
+[`docs/ai/verification/claims.md`](verification/claims.md).
 
 ## What the loop proves — and what it does not
 

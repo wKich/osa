@@ -1,0 +1,6 @@
+up=ok
+upload.rc=ok
+download.rc=ok
+download.content=ok
+download.nonempty=ok
+download.destination=ok

@@ -1,0 +1,9 @@
+up=ok
+status.rc=ok
+status.exists=ok
+status.phase=ok
+status.name=ok
+status.providers=ok
+list.rc=ok
+list.record=ok
+list.phase=ok

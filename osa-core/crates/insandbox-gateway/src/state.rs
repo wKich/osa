@@ -9,9 +9,11 @@
 //!     id           # the sandbox id reported to clients
 //!     created      # milliseconds since the epoch
 //!     providers    # attached provider names, one per line
+//!     environment  # KEY=VALUE pairs the create request named
 //!     rules        # recorded policy chunks, the CLI stub's line format
 //!     logs         # recorded log lines, one per line
 //!     root/        # the sandbox filesystem; /sandbox/project lives here
+//!   providers      # the gateway-wide provider names the plane records
 //!   shim/openshell # the private PATH shim, never installed system-wide
 //! ```
 //!
@@ -26,9 +28,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// The workdir relative paths resolve against, matching the agent base image.
 pub const DEFAULT_WORKDIR: &str = "/sandbox";
 
-/// The directories every sandbox starts with, so an exec can run before an
-/// upload has created them.
-const SEED_DIRS: &[&str] = &["sandbox", "sandbox/project", "tmp"];
+/// The directories every sandbox starts with. The real gateway creates the
+/// sandbox root but not a workdir: the front-end's first mkdir creates
+/// `/sandbox/project`, and a plane that seeded it would run execs the real
+/// gateway refuses.
+const SEED_DIRS: &[&str] = &["sandbox", "tmp"];
 
 /// One sandbox's recorded identity and phase.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -116,6 +120,16 @@ impl StateRoot {
         self.sandbox_dir(name).join("providers")
     }
 
+    fn environment_file(&self, name: &str) -> PathBuf {
+        self.sandbox_dir(name).join("environment")
+    }
+
+    /// The gateway-wide provider catalog. Only names are recorded: the plane
+    /// brokers no credential and never stores a value.
+    fn catalog_file(&self) -> PathBuf {
+        self.root.join("providers")
+    }
+
     pub fn rules_file(&self, name: &str) -> PathBuf {
         self.sandbox_dir(name).join("rules")
     }
@@ -165,8 +179,68 @@ impl StateRoot {
         fs::write(self.providers_file(name), providers.join("\n"))
     }
 
+    /// The environment pairs a create request named, in sorted key order.
+    pub fn environment(&self, name: &str) -> Vec<(String, String)> {
+        fs::read_to_string(self.environment_file(name))
+            .unwrap_or_default()
+            .lines()
+            .filter_map(|line| {
+                let (key, value) = line.split_once('=')?;
+                (!key.is_empty()).then(|| (key.to_string(), value.to_string()))
+            })
+            .collect()
+    }
+
+    pub fn set_environment(&self, name: &str, pairs: &[(String, String)]) -> io::Result<()> {
+        let text = pairs
+            .iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        fs::write(self.environment_file(name), text)
+    }
+
+    /// The names the plane reports for the gateway, sorted. Creating a
+    /// provider records a name only; no credential, profile, or value.
+    pub fn provider_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_to_string(self.catalog_file())
+            .unwrap_or_default()
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(str::to_string)
+            .collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    /// Record a provider name. Returns false when the name already existed.
+    pub fn add_provider(&self, name: &str) -> io::Result<bool> {
+        let mut names = self.provider_names();
+        if names.iter().any(|known| known == name) {
+            return Ok(false);
+        }
+        names.push(name.to_string());
+        names.sort();
+        fs::write(self.catalog_file(), format!("{}\n", names.join("\n")))?;
+        Ok(true)
+    }
+
     /// Create the sandbox directory, its seed dirs, and its phase record.
     pub fn create(&self, name: &str, providers: &[String]) -> Result<SandboxRecord, CreateError> {
+        self.create_with(name, providers, &[])
+    }
+
+    /// The same create with the environment the request named. The plane
+    /// copies these pairs into every exec child, as the gateway does; it never
+    /// reads or substitutes a credential.
+    pub fn create_with(
+        &self,
+        name: &str,
+        providers: &[String],
+        environment: &[(String, String)],
+    ) -> Result<SandboxRecord, CreateError> {
         if !valid_name(name) {
             return Err(CreateError::InvalidName(name.to_string()));
         }
@@ -189,6 +263,8 @@ impl StateRoot {
         fs::write(self.created_file(name), format!("{created}\n"))
             .map_err(|error| CreateError::Io(error.to_string()))?;
         fs::write(self.providers_file(name), providers.join("\n"))
+            .map_err(|error| CreateError::Io(error.to_string()))?;
+        self.set_environment(name, environment)
             .map_err(|error| CreateError::Io(error.to_string()))?;
         self.set_phase(name, "Ready")
             .map_err(|error| CreateError::Io(error.to_string()))?;
@@ -277,7 +353,11 @@ mod tests {
             .create("demo", &["provider-a".to_string()])
             .expect("created");
         assert_eq!(record.phase, "Ready");
-        assert!(state.root_dir("demo").join("sandbox/project").is_dir());
+        assert!(state.root_dir("demo").join("sandbox").is_dir());
+        assert!(
+            !state.root_dir("demo").join("sandbox/project").exists(),
+            "the workdir is not seeded"
+        );
         assert_eq!(state.providers("demo"), vec!["provider-a".to_string()]);
         assert!(state.exists("demo"));
 

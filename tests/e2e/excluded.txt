@@ -1,0 +1,7 @@
+# Case ids that intentionally have no committed recording.
+#
+# One id per line, optionally followed by a reason. The harness still runs the
+# case; the summary reports the count. Add an entry only when a case's
+# artifacts cannot be made stable with the closed normalization set, and state
+# the reason on the line. An exclusion is never a substitute for fixing the
+# plane or the case.

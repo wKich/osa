@@ -105,20 +105,45 @@ pub fn run(
 
     tokio::spawn(async move {
         let mut timed_out = false;
+        let mut client_gone = false;
+        // A dropped client must not leave the child running: the session that
+        // asked for it is gone, and nothing will read its output.
         let status = match timeout {
-            Some(limit) => match time::timeout(limit, child.wait()).await {
-                Ok(status) => Some(status),
-                Err(_) => {
-                    timed_out = true;
-                    let _ = child.kill().await;
-                    let _ = child.wait().await;
-                    None
+            Some(limit) => {
+                tokio::select! {
+                    result = time::timeout(limit, child.wait()) => match result {
+                        Ok(status) => Some(status),
+                        Err(_) => {
+                            timed_out = true;
+                            None
+                        }
+                    },
+                    _ = sender.closed() => {
+                        client_gone = true;
+                        None
+                    }
                 }
-            },
-            None => Some(child.wait().await),
+            }
+            None => {
+                tokio::select! {
+                    result = child.wait() => Some(result),
+                    _ = sender.closed() => {
+                        client_gone = true;
+                        None
+                    }
+                }
+            }
         };
+        if timed_out || client_gone {
+            let _ = child.kill().await;
+            let _ = child.wait().await;
+        }
         let _ = out_task.await;
         let _ = err_task.await;
+
+        if client_gone {
+            return;
+        }
 
         if timed_out {
             let limit = timeout.unwrap_or_default();
@@ -291,6 +316,30 @@ mod tests {
         .expect("stream");
         let (_, _, exit) = collect(stream).await;
         assert_eq!(exit, 137);
+    }
+
+    #[tokio::test]
+    async fn a_dropped_client_kills_the_child() {
+        let dir = std::env::temp_dir().join(format!("osa-exec-drop-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("dir");
+        let marker = dir.join("marker");
+        let script = format!("sleep 1; touch '{}'", marker.display());
+        let stream = run(
+            vec!["sh".into(), "-c".into(), script],
+            dir.clone(),
+            path_env(),
+            Vec::new(),
+            None,
+        )
+        .expect("stream");
+        drop(stream);
+        time::sleep(Duration::from_millis(1600)).await;
+        assert!(
+            !marker.exists(),
+            "the child kept running after its client went away"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]

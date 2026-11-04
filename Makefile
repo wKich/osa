@@ -39,10 +39,11 @@ verify-dev-environment:
 	@scripts/verify-dev-environment.sh
 
 # Offline: temporary state roots and stub executables only, so no gateway,
-# Docker, or network at runtime.
+# Docker, or network at runtime. The recording seam is enabled here, so its
+# five tests run as part of the core suite.
 test-core:
 	@command -v cargo >/dev/null 2>&1 || { echo 'test-core: cargo not found (install the pinned Rust toolchain from rust-toolchain.toml)' >&2; exit 1; }
-	cargo test --workspace --manifest-path $(OSA_CORE_MANIFEST)
+	cargo test --workspace --manifest-path $(OSA_CORE_MANIFEST) --features osa-core/test-support
 
 # The same case set in strict conformance mode: a case without a golden must be
 # listed in tests/conformance/excluded.txt, and a recording that differs from

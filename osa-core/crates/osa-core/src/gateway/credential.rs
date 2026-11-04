@@ -89,4 +89,43 @@ mod tests {
         assert!(printed.contains("api_key"));
         assert!(!printed.contains("sentinel"), "{printed}");
     }
+
+    #[test]
+    fn no_path_can_format_a_credential_outside_the_request_builder() {
+        // The type itself exposes no `Display` or `Serialize` (the doctests
+        // above prove formatting and serialization do not compile), so the
+        // remaining risk is a caller formatting `expose()`. Only the request
+        // builder in `gateway/sdk.rs` may read the value at all; nothing else
+        // may put it in a format string.
+        fn visit(dir: &std::path::Path, offenders: &mut Vec<String>) {
+            for entry in std::fs::read_dir(dir).expect("source read") {
+                let path = entry.expect("entry").path();
+                if path.is_dir() {
+                    visit(&path, offenders);
+                    continue;
+                }
+                if path.extension().and_then(|value| value.to_str()) != Some("rs") {
+                    continue;
+                }
+                if path.ends_with("gateway/sdk.rs") || path.ends_with("gateway/credential.rs") {
+                    continue;
+                }
+                let text = std::fs::read_to_string(&path).expect("source");
+                for line in text.lines() {
+                    let formatting = ["format!", "write!", "println!", "print!", "to_string"]
+                        .iter()
+                        .any(|call| line.contains(call));
+                    if formatting && line.contains("expose()") {
+                        offenders.push(format!("{}: {}", path.display(), line.trim()));
+                    }
+                }
+            }
+        }
+        let mut offenders = Vec::new();
+        visit(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"),
+            &mut offenders,
+        );
+        assert!(offenders.is_empty(), "{offenders:#?}");
+    }
 }

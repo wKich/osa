@@ -12,6 +12,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use openshell_core::proto;
@@ -28,8 +29,15 @@ pub struct Stub {
     version: String,
     exec_stdout: Vec<u8>,
     exec_exit: i32,
+    exec_interrupt: bool,
+    exec_hold: bool,
     create_race: bool,
     delete_fail: bool,
+    credential_reject: bool,
+    log_lines: Vec<String>,
+    log_error: bool,
+    active_streams: Arc<AtomicUsize>,
+    credentials: Arc<Mutex<Vec<(String, String)>>>,
     requests: Arc<Mutex<Vec<String>>>,
 }
 
@@ -43,8 +51,15 @@ impl Stub {
             // The same default the CLI stub prints for `sandbox exec`.
             exec_stdout: b"stub-exec-output\n".to_vec(),
             exec_exit: 0,
+            exec_interrupt: false,
+            exec_hold: false,
             create_race: false,
             delete_fail: false,
+            credential_reject: false,
+            log_lines: Vec::new(),
+            log_error: false,
+            active_streams: Arc::new(AtomicUsize::new(0)),
+            credentials: Arc::new(Mutex::new(Vec::new())),
             requests: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -88,6 +103,51 @@ impl Stub {
         self
     }
 
+    /// An exec whose stream ends with a transport error after its output.
+    pub fn with_interrupted_exec(mut self, stdout: impl Into<Vec<u8>>) -> Self {
+        self.exec_stdout = stdout.into();
+        self.exec_interrupt = true;
+        self
+    }
+
+    /// An exec whose stream sends its output and then stays open until the
+    /// caller goes away, so an interrupt can be observed.
+    pub fn with_held_exec(mut self, stdout: impl Into<Vec<u8>>) -> Self {
+        self.exec_stdout = stdout.into();
+        self.exec_hold = true;
+        self
+    }
+
+    /// A provider create whose credential the gateway rejects.
+    pub fn with_credential_rejection(mut self) -> Self {
+        self.credential_reject = true;
+        self
+    }
+
+    /// The log lines a read or watch reports.
+    pub fn with_logs(mut self, lines: &[&str]) -> Self {
+        self.log_lines = lines.iter().map(|line| line.to_string()).collect();
+        self
+    }
+
+    /// A log stream that fails after its buffered lines.
+    pub fn with_log_error(mut self) -> Self {
+        self.log_error = true;
+        self
+    }
+
+    /// The credential fields and values a create request carried. Test-only:
+    /// nothing in the stub logs or stores them.
+    pub fn supplied_credentials(&self) -> Vec<(String, String)> {
+        self.credentials.lock().expect("lock").clone()
+    }
+
+    /// Transport streams this stub still has open. It reaches zero when the
+    /// caller drops an interrupted stream.
+    pub fn active_streams(&self) -> usize {
+        self.active_streams.load(Ordering::SeqCst)
+    }
+
     /// The gRPC service to add to a server.
     pub fn into_server(self) -> OpenShellServer<Stub> {
         OpenShellServer::new(self)
@@ -105,20 +165,49 @@ impl Stub {
     fn record(&self, words: &[&str]) {
         let line = words.join(" ");
         self.requests.lock().expect("lock").push(line.clone());
+        self.record_client_transport(&line);
         let Some(log) = &self.log else { return };
         if let Some(parent) = log.parent() {
             let _ = fs::create_dir_all(parent);
         }
+        // The same leading-separator convention the CLI stub uses, so the two
+        // writers cannot merge one invocation into the next.
         let mut text = String::new();
+        text.push_str(SEPARATOR);
+        text.push('\n');
         for word in words {
             text.push_str(word);
             text.push('\n');
         }
-        text.push_str(SEPARATOR);
-        text.push('\n');
         if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(log) {
             use std::io::Write;
             let _ = file.write_all(text.as_bytes());
+        }
+    }
+
+    /// The per-case client seam.
+    ///
+    /// The suite points this gateway's state root at a symlink that every case
+    /// repoints at its own directory, so the request log lands beside the case
+    /// being run. The conformance harness reads it to name the transport the
+    /// backend actually used.
+    ///
+    /// Only a harness-configured gateway (`log` set) writes it, so a unit test
+    /// never leaves a stray file beside its temporary state root.
+    fn record_client_transport(&self, line: &str) {
+        if self.log.is_none() {
+            return;
+        }
+        let Ok(state) = fs::canonicalize(&self.state) else {
+            return;
+        };
+        let Some(case_dir) = state.parent() else {
+            return;
+        };
+        let path = case_dir.join("client-requests.log");
+        if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+            use std::io::Write;
+            let _ = writeln!(file, "{line}");
         }
     }
 
@@ -314,6 +403,78 @@ fn phase_code(phase: &str) -> i32 {
         _ => proto::SandboxPhase::Unknown,
     };
     value as i32
+}
+
+/// Keeps the active count honest: the count falls when the response stream is
+/// dropped, which is the observable an interrupt test asserts on.
+struct ActiveGuard(Arc<AtomicUsize>);
+
+impl Drop for ActiveGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// A response stream that yields its buffered events and then stays open, so
+/// the caller can be interrupted while it is still live.
+struct HeldStream<T> {
+    first: Vec<T>,
+    _guard: Option<ActiveGuard>,
+}
+
+impl<T> Unpin for HeldStream<T> {}
+
+impl<T> tokio_stream::Stream for HeldStream<T> {
+    type Item = T;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let held = self.get_mut();
+        if held.first.is_empty() {
+            return std::task::Poll::Pending;
+        }
+        let item = held.first.remove(0);
+        std::task::Poll::Ready(Some(item))
+    }
+}
+
+fn stub_log_line(sandbox_id: &str, message: String) -> proto::SandboxLogLine {
+    proto::SandboxLogLine {
+        sandbox_id: sandbox_id.to_string(),
+        level: "INFO".to_string(),
+        target: "stub".to_string(),
+        message,
+        source: "sandbox".to_string(),
+        ..Default::default()
+    }
+}
+
+/// The equivalent CLI argv a log read stands for, so a case asserting the
+/// seam keeps the same shape after the conversion.
+fn log_words(request: &proto::WatchSandboxRequest) -> Vec<String> {
+    let mut words = vec!["logs".to_string(), request.sandbox.clone()];
+    if request.follow_logs {
+        words.push("--tail".to_string());
+    }
+    if let Some(since) = request.since_time.as_ref() {
+        words.push("--since".to_string());
+        words.push(
+            (since.seconds.saturating_mul(1000) + i64::from(since.nanos) / 1_000_000).to_string(),
+        );
+    }
+    for source in &request.log_sources {
+        words.push("--source".to_string());
+        words.push(source.clone());
+    }
+    if !request.log_min_level.is_empty() {
+        words.push("--level".to_string());
+        words.push(request.log_min_level.to_lowercase());
+    }
+    words.push("-n".to_string());
+    words.push(request.log_tail_lines.to_string());
+    words
 }
 
 #[tonic::async_trait]
@@ -572,6 +733,12 @@ impl OpenShell for Stub {
             )));
         }
         let mut attached = self.attached(&request.sandbox);
+        if self.state.join("attach_fail").exists() {
+            return Err(tonic::Status::unavailable(format!(
+                "stub: attach of {} timed out waiting for the supervisor",
+                request.provider
+            )));
+        }
         if !attached.contains(&request.provider) {
             attached.push(request.provider.clone());
             self.set_attached(&request.sandbox, &attached)
@@ -624,7 +791,7 @@ impl OpenShell for Stub {
         let request = request.into_inner();
         let name = request.name;
         self.record(&["sandbox", "delete", &name]);
-        if self.delete_fail {
+        if self.delete_fail || self.state.join("delete_fail").exists() {
             return Err(tonic::Status::internal(format!(
                 "cannot delete sandbox {name}"
             )));
@@ -768,6 +935,21 @@ impl OpenShell for Stub {
                 },
             )),
         }));
+        if self.exec_hold {
+            events.pop();
+            self.active_streams.fetch_add(1, Ordering::SeqCst);
+            let held = HeldStream {
+                first: events,
+                _guard: Some(ActiveGuard(self.active_streams.clone())),
+            };
+            return Ok(tonic::Response::new(
+                Box::pin(held) as Self::ExecSandboxStream
+            ));
+        }
+        if self.exec_interrupt {
+            events.pop();
+            events.push(Err(tonic::Status::unavailable("stream interrupted")));
+        }
         Ok(tonic::Response::new(
             Box::pin(tokio_stream::iter(events)) as Self::ExecSandboxStream
         ))
@@ -805,9 +987,15 @@ impl OpenShell for Stub {
             .unwrap_or_default();
         // The credential's FIELD is recorded; its value never is.
         let fields: Vec<&str> = provider.credentials.keys().map(String::as_str).collect();
+        if let Ok(mut supplied) = self.credentials.lock() {
+            supplied.extend(provider.credentials.iter().map(|(k, v)| (k.clone(), v.clone())));
+        }
         let mut words = vec!["provider", "create", "--name", &name];
         words.extend(fields.iter());
         self.record(&words);
+        if self.credential_reject && !fields.is_empty() {
+            return Err(tonic::Status::invalid_argument("credential rejected"));
+        }
         self.add_provider(&name)
             .map_err(|error| tonic::Status::internal(error.to_string()))?;
         Ok(tonic::Response::new(proto::ProviderResponse {
@@ -1094,9 +1282,37 @@ impl OpenShell for Stub {
         &self,
         request: tonic::Request<proto::GetSandboxLogsRequest>,
     ) -> std::result::Result<tonic::Response<proto::GetSandboxLogsResponse>, tonic::Status> {
-        Err(tonic::Status::unimplemented(
-            "stub-gateway: get_sandbox_logs",
-        ))
+        let request = request.into_inner();
+        let lines_text = request.lines.to_string();
+        let mut words = vec!["logs".to_string(), request.sandbox.clone()];
+        words.push("-n".to_string());
+        words.push(lines_text);
+        let borrowed: Vec<&str> = words.iter().map(String::as_str).collect();
+        self.record(&borrowed);
+        if self.phase(&request.sandbox).is_none() {
+            return Err(tonic::Status::not_found(format!(
+                "sandbox {} not found",
+                request.sandbox
+            )));
+        }
+        let id = self
+            .id_of(&request.sandbox)
+            .unwrap_or_else(|| format!("id-{}", request.sandbox));
+        let mut lines = self.log_lines.clone();
+        if lines.is_empty() {
+            lines.push("stub log line".to_string());
+        }
+        if request.lines > 0 && lines.len() > request.lines as usize {
+            lines = lines.split_off(lines.len() - request.lines as usize);
+        }
+        let logs = lines
+            .into_iter()
+            .map(|message| stub_log_line(&id, message))
+            .collect();
+        Ok(tonic::Response::new(proto::GetSandboxLogsResponse {
+            logs,
+            buffer_total: self.log_lines.len() as u32,
+        }))
     }
 
     async fn push_sandbox_logs(
@@ -1195,7 +1411,44 @@ impl OpenShell for Stub {
         &self,
         request: tonic::Request<proto::WatchSandboxRequest>,
     ) -> std::result::Result<tonic::Response<Self::WatchSandboxStream>, tonic::Status> {
-        Err(tonic::Status::unimplemented("stub-gateway: watch_sandbox"))
+        let request = request.into_inner();
+        let words = log_words(&request);
+        let borrowed: Vec<&str> = words.iter().map(String::as_str).collect();
+        self.record(&borrowed);
+        if self.phase(&request.sandbox).is_none() {
+            return Err(tonic::Status::not_found(format!(
+                "sandbox {} not found",
+                request.sandbox
+            )));
+        }
+        let id = self
+            .id_of(&request.sandbox)
+            .unwrap_or_else(|| format!("id-{}", request.sandbox));
+        let mut lines = self.log_lines.clone();
+        if lines.is_empty() {
+            lines.push("stub log line".to_string());
+        }
+        if request.log_tail_lines > 0 && lines.len() > request.log_tail_lines as usize {
+            lines = lines.split_off(lines.len() - request.log_tail_lines as usize);
+        }
+        let mut events: Vec<std::result::Result<proto::SandboxStreamEvent, tonic::Status>> = lines
+            .into_iter()
+            .enumerate()
+            .map(|(index, message)| {
+                Ok(proto::SandboxStreamEvent {
+                    payload: Some(proto::sandbox_stream_event::Payload::Log(stub_log_line(
+                        &id, message,
+                    ))),
+                    cursor: format!("{}", index + 1),
+                })
+            })
+            .collect();
+        if self.log_error {
+            events.push(Err(tonic::Status::unavailable("stream interrupted")));
+        }
+        Ok(tonic::Response::new(
+            Box::pin(tokio_stream::iter(events)) as Self::WatchSandboxStream
+        ))
     }
 
     async fn submit_policy_analysis(

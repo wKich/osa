@@ -2,22 +2,36 @@
 
 ### Requirement: Every covered gateway operation goes through one typed client
 
-The core SHALL perform each covered gateway operation through a single
+The core SHALL perform each converted gateway operation through a single
 `Gateway` abstraction rather than by building an `openshell` command line. The
-covered operations SHALL be: sandbox create, start, stop, delete, get, and
-list; readiness and deletion waits; exec; log streaming; provider create,
-list, attach, and detach; and rule get, list, and approve.
+operations converted in this change SHALL be: sandbox start, stop, delete, get,
+and list; readiness and deletion waits; log streaming; provider list, attach,
+and detach; and rule approve.
 
-For a covered operation, no code path SHALL construct gateway argv or parse
+The client SHALL implement, and the suite SHALL cover, sandbox create, exec,
+provider create, and rule get and list as well. Their command paths MAY keep the
+CLI where the client surface cannot express the command, and each such
+exemption SHALL be named in the transport note with its reason:
+
+- sandbox create: the create argv is the visible argument surface, and the
+  create-race exit status is part of the command's behaviour;
+- exec: the interactive session needs a terminal's stdin, and script and probe
+  execs must keep their per-run fixtures intact;
+- provider create: `--from-existing` and `--global-profile` have no request
+  field;
+- rule get and list: `policy review` renders the CLI's full policy text.
+
+For a converted operation, no code path SHALL construct gateway argv or parse
 gateway command output.
 
 #### Scenario: A converted operation builds no gateway argv
 - **WHEN** a converted command runs against the recording client
 - **THEN** its transcript contains gateway requests and no `openshell` process invocation
 
-#### Scenario: An uncovered operation stays explicit
+#### Scenario: An exempt or uncovered operation stays explicit
 - **WHEN** the core uploads or downloads a file, or asks for gateway info
-- **THEN** that call is the only kind that spawns `openshell`, and it is reachable from one module
+- **THEN** that call is reachable from `gateway/cli.rs`, and every exempt
+  command path is named in the transport note
 
 ### Requirement: Endpoint discovery happens in one place
 

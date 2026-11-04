@@ -102,6 +102,65 @@ backend with `OSA_BACKEND_<TAG>`), and fail with a message naming `make build`
 when it is absent. The helper still reads `examples/` and `bridge/` from the
 repository root, so a copied shim alone does not run.
 
+### Gateway transport
+
+The core reaches OpenShell in one of two ways, and the split is explicit in
+`osa-core/crates/osa-core/src/gateway/`:
+
+- **Typed client** (`gateway/sdk.rs`, `openshell-sdk` v0.1.5): sandbox `get`,
+  `list`, `start`, `stop`, and `delete`, the readiness and deletion waits, log
+  streaming (`logs`), provider `list`/`attach`/`detach`, and rule approval.
+  Streamed exec, provider creation, and rule listing are implemented and tested
+  at the client seam; their commands keep the CLI for the reasons below.
+- **OpenShell CLI** (`gateway/cli.rs`): everything the client does not cover.
+  File upload and download stay here because the curated client has no transfer
+  method and `raw_grpc` coverage for it is unverified. Endpoint discovery,
+  gateway status, policy show/apply, settings, and provider profile
+  import/lint also stay on the CLI.
+- **Exempt command paths**, recorded here rather than left implicit:
+  - `sandbox create` keeps the CLI so the create arguments (`--from`,
+    `--policy`, `--cpu`, `--memory`, `--provider`, `--env`, `--env-from`) stay
+    visible in one place and the create-race exit status is unchanged.
+  - The interactive agent session (`maki-oss run`, `maki-oss` bare) runs
+    `openshell sandbox exec` because the typed exec cannot inherit a terminal's
+    stdin or TTY. Script and probe execs also keep the CLI so their per-run
+    fixtures reach the sandbox unchanged.
+  - `provider add` and `provider setup` keep `openshell provider create`
+    because `--from-existing` and `--global-profile` have no request field.
+  - `policy review` and the pending-proposal note keep `openshell rule get`
+    because they render the CLI's full policy text.
+
+`OSA_GATEWAY_TRANSPORT=cli` selects the CLI transport for every covered
+operation instead of the typed client. It is the rollback path and how the
+conformance suite runs one case set over each transport; it is explicit and
+never a fallback.
+
+Endpoint discovery happens in one place, in this order:
+
+1. an explicit selection: `--gateway`, `MAKI_OSS_GATEWAY` (or the agent's own
+   prefix), or the `gateway` config key;
+2. one `openshell gateway info --output json` call, cached for the life of the
+   process.
+
+The core never reads OpenShell's gateway registry under
+`~/.config/openshell/gateways`; OpenShell remains the owner of its own
+configuration. A discovery failure exits non-zero, names the gateway and the
+sources it tried, and gives the fix before any state changes.
+
+The typed client can use plaintext transport, a bearer token
+(`OPENSHELL_TOKEN`), or an mTLS client certificate supplied with `--tls-dir`
+(`ca.crt`, `tls.crt`, `tls.key`). If discovery reports the mTLS mode and no
+certificate is supplied, the command fails naming the mode and the supported
+alternatives (bearer token or plaintext) with exit status 2; there is no
+automatic fallback to the CLI, because that would give the same command two
+different behaviours depending on host configuration.
+
+The commands in this section run as written:
+
+```bash
+openshell gateway info --output json   # the one discovery call
+```
+
 ## Configuration
 
 Settings resolve in this order (first non-empty wins):

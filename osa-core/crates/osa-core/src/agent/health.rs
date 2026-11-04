@@ -1141,18 +1141,7 @@ fn sandbox_probe(ctx: &Context, name: &str, program: &str) -> bool {
 }
 
 fn provider_names(ctx: &Context) -> Option<Vec<String>> {
-    let output = ctx
-        .openshell(&["provider", "list", "--names"])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    output.status.success().then(|| {
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(str::to_string)
-            .collect()
-    })
+    ctx.provider_names().ok()
 }
 
 fn find_in_path(name: &str) -> Option<PathBuf> {

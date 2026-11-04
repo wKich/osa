@@ -40,7 +40,7 @@ pub fn up(ctx: &Context) -> Outcome {
                 ));
             } else {
                 ctx.say(&format!("Starting sandbox '{name}' (phase: {phase})..."));
-                ctx.run_gateway(&["sandbox", "start", &name])?;
+                ctx.start_sandbox(&name)?;
             }
         }
         None => {
@@ -318,39 +318,46 @@ pub fn list(ctx: &Context) -> Outcome {
 pub fn logs(ctx: &Context) -> Outcome {
     ctx.require_openshell()?;
     let name = ctx.sandbox_name()?;
-    let mut args: Vec<String> = vec!["logs".into(), name];
-    if ctx.options.tail {
-        args.push("--tail".into());
-    }
-    if let Some(value) = ctx.options.since.as_ref().filter(|value| !value.is_empty()) {
-        args.push("--since".into());
-        args.push(value.clone());
-    }
-    if let Some(value) = ctx
+    let lines = ctx
         .options
-        .source
+        .lines
         .as_ref()
         .filter(|value| !value.is_empty())
-    {
-        args.push("--source".into());
-        args.push(value.clone());
-    }
-    if let Some(value) = ctx.options.level.as_ref().filter(|value| !value.is_empty()) {
-        args.push("--level".into());
-        args.push(value.clone());
-    }
-    if let Some(value) = ctx.options.lines.as_ref().filter(|value| !value.is_empty()) {
-        args.push("-n".into());
-        args.push(value.clone());
-    }
-    let words: Vec<&str> = args.iter().map(String::as_str).collect();
-    ctx.run_gateway(&words)
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(200);
+    let options = crate::gateway::LogOptions {
+        follow: ctx.options.tail,
+        lines,
+        since: ctx
+            .options
+            .since
+            .as_ref()
+            .filter(|value| !value.is_empty())
+            .cloned(),
+        sources: ctx
+            .options
+            .source
+            .iter()
+            .filter(|value| !value.is_empty())
+            .cloned()
+            .collect(),
+        level: ctx
+            .options
+            .level
+            .as_ref()
+            .filter(|value| !value.is_empty())
+            .cloned(),
+    };
+    let client = ctx.client()?;
+    let mut sink = std::io::stdout();
+    crate::gateway::block_on(client.logs(&name, options, &mut sink))
+        .map_err(|error| Failure::new(error.code(), error.message()))
 }
 
 pub fn start(ctx: &Context) -> Outcome {
     ctx.require_openshell()?;
     let name = ctx.sandbox_name()?;
-    ctx.run_gateway(&["sandbox", "start", &name])?;
+    ctx.start_sandbox(&name)?;
     ctx.say(&format!("Sandbox '{name}' started."));
     Ok(())
 }
@@ -358,7 +365,7 @@ pub fn start(ctx: &Context) -> Outcome {
 pub fn stop(ctx: &Context) -> Outcome {
     ctx.require_openshell()?;
     let name = ctx.sandbox_name()?;
-    ctx.run_gateway(&["sandbox", "stop", &name])?;
+    ctx.stop_sandbox(&name)?;
     ctx.say(&format!("Sandbox '{name}' stopped."));
     Ok(())
 }
@@ -411,7 +418,7 @@ pub fn rm(ctx: &Context) -> Outcome {
         }
     }
     ctx.say(&format!("Deleting sandbox '{name}'..."));
-    ctx.run_gateway(&["sandbox", "delete", &name])?;
+    ctx.delete_sandbox(&name)?;
     if state_dir.is_dir() {
         archive_state_dir(ctx, &state_dir, "sandbox deleted");
     }
@@ -750,25 +757,21 @@ pub fn provider_attach(ctx: &Context, args: &[OsString]) -> Outcome {
     ctx.require_openshell()?;
     let name = ctx.sandbox_name()?;
     commands_require_sandbox(ctx, &name)?;
-    let mut argv: Vec<String> = vec![
-        "sandbox".into(),
-        "provider".into(),
-        "attach".into(),
-        name.clone(),
-        provider.into(),
-    ];
-    if ctx.options.wait {
-        argv.push("--wait".into());
-    }
-    let words: Vec<&str> = argv.iter().map(String::as_str).collect();
-    ctx.run_gateway(&words)?;
+    // The typed attach returns once the gateway has accepted the provider;
+    // the CLI's `--wait` polls a status the request does not carry.
+    ctx.attach_provider(&name, provider)?;
     ctx.say(&format!("Provider '{provider}' attached to '{name}'."));
     Ok(())
 }
 
 pub fn provider_list(ctx: &Context) -> Outcome {
     ctx.require_openshell()?;
-    ctx.run_gateway(&["provider", "list"])
+    let names = ctx.provider_names()?;
+    ctx.say("NAME");
+    for name in names {
+        ctx.say(&name);
+    }
+    Ok(())
 }
 
 fn commands_require_sandbox(ctx: &Context, name: &str) -> Result<(), Failure> {
@@ -916,16 +919,7 @@ pub fn policy(ctx: &Context, args: &[OsString]) -> Outcome {
                     ));
                 }
             }
-            run_argv(
-                ctx,
-                &[
-                    "rule".to_string(),
-                    "approve".to_string(),
-                    name.clone(),
-                    "--chunk-id".to_string(),
-                    chunk.clone(),
-                ],
-            )?;
+            ctx.approve_rule(&name, &chunk)?;
             ctx.say(&format!("Approved proposal '{chunk}' on '{name}'."));
             Ok(())
         }

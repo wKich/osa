@@ -7,8 +7,8 @@ use std::time::Duration;
 
 use osa_core::gateway::sdk::SdkGateway;
 use osa_core::gateway::{
-    AuthMode, ChunkSink, Endpoint, ExecRequest, Gateway, GatewayError, ProviderSpec, Rule,
-    SandboxSpec,
+    AuthMode, ChunkSink, Credential, Endpoint, ExecRequest, Gateway, GatewayError, LogOptions,
+    ProviderSpec, Rule, SandboxSpec,
 };
 use stub_gateway::Stub;
 
@@ -348,6 +348,79 @@ async fn a_missing_sandbox_is_not_found_and_a_refused_delete_keeps_it() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[tokio::test]
+async fn a_credential_travels_only_in_the_designated_field_and_nowhere_else() {
+    const SENTINEL: &str = "sentinel-credential-value";
+    let dir = state_dir("credential");
+    let stub = Stub::new(&dir, None);
+    let transport = gateway(stub.clone()).await;
+
+    transport
+        .create_provider(ProviderSpec {
+            name: "maki-deepseek".to_string(),
+            profile: "maki-deepseek".to_string(),
+            credential_key: Some("DEEPSEEK_API_KEY".to_string()),
+            credential: Some(Credential::new(SENTINEL)),
+        })
+        .await
+        .expect("provider");
+
+    // The request carried the value in the designated field and nowhere else.
+    assert_eq!(
+        stub.supplied_credentials(),
+        vec![("DEEPSEEK_API_KEY".to_string(), SENTINEL.to_string())]
+    );
+    for request in stub.requests() {
+        assert!(!request.contains(SENTINEL), "{request}");
+        assert!(!request.contains("sentinel"), "{request}");
+    }
+    // Nothing under the state root, nor in a command-visible argv, holds it.
+    fn scan(dir: &std::path::Path) {
+        for entry in std::fs::read_dir(dir).expect("state read") {
+            let entry = entry.expect("entry");
+            let path = entry.path();
+            if path.is_dir() {
+                scan(&path);
+            } else {
+                let text = std::fs::read_to_string(&path).unwrap_or_default();
+                assert!(!text.contains("sentinel-credential-value"), "{path:?}");
+            }
+        }
+    }
+    scan(&dir);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_rejected_credential_names_the_field_and_the_status_but_not_the_value() {
+    const SENTINEL: &str = "sentinel-credential-value";
+    let dir = state_dir("credential-rejected");
+    let stub = Stub::new(&dir, None).with_credential_rejection();
+    let transport = gateway(stub).await;
+
+    let error = transport
+        .create_provider(ProviderSpec {
+            name: "maki-deepseek".to_string(),
+            profile: "maki-deepseek".to_string(),
+            credential_key: Some("DEEPSEEK_API_KEY".to_string()),
+            credential: Some(Credential::new(SENTINEL)),
+        })
+        .await
+        .expect_err("rejected");
+    assert_eq!(
+        error,
+        GatewayError::CredentialRejected {
+            field: "DEEPSEEK_API_KEY".to_string(),
+            status: 3,
+        }
+    );
+    let message = error.message();
+    assert!(message.contains("DEEPSEEK_API_KEY"), "{message}");
+    assert!(message.contains("3"), "{message}");
+    assert!(!message.contains("sentinel"), "{message}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// The sink the streaming cases use; it keeps what it was handed.
 struct Counter {
     bytes: Vec<u8>,
@@ -357,4 +430,100 @@ impl ChunkSink for Counter {
     fn write(&mut self, bytes: &[u8]) {
         self.bytes.extend_from_slice(bytes);
     }
+}
+
+fn log_options(follow: bool) -> LogOptions {
+    LogOptions {
+        follow,
+        lines: 200,
+        since: None,
+        sources: Vec::new(),
+        level: None,
+    }
+}
+
+#[tokio::test]
+async fn a_log_read_drains_its_tail_and_a_following_stream_ends_normally() {
+    let dir = state_dir("logs");
+    let stub = Stub::new(&dir, None).with_logs(&["first line", "second line"]);
+    seed_sandbox(&dir, "demo", "Ready");
+    let transport = gateway(stub).await;
+
+    let mut tail = Counter { bytes: Vec::new() };
+    transport
+        .logs("demo", log_options(false), &mut tail)
+        .await
+        .expect("tail");
+    let text = String::from_utf8_lossy(&tail.bytes);
+    assert!(text.contains("first line"), "{text}");
+    assert!(text.contains("second line"), "{text}");
+
+    // A following stream that ends normally still returns.
+    let mut followed = Counter { bytes: Vec::new() };
+    transport
+        .logs("demo", log_options(true), &mut followed)
+        .await
+        .expect("followed");
+    assert_eq!(followed.bytes, tail.bytes);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn an_interrupted_log_stream_releases_it_and_keeps_what_arrived() {
+    let dir = state_dir("logs-interrupted");
+    let stub = Stub::new(&dir, None)
+        .with_logs(&["before the break"])
+        .with_log_error();
+    seed_sandbox(&dir, "demo", "Ready");
+    let transport = gateway(stub).await;
+
+    let mut sink = Counter { bytes: Vec::new() };
+    let error = transport
+        .logs("demo", log_options(true), &mut sink)
+        .await
+        .expect_err("interrupted");
+    assert_eq!(error.code(), 3);
+    assert!(
+        String::from_utf8_lossy(&sink.bytes).contains("before the break"),
+        "{:?}",
+        sink.bytes
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn an_interrupt_ends_a_streamed_exec_and_releases_the_stream() {
+    let dir = state_dir("exec-interrupt");
+    let stub = Stub::new(&dir, None).with_held_exec("first chunk\n");
+    seed_sandbox(&dir, "demo", "Ready");
+    let transport = gateway(stub.clone()).await;
+
+    let mut sink = Counter { bytes: Vec::new() };
+    let interrupted = tokio::time::timeout(
+        Duration::from_millis(100),
+        transport.exec(
+            ExecRequest {
+                sandbox: "demo".to_string(),
+                command: vec!["sh".to_string(), "-c".to_string(), "sleep 60".to_string()],
+                workdir: None,
+                no_login_shell: true,
+                stdin: None,
+                timeout: None,
+            },
+            &mut sink,
+        ),
+    )
+    .await;
+    assert!(interrupted.is_err(), "the held exec did not stay open");
+    // The chunk written before the interrupt is still delivered.
+    assert_eq!(sink.bytes, b"first chunk\n");
+    // Dropping the exec future aborts the producer and closes the RPC.
+    for _ in 0..100 {
+        if stub.active_streams() == 0 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(stub.active_streams(), 0, "the exec stream stayed open");
+    let _ = std::fs::remove_dir_all(&dir);
 }

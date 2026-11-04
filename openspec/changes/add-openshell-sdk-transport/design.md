@@ -107,13 +107,14 @@ one file.
 transfer, and `raw_grpc` coverage for upload/download is unverified. Keeping it
 explicit is more honest than a half-migrated abstraction.
 
-*What actually happened:* `gateway/cli.rs` ended up holding only the `openshell`
-process builder and `gateway_info`, because the converted operations were never
-removed from `agent/` — they were never there to remove. The 26 remaining spawns
-are `agent/gateway.rs::run_gateway`, and upload and download are in
-`agent/session.rs`. The one-file property this decision exists for does not hold
-yet; section 8 of `tasks.md` is the rest of it, and D11 records the seam that
-took the recorder's place in the meantime.
+*What actually happened:* `gateway/cli.rs` now holds the `openshell` process
+builder, `gateway_info`, the upload and download methods with their `raw_grpc`
+note (5.5), and the CLI transport. Converted operations are sandbox `start`,
+`stop`, `delete`, `get`, and `list`, the waits, `logs`, provider `list`,
+`attach`, and `detach`, and rule approval. The command paths that keep the CLI
+are listed in the transport note and in `tasks.md`: sandbox create, interactive
+and script/probe exec, provider create, and rule get/list. D11 records the seam
+that took the recorder's place in the meantime.
 
 ### D5. Streaming exec is a chunk stream, not a buffered result
 
@@ -125,9 +126,9 @@ comes from a bounded channel rather than unbounded buffering.
 as text; a buffered RPC result would change when output becomes visible to a
 user watching a long run.
 
-*Known deviation:* log streaming sets the client's follow flag unconditionally
-and uses the caller's `follow` argument only for the tail length, so a
-non-following call does not terminate. Task 4.5 covers it.
+The log path carries the command's filter surface (`follow`, tail length,
+`since`, sources, and level); a non-following call reads one batch and returns,
+and a following stream ends normally or is released when interrupted.
 
 ### D6. Recording lives behind a test-only feature
 
@@ -140,11 +141,10 @@ cannot produce a transcript even if the variable is set.
 It puts a code path in the binary whose only purpose is to write gateway requests
 to disk, and requests can carry credentials.
 
-*Current state:* the feature gate is in place and no target enables it, so the
-module is neither built nor tested today, and its provider fixture predates
-`ProviderSpec::credential_key`, so enabling the feature does not compile. Task
-2.5 makes the seam real. This is also why the recorder is not what verifies the
-transport right now — D11 is.
+*Current state:* the fixture carries `ProviderSpec::credential_key`, the
+feature compiles, its five tests run, and `make test-core` enables it. D11's
+fake gateway remains the verification of the wire surface; the recorder answers
+the separate questions of stability and redaction.
 
 ### D7. Secret payloads are typed per field, and tracing never sees them
 
@@ -216,6 +216,20 @@ secret; the fake server answers whether a gateway accepts the request and
 whether the client reads the answer. Neither substitutes for the other, which is
 why D6 is fixed rather than deleted.
 
+### D12. A selectable CLI transport makes parity measurable
+
+The migration plan's rollback step needs a way to run the same command over the
+old transport, and the conformance suite needs two transports for one case set.
+`OSA_GATEWAY_TRANSPORT=cli` therefore selects `CliGateway` in
+`gateway/cli_transport.rs`; the default remains the typed client. The choice is
+explicit and never a fallback, so a gateway failure cannot silently change
+which transport a command used.
+
+*Why not a compile-time feature:* the conformance suite runs the release
+binary, and a test-only transport would need a second build for every parity
+run. The CLI implementation is a real rollback path, not test scaffolding, so
+it lives in the product rather than behind a feature that would hide it.
+
 ## Risks / Trade-offs
 
 - **Source-pinned dependency churn** (a tag bump compiles new upstream code) →
@@ -251,11 +265,13 @@ why D6 is fixed rather than deleted.
    trait is not reachable from a command, so behavior is unchanged because
    nothing switched over. Parity is trivially identical, and also unexercised.
 2. Wire the client into the command context, then convert one operation family
-   at a time (sandbox CRUD, then exec and logs, then providers, then rules),
-   switching its conformance cases to the client transport and requiring
-   `transport-changed` with identical state and output.
+   at a time (sandbox lifecycle, then logs, then providers, then rule
+   approval), switching its conformance cases to the client transport and
+   requiring `transport-changed` with identical state and output.
 3. Delete the CLI implementations of converted operations; `gateway/cli.rs`
-   keeps only file transfer and gateway info.
+   keeps only file transfer, gateway info, and the selectable CLI transport.
+   The command paths that still need the CLI are named in the transport note
+   and are the subject of `convert-remaining-gateway-operations`.
 4. Roll back one family at a time by re-pointing the trait method at the CLI
    implementation. No on-disk format changes, so no state migration is needed.
 

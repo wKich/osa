@@ -439,7 +439,7 @@ fn ready_sandbox(ctx: &Context, name: &str, start: bool) -> Result<String, (i32,
                 ));
             }
             ctx.note(&format!("Starting sandbox '{name}' (phase: {stopped})..."));
-            ctx.run_gateway(&["sandbox", "start", name])
+            ctx.start_sandbox(name)
                 .map_err(|failure| (failure.code, failure.lines.join("\n")))?;
             super::session::wait_for_sandbox_ready(ctx, name)
                 .map_err(|failure| (failure.code, failure.lines.join("\n")))?;
@@ -734,10 +734,8 @@ fn rescue_action(mut resolve: Resolve<'_>) -> Outcome {
     let dest_arg = format!("{}/", dest.display());
     let downloaded = resolve
         .ctx
-        .openshell(&["sandbox", "download", &resolve.name, &workdir, &dest_arg])
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false);
+        .download(&resolve.name, &workdir, &dest_arg)
+        .is_ok();
     if !downloaded {
         let _ = fs::remove_dir_all(&dest);
         let message = format!(
@@ -971,28 +969,18 @@ pub fn remove(ctx: &Context, args: &[OsString]) -> Outcome {
         return remove.finish(error.code(), &error.message());
     }
 
-    let listed = ctx
-        .openshell(&["sandbox", "list", "--output", "json"])
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .output();
-    let Some(listed) = listed.ok().filter(|output| output.status.success()) else {
-        return remove.finish(
+    let list = ctx.list_sandboxes().map_err(|_| {
+        (
             EX_FAILED,
-            "cannot list sandboxes; is the gateway running? Nothing changed",
-        );
+            "cannot list sandboxes; is the gateway running? Nothing changed".to_string(),
+        )
+    });
+    let present = match list {
+        Ok(sandboxes) => sandboxes.iter().any(|sandbox| sandbox.name == name),
+        Err((code, message)) => return remove.finish(code, &message),
     };
-    let payload = String::from_utf8_lossy(&listed.stdout);
-    let present = crate::gateway::sandboxes(&payload)
-        .ok()
-        .is_some_and(|sandboxes| sandboxes.iter().any(|sandbox| sandbox.name == name));
     if present {
-        let deleted = ctx
-            .openshell(&["sandbox", "delete", &name])
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false);
+        let deleted = ctx.delete_sandbox(&name).is_ok();
         if !deleted {
             return remove.finish(
                 EX_FAILED,

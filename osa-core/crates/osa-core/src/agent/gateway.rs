@@ -1,9 +1,10 @@
 //! The OpenShell seam: every gateway call the front-ends make.
 
 use std::os::unix::io::FromRawFd;
-use std::process::{Command, Output, Stdio};
+use std::process::{Command, Stdio};
+use std::sync::Arc;
 
-use crate::gateway;
+use crate::gateway::{self, ExecOutput, ExecRequest, Gateway, GatewayError};
 
 use super::context::Context;
 use super::failure::{Failure, Outcome};
@@ -45,15 +46,6 @@ impl Context {
         )))
     }
 
-    fn capture(&self, args: &[&str]) -> Option<Output> {
-        self.openshell(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .output()
-            .ok()
-    }
-
     pub fn require_openshell(&self) -> Outcome {
         if crate::state::command_in_path("openshell") {
             Ok(())
@@ -64,78 +56,184 @@ impl Context {
         }
     }
 
+    /// Map one typed failure onto the command's exit status and message.
+    fn gateway_failure(error: GatewayError) -> Failure {
+        Failure::new(error.code(), error.message())
+    }
+
+    /// Run one typed call, turning a transport failure into a command failure.
+    fn gateway_call<T>(
+        &self,
+        call: impl FnOnce(Arc<dyn Gateway>) -> Result<T, GatewayError>,
+    ) -> Result<T, Failure> {
+        let client = self.client()?;
+        call(client).map_err(Self::gateway_failure)
+    }
+
+    pub fn start_sandbox(&self, name: &str) -> Outcome {
+        self.gateway_call(|client| gateway::block_on(client.start_sandbox(name)))
+            .map(|_| ())
+    }
+
+    pub fn stop_sandbox(&self, name: &str) -> Outcome {
+        self.gateway_call(|client| gateway::block_on(client.stop_sandbox(name)))
+            .map(|_| ())
+    }
+
+    pub fn delete_sandbox(&self, name: &str) -> Outcome {
+        self.gateway_call(|client| gateway::block_on(client.delete_sandbox(name)))
+            .map(|_| ())
+    }
+
+    pub fn wait_ready(&self, name: &str, timeout: std::time::Duration) -> Outcome {
+        self.gateway_call(|client| gateway::block_on(client.wait_ready(name, timeout)))
+            .map(|_| ())
+    }
+
+    pub fn attach_provider(&self, name: &str, provider: &str) -> Outcome {
+        self.gateway_call(|client| gateway::block_on(client.attach_provider(name, provider)))
+    }
+
+    pub fn list_sandboxes(&self) -> Result<Vec<gateway::Sandbox>, Failure> {
+        self.gateway_call(|client| gateway::block_on(client.list_sandboxes()))
+    }
+
+    pub fn provider_names(&self) -> Result<Vec<String>, Failure> {
+        self.gateway_call(|client| gateway::block_on(client.list_providers()))
+    }
+
+    pub fn attached_provider_names(&self, name: &str) -> Result<Vec<String>, Failure> {
+        self.gateway_call(|client| gateway::block_on(client.attached_providers(name)))
+    }
+
+    /// One buffered exec, for probes and script reads whose whole output is
+    /// needed. The interactive session stays on the CLI: the typed exec cannot
+    /// inherit a terminal's stdin.
+    pub fn exec_buffered(
+        &self,
+        name: &str,
+        command: Vec<String>,
+        workdir: Option<String>,
+        no_login_shell: bool,
+    ) -> Option<ExecOutput> {
+        let request = ExecRequest {
+            sandbox: name.to_string(),
+            command,
+            workdir,
+            no_login_shell,
+            stdin: None,
+            timeout: None,
+        };
+        self.gateway_call(|client| gateway::block_on(client.exec_buffered(request)))
+            .ok()
+    }
+
+    pub fn approve_rule(&self, name: &str, chunk: &str) -> Outcome {
+        self.gateway_call(|client| gateway::block_on(client.approve_rule(name, chunk)))
+    }
+
+    pub fn rule_names(&self, name: &str, pending_only: bool) -> Result<Vec<String>, Failure> {
+        let rules = self.gateway_call(|client| gateway::block_on(client.list_rules(name)))?;
+        Ok(rules
+            .into_iter()
+            .filter(|rule| !pending_only || rule.status.as_deref() == Some("pending"))
+            .map(|rule| rule.name)
+            .collect())
+    }
+
+    /// Map one file-transfer failure onto the command's exit status and text.
+    fn transfer_failure(error: gateway::cli::TransferError) -> Failure {
+        match error {
+            gateway::cli::TransferError::Spawn(error) => Failure::dep(format!(
+                "cannot run openshell: {error}; install it from https://github.com/NVIDIA/OpenShell"
+            )),
+            gateway::cli::TransferError::Exit(code) => {
+                Failure::gateway(format!("openshell command failed (exit status {code})"))
+            }
+        }
+    }
+
+    fn cli(&self) -> gateway::cli::Cli {
+        gateway::cli::Cli::new("openshell")
+    }
+
+    pub fn upload(
+        &self,
+        name: &str,
+        source: &str,
+        destination: &str,
+        no_git_ignore: bool,
+    ) -> Outcome {
+        self.cli()
+            .upload(
+                self.gateway().as_deref(),
+                name,
+                source,
+                destination,
+                no_git_ignore,
+                self.gateway_stdout_to_stderr.get(),
+            )
+            .map_err(Self::transfer_failure)
+    }
+
+    pub fn download(&self, name: &str, source: &str, destination: &str) -> Outcome {
+        self.download_to(name, source, destination, false)
+    }
+
+    /// A download whose progress goes to stderr, for a loop already writing a
+    /// report to stdout.
+    pub fn download_to(
+        &self,
+        name: &str,
+        source: &str,
+        destination: &str,
+        stdout_to_stderr: bool,
+    ) -> Outcome {
+        self.cli()
+            .download(
+                self.gateway().as_deref(),
+                name,
+                source,
+                destination,
+                stdout_to_stderr || self.gateway_stdout_to_stderr.get(),
+            )
+            .map_err(Self::transfer_failure)
+    }
+
     pub fn sandbox_phase(&self, name: &str) -> Result<Option<String>, Failure> {
         self.require_openshell()?;
-        let output = self.capture(&["sandbox", "list", "--output", "json"]);
-        let Some(output) = output.filter(|output| output.status.success()) else {
-            return Err(Failure::gateway(format!(
+        let client = self.client()?;
+        match crate::gateway::block_on(client.get_sandbox(name)) {
+            Ok(found) => Ok(found.and_then(|sandbox| sandbox.phase)),
+            Err(_) => Err(Failure::gateway(format!(
                 "cannot list sandboxes; is the gateway running? Try '{} doctor'",
                 self.program()
-            )));
-        };
-        let payload = String::from_utf8_lossy(&output.stdout);
-        let found = gateway::sandboxes(&payload).ok().and_then(|sandboxes| {
-            sandboxes
-                .into_iter()
-                .find(|sandbox| sandbox.name == name)
-                .and_then(|sandbox| sandbox.phase)
-        });
-        Ok(found)
+            ))),
+        }
     }
 
     pub fn sandbox_id(&self, name: &str) -> Option<String> {
-        if let Some(output) = self.capture(&["sandbox", "get", name, "--output", "json"]) {
-            if output.status.success() {
-                let payload = String::from_utf8_lossy(&output.stdout);
-                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&payload) {
-                    if let Some(id) = value.get("id").and_then(serde_json::Value::as_str) {
-                        return Some(id.to_string());
-                    }
-                }
-                if let Some(id) = json_field(&payload, "id") {
-                    return Some(id);
-                }
-                return None;
-            }
-        }
-        let output = self.capture(&["sandbox", "get", name])?;
-        if !output.status.success() {
-            return None;
-        }
-        let payload = String::from_utf8_lossy(&output.stdout);
-        payload.lines().find_map(|line| {
-            line.trim()
-                .strip_prefix("Id:")
-                .map(|id| id.trim().to_string())
-        })
+        let client = self.client().ok()?;
+        crate::gateway::block_on(client.get_sandbox(name))
+            .ok()
+            .flatten()
+            .and_then(|sandbox| sandbox.id)
     }
 
     pub fn attached_providers(&self, name: &str) -> Result<Vec<String>, Failure> {
-        let output = self.capture(&["sandbox", "provider", "list", name, "--output", "json"]);
-        let Some(output) = output.filter(|output| output.status.success()) else {
-            return Err(Failure::gateway(format!(
-                "cannot list providers attached to '{name}'"
-            )));
-        };
-        let payload = String::from_utf8_lossy(&output.stdout);
-        gateway::providers(&payload)
-            .map_err(|_| Failure::gateway(format!("cannot list providers attached to '{name}'")))
+        self.attached_provider_names(name).map_err(|_| {
+            Failure::gateway(format!("cannot list providers attached to '{name}'"))
+        })
     }
 
+    /// Every provider name on the gateway.
     pub fn gateway_provider_names(&self) -> Result<Vec<String>, Failure> {
-        let output = self.capture(&["provider", "list", "--names"]);
-        let Some(output) = output.filter(|output| output.status.success()) else {
-            return Err(Failure::gateway(format!(
+        self.provider_names().map_err(|_| {
+            Failure::gateway(format!(
                 "cannot list providers; is the gateway running? Try '{} doctor'",
                 self.program()
-            )));
-        };
-        Ok(String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .map(str::trim)
-            .filter(|line| !line.is_empty())
-            .map(str::to_string)
-            .collect())
+            ))
+        })
     }
 
     pub fn enable_policy_advisor(&self, name: &str) -> bool {
@@ -268,13 +366,4 @@ pub fn sandbox_git_dir(workdir: &str, state_name: &str) -> String {
         .map(|parent| parent.display().to_string())
         .unwrap_or_default();
     format!("{parent}/{state_name}/git")
-}
-
-fn json_field(payload: &str, key: &str) -> Option<String> {
-    let needle = format!("\"{key}\"");
-    let rest = &payload[payload.find(&needle)? + needle.len()..];
-    let rest = rest.trim_start().strip_prefix(':')?.trim_start();
-    let rest = rest.strip_prefix('"')?;
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
 }

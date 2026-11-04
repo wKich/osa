@@ -18,6 +18,7 @@
 //! body in the message.
 
 pub mod cli;
+pub mod cli_transport;
 pub mod credential;
 pub mod discover;
 pub mod error;
@@ -320,6 +321,43 @@ impl ChunkSink for Vec<u8> {
     }
 }
 
+impl ChunkSink for std::io::Stdout {
+    fn write(&mut self, bytes: &[u8]) {
+        use std::io::Write;
+        let _ = self.write_all(bytes);
+        let _ = self.flush();
+    }
+}
+
+/// What a log read needs: the same filter surface the CLI's `logs` command
+/// exposes, so converting the command loses no option.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LogOptions {
+    /// Stream live logs instead of reading one batch.
+    pub follow: bool,
+    /// How many lines the gateway keeps when replaying.
+    pub lines: u32,
+    /// A CLI duration (`5m`, `1h`, `30s`), resolved to an instant by the
+    /// transport.
+    pub since: Option<String>,
+    /// `gateway`, `sandbox`, or `all`; empty means no filter.
+    pub sources: Vec<String>,
+    /// `error`, `warn`, `info`, `debug`, or `trace`; empty means all.
+    pub level: Option<String>,
+}
+
+impl Default for LogOptions {
+    fn default() -> Self {
+        LogOptions {
+            follow: false,
+            lines: 200,
+            since: None,
+            sources: Vec::new(),
+            level: None,
+        }
+    }
+}
+
 /// What creating a provider needs.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ProviderSpec {
@@ -373,11 +411,12 @@ pub trait Gateway: Send + Sync {
     ) -> Result<ExitStatus, GatewayError>;
     /// Buffer an exec's whole output. Probes may buffer; passthrough may not.
     async fn exec_buffered(&self, request: ExecRequest) -> Result<ExecOutput, GatewayError>;
-    /// Stream a sandbox's logs to `sink` until the stream ends.
+    /// Stream a sandbox's logs to `sink` until the stream ends. A non-following
+    /// read drains its tail and returns.
     async fn logs(
         &self,
         sandbox: &str,
-        follow: bool,
+        options: LogOptions,
         sink: &mut (dyn ChunkSink + Send),
     ) -> Result<(), GatewayError>;
 

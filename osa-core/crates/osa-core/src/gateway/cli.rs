@@ -7,7 +7,9 @@
 //! - gateway endpoint discovery (`gateway info --output json`), because the
 //!   client does not read the CLI's gateway configuration from disk;
 //! - file upload and download, because the client's curated surface has no file
-//!   transfer and `raw_grpc` coverage for it is unverified;
+//!   transfer and the generated `raw_grpc` surface has not been verified to
+//!   cover it. That answer is recorded here rather than assumed: an upload or a
+//!   download still runs exactly one `openshell` process.
 //! - the commands the change does not convert at all: policy show/apply/reject,
 //!   settings, and provider profile import.
 //!
@@ -15,11 +17,24 @@
 //! [`super::discover`], and file transfer runs exactly once per file.
 
 use std::io::ErrorKind;
+use std::os::unix::io::FromRawFd;
 use std::process::{Command, Stdio};
 
 use super::discover::SOURCES;
 use super::discover::{AuthMode, Endpoint};
 use super::error::GatewayError;
+
+/// A file-transfer failure: the spawn failed, or `openshell` exited non-zero.
+pub enum TransferError {
+    Spawn(String),
+    Exit(i32),
+}
+
+impl From<std::io::Error> for TransferError {
+    fn from(error: std::io::Error) -> Self {
+        TransferError::Spawn(error.to_string())
+    }
+}
 
 /// The documented recovery line a failed discovery carries.
 pub const DISCOVERY_FIX: &str =
@@ -54,6 +69,68 @@ impl Cli {
         }
         command.args(args);
         command
+    }
+
+    /// `openshell [-g NAME] sandbox upload …`.
+    ///
+    /// File transfer stays on the CLI because the curated client has no
+    /// transfer method and the generated `raw_grpc` surface has not been
+    /// verified to cover it; this is the module's answer to that open question.
+    pub fn upload(
+        &self,
+        gateway: Option<&str>,
+        name: &str,
+        source: &str,
+        destination: &str,
+        no_git_ignore: bool,
+        stdout_to_stderr: bool,
+    ) -> Result<(), TransferError> {
+        let mut args = vec!["sandbox", "upload"];
+        if no_git_ignore {
+            args.push("--no-git-ignore");
+        }
+        args.push(name);
+        args.push(source);
+        args.push(destination);
+        self.transfer(gateway, &args, stdout_to_stderr)
+    }
+
+    /// `openshell [-g NAME] sandbox download …`. Uncovered by the client for
+    /// the same reason as [`Cli::upload`].
+    pub fn download(
+        &self,
+        gateway: Option<&str>,
+        name: &str,
+        source: &str,
+        destination: &str,
+        stdout_to_stderr: bool,
+    ) -> Result<(), TransferError> {
+        self.transfer(
+            gateway,
+            &["sandbox", "download", name, source, destination],
+            stdout_to_stderr,
+        )
+    }
+
+    /// The one process spawn file transfer uses. Both callers route through it
+    /// so the uncovered surface stays in this module.
+    fn transfer(
+        &self,
+        gateway: Option<&str>,
+        args: &[&str],
+        stdout_to_stderr: bool,
+    ) -> Result<(), TransferError> {
+        let mut command: Command = self.command(gateway, args);
+        if stdout_to_stderr {
+            command.stdout(Stdio::from(unsafe {
+                std::fs::File::from_raw_fd(libc::dup(2))
+            }));
+        }
+        let status = command.status()?;
+        if status.success() {
+            return Ok(());
+        }
+        Err(TransferError::Exit(crate::process::exit_code(status)))
     }
 
     /// `openshell [-g NAME] gateway info --output json`, as the endpoint the

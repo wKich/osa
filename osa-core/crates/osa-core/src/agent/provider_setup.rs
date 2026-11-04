@@ -994,21 +994,12 @@ fn run_setup(ctx: &Context, progress: &mut Progress, program: bool) -> Outcome {
     progress.profile = profile_id.clone();
     ctx.require_openshell()?;
 
-    let names = match ctx
-        .openshell(&["provider", "list", "--names"])
-        .stdin(Stdio::null())
-        .output()
-    {
-        Ok(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout).into_owned()
-        }
-        _ => {
-            return Err(Failure::gateway(format!(
-                "cannot list providers; is the gateway running? Try '{} doctor'",
-                ctx.program()
-            )))
-        }
-    };
+    let names = ctx.provider_names().map(|names| names.join("\n")).map_err(|_| {
+        Failure::gateway(format!(
+            "cannot list providers; is the gateway running? Try '{} doctor'",
+            ctx.program()
+        ))
+    })?;
     let provider_exists = names.lines().any(|line| line == provider_name);
     if provider_exists && !ctx.options.yes && !interactive {
         if program {
@@ -1510,21 +1501,12 @@ fn codex_setup(ctx: &Context) -> Outcome {
     }
     ctx.require_openshell()?;
     let interactive = ctx.is_interactive();
-    let names = match ctx
-        .openshell(&["provider", "list", "--names"])
-        .stdin(Stdio::null())
-        .output()
-    {
-        Ok(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout).into_owned()
-        }
-        _ => {
-            return Err(Failure::gateway(format!(
-                "cannot list providers; is the gateway running? Try '{} doctor'",
-                ctx.program()
-            )))
-        }
-    };
+    let names = ctx.provider_names().map(|names| names.join("\n")).map_err(|_| {
+        Failure::gateway(format!(
+            "cannot list providers; is the gateway running? Try '{} doctor'",
+            ctx.program()
+        ))
+    })?;
     let exists = names.lines().any(|line| line == CX_PROVIDER);
     if exists && !options.yes {
         if !interactive {
@@ -1977,22 +1959,12 @@ pub fn providers_report(ctx: &Context, args: &[OsString], text: bool) -> Outcome
     let gateway = if !crate::state::command_in_path("openshell") {
         Err("openshell CLI not found on PATH".to_string())
     } else {
-        match ctx
-            .openshell(&["provider", "list", "--names"])
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-        {
-            Ok(output) if output.status.success() => Ok(String::from_utf8_lossy(&output.stdout)
-                .lines()
-                .map(str::to_string)
-                .filter(|line| !line.is_empty())
-                .collect::<Vec<_>>()),
-            _ => Err(format!(
+        ctx.provider_names().map_err(|_| {
+            format!(
                 "cannot list providers; is the gateway running? Try '{} doctor'",
                 ctx.program()
-            )),
-        }
+            )
+        })
     };
     let profiles = setup_profiles(ctx);
     let remembered: Vec<String> = ctx

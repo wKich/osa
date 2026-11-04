@@ -167,17 +167,23 @@ impl Context {
             .map_err(Failure::dep)
     }
 
-    /// The typed gateway client, connected on first use and reused after that.
+    /// The gateway transport selected for this process: the typed client by
+    /// default, or the CLI when `OSA_GATEWAY_TRANSPORT=cli`.
     ///
-    /// Resolution goes through discovery, so the endpoint stays whatever the
-    /// OpenShell CLI reports. Commands that never ask for the client never run
-    /// discovery and never require it, which keeps registry-only commands
-    /// working on a host with no gateway.
+    /// The CLI choice is the rollback path and how the conformance suite runs
+    /// one case set over each transport. It is explicit, never a fallback: a
+    /// gateway failure must not silently change transports.
     pub fn client(&self) -> Result<Arc<dyn Gateway>, Failure> {
         self.client
             .get_or_init(|| {
                 let endpoint = gateway::discover(self.gateway().as_deref())
                     .map_err(|error| Failure::new(error.code(), error.message()))?;
+                if std::env::var("OSA_GATEWAY_TRANSPORT").as_deref() == Ok("cli") {
+                    return Ok(
+                        Arc::new(gateway::cli_transport::CliGateway::new(endpoint))
+                            as Arc<dyn Gateway>,
+                    );
+                }
                 let identity = self.identity()?;
                 let client = gateway::block_on(gateway::sdk::SdkGateway::connect_with(
                     endpoint, identity,

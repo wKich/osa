@@ -15,15 +15,15 @@ use std::time::Duration;
 use openshell_sdk::raw::proto;
 use openshell_sdk::{
     AuthConfig, ClientConfig, DeleteOptions, EdgeAuthInterceptor, ExecOptions, OpenShellClient,
-    SdkError, WatchEvent, WatchOptions,
+    SdkError,
 };
 use tonic::transport::{Certificate, ClientTlsConfig, Endpoint as TonicEndpoint, Identity};
 
 use super::error::GatewayError;
 use super::tls::ClientIdentity;
 use super::{
-    AuthMode, ChunkSink, Endpoint, ExecOutput, ExecRequest, ExitStatus, Gateway, ProviderSpec,
-    Rule, Sandbox, SandboxSpec,
+    AuthMode, ChunkSink, Endpoint, ExecOutput, ExecRequest, ExitStatus, Gateway, LogOptions,
+    ProviderSpec, Rule, Sandbox, SandboxSpec,
 };
 
 /// How long a readiness or deletion wait polls between reads.
@@ -456,9 +456,12 @@ impl Gateway for SdkGateway {
         // a slow reader slows the stream instead of buffering it.
         enum Event {
             Chunk(Vec<u8>),
+            Error(String),
         }
         let (sender, mut receiver) = tokio::sync::mpsc::channel::<Event>(16);
-        let producer = tokio::spawn(async move {
+        // The producer owns the stream, so cancelling it on drop is what keeps
+        // an interrupted exec from leaving the RPC open.
+        let mut producer = AbortOnDrop(tokio::spawn(async move {
             let mut exit_code = -1;
             loop {
                 match stream.message().await {
@@ -480,26 +483,28 @@ impl Gateway for SdkGateway {
                     },
                     Ok(None) => break,
                     Err(status) => {
-                        let _ = sender
-                            .send(Event::Chunk(format!("stub: {status}").into_bytes()))
-                            .await;
+                        let _ = sender.send(Event::Error(status.message().to_string())).await;
                         break;
                     }
                 }
             }
             exit_code
-        });
-        let mut exit_code = -1;
+        }));
+        let mut failure = None;
         while let Some(event) = receiver.recv().await {
             match event {
                 Event::Chunk(bytes) => sink.write(&bytes),
+                Event::Error(detail) => failure = Some(detail),
             }
         }
-        let produced = producer.await.unwrap_or(-1);
-        if exit_code < 0 {
-            exit_code = produced;
+        let produced = (&mut producer.0).await.unwrap_or(-1);
+        if let Some(detail) = failure {
+            return Err(GatewayError::Failed {
+                operation: "sandbox exec",
+                detail,
+            });
         }
-        Ok(ExitStatus { code: exit_code })
+        Ok(ExitStatus { code: produced })
     }
 
     async fn exec_buffered(&self, request: ExecRequest) -> Result<ExecOutput, GatewayError> {
@@ -528,30 +533,75 @@ impl Gateway for SdkGateway {
     async fn logs(
         &self,
         sandbox: &str,
-        follow: bool,
+        options: LogOptions,
         sink: &mut (dyn ChunkSink + Send),
     ) -> Result<(), GatewayError> {
-        use futures::StreamExt;
-        let options = WatchOptions {
-            follow_logs: true,
-            follow_events: false,
-            log_tail_lines: if follow { 0 } else { 200 },
-            ..Default::default()
-        };
-        let mut stream = Box::pin(self.client.watch_logs(sandbox, options));
-        // Both endings - a normal end and an interrupted stream - leave the
-        // loop here, dropping the stream and releasing the connection.
-        while let Some(event) = stream.next().await {
-            match event {
-                Ok(WatchEvent::Log { line, .. }) => {
-                    sink.write(format!("{}\n", line.message).as_bytes());
+        let since = since_time(options.since.as_deref())?;
+        let sources: Vec<String> = options
+            .sources
+            .into_iter()
+            .filter(|source| source != "all")
+            .collect();
+        let level = options
+            .level
+            .map(|level| level.to_uppercase())
+            .unwrap_or_default();
+        if options.follow {
+            let mut stream = self
+                .client
+                .raw_grpc()
+                .watch_sandbox(proto::WatchSandboxRequest {
+                    workspace_scope: Self::scope(),
+                    sandbox: sandbox.to_string(),
+                    follow_logs: true,
+                    log_tail_lines: options.lines,
+                    since_time: since,
+                    log_sources: sources,
+                    log_min_level: level,
+                    ..Default::default()
+                })
+                .await
+                .map_err(|status| GatewayError::Failed {
+                    operation: "sandbox logs",
+                    detail: status.message().to_string(),
+                })?
+                .into_inner();
+            // Both endings - a normal end and an interrupted stream - leave the
+            // loop here, dropping the stream and releasing the connection.
+            while let Some(event) =
+                stream
+                    .message()
+                    .await
+                    .map_err(|status| GatewayError::Failed {
+                        operation: "sandbox logs",
+                        detail: status.message().to_string(),
+                    })?
+            {
+                if let Some(proto::sandbox_stream_event::Payload::Log(log)) = event.payload {
+                    sink.write(format!("{}\n", format_log_line(&log)).as_bytes());
                 }
-                Ok(WatchEvent::Warning { message }) => {
-                    sink.write(format!("{message}\n").as_bytes());
-                }
-                Ok(_) => {}
-                Err(error) => return Err(Self::map(error, &self.endpoint, "sandbox logs")),
             }
+            return Ok(());
+        }
+        let response = self
+            .client
+            .raw_grpc()
+            .get_sandbox_logs(proto::GetSandboxLogsRequest {
+                workspace_scope: Self::scope(),
+                sandbox: sandbox.to_string(),
+                lines: options.lines,
+                since_time: since,
+                sources,
+                min_level: level,
+            })
+            .await
+            .map_err(|status| GatewayError::Failed {
+                operation: "sandbox logs",
+                detail: status.message().to_string(),
+            })?
+            .into_inner();
+        for log in &response.logs {
+            sink.write(format!("{}\n", format_log_line(log)).as_bytes());
         }
         Ok(())
     }
@@ -727,6 +777,91 @@ impl Gateway for SdkGateway {
                 operation: "rule approve",
                 detail: status.message().to_string(),
             })
+    }
+}
+
+/// A spawned stream producer that is cancelled when its owner is dropped.
+///
+/// Without this, an interrupted exec would leave the producer blocked on the
+/// RPC and the stream open until the gateway closed it.
+struct AbortOnDrop(tokio::task::JoinHandle<i32>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
+/// Resolve the CLI's `--since` duration against the wall clock, in the one
+/// place that builds a request.
+fn since_time(since: Option<&str>) -> Result<Option<prost_types::Timestamp>, GatewayError> {
+    let Some(since) = since else {
+        return Ok(None);
+    };
+    let millis = parse_duration_ms(since).ok_or_else(|| GatewayError::Failed {
+        operation: "sandbox logs",
+        detail: format!("invalid duration: {since} (expected e.g. 5m, 1h, 30s)"),
+    })?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0);
+    let at = now - millis;
+    Ok(Some(prost_types::Timestamp {
+        seconds: at / 1000,
+        nanos: ((at % 1000) * 1_000_000) as i32,
+    }))
+}
+
+/// `5m`, `1h`, `30s` — the units the CLI's `--since` accepts.
+fn parse_duration_ms(value: &str) -> Option<i64> {
+    let value = value.trim();
+    let unit = value.chars().last()?;
+    let number = &value[..value.len() - unit.len_utf8()];
+    let amount: i64 = number.parse().ok()?;
+    if amount <= 0 {
+        return None;
+    }
+    let multiplier = match unit {
+        's' => 1_000,
+        'm' => 60_000,
+        'h' => 3_600_000,
+        _ => return None,
+    };
+    amount.checked_mul(multiplier)
+}
+
+/// One log line, in the wording the CLI prints.
+fn format_log_line(log: &proto::SandboxLogLine) -> String {
+    let source = if log.source.is_empty() {
+        "gateway"
+    } else {
+        &log.source
+    };
+    let millis = log
+        .event_time
+        .as_ref()
+        .map(|stamp| stamp.seconds.saturating_mul(1000) + i64::from(stamp.nanos) / 1_000_000)
+        .unwrap_or(0);
+    let secs = millis / 1000;
+    let fraction = millis % 1000;
+    if log.fields.is_empty() {
+        format!(
+            "[{secs}.{fraction:03}] [{source:<7}] [{:<5}] [{}] {}",
+            log.level, log.target, log.message
+        )
+    } else {
+        let mut fields: Vec<(&String, &String)> = log.fields.iter().collect();
+        fields.sort_by_key(|(key, _)| key.as_str());
+        let rendered = fields
+            .iter()
+            .map(|(key, value)| format!("{key}={value}"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        format!(
+            "[{secs}.{fraction:03}] [{source:<7}] [{:<5}] [{}] {} {}",
+            log.level, log.target, log.message, rendered
+        )
     }
 }
 

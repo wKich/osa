@@ -308,14 +308,7 @@ pub(crate) fn upload_with(ctx: &Context, args: &[OsString], discard: bool) -> Ou
             "Refreshed '{name}:{dest}' from the host directory."
         ));
     } else {
-        let mut gateway: Vec<&str> = vec!["sandbox", "upload"];
-        if ctx.options.no_git_ignore {
-            gateway.push("--no-git-ignore");
-        }
-        gateway.push(&name);
-        gateway.push(&src);
-        gateway.push(&dest);
-        ctx.run_gateway(&gateway)?;
+        ctx.upload(&name, &src, &dest, ctx.options.no_git_ignore)?;
         ctx.say(&format!(
             "Copied '{src}' to '{name}:{dest}' (no workspace refresh or baseline recorded)."
         ));
@@ -354,7 +347,7 @@ pub fn download(ctx: &Context, args: &[OsString]) -> Outcome {
             args[1].to_string_lossy().into_owned(),
         )
     };
-    ctx.run_gateway(&["sandbox", "download", &name, &sandbox_path, &dest])?;
+    ctx.download(&name, &sandbox_path, &dest)?;
     ctx.say(&format!("Downloaded '{name}:{sandbox_path}' to '{dest}'."));
     Ok(())
 }
@@ -425,7 +418,7 @@ fn ensure_project_sandbox(ctx: &Context, sync: &mut SyncSession) -> Outcome {
                 "Ready" => ctx.note(&format!("Reusing sandbox '{name}'.")),
                 "Stopped" | "Completed" | "Error" => {
                     ctx.note(&format!("Starting sandbox '{name}' (phase: {phase})..."));
-                    ctx.run_gateway(&["sandbox", "start", &name])?;
+                    ctx.start_sandbox(&name)?;
                     wait_for_sandbox_ready(ctx, &name)?;
                 }
                 _ => {
@@ -483,7 +476,7 @@ fn ensure_caller_sandbox(ctx: &Context, name: &str) -> Outcome {
             "Ready" => ctx.note(&format!("Reusing sandbox '{name}'.")),
             "Stopped" | "Completed" | "Error" => {
                 ctx.note(&format!("Starting sandbox '{name}' (phase: {phase})..."));
-                ctx.run_gateway(&["sandbox", "start", name])?;
+                ctx.start_sandbox(name)?;
                 wait_for_sandbox_ready(ctx, name)?;
             }
             _ => {
@@ -564,35 +557,7 @@ fn create_sandbox_allow_fail(ctx: &Context, name: &str) -> Result<i32, Failure> 
 }
 
 pub(crate) fn wait_for_sandbox_ready(ctx: &Context, name: &str) -> Outcome {
-    let mut phase = ctx.sandbox_phase(name)?;
-    let mut attempts = 0;
-    while phase.as_deref() != Some("Ready") {
-        match phase.as_deref() {
-            Some("Starting") | Some("Provisioning") => {}
-            None => {
-                return Err(Failure::gateway(format!(
-                    "sandbox '{name}' disappeared while waiting for readiness"
-                )))
-            }
-            Some(other) => {
-                return Err(Failure::gateway(format!(
-                    "sandbox '{name}' is in phase '{other}'; run '{} status' and '{} logs' to investigate",
-                    ctx.program(),
-                    ctx.program()
-                )))
-            }
-        }
-        attempts += 1;
-        if attempts > 60 {
-            return Err(Failure::gateway(format!(
-                "sandbox '{name}' is still '{}' after 120 seconds",
-                phase.unwrap_or_default()
-            )));
-        }
-        std::thread::sleep(std::time::Duration::from_secs(2));
-        phase = ctx.sandbox_phase(name)?;
-    }
-    Ok(())
+    ctx.wait_ready(name, std::time::Duration::from_secs(120))
 }
 
 fn ensure_attach_missing(ctx: &Context, name: &str) -> Outcome {
@@ -604,7 +569,7 @@ fn ensure_attach_missing(ctx: &Context, name: &str) -> Outcome {
     for provider in providers.iter().filter(|provider| !provider.is_empty()) {
         if !attached.contains(provider) {
             ctx.note(&format!("Attaching provider '{provider}'..."));
-            ctx.run_gateway(&["sandbox", "provider", "attach", name, provider, "--wait"])?;
+            ctx.attach_provider(name, provider)?;
         }
     }
     Ok(())
@@ -873,14 +838,10 @@ pub(crate) fn refresh_sandbox_workspace(
         prune_old_paths(ctx, sync);
     }
     ctx.note("Refreshing the workspace from the host...");
-    let mut args: Vec<&str> = vec!["sandbox", "upload"];
-    if ctx.options.no_git_ignore {
-        args.push("--no-git-ignore");
-    }
-    args.push(&sync.name);
-    args.push(".");
-    args.push(&sync.workdir);
-    if ctx.run_gateway(&args).is_err() {
+    if ctx
+        .upload(&sync.name, ".", &sync.workdir, ctx.options.no_git_ignore)
+        .is_err()
+    {
         return false;
     }
     let Some(tree) = ctx.sandbox_script(
@@ -966,7 +927,7 @@ fn prune_old_paths(ctx: &Context, sync: &SyncSession) {
     ));
     let dest_text = dest.to_string_lossy().into_owned();
     let list_text = list.to_string_lossy().into_owned();
-    let uploaded = ctx.run_gateway(&["sandbox", "upload", &sync.name, &list_text, &dest_text]);
+    let uploaded = ctx.upload(&sync.name, &list_text, &dest_text, false);
     if uploaded.is_err() {
         ctx.warn("could not send the tracked-deletion list to the sandbox");
     } else if ctx
@@ -1857,17 +1818,8 @@ fn export_review_files(ctx: &Context, sync: &mut SyncSession, patch: &str) -> i3
         }
         let source = format!("{}/{path}", sync.workdir);
         let downloaded = ctx
-            .openshell(&[
-                "sandbox",
-                "download",
-                &sync.name,
-                &source,
-                &dest.display().to_string(),
-            ])
-            .stdout(stderr_stdio())
-            .status()
-            .map(|status| status.success())
-            .unwrap_or(false);
+            .download_to(&sync.name, &source, &dest.display().to_string(), true)
+            .is_ok();
         if !downloaded {
             failed = true;
             break;

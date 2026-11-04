@@ -86,10 +86,14 @@ client does not offer it and nothing here needs it).
   deny-by-default: the client gains no ability to add or widen a rule beyond
   what the current commands do, and an approval still targets exactly one
   chunk.
-- Status: the client is complete and tested (90 core tests, no gateway, no
-  Docker), and no command calls it yet, so production still runs argv and the
-  conversion in `tasks.md` section 8 is unstarted. The conformance transport
-  dimension described under `helper-conformance` is written and not implemented.
+- Status: the client is complete and tested with no gateway or Docker. Converted
+  commands are sandbox start/stop/delete/get/list, the waits, logs, provider
+  list/attach/detach, and rule approval; sandbox create, interactive and
+  script/probe exec, provider create, and rule get/list keep the CLI and are
+  named in the transport note. The conformance suite declares a transport per
+  case, stores goldens per transport, and reports `transport-changed`; a parity
+  run over each transport passes for the converted cases. The follow-up change
+  `convert-remaining-gateway-operations` carries the remaining conversions.
 - Risk: the SDK is consumed from source and pinned by tag, so a gateway upgrade
   becomes a source dependency bump; the covered surface is partial, so the CLI
   path does not disappear entirely; and a converted operation loses its argv

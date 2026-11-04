@@ -20,8 +20,8 @@ use std::time::Duration;
 use super::credential::REDACTED;
 use super::error::GatewayError;
 use super::{
-    ChunkSink, Credential, Endpoint, ExecOutput, ExecRequest, ExitStatus, Gateway, ProviderSpec,
-    Rule, Sandbox, SandboxSpec,
+    ChunkSink, Credential, Endpoint, ExecOutput, ExecRequest, ExitStatus, Gateway, LogOptions,
+    ProviderSpec, Rule, Sandbox, SandboxSpec,
 };
 
 /// One recorded request: what operation ran, on what, with which non-secret
@@ -206,11 +206,18 @@ impl Gateway for RecordingGateway {
     async fn logs(
         &self,
         sandbox: &str,
-        follow: bool,
+        options: LogOptions,
         sink: &mut (dyn ChunkSink + Send),
     ) -> Result<(), GatewayError> {
-        self.record(Entry::new("logs", sandbox).field("follow", follow.to_string()));
-        self.inner.logs(sandbox, follow, sink).await
+        self.record(
+            Entry::new("logs", sandbox)
+                .field("follow", options.follow.to_string())
+                .field("lines", options.lines.to_string())
+                .field("since", options.since.clone().unwrap_or_default())
+                .field("sources", options.sources.join(","))
+                .field("level", options.level.clone().unwrap_or_default()),
+        );
+        self.inner.logs(sandbox, options, sink).await
     }
 
     async fn list_providers(&self) -> Result<Vec<String>, GatewayError> {
@@ -371,7 +378,7 @@ mod tests {
         async fn logs(
             &self,
             _sandbox: &str,
-            _follow: bool,
+            _options: LogOptions,
             sink: &mut (dyn ChunkSink + Send),
         ) -> Result<(), GatewayError> {
             sink.write(b"log\n");
@@ -457,6 +464,7 @@ mod tests {
                 .create_provider(ProviderSpec {
                     name: "maki-deepseek".to_string(),
                     profile: "maki-deepseek".to_string(),
+                    credential_key: Some("DEEPSEEK_API_KEY".to_string()),
                     credential: Some(Credential::new("sentinel-value")),
                 })
                 .await

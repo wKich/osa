@@ -1,0 +1,6 @@
+@transport client
+@client
+provider list --names
+sandbox get maki-repo --output json
+sandbox get maki-repo --output json
+sandbox provider list maki-repo --output json

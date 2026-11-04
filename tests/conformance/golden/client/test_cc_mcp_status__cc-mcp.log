@@ -1,0 +1,331 @@
+@transport client
+---
+gateway
+info
+--output
+json
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+get
+cc-myproject
+--output
+json
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--
+cat
+/sandbox/.claude.json
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+provider
+list
+cc-myproject
+--output
+json
+---
+policy
+get
+cc-myproject
+--full
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+gateway
+info
+--output
+json
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+get
+cc-myproject
+--output
+json
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--
+cat
+/sandbox/.claude.json
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+provider
+list
+cc-myproject
+--output
+json
+---
+policy
+get
+cc-myproject
+--full
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+gateway
+info
+--output
+json
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+get
+cc-myproject
+--output
+json
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--
+cat
+/sandbox/.claude.json
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+status
+--output
+json
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+version
+---
+image
+inspect
+claude-agent:local
+---
+gateway
+info
+--output
+json
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+provider
+list
+--names
+---
+sandbox
+provider
+list
+cc-myproject
+--output
+json
+@client
+sandbox get cc-myproject --output json
+sandbox provider list cc-myproject --output json
+sandbox get cc-myproject --output json
+sandbox provider list cc-myproject --output json
+sandbox get cc-myproject --output json
+sandbox provider list cc-myproject --output json
+sandbox get cc-myproject --output json
+provider list --names
+sandbox provider list cc-myproject --output json

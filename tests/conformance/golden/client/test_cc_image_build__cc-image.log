@@ -1,0 +1,8 @@
+@transport cli
+---
+build
+--build-arg
+CLAUDE_VERSION=9.9.9
+-t
+claude-agent:local
+<repo>/claude-oss/image

@@ -29,17 +29,36 @@ whole case tree.
 | strict | `make test-conformance` | same, but an unrecorded case not in `excluded.txt` fails |
 | record | `OSA_CONFORMANCE_RECORD=1 make test` | rewrite goldens and list each written file; the only mode that writes |
 | parity | `tests/conformance/harness.sh parity` | run the case set twice into two artifact trees and print one verdict per case |
-| self-test | `make test-conformance-self` | prove the normalizer cannot hide a real change and the leak scan catches a leak |
+| self-test | `make test-conformance-self` | prove the normalizer cannot hide a real change, the leak scan catches a leak, and the parity verdict separates a transport change from an effect change |
 
 `OSA_CONFORMANCE=0` disables the harness for a debugging run.
 `OSA_CONFORMANCE_COMPARE=0` records without comparing.
 
 ## Goldens and the review rule
 
-Goldens live in `golden/<test function>__<case>.log`, one file per case. A case
-with no golden is recorded but not compared; `excluded.txt` lists the cases
-that intentionally have none and why. The suite prints how many cases were
-unrecorded and how many were excluded at the end of a run.
+Goldens live in `golden/<transport>/<test function>__<case>.log`, one file per
+case and transport. A case declares the transport its converted operation
+family uses with `conformance_transport client`; the suite's `new_case`
+declares `client` for the converted common path, and a case that never reaches
+the gateway declares `cli` itself. The gateway stub writes each typed-client
+request to `<case>/client-requests.log`, so the harness observes what the
+backend actually used and fails a case that declared `cli` while the backend
+used the client, naming both.
+
+A case with no golden for its declared transport is recorded but not compared;
+`excluded.txt` lists the cases that intentionally have none and why. The suite
+prints how many cases were unrecorded and how many were excluded at the end of
+a run.
+
+A recording opens with `@transport <observed>`, then the stub `openshell`
+invocations as argv blocks, then `@client` and one line per client request when
+the backend used the typed client. The client section is appended because the
+two seams are separate processes.
+
+Parity reports `transport-changed` — a pass — when exit status, output, and
+state are identical and only the recorded transport differs. A state or output
+difference is reported before the recording is compared, so a conversion can
+never hide an effect change.
 
 A golden may only contain data that crosses a process boundary — the argv and
 environment names the stub saw. Anything else (internal call order, log text,
@@ -103,9 +122,11 @@ OSA_BACKEND_MAKI_2="$PWD/target/release/maki-oss" \
     tests/conformance/harness.sh parity
 ```
 
-Each case prints one verdict: `identical`, `divergent in recording`,
-`divergent in state`, or `divergent in exit status or output`. Divergence does
-not abort the run; the command exits non-zero after every case is reported.
+Each case prints one verdict: `identical`, `transport-changed`,
+`divergent in recording`, `divergent in state`, or `divergent in exit status or
+output`. `transport-changed` is a pass: the backends produced the same output
+and state over different transports. Divergence does not abort the run; the
+command exits non-zero after every case is reported.
 Use `RUN_ONLY=<glob>` to limit a parity run while investigating.
 
 `backends/drift.sh` is the divergence smoke test: an argv prefix that runs the
@@ -133,9 +154,11 @@ the same case against the real front-end and asserts it passes.
 
 1. Write the case in `tests/run-tests.sh` as usual; assert behavior in the case
    body.
-2. Run it once (`RUN_ONLY=<test function> make test`) to see the artifact and
+2. Declare the transport the case exercises (`conformance_transport client`) if
+   it drives a converted operation family; leave it unset for `cli`.
+3. Run it once (`RUN_ONLY=<test function> make test`) to see the artifact and
    confirm the recording is stable across two runs.
-3. Record its golden with `OSA_CONFORMANCE_RECORD=1 RUN_ONLY=<test function> make test`.
+4. Record its golden with `OSA_CONFORMANCE_RECORD=1 RUN_ONLY=<test function> make test`.
 4. If it cannot be recorded deterministically (for example its sandbox name is
    hashed from the absolute case directory), add its case id and a reason to
    `excluded.txt` instead.

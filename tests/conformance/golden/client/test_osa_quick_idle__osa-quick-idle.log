@@ -1,0 +1,4 @@
+@transport client
+@client
+sandbox get maki-myproject --output json
+sandbox get maki-myproject --output json

@@ -1,0 +1,14 @@
+@transport client
+@client
+provider list --names
+sandbox get cc-myproject --output json
+sandbox get cc-myproject --output json
+sandbox provider list cc-myproject --output json
+provider list --names
+sandbox get cc-myproject --output json
+sandbox get cc-myproject --output json
+sandbox provider list cc-myproject --output json
+provider list --names
+sandbox get cc-myproject --output json
+sandbox get cc-myproject --output json
+sandbox provider list cc-myproject --output json

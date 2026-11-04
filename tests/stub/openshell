@@ -712,6 +712,33 @@ case $command_name in
             printf 'stub: rule unavailable\n' >&2
             exit "${STUB_RULE_EXIT}"
         fi
+        rule_action=${1:-}
+        if [ "$#" -gt 0 ]; then
+            shift
+        fi
+        case $rule_action in
+            approve)
+                # Model the gateway's one-chunk write so both transports leave
+                # the same policy state behind.
+                rule_sandbox=${1:-}
+                rule_chunk=
+                while [ "$#" -gt 0 ]; do
+                    case $1 in
+                        --chunk-id)
+                            rule_chunk=${2:-}
+                            shift
+                            ;;
+                    esac
+                    shift
+                done
+                if [ -n "${state:-}" ] && [ -n "$rule_chunk" ] \
+                    && [ -f "$state/rules/$rule_sandbox" ]; then
+                    grep -v "^${rule_chunk}|" "$state/rules/$rule_sandbox" \
+                        >"$state/rules/$rule_sandbox.tmp" || true
+                    mv "$state/rules/$rule_sandbox.tmp" "$state/rules/$rule_sandbox"
+                fi
+                ;;
+        esac
         if [ -n "${STUB_RULE_PENDING:-}" ]; then
             printf '%s\n' "$STUB_RULE_PENDING"
         else
@@ -719,7 +746,9 @@ case $command_name in
         fi
         ;;
     logs)
-        printf 'stub log line\n'
+        # The typed client renders a log event; keep both transports' output
+        # identical so a case that converts does not change its text.
+        printf '[0.000] [sandbox] [INFO ] [stub] stub log line\n'
         ;;
     version)
         printf 'openshell 0.1.2-stub\n'

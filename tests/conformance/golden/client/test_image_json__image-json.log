@@ -1,0 +1,25 @@
+@transport cli
+---
+image
+inspect
+--format
+{{.Id}}|{{.Created}}
+maki-agent:local
+---
+image
+inspect
+--format
+{{.Id}}|{{.Created}}
+maki-agent:local
+---
+image
+inspect
+--format
+{{.Id}}|{{.Created}}
+maki-agent:local
+---
+image
+inspect
+--format
+{{.Id}}|{{.Created}}
+maki-agent:local

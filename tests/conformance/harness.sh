@@ -21,10 +21,26 @@
 #   OSA_CONFORMANCE_ARTIFACTS=D  artifact root (default: $WORK/conformance)
 #   OSA_BACKEND_<FRONTEND>_2     parity's second backend for a front-end
 #
-# Goldens live one file per case in tests/conformance/golden/<case>.log. A case
-# id is `<test function>__<case directory>`. A case with no golden is recorded
-# without being compared; tests/conformance/excluded.txt documents the cases
-# that intentionally have none and why.
+# Transport: a case declares the transport its converted operation family uses
+# with `conformance_transport client` (the suite's `new_case` declares `client`
+# for the converted common path). The gateway stub writes every client request
+# to `<case>/client-requests.log`, so the harness observes the transport the
+# backend actually used and fails a case that declared `cli` while the backend
+# used the client. The other direction is left to the golden: a declared-client
+# case that never reaches the gateway records no client section.
+#
+# Goldens live one file per case and transport in
+# tests/conformance/golden/<transport>/<case>.log. A case id is
+# `<test function>__<case directory>`. A case with no golden for its declared
+# transport is recorded without being compared;
+# tests/conformance/excluded.txt documents the cases that intentionally have
+# none and why.
+#
+# Recording format: the first line is `@transport <observed>`; the stub
+# `openshell` invocations follow as argv blocks; a `@client` line and one line
+# per client request follow when the backend used the typed client. Block order
+# inside the CLI section is the order the stub saw; the client section is
+# appended because the two seams are separate processes.
 #
 # Review rule: a golden may only contain data that crosses a process boundary
 # (the argv/env names the stub saw). Anything else belongs in a case body's own
@@ -35,6 +51,7 @@ CONFORMANCE_GOLDEN=$CONFORMANCE_HOME/golden
 CONFORMANCE_EXCLUDED=$CONFORMANCE_HOME/excluded.txt
 CONFORMANCE_ACTIVE=0
 CONFORMANCE_TEST=
+CONFORMANCE_TRANSPORT=cli
 CONFORMANCE_CASE_ID=
 CONFORMANCE_CASE_DIR=
 CONFORMANCE_OUTPUT_LOG=
@@ -50,6 +67,30 @@ conformance_enabled() {
 
 conformance_record_mode() {
     [ "${OSA_CONFORMANCE_RECORD:-0}" = 1 ]
+}
+
+# Declare the transport the case exercises. Called from a case body after
+# new_case; unset means `cli`, the transport every unconverted case still uses.
+conformance_transport() { # cli|client
+    case $1 in
+        cli | client) CONFORMANCE_TRANSPORT=$1 ;;
+        *) bad "conformance: unknown transport '$1' (use cli or client)" ;;
+    esac
+}
+
+# The transport the backend actually used: the gateway stub only records a
+# request when the typed client made one.
+conformance_observed_transport() {
+    if [ -s "${CASE:-}/client-requests.log" ]; then
+        printf 'client\n'
+    else
+        printf 'cli\n'
+    fi
+}
+
+conformance_golden_path() {
+    printf '%s/%s/%s.log\n' \
+        "$CONFORMANCE_GOLDEN" "$CONFORMANCE_TRANSPORT" "$CONFORMANCE_CASE_ID"
 }
 
 conformance_sanitize() { # TEXT
@@ -80,6 +121,9 @@ conformance_case_begin() { # CASE-NAME
     CONFORMANCE_OUTPUT_LOG=$CONFORMANCE_CASE_DIR/output.log
     mkdir -p "$CONFORMANCE_CASE_DIR"
     : >"$CONFORMANCE_OUTPUT_LOG"
+    # Every case starts on the CLI transport; a case that exercises a converted
+    # operation family declares `client` before its first run.
+    CONFORMANCE_TRANSPORT=cli
     CONFORMANCE_ACTIVE=1
 }
 
@@ -185,15 +229,32 @@ conformance_case_end() {
     CONFORMANCE_ACTIVE=0
     conformance_dir=$CONFORMANCE_CASE_DIR
 
-    if [ -f "${STUB_LOG:-}" ]; then
-        conformance_normalize_stream "${STUB_LOG}" >"$conformance_dir/recording.log"
-    else
-        : >"$conformance_dir/recording.log"
-    fi
+    conformance_observed=$(conformance_observed_transport)
+    {
+        printf '@transport %s\n' "$conformance_observed"
+        if [ -f "${STUB_LOG:-}" ]; then
+            conformance_normalize_stream "${STUB_LOG}"
+        fi
+        if [ -s "${CASE:-}/client-requests.log" ]; then
+            printf '%s\n' '@client'
+            conformance_normalize "$CASE" "$WORK" "$ROOT" \
+                <"$CASE/client-requests.log" 2>/dev/null || true
+        fi
+    } >"$conformance_dir/recording.log"
+    printf '%s\n' "$conformance_observed" >"$conformance_dir/transport"
     conformance_state_digest "$conformance_dir/state.digest"
     printf '%s\n' "${RC:-0}" >"$conformance_dir/meta"
 
     conformance_leak_scan "$conformance_dir" || true
+
+    # A case that declares `cli` must not have reached the typed client. The
+    # other direction is left to the golden: a declared-client case that never
+    # reaches the gateway produces no client section, and its golden names
+    # that. Failing it here would flag every usage-error case instead.
+    if [ "$conformance_observed" = client ] && [ "$CONFORMANCE_TRANSPORT" = cli ]; then
+        CONFORMANCE_FAIL=$((CONFORMANCE_FAIL + 1))
+        bad "conformance: case declares the cli transport but the backend used client"
+    fi
 
     # An excluded case never gets a golden: its recording is kept as an
     # artifact for inspection, but the suite cannot compare it byte-for-byte.
@@ -203,15 +264,16 @@ conformance_case_end() {
         return 0
     fi
 
-    conformance_golden=$CONFORMANCE_GOLDEN/$CONFORMANCE_CASE_ID.log
+    conformance_golden=$(conformance_golden_path)
     if conformance_record_mode; then
-        mkdir -p "$CONFORMANCE_GOLDEN"
+        mkdir -p "${conformance_golden%/*}"
         if [ -f "$conformance_golden" ] \
             && cmp -s "$conformance_golden" "$conformance_dir/recording.log"; then
             printf 'golden: unchanged %s\n' "$CONFORMANCE_CASE_ID"
         else
             cp "$conformance_dir/recording.log" "$conformance_golden"
-            printf 'golden: recorded %s\n' "$CONFORMANCE_CASE_ID"
+            printf 'golden: recorded %s (%s transport)\n' \
+                "$CONFORMANCE_CASE_ID" "$CONFORMANCE_TRANSPORT"
         fi
         return 0
     fi
@@ -221,7 +283,7 @@ conformance_case_end() {
         if ! cmp -s "$conformance_golden" "$conformance_dir/recording.log"; then
             CONFORMANCE_MISMATCH=$((CONFORMANCE_MISMATCH + 1))
             CONFORMANCE_FAIL=$((CONFORMANCE_FAIL + 1))
-            bad "conformance: recording differs from golden tests/conformance/golden/$CONFORMANCE_CASE_ID.log"
+            bad "conformance: recording differs from golden tests/conformance/golden/$CONFORMANCE_TRANSPORT/$CONFORMANCE_CASE_ID.log"
             diff -u "$conformance_golden" "$conformance_dir/recording.log" 2>/dev/null \
                 | sed 's/^/     /' || true
         fi
@@ -260,6 +322,37 @@ conformance_report() {
 # Parity: run the same case set twice, compare the artifact trees per case.
 # ---------------------------------------------------------------------------
 
+# One case's verdict from two artifact directories. State and output decide
+# first: a conversion must produce the same effects whatever transport carried
+# the operations. A recording that differs only because the two backends used
+# different transports is `transport-changed`, which is a pass.
+conformance_parity_case_verdict() { # DIR-A DIR-B
+    if [ ! -d "$2" ]; then
+        printf '%s\n' "divergent in exit status or output (case missing from second run)"
+        return 0
+    fi
+    if ! cmp -s "$1/meta" "$2/meta" || ! cmp -s "$1/output.log" "$2/output.log"; then
+        printf '%s\n' "divergent in exit status or output"
+        return 0
+    fi
+    if ! cmp -s "$1/state.digest" "$2/state.digest"; then
+        printf '%s\n' "divergent in state"
+        return 0
+    fi
+    if cmp -s "$1/recording.log" "$2/recording.log"; then
+        printf '%s\n' identical
+        return 0
+    fi
+    conformance_verdict_a=$(sed -n '1s/^@transport //p' "$1/recording.log" 2>/dev/null || true)
+    conformance_verdict_b=$(sed -n '1s/^@transport //p' "$2/recording.log" 2>/dev/null || true)
+    if [ -n "$conformance_verdict_a" ] && [ -n "$conformance_verdict_b" ] \
+        && [ "$conformance_verdict_a" != "$conformance_verdict_b" ]; then
+        printf '%s\n' transport-changed
+    else
+        printf '%s\n' "divergent in recording"
+    fi
+}
+
 conformance_parity_run() {
     set -eu
     conformance_parity_tmp=$(mktemp -d "${TMPDIR:-/tmp}/osa-parity.XXXXXX")
@@ -293,21 +386,15 @@ conformance_parity_run() {
             printf 'excluded   %s\n' "$conformance_parity_id"
             continue
         fi
-        conformance_parity_verdict=identical
-        if [ ! -d "$conformance_parity_other" ]; then
-            conformance_parity_verdict="divergent in exit status or output (case missing from second run)"
-        else
-            if ! cmp -s "$conformance_parity_case/meta" "$conformance_parity_other/meta" \
-                || ! cmp -s "$conformance_parity_case/output.log" "$conformance_parity_other/output.log"; then
-                conformance_parity_verdict="divergent in exit status or output"
-            elif ! cmp -s "$conformance_parity_case/recording.log" "$conformance_parity_other/recording.log"; then
-                conformance_parity_verdict="divergent in recording"
-            elif ! cmp -s "$conformance_parity_case/state.digest" "$conformance_parity_other/state.digest"; then
-                conformance_parity_verdict="divergent in state"
-            fi
-        fi
+        conformance_parity_verdict=$(conformance_parity_case_verdict \
+            "$conformance_parity_case" "$conformance_parity_other")
         if [ "$conformance_parity_verdict" = identical ]; then
             printf 'identical  %s\n' "$conformance_parity_id"
+        elif [ "$conformance_parity_verdict" = transport-changed ]; then
+            # A pass: the same effects arrived over a different transport.
+            printf 'transport-changed  %s (%s -> %s)\n' "$conformance_parity_id" \
+                "$(sed -n '1s/^@transport //p' "$conformance_parity_case/recording.log" 2>/dev/null)" \
+                "$(sed -n '1s/^@transport //p' "$conformance_parity_other/recording.log" 2>/dev/null)"
         else
             conformance_parity_divergent=$((conformance_parity_divergent + 1))
             printf '%s  %s\n' "$conformance_parity_verdict" "$conformance_parity_id"
@@ -345,7 +432,7 @@ conformance_parity_run() {
         rm -rf "$conformance_parity_tmp"
         return 1
     fi
-    printf '\nparity: every case identical; suite statuses: first=%s second=%s\n' \
+    printf '\nparity: every case identical or transport-changed; suite statuses: first=%s second=%s\n' \
         "$conformance_parity_status_a" "$conformance_parity_status_b"
     rm -rf "$conformance_parity_tmp"
     return 0

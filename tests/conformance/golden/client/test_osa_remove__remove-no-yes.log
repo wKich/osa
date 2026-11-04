@@ -1,0 +1,35 @@
+@transport client
+---
+gateway
+info
+--output
+json
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+list
+--output
+json
+---
+sandbox
+delete
+maki-myproject
+@client
+sandbox get maki-myproject --output json
+sandbox get maki-myproject --output json
+sandbox list --output json
+sandbox delete maki-myproject
+sandbox list --output json
+sandbox delete maki-myproject

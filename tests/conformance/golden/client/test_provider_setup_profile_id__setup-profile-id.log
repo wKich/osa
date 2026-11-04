@@ -1,0 +1,4 @@
+@transport client
+@client
+provider list --names
+provider list --names

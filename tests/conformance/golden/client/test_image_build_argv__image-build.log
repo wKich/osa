@@ -1,0 +1,8 @@
+@transport cli
+---
+build
+--build-arg
+MAKI_VERSION=9.9.9
+-t
+maki-agent:local
+<repo>/examples/maki-image

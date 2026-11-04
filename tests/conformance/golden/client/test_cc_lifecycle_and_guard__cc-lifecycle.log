@@ -1,0 +1,10 @@
+@transport client
+@client
+sandbox get cc-myproject --output json
+sandbox get cc-myproject --output json
+sandbox get cc-myproject --output json
+sandbox provider list cc-myproject --output json
+sandbox get cc-myproject --output json
+sandbox get cc-myproject --output json
+sandbox get cc-myproject --output json
+sandbox delete cc-myproject

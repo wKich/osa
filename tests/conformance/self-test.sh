@@ -123,6 +123,37 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# The parity verdict decides state and output before the recording, so a
+# conversion can pass as transport-changed while a real effect change fails.
+# shellcheck source=tests/conformance/harness.sh disable=SC1091
+. "$HERE/harness.sh"
+
+verdict_dir=$(mktemp -d "${TMPDIR:-/tmp}/osa-verdict.XXXXXX")
+trap 'rm -rf "$leak_bin" "$verdict_dir"' EXIT
+mkdir -p "$verdict_dir/a" "$verdict_dir/b"
+printf '0\n' >"$verdict_dir/a/meta"
+printf '0\n' >"$verdict_dir/b/meta"
+printf 'same output\n' >"$verdict_dir/a/output.log"
+printf 'same output\n' >"$verdict_dir/b/output.log"
+printf 'same state\n' >"$verdict_dir/a/state.digest"
+printf 'same state\n' >"$verdict_dir/b/state.digest"
+printf '@transport cli\n---\nsandbox\nlist\n' >"$verdict_dir/a/recording.log"
+printf '@transport client\n@client\nsandbox list --output json\n' >"$verdict_dir/b/recording.log"
+
+check_same "a recording that differs only by transport is transport-changed" \
+    transport-changed "$(conformance_parity_case_verdict "$verdict_dir/a" "$verdict_dir/b")"
+check_same "identical recordings stay identical" \
+    identical "$(conformance_parity_case_verdict "$verdict_dir/a" "$verdict_dir/a")"
+
+printf 'other state\n' >"$verdict_dir/b/state.digest"
+check_same "a state divergence is not hidden by the transport verdict" \
+    "divergent in state" "$(conformance_parity_case_verdict "$verdict_dir/a" "$verdict_dir/b")"
+
+printf 'same state\n' >"$verdict_dir/b/state.digest"
+printf '@transport cli\n---\nsandbox\nlist\n--extra\n' >"$verdict_dir/b/recording.log"
+check_same "an argv change on one transport still diverges" \
+    "divergent in recording" "$(conformance_parity_case_verdict "$verdict_dir/a" "$verdict_dir/b")"
+
 if [ "$FAIL" -ne 0 ]; then
     printf '\n%d conformance self-test check(s) failed\n' "$FAIL"
     exit 1

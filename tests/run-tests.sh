@@ -91,10 +91,13 @@ start_gateway() {
     fi
     # Started from a subshell so the gateway is not a child of this script: a
     # case that runs a bare `wait` (the interrupt cases do) would otherwise
-    # block on a server that never exits.
+    # block on a server that never exits. Both files are truncated first, so a
+    # start can never read the previous case's port.
+    : >"$WORK/gateway.out"
+    rm -f "$WORK/gateway.pid"
     (
         STUB_STATE_DIR=$GATEWAY_STATE \
-        STUB_LOG=$WORK/gateway.log \
+        STUB_LOG=${STUB_LOG:-$CASE/stub.log} \
         STUB_GATEWAY_PORT=0 \
             "$gateway_bin" >"$WORK/gateway.out" 2>"$WORK/gateway.err" &
         printf '%s\n' "$!" >"$WORK/gateway.pid"
@@ -157,6 +160,10 @@ run_test() {
     CONFORMANCE_TEST=$1
     "$1"
     conformance_case_end
+    # The gateway serves only the case that just ran; a process per case keeps
+    # a case's state, its client requests, and a deliberately stopped gateway
+    # independent of every other case.
+    stop_gateway
     if [ "$FAIL" -ne "$before_fail" ]; then
         return 0
     fi
@@ -178,7 +185,14 @@ bad() {
 skipped() { SKIP=$((SKIP + 1)); printf 'skip %s (%s)\n' "$CURRENT" "$1"; }
 
 new_case() {
+    # A test function may switch cases several times; each one owns its
+    # gateway, its state root, and its seam log.
+    stop_gateway
     conformance_case_begin "$1"
+    # The common path (sandbox phase reads) is converted, so a case that
+    # reaches the gateway at all uses the typed client. A case that never
+    # reaches it declares `cli` itself.
+    conformance_transport client
     CASE=$WORK/$1
     mkdir -p "$CASE/home" "$CASE/project" "$CASE/state" "$CASE/sandbox"
     ln -sfn "$CASE/state" "$GATEWAY_STATE"
@@ -192,6 +206,12 @@ new_case() {
     fi
     STUB_LOG=$CASE/stub.log
     STUB_STATE_DIR=$CASE/state
+    # Every case gets its own gateway over its own state root. A client
+    # operation is served from the case's files, and a case that needs the
+    # gateway down calls stop_gateway itself. The gateway records the
+    # equivalent argv into the same seam log the CLI stub writes, so a case
+    # assertion does not care which transport served the operation.
+    start_gateway
     EXEC_STDIN_LOG=
     LOG=$STUB_LOG
     OUT=$CASE/out
@@ -257,6 +277,22 @@ run_maki_with_input() { # STDIN_FILE ARGS...
     maki_input=$1
     shift
     RC=0
+    # The typed client asks the gateway for provider names. Mirror the case's
+    # provider fixture into the gateway state so both transports see it.
+    if [ -n "${PROVIDER_NAMES:-}" ] && [ -n "${STUB_STATE_DIR:-}" ]; then
+        mkdir -p "$STUB_STATE_DIR"
+        {
+            cat "$STUB_STATE_DIR/providers.list" 2>/dev/null || true
+            printf '%s\n' "$PROVIDER_NAMES" | tr ',' '\n'
+        } | awk 'NF && !seen[$0]++' >"$STUB_STATE_DIR/providers.list.tmp"
+        mv "$STUB_STATE_DIR/providers.list.tmp" "$STUB_STATE_DIR/providers.list"
+    fi
+    # Failure fixtures are per run; the gateway process is per case, so they
+    # reach it through its state root as well as through the CLI stub's env.
+    if [ -n "${STUB_STATE_DIR:-}" ]; then
+        if [ "${DELETE_FAIL:-0}" = 1 ]; then : >"$STUB_STATE_DIR/delete_fail"; else rm -f "$STUB_STATE_DIR/delete_fail"; fi
+        if [ "${ATTACH_FAIL:-0}" = 1 ]; then : >"$STUB_STATE_DIR/attach_fail"; else rm -f "$STUB_STATE_DIR/attach_fail"; fi
+    fi
     (
         cd "${RUN_DIR:-$CASE/project}"
         PATH="${OSA_CONFORMANCE_PATH:+$OSA_CONFORMANCE_PATH:}${PATH_OVERRIDE:-$STUB_DIR:$PATH}" \
@@ -371,6 +407,11 @@ seed_sandbox() {
 
 # Records a provider as configured (config file) and known to the gateway
 # (stub provider list), matching what `provider setup` persists in real use.
+seed_rule_chunk() { # SANDBOX CHUNK
+    mkdir -p "$STUB_STATE_DIR/rules"
+    printf '%s|allow-stub||api.example.test:443|clean\n' "$2" >>"$STUB_STATE_DIR/rules/$1"
+}
+
 seed_remembered_provider() { # NAME
     mkdir -p "$XDG_CONFIG_HOME/maki-oss" "$STUB_STATE_DIR"
     printf 'providers = "%s"\n' "$1" >"$XDG_CONFIG_HOME/maki-oss/config.toml"
@@ -1753,6 +1794,10 @@ test_asset_environment_split() {
 test_status_list_logs() {
     begin "status, list, and logs report and delegate"
     new_case status
+    # `list` below exercises the converted operation family, so the case's
+    # declared transport is the typed client even though `status` still asks
+    # the CLI for its reads.
+    conformance_transport client
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
     seed_sandbox maki-myproject Ready
@@ -1796,23 +1841,25 @@ test_status_list_logs() {
             || bad "list output through $list_frontend differs from maki-oss"
     done
 
-    # An empty gateway says so instead of printing a bare header row.
-    reset_state
-    run_maki list
-    assert_rc 0
-    assert_out_has "No sandboxes found."
-    stop_gateway
-
+    # logs is served by the typed client, so the case's gateway stays up.
     run_maki logs --tail --since 5m --level info -n 50
     assert_rc 0
     assert_log_has "logs"
     assert_log_line "--tail"
     assert_log_line "--since"
-    assert_log_line "5m"
+    # --since becomes an absolute instant for the request, so the recorded
+    # value is an epoch rather than the CLI string.
+    grep -Eq '^[0-9]{13,}$' "$STUB_LOG" || bad "logs did not resolve --since to an instant"
     assert_log_line "--level"
     assert_log_line "info"
     assert_log_line "-n"
     assert_log_line "50"
+
+    # An empty gateway says so instead of printing a bare header row.
+    reset_state
+    run_maki list
+    assert_rc 0
+    assert_out_has "No sandboxes found."
 }
 
 test_start_stop() {
@@ -2719,7 +2766,7 @@ test_session_starts_stopped_sandbox() {
 }
 
 test_session_attaches_missing_provider() {
-    begin "missing remembered provider is attached with --wait before exec"
+    begin "missing remembered provider is attached before exec"
     new_case session-attach
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
@@ -2729,7 +2776,6 @@ test_session_attaches_missing_provider() {
     run_maki
     assert_rc 0
     assert_log_has "attach"
-    assert_log_line "--wait"
     assert_log_line_before "attach" "--tty"
     assert_log_missing "create"
     assert_log_missing "upload"
@@ -3158,6 +3204,7 @@ test_policy_approve_with_yes_targets_one_chunk() {
     RUN_DIR=$CASE/project/myproject
     mkdir -p "$RUN_DIR"
     seed_sandbox maki-myproject Ready
+    seed_rule_chunk maki-myproject 2258b82a
 
     run_maki policy approve 2258b82a --yes
     assert_rc 0
@@ -7014,10 +7061,13 @@ test_sandbox_id_recorded() {
         || bad "the synced marker did not record the sandbox ID"
 
     reset_log
+    client_before=$(wc -l <"$CASE/client-requests.log" 2>/dev/null || echo 0)
     run_maki status
     assert_rc 0
     assert_out_has "Sync:      clean"
-    assert_log_has "get"
+    tail -n +"$((client_before + 1))" "$CASE/client-requests.log" 2>/dev/null \
+        | grep -q '^sandbox get maki-repo' \
+        || bad "status did not read the sandbox record over the typed client"
 }
 
 test_legacy_retained_marker() {

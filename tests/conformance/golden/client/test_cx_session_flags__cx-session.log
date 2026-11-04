@@ -1,0 +1,18 @@
+@transport client
+@client
+provider list --names
+sandbox get cx-myproject --output json
+sandbox get cx-myproject --output json
+sandbox provider list cx-myproject --output json
+provider list --names
+sandbox get cx-myproject --output json
+sandbox get cx-myproject --output json
+sandbox provider list cx-myproject --output json
+provider list --names
+sandbox get cx-myproject --output json
+sandbox get cx-myproject --output json
+sandbox provider list cx-myproject --output json
+provider list --names
+sandbox get cx-myproject --output json
+sandbox get cx-myproject --output json
+sandbox provider list cx-myproject --output json

@@ -1,0 +1,6 @@
+@transport client
+@client
+provider list --names
+sandbox get mk-demo-1a2b --output json
+sandbox get mk-demo-1a2b --output json
+provider list --names

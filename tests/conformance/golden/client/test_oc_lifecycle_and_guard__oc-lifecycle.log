@@ -1,0 +1,10 @@
+@transport client
+@client
+sandbox get oc-myproject --output json
+sandbox get oc-myproject --output json
+sandbox get oc-myproject --output json
+sandbox provider list oc-myproject --output json
+sandbox get oc-myproject --output json
+sandbox get oc-myproject --output json
+sandbox get oc-myproject --output json
+sandbox delete oc-myproject

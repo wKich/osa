@@ -1,0 +1,729 @@
+@transport client
+---
+gateway
+info
+--output
+json
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+provider
+list
+--names
+---
+sandbox
+get
+cc-myproject
+--output
+json
+---
+settings
+set
+cc-myproject
+--key
+agent_policy_proposals_enabled
+--value
+true
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+get
+cc-myproject
+--output
+json
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--
+sh
+-c
+mkdir -p "$1"
+claude-oss-git
+<case>/sandbox/project
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--workdir
+<case>/sandbox/project
+--
+sh
+-c
+set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+if ! git rev-parse -q --verify refs/claude-oss/base >/dev/null 2>&1; then
+    printf "missing\n"
+    exit 0
+fi
+index=$gitdir/tree-index.$$
+rm -f "$index"
+if ! GIT_INDEX_FILE=$index git add -A 2>/dev/null; then
+    rm -f "$index"
+    printf "missing\n"
+    exit 0
+fi
+tree=$(GIT_INDEX_FILE=$index git write-tree)
+rm -f "$index"
+printf "%s\n" "$tree"
+claude-oss-git
+<case>/sandbox/.claude-oss/git
+<case>/sandbox/project
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--workdir
+<case>/sandbox/project
+--
+sh
+-c
+set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=claude-oss GIT_AUTHOR_EMAIL=claude-oss@localhost
+export GIT_COMMITTER_NAME=claude-oss GIT_COMMITTER_EMAIL=claude-oss@localhost
+mkdir -p "$gitdir" "$worktree"
+git init -q
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -m "claude-oss baseline")
+git update-ref refs/claude-oss/base "$commit"
+printf "%s\n" "$tree"
+claude-oss-git
+<case>/sandbox/.claude-oss/git
+<case>/sandbox/project
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+provider
+list
+cc-myproject
+--output
+json
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--workdir
+<case>/sandbox/project
+--
+sh
+-c
+tag=$1; secs=$2; shift 2
+stop=<tmp>/<entry>/$tag
+rm -f "$stop"
+export CLAUDE_OSS_RUN_TAG="$tag"
+exec 3<&0
+timeout --kill-after=10 "$secs" "$@" <&3 3<&- &
+exec 3<&-
+child=$!
+while kill -0 "$child" 2>/dev/null; do
+    if [ -e "$stop" ]; then kill -TERM "$child" 2>/dev/null; break; fi
+    sleep 1
+done
+wait "$child"
+rc=$?
+unset CLAUDE_OSS_RUN_TAG
+for d in /proc/[0-9]*; do
+    if grep -qzx "CLAUDE_OSS_RUN_TAG=$tag" "$d/environ" 2>/dev/null; then
+        kill -KILL "${d#/proc/}" 2>/dev/null
+    fi
+done
+rm -f "$stop"
+exit "$rc"
+claude-oss-run
+claude-oss-<pid>-<epoch>
+30
+claude
+-p
+--output-format
+stream-json
+--verbose
+--dangerously-skip-permissions
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--workdir
+<case>/sandbox/project
+--
+sh
+-c
+set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=claude-oss GIT_AUTHOR_EMAIL=claude-oss@localhost
+export GIT_COMMITTER_NAME=claude-oss GIT_COMMITTER_EMAIL=claude-oss@localhost
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -p refs/claude-oss/base -m "claude-oss result")
+git update-ref refs/claude-oss/result "$commit"
+git diff --binary --full-index refs/claude-oss/base refs/claude-oss/result
+claude-oss-git
+<case>/sandbox/.claude-oss/git
+<case>/sandbox/project
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--workdir
+<case>/sandbox/project
+--
+sh
+-c
+set -e
+export GIT_DIR=$1
+git rev-parse -q --verify refs/claude-oss/result^{tree} 2>/dev/null || true
+claude-oss-git
+<case>/sandbox/.claude-oss/git
+<case>/sandbox/project
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+rule
+get
+cc-myproject
+--status
+pending
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+gateway
+info
+--output
+json
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+provider
+list
+--names
+---
+sandbox
+get
+cc-myproject
+--output
+json
+---
+settings
+set
+cc-myproject
+--key
+agent_policy_proposals_enabled
+--value
+true
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+get
+cc-myproject
+--output
+json
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--
+sh
+-c
+mkdir -p "$1"
+claude-oss-git
+<case>/sandbox/project
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--workdir
+<case>/sandbox/project
+--
+sh
+-c
+set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+if ! git rev-parse -q --verify refs/claude-oss/base >/dev/null 2>&1; then
+    printf "missing\n"
+    exit 0
+fi
+index=$gitdir/tree-index.$$
+rm -f "$index"
+if ! GIT_INDEX_FILE=$index git add -A 2>/dev/null; then
+    rm -f "$index"
+    printf "missing\n"
+    exit 0
+fi
+tree=$(GIT_INDEX_FILE=$index git write-tree)
+rm -f "$index"
+printf "%s\n" "$tree"
+claude-oss-git
+<case>/sandbox/.claude-oss/git
+<case>/sandbox/project
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+provider
+list
+cc-myproject
+--output
+json
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--workdir
+<case>/sandbox/project
+--
+sh
+-c
+tag=$1; secs=$2; shift 2
+stop=<tmp>/<entry>/$tag
+rm -f "$stop"
+export CLAUDE_OSS_RUN_TAG="$tag"
+exec 3<&0
+timeout --kill-after=10 "$secs" "$@" <&3 3<&- &
+exec 3<&-
+child=$!
+while kill -0 "$child" 2>/dev/null; do
+    if [ -e "$stop" ]; then kill -TERM "$child" 2>/dev/null; break; fi
+    sleep 1
+done
+wait "$child"
+rc=$?
+unset CLAUDE_OSS_RUN_TAG
+for d in /proc/[0-9]*; do
+    if grep -qzx "CLAUDE_OSS_RUN_TAG=$tag" "$d/environ" 2>/dev/null; then
+        kill -KILL "${d#/proc/}" 2>/dev/null
+    fi
+done
+rm -f "$stop"
+exit "$rc"
+claude-oss-run
+claude-oss-<pid>-<epoch>
+1
+claude
+-p
+--output-format
+stream-json
+--verbose
+--dangerously-skip-permissions
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--workdir
+<case>/sandbox/project
+--
+sh
+-c
+set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=claude-oss GIT_AUTHOR_EMAIL=claude-oss@localhost
+export GIT_COMMITTER_NAME=claude-oss GIT_COMMITTER_EMAIL=claude-oss@localhost
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -p refs/claude-oss/base -m "claude-oss result")
+git update-ref refs/claude-oss/result "$commit"
+git diff --binary --full-index refs/claude-oss/base refs/claude-oss/result
+claude-oss-git
+<case>/sandbox/.claude-oss/git
+<case>/sandbox/project
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+exec
+-n
+cc-myproject
+--no-login-shell
+--workdir
+<case>/sandbox/project
+--
+sh
+-c
+set -e
+export GIT_DIR=$1
+git rev-parse -q --verify refs/claude-oss/result^{tree} 2>/dev/null || true
+claude-oss-git
+<case>/sandbox/.claude-oss/git
+<case>/sandbox/project
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+rule
+get
+cc-myproject
+--status
+pending
+@env CLAUDE_OSS_IDLE_STOP
+@env CLAUDE_OSS_IMAGE
+@env CLAUDE_OSS_INTERACTIVE
+@env CLAUDE_OSS_MODEL
+@env CLAUDE_OSS_RUN_TAG
+@env CLAUDE_OSS_SANDBOX_NAME
+@env CLAUDE_OSS_TIMEOUT
+@env CLAUDE_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+@client
+provider list --names
+sandbox get cc-myproject --output json
+sandbox get cc-myproject --output json
+sandbox provider list cc-myproject --output json
+provider list --names
+sandbox get cc-myproject --output json
+sandbox get cc-myproject --output json
+sandbox provider list cc-myproject --output json

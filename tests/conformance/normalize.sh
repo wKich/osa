@@ -77,6 +77,7 @@ conformance_normalize() {
         -e 's#caller/[0-9]+#caller/<key>#g' \
         -e 's#bundle/[0-9]+#bundle/<pid>#g' \
         -e 's#[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}:[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})?#<timestamp>#g' \
+        -e 's#[0-9]{8}T[0-9]{6}Z-[0-9]+#<timestamp>-<pid>#g' \
         -e 's#[0-9]{4}-[0-9]{2}-[0-9]{2}#<date>#g' \
         -e 's#[0-9]{13,}#<epoch-ms>#g' \
         -e 's#<epoch-ms>-[0-9]+#<epoch-ms>-<pid>#g' \

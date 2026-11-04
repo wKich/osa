@@ -1,0 +1,10 @@
+@transport client
+@client
+sandbox get maki-myproject --output json
+sandbox get maki-myproject --output json
+sandbox get maki-myproject --output json
+sandbox provider list maki-myproject --output json
+provider list --names
+sandbox get maki-myproject --output json
+sandbox provider list maki-myproject --output json
+provider list --names

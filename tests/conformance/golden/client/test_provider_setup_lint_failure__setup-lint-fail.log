@@ -1,0 +1,43 @@
+@transport client
+---
+gateway
+info
+--output
+json
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+provider
+list
+--names
+---
+profile
+lint
+-f
+<repo>/examples/providers/maki-opencode-go.yaml
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+@client
+provider list --names

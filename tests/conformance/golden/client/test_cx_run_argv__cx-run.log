@@ -1,0 +1,335 @@
+@transport client
+---
+gateway
+info
+--output
+json
+@env CODEX_OSS_ACCOUNT_ID
+@env CODEX_OSS_IDLE_STOP
+@env CODEX_OSS_IMAGE
+@env CODEX_OSS_INTERACTIVE
+@env CODEX_OSS_MODEL
+@env CODEX_OSS_RUN_TAG
+@env CODEX_OSS_SANDBOX_NAME
+@env CODEX_OSS_TIMEOUT
+@env CODEX_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+provider
+list
+--names
+---
+sandbox
+get
+cx-myproject
+--output
+json
+---
+settings
+set
+cx-myproject
+--key
+agent_policy_proposals_enabled
+--value
+true
+@env CODEX_OSS_ACCOUNT_ID
+@env CODEX_OSS_IDLE_STOP
+@env CODEX_OSS_IMAGE
+@env CODEX_OSS_INTERACTIVE
+@env CODEX_OSS_MODEL
+@env CODEX_OSS_RUN_TAG
+@env CODEX_OSS_SANDBOX_NAME
+@env CODEX_OSS_TIMEOUT
+@env CODEX_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+get
+cx-myproject
+--output
+json
+---
+sandbox
+exec
+-n
+cx-myproject
+--no-login-shell
+--
+sh
+-c
+mkdir -p "$1"
+codex-oss-git
+<case>/sandbox/project
+@env CODEX_OSS_ACCOUNT_ID
+@env CODEX_OSS_IDLE_STOP
+@env CODEX_OSS_IMAGE
+@env CODEX_OSS_INTERACTIVE
+@env CODEX_OSS_MODEL
+@env CODEX_OSS_RUN_TAG
+@env CODEX_OSS_SANDBOX_NAME
+@env CODEX_OSS_TIMEOUT
+@env CODEX_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+exec
+-n
+cx-myproject
+--no-login-shell
+--workdir
+<case>/sandbox/project
+--
+sh
+-c
+set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+if ! git rev-parse -q --verify refs/codex-oss/base >/dev/null 2>&1; then
+    printf "missing\n"
+    exit 0
+fi
+index=$gitdir/tree-index.$$
+rm -f "$index"
+if ! GIT_INDEX_FILE=$index git add -A 2>/dev/null; then
+    rm -f "$index"
+    printf "missing\n"
+    exit 0
+fi
+tree=$(GIT_INDEX_FILE=$index git write-tree)
+rm -f "$index"
+printf "%s\n" "$tree"
+codex-oss-git
+<case>/sandbox/.codex-oss/git
+<case>/sandbox/project
+@env CODEX_OSS_ACCOUNT_ID
+@env CODEX_OSS_IDLE_STOP
+@env CODEX_OSS_IMAGE
+@env CODEX_OSS_INTERACTIVE
+@env CODEX_OSS_MODEL
+@env CODEX_OSS_RUN_TAG
+@env CODEX_OSS_SANDBOX_NAME
+@env CODEX_OSS_TIMEOUT
+@env CODEX_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+provider
+list
+cx-myproject
+--output
+json
+---
+sandbox
+exec
+-n
+cx-myproject
+--no-login-shell
+--workdir
+<case>/sandbox/project
+--env
+CODEX_CHATGPT_ACCOUNT_ID=acct-fixture-4417
+--
+codex
+exec
+--json
+--skip-git-repo-check
+--dangerously-bypass-approvals-and-sandbox
+-m
+gpt-5.6-terra
+fail please
+@env CODEX_OSS_ACCOUNT_ID
+@env CODEX_OSS_IDLE_STOP
+@env CODEX_OSS_IMAGE
+@env CODEX_OSS_INTERACTIVE
+@env CODEX_OSS_MODEL
+@env CODEX_OSS_RUN_TAG
+@env CODEX_OSS_SANDBOX_NAME
+@env CODEX_OSS_TIMEOUT
+@env CODEX_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+exec
+-n
+cx-myproject
+--no-login-shell
+--workdir
+<case>/sandbox/project
+--
+sh
+-c
+set -e
+gitdir=$1 worktree=$2
+export GIT_DIR=$gitdir GIT_WORK_TREE=$worktree
+export GIT_AUTHOR_NAME=codex-oss GIT_AUTHOR_EMAIL=codex-oss@localhost
+export GIT_COMMITTER_NAME=codex-oss GIT_COMMITTER_EMAIL=codex-oss@localhost
+git add -A
+tree=$(git write-tree)
+commit=$(git commit-tree "$tree" -p refs/codex-oss/base -m "codex-oss result")
+git update-ref refs/codex-oss/result "$commit"
+git diff --binary --full-index refs/codex-oss/base refs/codex-oss/result
+codex-oss-git
+<case>/sandbox/.codex-oss/git
+<case>/sandbox/project
+@env CODEX_OSS_ACCOUNT_ID
+@env CODEX_OSS_IDLE_STOP
+@env CODEX_OSS_IMAGE
+@env CODEX_OSS_INTERACTIVE
+@env CODEX_OSS_MODEL
+@env CODEX_OSS_RUN_TAG
+@env CODEX_OSS_SANDBOX_NAME
+@env CODEX_OSS_TIMEOUT
+@env CODEX_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+sandbox
+exec
+-n
+cx-myproject
+--no-login-shell
+--workdir
+<case>/sandbox/project
+--
+sh
+-c
+set -e
+export GIT_DIR=$1
+git rev-parse -q --verify refs/codex-oss/result^{tree} 2>/dev/null || true
+codex-oss-git
+<case>/sandbox/.codex-oss/git
+<case>/sandbox/project
+@env CODEX_OSS_ACCOUNT_ID
+@env CODEX_OSS_IDLE_STOP
+@env CODEX_OSS_IMAGE
+@env CODEX_OSS_INTERACTIVE
+@env CODEX_OSS_MODEL
+@env CODEX_OSS_RUN_TAG
+@env CODEX_OSS_SANDBOX_NAME
+@env CODEX_OSS_TIMEOUT
+@env CODEX_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+---
+rule
+get
+cx-myproject
+--status
+pending
+@env CODEX_OSS_ACCOUNT_ID
+@env CODEX_OSS_IDLE_STOP
+@env CODEX_OSS_IMAGE
+@env CODEX_OSS_INTERACTIVE
+@env CODEX_OSS_MODEL
+@env CODEX_OSS_RUN_TAG
+@env CODEX_OSS_SANDBOX_NAME
+@env CODEX_OSS_TIMEOUT
+@env CODEX_OSS_WORKDIR
+@env MAKI_OSS_IDLE_STOP
+@env MAKI_OSS_IMAGE
+@env MAKI_OSS_INTERACTIVE
+@env MAKI_OSS_POLICY
+@env MAKI_OSS_PROVIDERS
+@env MAKI_OSS_RUN_TAG
+@env MAKI_OSS_SANDBOX_NAME
+@env MAKI_OSS_TEST_ENV_VALUE
+@env MAKI_OSS_TIMEOUT
+@env MAKI_OSS_TUI
+@env MAKI_OSS_WORKDIR
+@env MAKI_OSS_WORKSPACE
+@env MAKI_VERSION
+@client
+provider list --names
+sandbox get cx-myproject --output json
+sandbox get cx-myproject --output json
+sandbox provider list cx-myproject --output json
+provider list --names
+sandbox get cx-myproject --output json
+sandbox get cx-myproject --output json
+sandbox provider list cx-myproject --output json
+provider list --names
+sandbox get cx-myproject --output json
+sandbox get cx-myproject --output json
+sandbox provider list cx-myproject --output json

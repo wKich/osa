@@ -287,11 +287,51 @@ run_maki_with_input() { # STDIN_FILE ARGS...
         } | awk 'NF && !seen[$0]++' >"$STUB_STATE_DIR/providers.list.tmp"
         mv "$STUB_STATE_DIR/providers.list.tmp" "$STUB_STATE_DIR/providers.list"
     fi
-    # Failure fixtures are per run; the gateway process is per case, so they
-    # reach it through its state root as well as through the CLI stub's env.
+    # Per-run fixtures cross the seam through one channel: files under the
+    # state root, written before the run, read by the CLI stub and the fake
+    # gateway alike. The gateway process is per case, so an env-only fixture
+    # would never reach it; a file does, and both transports see the same one.
     if [ -n "${STUB_STATE_DIR:-}" ]; then
-        if [ "${DELETE_FAIL:-0}" = 1 ]; then : >"$STUB_STATE_DIR/delete_fail"; else rm -f "$STUB_STATE_DIR/delete_fail"; fi
-        if [ "${ATTACH_FAIL:-0}" = 1 ]; then : >"$STUB_STATE_DIR/attach_fail"; else rm -f "$STUB_STATE_DIR/attach_fail"; fi
+        stub_fixtures=$STUB_STATE_DIR/fixtures
+        rm -rf "$stub_fixtures"
+        mkdir -p "$stub_fixtures"
+        printf '%s\n' "${EXEC_STDOUT:-stub-exec-output}" >"$stub_fixtures/exec.stdout"
+        printf '%s\n' "${EXEC_EXIT:-0}" >"$stub_fixtures/exec.exit"
+        if [ -n "${EXEC_CASES:-}" ] && [ -f "$EXEC_CASES" ]; then
+            cp "$EXEC_CASES" "$stub_fixtures/exec.cases"
+        fi
+        # A case's pending-proposal text names chunk ids only; the fixture is
+        # the structured rule set both transports render from.
+        if [ -n "${RULE_PENDING:-}" ]; then
+            printf '%s\n' "$RULE_PENDING" \
+                | sed -n 's/^ *Chunk: *//p' \
+                | while IFS= read -r stub_chunk; do
+                    [ -n "$stub_chunk" ] || continue
+                    printf '%s|allow-stub||api.example.test:443|clean\n' "$stub_chunk"
+                done >"$stub_fixtures/rules"
+            printf '%s\n' "$RULE_PENDING" \
+                | sed -n 's/.*(version \([0-9][0-9]*\),.*/\1/p' \
+                | sed -n 1p >"$stub_fixtures/rules.version"
+        fi
+        if [ -n "${STUB_EXEC_SCRIPT_FAIL:-}" ]; then
+            printf '%s\n' "$STUB_EXEC_SCRIPT_FAIL" >"$stub_fixtures/exec.fail"
+        fi
+        if [ -n "${STUB_MAKI_SCRIPT:-}" ]; then
+            printf '%s\n' "$STUB_MAKI_SCRIPT" >"$stub_fixtures/exec.maki-script"
+        fi
+        if [ "${RUN_WRAPPER:-0}" = 1 ]; then : >"$stub_fixtures/exec.run-wrapper"; fi
+        if [ -d "$CASE/sandbox-tools" ]; then
+            printf '%s\n' "$CASE/sandbox-tools" >"$stub_fixtures/exec.tools"
+        fi
+        if [ -n "${EXEC_STDIN_LOG:-}" ]; then
+            printf '%s\n' "$EXEC_STDIN_LOG" >"$stub_fixtures/exec.stdin-log"
+        fi
+        if [ -n "${CREDENTIAL_LOG:-}" ]; then
+            printf '%s\n' "$CREDENTIAL_LOG" >"$stub_fixtures/credential-log"
+        fi
+        if [ "${CREATE_RACE:-0}" = 1 ]; then : >"$stub_fixtures/create.race"; fi
+        if [ "${ATTACH_FAIL:-0}" = 1 ]; then : >"$stub_fixtures/attach.fail"; fi
+        if [ "${DELETE_FAIL:-0}" = 1 ]; then : >"$stub_fixtures/delete.fail"; fi
     fi
     (
         cd "${RUN_DIR:-$CASE/project}"
@@ -407,6 +447,13 @@ seed_sandbox() {
 
 # Records a provider as configured (config file) and known to the gateway
 # (stub provider list), matching what `provider setup` persists in real use.
+# Per-run fixtures for a case that drives the binary directly instead of
+# through run_maki_with_input.
+fixture_file() { # NAME VALUE
+    mkdir -p "$STUB_STATE_DIR/fixtures"
+    printf '%s\n' "$2" >"$STUB_STATE_DIR/fixtures/$1"
+}
+
 seed_rule_chunk() { # SANDBOX CHUNK
     mkdir -p "$STUB_STATE_DIR/rules"
     printf '%s|allow-stub||api.example.test:443|clean\n' "$2" >>"$STUB_STATE_DIR/rules/$1"
@@ -3096,16 +3143,14 @@ test_exit_surfaces_proposals_on_interrupt() {
     seed_sandbox maki-myproject Ready
     seed_remembered_provider maki-stub
     attach_stub_provider maki-myproject maki-stub
-    RULE_PENDING='Network Rules:  (version 3, 1 chunk)
-
-  Chunk: 2258b82a-8253-4094-bf5f-3e309b2b9c11
-  Status: pending'
+    seed_rule_chunk maki-myproject 2258b82a-8253-4094-bf5f-3e309b2b9c11
 
     # Hold the agent open until signaled, so the interrupt cannot race the
     # session and the exit hook runs while Maki is attached. The helper runs
     # in the foreground because background jobs ignore SIGINT.
     STUB_MAKI_SCRIPT='touch '"$CASE"'/maki-started
 while [ ! -f '"$CASE"'/maki-stop ]; do sleep 0.1; done'
+    fixture_file exec.maki-script "$STUB_MAKI_SCRIPT"
     (
         tries=0
         while [ ! -f "$CASE/maki-started" ] && [ "$tries" -lt 100 ]; do
@@ -3126,11 +3171,11 @@ while [ ! -f '"$CASE"'/maki-stop ]; do sleep 0.1; done'
         XDG_CONFIG_HOME="$XDG_CONFIG_HOME" \
         STUB_LOG="$STUB_LOG" \
         STUB_STATE_DIR="$STUB_STATE_DIR" \
-        STUB_RULE_PENDING="$RULE_PENDING" \
         STUB_EXEC_STDOUT='interrupted' \
         STUB_SANDBOX_ROOT="$CASE/sandbox" \
         STUB_SANDBOX_TOOLS="$CASE/sandbox-tools" \
         STUB_MAKI_SCRIPT="$STUB_MAKI_SCRIPT" \
+        MAKI_OSS_SANDBOX_NAME=maki-myproject \
         MAKI_OSS_WORKDIR="$SANDBOX_WORKDIR" \
             $MAKI maki >"$OUT" 2>"$ERR" </dev/null
     ) || RC=$?

@@ -306,6 +306,42 @@ pub struct ExitStatus {
     pub code: i32,
 }
 
+/// Render the text `policy review` prints from the structured listing.
+///
+/// This is the one place the wording lives: the CLI transport parses the same
+/// text back into a listing, so parity compares rendered results rather than
+/// two independent formats.
+pub fn render_rules(sandbox: &str, listing: &RuleListing) -> String {
+    if listing.rules.is_empty() {
+        return format!("No network rules for sandbox '{sandbox}'\n");
+    }
+    let mut text = format!(
+        "Network Rules:  (version {}, {} chunk{})\n\n",
+        listing.version,
+        listing.rules.len(),
+        if listing.rules.len() == 1 { "" } else { "s" }
+    );
+    for rule in &listing.rules {
+        let chunk = rule.chunk_id.as_deref().unwrap_or(&rule.name);
+        text.push_str(&format!("  Chunk: {chunk}\n"));
+        if let Some(status) = &rule.status {
+            text.push_str(&format!("  Status: {status}\n"));
+        }
+        text.push_str(&format!("  Rule: {}\n", rule.name));
+        if let Some(binary) = rule.binary.as_ref().filter(|value| !value.is_empty()) {
+            text.push_str(&format!("  Binary: {binary}\n"));
+        }
+        if !rule.endpoints.is_empty() {
+            text.push_str(&format!("  Endpoints: {}\n", rule.endpoints.join(", ")));
+        }
+        if let Some(verdict) = rule.verdict.as_ref().filter(|value| !value.is_empty()) {
+            text.push_str(&format!("  Prover: {verdict}\n"));
+        }
+        text.push('\n');
+    }
+    text
+}
+
 /// Receives output chunks as they arrive.
 ///
 /// A callback rather than a returned stream keeps the command surface
@@ -358,15 +394,54 @@ impl Default for LogOptions {
     }
 }
 
-/// What creating a provider needs.
+/// The structured rule listing: the draft version plus every chunk.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuleListing {
+    pub version: u64,
+    pub rules: Vec<Rule>,
+}
+
+/// What creating a provider needs: the create command's whole option surface.
 #[derive(Debug, PartialEq, Eq)]
 pub struct ProviderSpec {
     pub name: String,
     pub profile: String,
-    /// The environment key the credential belongs to; the one request field
-    /// that carries it is keyed by this name.
+    /// Take the credential from the caller's existing environment rather than
+    /// from an inline value. The value still travels only in the designated
+    /// request field.
+    pub from_existing: bool,
+    /// Store the profile at platform scope instead of the selected workspace.
+    pub global_profile: bool,
+    /// The profile resolves its credential at runtime; no secret is stored.
+    pub runtime_credentials: bool,
+    /// The environment keys the credential belongs to; each name is one
+    /// request field, and its value comes from the process environment.
+    pub credential_keys: Vec<String>,
+    /// Non-secret provider configuration pairs.
+    pub config: Vec<(String, String)>,
+    /// A credential already in hand, keyed by `credential_key`.
     pub credential_key: Option<String>,
     pub credential: Option<Credential>,
+}
+
+/// One frame a caller sends to an interactive exec.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ExecInput {
+    Stdin(Vec<u8>),
+    Resize { cols: u16, rows: u16 },
+}
+
+/// An interactive or scripted exec: the command, its environment, and the
+/// terminal shape. The exit status comes back separately from the output.
+#[derive(Debug, Clone)]
+pub struct InteractiveExec {
+    pub request: ExecRequest,
+    pub env: Vec<(String, String)>,
+    pub tty: bool,
+    pub size: Option<(u16, u16)>,
+    /// Set when the session's interrupt handler fires; the exec loop watches
+    /// it so a signal ends the stream even while no output is arriving.
+    pub interrupt: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 /// Every covered gateway operation.
@@ -411,6 +486,15 @@ pub trait Gateway: Send + Sync {
     ) -> Result<ExitStatus, GatewayError>;
     /// Buffer an exec's whole output. Probes may buffer; passthrough may not.
     async fn exec_buffered(&self, request: ExecRequest) -> Result<ExecOutput, GatewayError>;
+    /// Stream an exec's output as it arrives while forwarding stdin and resize
+    /// frames, and report the exit status separately. An interrupt drops the
+    /// stream, which ends the remote process.
+    async fn exec_interactive(
+        &self,
+        exec: InteractiveExec,
+        input: tokio::sync::mpsc::Receiver<ExecInput>,
+        sink: &mut (dyn ChunkSink + Send),
+    ) -> Result<ExitStatus, GatewayError>;
     /// Stream a sandbox's logs to `sink` until the stream ends. A non-following
     /// read drains its tail and returns.
     async fn logs(
@@ -432,7 +516,7 @@ pub trait Gateway: Send + Sync {
         name: &str,
         pending_only: bool,
     ) -> Result<Option<Rule>, GatewayError>;
-    async fn list_rules(&self, sandbox: &str) -> Result<Vec<Rule>, GatewayError>;
+    async fn list_rules(&self, sandbox: &str) -> Result<RuleListing, GatewayError>;
     /// Approve exactly one draft chunk. There is deliberately no bulk
     /// approval here: egress widens one chunk at a time.
     async fn approve_rule(&self, sandbox: &str, chunk: &str) -> Result<(), GatewayError>;

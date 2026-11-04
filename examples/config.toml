@@ -72,3 +72,11 @@ workdir = "/sandbox/project"
 # OpenShell gateway name. Leave unset to use the default gateway; pass
 # --gateway to override for a single invocation.
 # gateway = "openshell"
+
+# Client certificate for a gateway that requires mTLS. OpenShell v0.1.6 and
+# newer refuse unauthenticated callers, and a package-managed local gateway
+# uses mTLS; the installer keeps the client bundle at
+# ~/.config/openshell/gateways/<gateway>/mtls (ca.crt, tls.crt, tls.key). Use
+# an absolute path: TOML values are not shell-expanded. Without it the helper
+# reports the gateway as unreachable while `openshell status` is Connected.
+# tls_dir = "/home/you/.config/openshell/gateways/openshell/mtls"

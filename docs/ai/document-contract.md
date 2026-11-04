@@ -68,7 +68,7 @@ kinds does not opt a page in.
 | Handoff | `docs/ai/verification/maki.md` |
 | Verification | `docs/ai/verification/maki.md` |
 | Reference | `docs/helper.md` |
-| Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
+| Verified | OpenShell v0.1.7, Maki v0.6.5, 2026-11-04 |
 ```
 
 Kind-specific rows:
@@ -122,7 +122,7 @@ host phase in its metadata note or `Scope`.
 | Kind | `router` |
 | Agent | `shared` |
 | Covers | `P0-P8` |
-| Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
+| Verified | OpenShell v0.1.7, Maki v0.6.5, 2026-11-04 |
 
 # Onboarding
 
@@ -166,7 +166,7 @@ The agent playbooks, references, and verification pages.
 | Handoff | `docs/ai/verification/maki.md` |
 | Verification | `docs/ai/verification/maki.md` |
 | Reference | `docs/helper.md` |
-| Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
+| Verified | OpenShell v0.1.7, Maki v0.6.5, 2026-11-04 |
 
 # Playbook: Maki
 
@@ -215,7 +215,7 @@ The host playbook, references, verification page, and helper reference.
 | Agent | `Maki` |
 | Covers | `P6` |
 | Reference | `docs/ai/playbooks/maki.md` |
-| Verified | OpenShell v0.1.5, Maki v0.6.4, 2026-10-22; sync matrix, 2026-10-26 |
+| Verified | OpenShell v0.1.7, Maki v0.6.5, 2026-11-04 |
 
 # Verification: Maki
 
@@ -255,7 +255,7 @@ The agent playbook, reference, and shared verification notes.
 | Kind | `reference` |
 | Agent | `Maki` |
 | Covers | `P4, P5` |
-| Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
+| Verified | OpenShell v0.1.7, Maki v0.6.5, 2026-11-04 |
 
 # Reference: Maki
 

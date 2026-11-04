@@ -1771,3 +1771,111 @@ With `osa dashboard --port 8799 --token …` running, two removals went through
 |---|---|
 | `cc-osa-cb62`, registered but not on the gateway (`openshell sandbox list`: no sandboxes) | HTTP 200; `changed` held the archive `sessions/cc-osa-cb62.archive-20261028104638-16810` and the registry file, with no `gateway:` item; `osa projects` no longer listed it |
 | `cc-remove-e2e-5b89`, created by `claude-oss up` in a scratch folder and `Ready` | HTTP 200; `changed` began with `gateway:cc-remove-e2e-5b89`; `openshell sandbox list` then printed `No sandboxes found.` and `osa projects` no longer listed it |
+
+## OpenShell v0.1.7 upgrade — 2026-11-04
+
+Upgrade on this host: macOS 26.5 (Apple Silicon), Docker Engine 29.4.0 via
+OrbStack, Homebrew install. Baseline before the upgrade: `openshell 0.1.5`,
+gateway version 0.1.5, docker driver 0.1.5, `Status: Connected`,
+`Authentication: Authenticated (mTLS transport)`.
+
+### Install and gateway
+
+Ran the pinned installer:
+
+```sh
+curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh \
+  | OPENSHELL_VERSION=v0.1.7 sh
+```
+
+The installer upgraded the Homebrew package, restarted the `openshell`
+service, and re-registered the local gateway. After it: `openshell --version`
+printed `openshell 0.1.7`; `openshell status` reported `Status: Connected`,
+`Authentication: Authenticated (mTLS transport)`, `Version: 0.1.7`; and
+`openshell gateway info` reported gateway 0.1.7, docker driver 0.1.7, and the
+three extensions at 0.1.7.
+
+The formula left the user-edited `$(brew --prefix)/var/openshell/gateway.toml`
+untouched: the `allow_driver_config`, `enable_bind_mounts`, and
+`resource_admission` entries are still there. No auth keys were added, and the
+gateway started without `allow_unauthenticated_users`; the package-managed TLS
+and JWT bundles satisfy the v0.1.6 authentication gate. A v0.1.7 gateway
+binary started against a copy of the same config bound its listener and
+selected the docker driver.
+
+### Typed client and authentication
+
+The pre-upgrade helper (SDK v0.1.5) and the rebuilt helper both reported the
+gateway as unreachable after the upgrade, while `openshell status` was
+Connected. OpenShell v0.1.6 requires callers to authenticate, and
+`openshell gateway info --output json` still reports `auth: null` for this
+local mTLS gateway, so discovery cannot name the mode. The CLI keeps its
+client bundle at `~/.config/openshell/gateways/openshell/mtls`; adding
+
+```toml
+tls_dir = "/Users/ki/.config/openshell/gateways/openshell/mtls"
+```
+
+to the four front-end configs made `maki-oss`, `opencode-oss`, `claude-oss`,
+and `codex-oss` reach the gateway again. Without it, `--tls-dir` is the
+per-command workaround. The gateway's own config needs no auth keys, and
+`allow_unauthenticated_users` remains unset.
+
+### Pins and code
+
+- The seven `openshell-*` git dependencies moved from v0.1.5 to v0.1.7 and
+  `Cargo.lock` was regenerated.
+- v0.1.7 adds `SuspendSandbox`/`ResumeSandbox` to the `OpenShell` service and
+  `SANDBOX_PHASE_SUSPENDING`/`SUSPENDED` to the phase enum. The two OpenShell
+  service implementations (`stub-gateway` and `insandbox-gateway`) implement
+  the new methods, and `gateway/sdk.rs` maps the new phases in both phase
+  formatters.
+- `Suspended` is treated like `Stopped` by `up`/`start` and `osa resolve`, so a
+  suspended sandbox is started instead of waited on indefinitely.
+- `stub-gateway/tests/sdk_contract.rs` now expects `sandbox create --name demo
+  --from maki-agent:local --detach`, matching the SDK's template-image wire
+  shape and the already-committed `sdk_transport` assertion.
+- `scripts/pin-drift.sh`: ok, SDK tag and gateway version are both v0.1.7.
+- `cargo check --workspace --all-targets`: ok. `make test-core`: 145 passed,
+  0 failed.
+- `make compat-drift`'s pin half passes; its OpenCode contract half fails
+  because the host `opencode` is v2.2.5 while the vendored contract is v2.1.4.
+  That drift predates this upgrade and is unrelated to OpenShell.
+- `make test-conformance` is not green in this working tree. The failures are
+  recording diffs from the in-progress `stub-gateway` rewrite, whose recorder
+  emits `<parsed>` for the policy and `--env NAME` instead of the goldens'
+  policy path and `@env NAME` lines. The same recorder would produce the same
+  diff at v0.1.5; the pin bump did not change the argv surface. The run also
+  ends at `tests/run-tests.sh:11185` with `st: command not found`. Recorded so
+  neither is mistaken for a pin regression.
+
+### Isolation checks against v0.1.7
+
+Sandbox `maki-osa-017-check`, image `maki-agent:personal` (Maki 0.6.5),
+provider `maki-synthetic`.
+
+| Check | Command | Observed |
+|---|---|---|
+| 1 — denied egress | `sandbox exec … curl https://example.com` | `curl: (7) Failed to connect to example.com port 443`, exit 7 |
+| 2 — placeholder-only credential | `sandbox exec … printenv SYNTHETIC_API_KEY` | a gateway-issued placeholder ending in `_SYNTHETIC_API_KEY`, exit 0; not a key |
+| 3 — host paths invisible | `ls /Users` | `ls: cannot access '/Users': No such file or directory`, exit 2 |
+| 3 — system paths read-only | `touch /usr/probe` | `touch: cannot touch '/usr/probe': Permission denied`, exit 1 |
+| 3 — non-root identity | `id` | `uid=1500(sandbox) gid=1500(sandbox) groups=1500(sandbox)` |
+| 4 — base policy | `policy get "$SANDBOX" --base` | `read_write: /sandbox, /tmp, /dev/null`; `run_as_user`/`run_as_group` `"1500"` |
+| 4 — provider rule | `policy get "$SANDBOX" --full` | `_provider_maki_synthetic` with `api.synthetic.new:443`, protocol `rest`, `access: read-write` |
+| 5 — attached provider | `sandbox provider list "$SANDBOX"` | `maki-synthetic`, type `maki-synthetic`, one credential key |
+| 6 — denial log | `logs "$SANDBOX" --since 10m --source sandbox` | `NET:REFUSE … DENIED example.com [reason:policy_dns_ineligible]` and `NET:OPEN … DENIED /usr/bin/curl(0) -> example.com:443 [reason:transparent_tcp_policy_denied]` |
+
+`sandbox suspend` against the docker driver answered `compute driver does not
+support sandbox suspend`, matching the release note that suspend depends on
+the compute driver. The phase handling is covered by the unit tests instead.
+
+The 7.1 sync case was exercised up to the deliberate fast failure: `up` and
+`upload` raced the sandbox's `Provisioning` phase, the session then refreshed
+the workspace and exited on `--model nope/nope` with `No sandbox changes to
+sync`, and a later sandbox edit made the next session refuse with the parked
+workspace block. Upload, exec, park, and refusal were exercised; no successful
+patch was applied. Cases 7.2-7.7, 8, and 9 were not run.
+
+The OpenCode, Claude Code, and Codex playbooks and verification pages were not
+re-run against v0.1.7 and still record their v0.1.5 runs.

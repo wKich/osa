@@ -1,7 +1,8 @@
 # Setup guide: Maki in an OpenShell sandbox
 
-> **Verified against OpenShell v0.1.5 and Maki v0.6.5 on 2026-10-25 (the
-> v0.1.5 upgrade's checks were re-run; the full dry run was not repeated).** Tested on macOS 26.5
+> **Verified against OpenShell v0.1.7 and Maki v0.6.5 on 2026-11-04 (the
+> v0.1.7 upgrade's install and isolation checks were re-run; the full dry run
+> was not repeated).** Tested on macOS 26.5
 > (Apple Silicon) with Docker Engine 29.4.0 (OrbStack). Docker Desktop 28+ is
 > the upstream-supported macOS path; Linux hosts work the same way. What the
 > dry run covered — and what it did not — is recorded in
@@ -65,7 +66,7 @@ advisor, policy prover, and the rest) is defined in
 | Requirement | Check | Expected |
 |---|---|---|
 | Docker Engine 28+ | `docker version --format '{{.Server.Version}}'` | `28.0` or later |
-| OpenShell CLI + gateway | `openshell status` | `Status: Connected`, version `0.1.5` |
+| OpenShell CLI + gateway | `openshell status` | `Status: Connected`, `Authentication: Authenticated (mTLS transport)`, version `0.1.7` |
 | Host platform | `uname -m` | `arm64` on Apple Silicon; Linux amd64/arm64 also supported |
 | `git` and `curl` | `git --version`; `curl --version` | both resolve |
 | Rust toolchain (pinned) | `rustup show active-toolchain` | resolves via `rust-toolchain.toml` |
@@ -85,7 +86,7 @@ uses the `docker` CLI and does not depend on which engine provides it.
 
 ```sh
 curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh \
-  | OPENSHELL_VERSION=v0.1.5 sh
+  | OPENSHELL_VERSION=v0.1.7 sh
 openshell status
 ```
 
@@ -93,6 +94,13 @@ On macOS the installer uses Homebrew and starts a gateway service; on Linux it
 installs a package and a systemd user service. If the status is not
 `Connected`, restart the service (`brew services restart openshell`, or
 `systemctl --user restart openshell-gateway`) and retry.
+
+OpenShell v0.1.6 and newer require gateway authentication. The local gateway
+uses mTLS and the installer writes the client bundle to
+`~/.config/openshell/gateways/openshell/mtls`. Set `tls_dir` in every
+front-end config to that directory before running a helper command; without it
+the helper reports the gateway as unreachable while `openshell status` is
+Connected.
 
 ## 3. Build the Maki image
 

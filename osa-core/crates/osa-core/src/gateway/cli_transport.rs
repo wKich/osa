@@ -15,8 +15,8 @@ use std::time::Duration;
 use super::cli::Cli;
 use super::error::GatewayError;
 use super::{
-    ChunkSink, Endpoint, ExecOutput, ExecRequest, ExitStatus, Gateway, LogOptions, ProviderSpec,
-    Rule, Sandbox, SandboxSpec,
+    ChunkSink, Endpoint, ExecInput, ExecOutput, ExecRequest, ExitStatus, Gateway, InteractiveExec,
+    LogOptions, ProviderSpec, Rule, RuleListing, Sandbox, SandboxSpec,
 };
 
 /// The covered operations, over the OpenShell CLI.
@@ -283,6 +283,118 @@ impl Gateway for CliGateway {
         })
     }
 
+    async fn exec_interactive(
+        &self,
+        exec: InteractiveExec,
+        input: tokio::sync::mpsc::Receiver<ExecInput>,
+        sink: &mut (dyn ChunkSink + Send),
+    ) -> Result<ExitStatus, GatewayError> {
+        use std::io::Write;
+        let request = exec.request;
+        let mut args: Vec<String> = vec![
+            "sandbox".into(),
+            "exec".into(),
+            "-n".into(),
+            request.sandbox.clone(),
+        ];
+        if exec.tty {
+            args.push("--tty".into());
+        } else {
+            args.push("--no-login-shell".into());
+        }
+        if let Some(workdir) = request.workdir.as_ref().filter(|value| !value.is_empty()) {
+            args.push("--workdir".into());
+            args.push(workdir.clone());
+        }
+        for (key, value) in &exec.env {
+            args.push("--env".into());
+            args.push(format!("{key}={value}"));
+        }
+        args.push("--".into());
+        args.extend(request.command.iter().cloned());
+        let words: Vec<&str> = args.iter().map(String::as_str).collect();
+        let mut child = self
+            .cli
+            .command(self.gateway(), &words)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .map_err(|error| GatewayError::MissingCli {
+                program: format!("openshell ({error})"),
+            })?;
+        let mut child_stdin = child.stdin.take();
+        let mut stdout = child.stdout.take();
+        let mut stderr = child.stderr.take();
+        let (chunks, mut receiver) = tokio::sync::mpsc::channel::<Vec<u8>>(16);
+        let mut readers = Vec::new();
+        if let Some(pipe) = stdout.take() {
+            let chunks = chunks.clone();
+            readers.push(std::thread::spawn(move || pump(pipe, chunks)));
+        }
+        if let Some(pipe) = stderr.take() {
+            let chunks = chunks.clone();
+            readers.push(std::thread::spawn(move || pump(pipe, chunks)));
+        }
+        let writer = child_stdin.take().map(|mut pipe| {
+            std::thread::spawn(move || {
+                let mut input = input;
+                while let Some(frame) = input.blocking_recv() {
+                    match frame {
+                        ExecInput::Stdin(bytes) => {
+                            if pipe.write_all(&bytes).is_err() {
+                                break;
+                            }
+                            let _ = pipe.flush();
+                        }
+                        ExecInput::Resize { .. } => {
+                            // The child has no terminal of its own here; the
+                            // gateway owns the remote PTY.
+                        }
+                    }
+                }
+            })
+        });
+        let mut tick = tokio::time::interval(Duration::from_millis(100));
+        let status;
+        loop {
+            if exec
+                .interrupt
+                .as_ref()
+                .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed))
+            {
+                let _ = child.kill();
+            }
+            if let Some(code) = child.try_wait().ok().flatten() {
+                status = Some(crate::process::exit_code(code));
+                break;
+            }
+            tokio::select! {
+                Some(bytes) = receiver.recv() => sink.write(&bytes),
+                _ = tick.tick() => {}
+            }
+        }
+        // Drain what the pipes still hold for this run.
+        while let Ok(bytes) = receiver.try_recv() {
+            sink.write(&bytes);
+        }
+        drop(writer);
+        for reader in readers {
+            let _ = reader.join();
+        }
+        while let Ok(bytes) = receiver.try_recv() {
+            sink.write(&bytes);
+        }
+        if let Some(flag) = exec.interrupt.as_ref() {
+            if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                return Ok(ExitStatus { code: 130 });
+            }
+        }
+        Ok(ExitStatus {
+            code: status.unwrap_or(-1),
+        })
+    }
+
     async fn logs(
         &self,
         sandbox: &str,
@@ -330,8 +442,6 @@ impl Gateway for CliGateway {
     }
 
     async fn create_provider(&self, spec: ProviderSpec) -> Result<(), GatewayError> {
-        // Provider create is a documented CLI exception in this change:
-        // `--from-existing` and `--global-profile` have no request field.
         let mut args: Vec<String> = vec![
             "provider".into(),
             "create".into(),
@@ -340,14 +450,52 @@ impl Gateway for CliGateway {
             "--type".into(),
             spec.profile.clone(),
         ];
+        if spec.from_existing {
+            args.push("--from-existing".into());
+        }
+        if spec.runtime_credentials {
+            args.push("--runtime-credentials".into());
+        }
+        if spec.global_profile {
+            args.push("--global-profile".into());
+        }
+        let key = spec
+            .credential_key
+            .clone()
+            .or_else(|| spec.credential_keys.first().cloned());
         if spec.credential.is_some() {
-            if let Some(key) = spec.credential_key.as_ref() {
+            if let Some(key) = key.as_ref() {
                 args.push("--credential".into());
                 args.push(key.clone());
             }
         }
+        for named in spec.credential_keys.iter().filter(|key| !key.is_empty()) {
+            args.push("--credential".into());
+            args.push(named.clone());
+        }
+        for (config_key, config_value) in spec.config.iter().filter(|(key, _)| !key.is_empty()) {
+            args.push("--config".into());
+            args.push(format!("{config_key}={config_value}"));
+        }
         let words: Vec<&str> = args.iter().map(String::as_str).collect();
-        self.status_only(&words, "provider create")
+        let mut command = self.cli.command(self.gateway(), &words);
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        // The CLI's existing-credential mode reads the value from the child
+        // environment; this is that transport's one designated channel.
+        if let (Some(key), Some(credential)) = (key.as_ref(), spec.credential.as_ref()) {
+            command.env(key, credential.expose());
+        }
+        let output = command.output().map_err(|error| GatewayError::MissingCli {
+            program: format!("openshell ({error})"),
+        })?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(Self::failed("provider create", &output))
+        }
     }
 
     async fn attached_providers(&self, sandbox: &str) -> Result<Vec<String>, GatewayError> {
@@ -393,11 +541,12 @@ impl Gateway for CliGateway {
         Ok(self
             .list_rules(sandbox)
             .await?
+            .rules
             .into_iter()
             .find(|rule| rule.name == name && (!pending_only || rule.status.as_deref() == Some("pending"))))
     }
 
-    async fn list_rules(&self, sandbox: &str) -> Result<Vec<Rule>, GatewayError> {
+    async fn list_rules(&self, sandbox: &str) -> Result<RuleListing, GatewayError> {
         let output = self.run(&["rule", "get", sandbox, "--status", "pending"])?;
         if !output.status.success() {
             return Err(Self::failed("rule list", &output));
@@ -414,12 +563,20 @@ impl Gateway for CliGateway {
 }
 
 /// The CLI's `rule get` text, read into the same shape the client returns.
-fn parse_rules(text: &str) -> Vec<Rule> {
+fn parse_rules(text: &str) -> RuleListing {
+    let mut version = 1u64;
     let mut rules = Vec::new();
     let mut current: Option<Rule> = None;
     for line in text.lines() {
         let line = line.trim();
-        if let Some(chunk) = line.strip_prefix("Chunk: ") {
+        if let Some(rest) = line.strip_prefix("Network Rules:") {
+            if let Some(found) = rest.split_once("version ").map(|(_, tail)| tail) {
+                let digits: String = found.chars().take_while(char::is_ascii_digit).collect();
+                if let Ok(parsed) = digits.parse() {
+                    version = parsed;
+                }
+            }
+        } else if let Some(chunk) = line.strip_prefix("Chunk: ") {
             if let Some(rule) = current.take() {
                 rules.push(rule);
             }
@@ -435,10 +592,50 @@ fn parse_rules(text: &str) -> Vec<Rule> {
             if let Some(rule) = current.as_mut() {
                 rule.status = Some(status.to_string());
             }
+        } else if let Some(name) = line.strip_prefix("Rule: ") {
+            if let Some(rule) = current.as_mut() {
+                rule.name = name.to_string();
+            }
+        } else if let Some(binary) = line.strip_prefix("Binary: ") {
+            if let Some(rule) = current.as_mut() {
+                rule.binary = Some(binary.to_string());
+            }
+        } else if let Some(endpoints) = line.strip_prefix("Endpoints: ") {
+            if let Some(rule) = current.as_mut() {
+                rule.endpoints = endpoints
+                    .split(",")
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .map(str::to_string)
+                    .collect();
+            }
+        } else if let Some(verdict) = line.strip_prefix("Prover: ") {
+            if let Some(rule) = current.as_mut() {
+                rule.verdict = Some(verdict.to_string());
+            }
         }
     }
     if let Some(rule) = current {
         rules.push(rule);
     }
-    rules
+    RuleListing { version, rules }
+}
+
+/// Read one child pipe into the chunk channel as bytes arrive.
+fn pump(
+    mut pipe: impl std::io::Read,
+    chunks: tokio::sync::mpsc::Sender<Vec<u8>>,
+) {
+    let mut buffer = [0u8; 4096];
+    loop {
+        match pipe.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => {
+                if chunks.blocking_send(buffer[..read].to_vec()).is_err() {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
 }

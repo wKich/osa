@@ -10,12 +10,12 @@
 | Handoff | `docs/ai/onboarding.md` |
 | Verification | `docs/ai/onboarding.md` |
 | Reference | `docs/helper.md` |
-| Verified | OpenShell v0.1.5, 2026-10-25 |
+| Verified | OpenShell v0.1.7, 2026-11-04 |
 
 > **Shared host path; choose your agent in onboarding** — [open the onboarding
 > guide](onboarding.md).
 
-> **Verified against OpenShell v0.1.5 on 2026-10-25.** The OpenShell install
+> **Verified against OpenShell v0.1.7 on 2026-11-04.** The OpenShell install
 > command below pins the version `docs/ai/references.md` verifies; moving that
 > pin is the same act as re-verifying, not a separate chore. External
 > documentation links live only in [`docs/ai/references.md`](references.md) —
@@ -132,9 +132,28 @@ one step; details in the OpenShell installation doc indexed by
 
 ```sh
 curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh \
-  | OPENSHELL_VERSION=v0.1.5 sh
+  | OPENSHELL_VERSION=v0.1.7 sh
 openshell status
 ```
+
+`openshell status` must report `Status: Connected` and
+`Authentication: Authenticated (mTLS transport)`. OpenShell v0.1.6 and newer
+refuse to start a gateway without authentication; the package-managed local
+gateway uses mTLS and the installer stores the CLI's client bundle at
+`~/.config/openshell/gateways/openshell/mtls/{ca.crt,tls.crt,tls.key}`.
+
+The helper's typed client does not read that directory on its own. Name it in
+the `tls_dir` key of every front-end config you use
+(`${XDG_CONFIG_HOME:-$HOME/.config}/<front-end>/config.toml` for `maki-oss`,
+`opencode-oss`, `claude-oss`, and `codex-oss`):
+
+```toml
+tls_dir = "/home/you/.config/openshell/gateways/openshell/mtls"
+```
+
+Without it the helper reports the gateway as unreachable even though
+`openshell status` is Connected, and `--tls-dir` on one command is the only
+per-invocation workaround.
 
 The typed gateway client is consumed from source at that same release: the
 `openshell-sdk` git tag in `osa-core/crates/osa-core/Cargo.toml` and the gateway
@@ -156,7 +175,8 @@ docker version --format '{{.Server.Version}}'
 openshell status
 ```
 
-Expected: `28.0` or later; `Status: Connected`.
+Expected: `28.0` or later; `Status: Connected` and
+`Authentication: Authenticated (mTLS transport)`.
 
 ### Stop if
 

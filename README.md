@@ -59,7 +59,7 @@ The full prompt, with the phase map, migration matrix, and report format, is in
 If you prefer to do it yourself, the commands below build the Maki base. Use
 the [quickstart](docs/ai/quickstart.md) for OpenCode, Claude Code, or Codex.
 
-Prerequisites: OpenShell CLI v0.1.5 with a running gateway (`openshell status`),
+Prerequisites: OpenShell CLI v0.1.7 with a running gateway (`openshell status`),
 Docker Engine 28+, `git`, `curl`, and the pinned Rust toolchain (`rustup`). The
 helper is a Rust binary built from `osa-core/`. Optionally `jq` and `fish`. On
 a bare host, start with the [host playbook](docs/ai/host-playbook.md).

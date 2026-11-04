@@ -211,6 +211,152 @@ impl Stub {
         }
     }
 
+
+    fn fixtures_dir(&self) -> PathBuf {
+        self.state.join("fixtures")
+    }
+
+    fn fixture(&self, name: &str) -> Option<String> {
+        fs::read_to_string(self.fixtures_dir().join(name)).ok()
+    }
+
+    fn fixture_present(&self, name: &str) -> bool {
+        self.fixtures_dir().join(name).exists()
+    }
+
+    /// The canned exec outcome for this command: a per-command case first,
+    /// then the run's stdout and exit status.
+    fn exec_outcome(&self, command: &[String]) -> (Vec<u8>, i32) {
+        let joined = command.join(" ");
+        if let Some(cases) = self.fixture("exec.cases") {
+            for line in cases.lines() {
+                let mut fields = line.split('|');
+                let key = fields.next().unwrap_or_default();
+                if key.is_empty() || !joined.contains(key) {
+                    continue;
+                }
+                let exit = fields
+                    .next()
+                    .unwrap_or_default()
+                    .trim()
+                    .parse()
+                    .unwrap_or(0);
+                let file = fields.next().unwrap_or_default();
+                let stdout = if file.is_empty() {
+                    Vec::new()
+                } else {
+                    fs::read(file).unwrap_or_default()
+                };
+                return (stdout, exit);
+            }
+        }
+        let stdout = self
+            .fixture("exec.stdout")
+            .map(String::into_bytes)
+            .unwrap_or_else(|| self.exec_stdout.clone());
+        let exit = self
+            .fixture("exec.exit")
+            .and_then(|text| text.trim().parse().ok())
+            .unwrap_or(self.exec_exit);
+        (stdout, exit)
+    }
+
+    /// The structured pending rules: the per-run fixture when a case wrote
+    /// one, otherwise the case's seeded rule files.
+    fn rules(&self, sandbox: &str) -> (u64, Vec<proto::PolicyChunk>) {
+        let version = self
+            .fixture("rules.version")
+            .and_then(|text| text.trim().parse().ok())
+            .unwrap_or(1);
+        let text = self
+            .fixture("rules")
+            .or_else(|| fs::read_to_string(self.state.join("rules").join(sandbox)).ok());
+        (version, text.map(|text| parse_rules(&text)).unwrap_or_default())
+    }
+
+    /// Run one exec the way the CLI stub does: internal sandbox scripts and
+    /// the run wrapper execute locally; everything else reports the run's
+    /// canned outcome. Fixtures arrive as files under the state root.
+    async fn run_exec(&self, request: &proto::ExecSandboxRequest) -> ExecOutcome {
+        let command = &request.command;
+        let internal = command.len() >= 4
+            && command[0] == "sh"
+            && command[1] == "-c"
+            && command[3].ends_with("-git");
+        let wrapper = command.len() >= 4
+            && command[0] == "sh"
+            && command[1] == "-c"
+            && command[3].ends_with("-run")
+            && self.fixture_present("exec.run-wrapper");
+        if internal {
+            if let Some(fail) = self.fixture("exec.fail") {
+                let fail = fail.trim();
+                if !fail.is_empty() && command[2].contains(fail) {
+                    return ExecOutcome {
+                        stdout: Vec::new(),
+                        stderr: b"stub: sandbox script failed\n".to_vec(),
+                        exit_code: 1,
+                    };
+                }
+            }
+        }
+        if internal || wrapper {
+            let tools = self
+                .fixture("exec.tools")
+                .map(|text| text.trim().to_string())
+                .unwrap_or_default();
+            let script = command[2].clone();
+            let args: Vec<String> = command[3..].to_vec();
+            let output = tokio::task::spawn_blocking(move || {
+                let mut process = std::process::Command::new("sh");
+                process.arg("-c").arg(&script).args(&args);
+                if !tools.is_empty() {
+                    let path = std::env::var("PATH").unwrap_or_default();
+                    process.env("PATH", format!("{tools}:{path}"));
+                }
+                process.output()
+            })
+            .await;
+            if let Ok(Ok(output)) = output {
+                return ExecOutcome {
+                    stdout: output.stdout,
+                    stderr: output.stderr,
+                    exit_code: output.status.code().unwrap_or(1),
+                };
+            }
+            return ExecOutcome {
+                stdout: Vec::new(),
+                stderr: b"stub: sandbox script failed\n".to_vec(),
+                exit_code: 1,
+            };
+        }
+        // The CLI stub logs agent stdin and nothing else: an internal script
+        // returns before that point.
+        if let Some(path) = self.fixture("exec.stdin-log") {
+            let _ = fs::write(path.trim(), &request.stdin);
+        }
+        if matches!(command.first().map(String::as_str), Some("maki" | "opencode" | "claude" | "codex")) {
+            if let Some(script) = self.fixture("exec.maki-script") {
+                let workdir = request.workdir.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    let mut process = std::process::Command::new("sh");
+                    process.arg("-c").arg(script);
+                    if !workdir.is_empty() {
+                        process.current_dir(workdir);
+                    }
+                    process.status()
+                })
+                .await;
+            }
+        }
+        let (stdout, exit_code) = self.exec_outcome(command);
+        ExecOutcome {
+            stdout,
+            stderr: Vec::new(),
+            exit_code,
+        }
+    }
+
     fn sandboxes_dir(&self) -> PathBuf {
         self.state.join("sandboxes")
     }
@@ -326,48 +472,6 @@ impl Stub {
         fs::write(self.state.join("providers.list"), names.join("\n"))
     }
 
-    fn chunks(&self, sandbox: &str) -> Vec<proto::PolicyChunk> {
-        let mut chunks = Vec::new();
-        let file = self.state.join("rules").join(sandbox);
-        let Ok(text) = fs::read_to_string(file) else {
-            return chunks;
-        };
-        for line in text.lines() {
-            // `chunk-id|rule-name|binary|host:port|verdict`
-            let mut parts = line.split('|');
-            let Some(id) = parts.next().filter(|part| !part.trim().is_empty()) else {
-                continue;
-            };
-            let rule_name = parts.next().unwrap_or_default();
-            let binary = parts.next().unwrap_or_default();
-            let endpoint = parts.next().unwrap_or_default();
-            let verdict = parts.next().unwrap_or_default();
-            let mut endpoints = Vec::new();
-            if !endpoint.is_empty() {
-                let (host, port) = endpoint.split_once(':').unwrap_or((endpoint, "443"));
-                endpoints.push(proto::NetworkEndpoint {
-                    host: host.to_string(),
-                    port: port.parse().unwrap_or(443),
-                    ..Default::default()
-                });
-            }
-            chunks.push(proto::PolicyChunk {
-                id: id.trim().to_string(),
-                status: "pending".to_string(),
-                rule_name: rule_name.to_string(),
-                proposed_rule: Some(proto::NetworkPolicyRule {
-                    name: rule_name.to_string(),
-                    endpoints,
-                    binaries: Vec::new(),
-                }),
-                binary: binary.to_string(),
-                validation_result: verdict.to_string(),
-                ..Default::default()
-            });
-        }
-        chunks
-    }
-
     fn approve(&self, sandbox: &str, chunk: &str) -> Result<(), String> {
         let file = self.state.join("rules").join(sandbox);
         let text = fs::read_to_string(&file).map_err(|error| error.to_string())?;
@@ -390,6 +494,134 @@ impl Stub {
     }
 }
 
+
+/// `chunk-id|rule-name|binary|host:port|verdict` lines, one chunk each.
+fn parse_rules(text: &str) -> Vec<proto::PolicyChunk> {
+    let mut chunks = Vec::new();
+    for line in text.lines() {
+        let mut parts = line.split('|');
+        let Some(id) = parts.next().filter(|part| !part.trim().is_empty()) else {
+            continue;
+        };
+        let rule_name = parts.next().unwrap_or_default();
+        let binary = parts.next().unwrap_or_default();
+        let endpoint = parts.next().unwrap_or_default();
+        let verdict = parts.next().unwrap_or_default();
+        let mut endpoints = Vec::new();
+        if !endpoint.is_empty() {
+            let (host, port) = endpoint.split_once(':').unwrap_or((endpoint, "443"));
+            endpoints.push(proto::NetworkEndpoint {
+                host: host.to_string(),
+                port: port.parse().unwrap_or(443),
+                ..Default::default()
+            });
+        }
+        chunks.push(proto::PolicyChunk {
+            id: id.trim().to_string(),
+            status: "pending".to_string(),
+            rule_name: rule_name.to_string(),
+            proposed_rule: Some(proto::NetworkPolicyRule {
+                name: rule_name.to_string(),
+                endpoints,
+                binaries: Vec::new(),
+            }),
+            binary: binary.to_string(),
+            validation_result: verdict.to_string(),
+            ..Default::default()
+        });
+    }
+    chunks
+}
+
+
+/// The CLI create argv the request stands for, so the create argument surface
+/// stays reviewable after the conversion. The policy arrives parsed, so the
+/// request's policy presence is recorded by name only.
+fn create_words(request: &proto::CreateSandboxRequest) -> Vec<String> {
+    let mut words = vec![
+        "sandbox".to_string(),
+        "create".to_string(),
+        "--name".to_string(),
+        request.name.clone(),
+    ];
+    if let Some(spec) = request.spec.as_ref() {
+        if let Some(template) = spec.template.as_ref() {
+            if !template.image.is_empty() {
+                words.push("--from".to_string());
+                words.push(template.image.clone());
+            }
+        }
+        if spec.policy.is_some() {
+            words.push("--policy".to_string());
+            words.push("<parsed>".to_string());
+        }
+        if let Some(resources) = spec.template.as_ref().and_then(|template| template.resources.as_ref()) {
+            if let Some(limits) = resources.fields.get("limits") {
+                if let Some(prost_types::value::Kind::StructValue(limits)) = limits.kind.as_ref() {
+                    for key in ["cpu", "memory"] {
+                        if let Some(value) = limits.fields.get(key) {
+                            if let Some(prost_types::value::Kind::StringValue(value)) = value.kind.as_ref() {
+                                words.push(format!("--{key}"));
+                                words.push(value.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for provider in spec.providers.iter().filter(|value| !value.is_empty()) {
+            words.push("--provider".to_string());
+            words.push(provider.clone());
+        }
+        let mut names: Vec<String> = spec.environment.keys().cloned().collect();
+        names.sort();
+        for name in names {
+            words.push("--env".to_string());
+            words.push(name);
+        }
+    }
+    words.push("--detach".to_string());
+    words
+}
+
+
+/// The exec argv the request stands for, so a converted exec keeps the same
+/// seam shape as the CLI it replaced.
+fn exec_words(request: &proto::ExecSandboxRequest, tty: bool) -> Vec<String> {
+    let mut words = vec![
+        "sandbox".to_string(),
+        "exec".to_string(),
+        "-n".to_string(),
+        request.sandbox.clone(),
+    ];
+    if tty {
+        words.push("--tty".to_string());
+    } else {
+        words.push("--no-login-shell".to_string());
+    }
+    if !request.workdir.is_empty() {
+        words.push("--workdir".to_string());
+        words.push(request.workdir.clone());
+    }
+    let mut environment: Vec<(String, String)> =
+        request.environment.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    environment.sort();
+    for (key, value) in environment {
+        words.push("--env".to_string());
+        words.push(format!("{key}={value}"));
+    }
+    words.push("--".to_string());
+    words.extend(request.command.iter().cloned());
+    words
+}
+
+/// One exec's effect: what the process wrote and the status it exited with.
+struct ExecOutcome {
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+    exit_code: i32,
+}
+
 fn phase_code(phase: &str) -> i32 {
     let value = match phase {
         "Provisioning" => proto::SandboxPhase::Provisioning,
@@ -400,6 +632,8 @@ fn phase_code(phase: &str) -> i32 {
         "Stopped" => proto::SandboxPhase::Stopped,
         "Starting" => proto::SandboxPhase::Starting,
         "Completed" => proto::SandboxPhase::Completed,
+        "Suspending" => proto::SandboxPhase::Suspending,
+        "Suspended" => proto::SandboxPhase::Suspended,
         _ => proto::SandboxPhase::Unknown,
     };
     value as i32
@@ -572,7 +806,9 @@ impl OpenShell for Stub {
     ) -> std::result::Result<tonic::Response<proto::SandboxResponse>, tonic::Status> {
         let request = request.into_inner();
         let name = request.name.clone();
-        self.record(&["sandbox", "create", "--name", &name, "--detach"]);
+        let words = create_words(&request);
+        let recorded: Vec<&str> = words.iter().map(String::as_str).collect();
+        self.record(&recorded);
         if name.is_empty() {
             return Err(tonic::Status::invalid_argument("sandbox name is required"));
         }
@@ -582,7 +818,7 @@ impl OpenShell for Stub {
             .map(|spec| spec.providers.clone())
             .unwrap_or_default();
         let exists = self.phase(&name).is_some();
-        if self.create_race && !exists {
+        if (self.create_race || self.fixture_present("create.race")) && !exists {
             // A concurrent run won: the sandbox exists, but this create loses.
             let _ = self.set_phase(&name, "Ready");
             let _ = self.set_attached(&name, &providers);
@@ -733,7 +969,7 @@ impl OpenShell for Stub {
             )));
         }
         let mut attached = self.attached(&request.sandbox);
-        if self.state.join("attach_fail").exists() {
+        if self.fixture_present("attach.fail") {
             return Err(tonic::Status::unavailable(format!(
                 "stub: attach of {} timed out waiting for the supervisor",
                 request.provider
@@ -791,7 +1027,7 @@ impl OpenShell for Stub {
         let request = request.into_inner();
         let name = request.name;
         self.record(&["sandbox", "delete", &name]);
-        if self.delete_fail || self.state.join("delete_fail").exists() {
+        if self.delete_fail || self.fixture_present("delete.fail") {
             return Err(tonic::Status::internal(format!(
                 "cannot delete sandbox {name}"
             )));
@@ -860,6 +1096,58 @@ impl OpenShell for Stub {
         }))
     }
 
+    async fn suspend_sandbox(
+        &self,
+        request: tonic::Request<proto::SuspendSandboxRequest>,
+    ) -> std::result::Result<tonic::Response<proto::SandboxResponse>, tonic::Status> {
+        let name = request.into_inner().name;
+        self.record(&["sandbox", "suspend", &name]);
+        if self.phase(&name).is_none() {
+            return Err(tonic::Status::not_found(format!(
+                "sandbox {name} not found"
+            )));
+        }
+        self.set_phase(&name, "Suspended")
+            .map_err(|error| tonic::Status::internal(error.to_string()))?;
+        let sandbox = self
+            .sandbox(&name)
+            .ok_or_else(|| tonic::Status::internal("sandbox vanished after suspend"))?;
+        Ok(tonic::Response::new(proto::SandboxResponse {
+            sandbox: Some(sandbox),
+            service_urls: Default::default(),
+        }))
+    }
+
+    async fn resume_sandbox(
+        &self,
+        request: tonic::Request<proto::ResumeSandboxRequest>,
+    ) -> std::result::Result<tonic::Response<proto::SandboxResponse>, tonic::Status> {
+        let name = request.into_inner().name;
+        self.record(&["sandbox", "resume", &name]);
+        match self.phase(&name) {
+            None => {
+                return Err(tonic::Status::not_found(format!(
+                    "sandbox {name} not found"
+                )))
+            }
+            Some(phase) if phase != "Suspended" => {
+                return Err(tonic::Status::failed_precondition(format!(
+                    "sandbox {name} is {phase}, not suspended"
+                )))
+            }
+            Some(_) => {}
+        }
+        self.set_phase(&name, "Ready")
+            .map_err(|error| tonic::Status::internal(error.to_string()))?;
+        let sandbox = self
+            .sandbox(&name)
+            .ok_or_else(|| tonic::Status::internal("sandbox vanished after resume"))?;
+        Ok(tonic::Response::new(proto::SandboxResponse {
+            sandbox: Some(sandbox),
+            service_urls: Default::default(),
+        }))
+    }
+
     async fn create_ssh_session(
         &self,
         request: tonic::Request<proto::CreateSshSessionRequest>,
@@ -912,26 +1200,39 @@ impl OpenShell for Stub {
     ) -> std::result::Result<tonic::Response<Self::ExecSandboxStream>, tonic::Status> {
         let request = request.into_inner();
         let name = request.sandbox.clone();
-        self.record(&["sandbox", "exec", "-n", &name]);
+        let words = exec_words(&request, false);
+        let recorded: Vec<&str> = words.iter().map(String::as_str).collect();
+        self.record(&recorded);
         if self.phase(&name).is_none() {
             return Err(tonic::Status::not_found(format!(
                 "sandbox {name} not found"
             )));
         }
+        let outcome = self.run_exec(&request).await;
         let mut events: Vec<std::result::Result<proto::ExecSandboxEvent, tonic::Status>> =
             Vec::new();
-        let stdout = self.exec_stdout.clone();
-        if !stdout.is_empty() {
+        if !outcome.stdout.is_empty() {
             events.push(Ok(proto::ExecSandboxEvent {
                 payload: Some(proto::exec_sandbox_event::Payload::Stdout(
-                    proto::ExecSandboxStdout { data: stdout },
+                    proto::ExecSandboxStdout {
+                        data: outcome.stdout,
+                    },
+                )),
+            }));
+        }
+        if !outcome.stderr.is_empty() {
+            events.push(Ok(proto::ExecSandboxEvent {
+                payload: Some(proto::exec_sandbox_event::Payload::Stderr(
+                    proto::ExecSandboxStderr {
+                        data: outcome.stderr,
+                    },
                 )),
             }));
         }
         events.push(Ok(proto::ExecSandboxEvent {
             payload: Some(proto::exec_sandbox_event::Payload::Exit(
                 proto::ExecSandboxExit {
-                    exit_code: self.exec_exit,
+                    exit_code: outcome.exit_code,
                 },
             )),
         }));
@@ -967,8 +1268,65 @@ impl OpenShell for Stub {
         request: tonic::Request<tonic::Streaming<proto::ExecSandboxInput>>,
     ) -> std::result::Result<tonic::Response<Self::ExecSandboxInteractiveStream>, tonic::Status>
     {
-        Err(tonic::Status::unimplemented(
-            "stub-gateway: exec_sandbox_interactive",
+        let mut stream = request.into_inner();
+        let mut start = None;
+        let mut stdin = Vec::new();
+        while let Ok(Some(frame)) = stream.message().await {
+            match frame.payload {
+                Some(proto::exec_sandbox_input::Payload::Start(request)) => start = Some(request),
+                Some(proto::exec_sandbox_input::Payload::Stdin(bytes)) => stdin.extend(bytes),
+                Some(proto::exec_sandbox_input::Payload::Resize(_)) => {}
+                None => {}
+            }
+            if start.is_some() {
+                break;
+            }
+        }
+        let mut request = start.ok_or_else(|| {
+            tonic::Status::invalid_argument("the interactive exec needs a start frame")
+        })?;
+        if request.stdin.is_empty() {
+            request.stdin = stdin;
+        }
+        let name = request.sandbox.clone();
+        let words = exec_words(&request, request.tty);
+        let recorded: Vec<&str> = words.iter().map(String::as_str).collect();
+        self.record(&recorded);
+        if self.phase(&name).is_none() {
+            return Err(tonic::Status::not_found(format!(
+                "sandbox {name} not found"
+            )));
+        }
+        let outcome = self.run_exec(&request).await;
+        let mut events: Vec<std::result::Result<proto::ExecSandboxEvent, tonic::Status>> =
+            Vec::new();
+        if !outcome.stdout.is_empty() {
+            events.push(Ok(proto::ExecSandboxEvent {
+                payload: Some(proto::exec_sandbox_event::Payload::Stdout(
+                    proto::ExecSandboxStdout {
+                        data: outcome.stdout,
+                    },
+                )),
+            }));
+        }
+        if !outcome.stderr.is_empty() {
+            events.push(Ok(proto::ExecSandboxEvent {
+                payload: Some(proto::exec_sandbox_event::Payload::Stderr(
+                    proto::ExecSandboxStderr {
+                        data: outcome.stderr,
+                    },
+                )),
+            }));
+        }
+        events.push(Ok(proto::ExecSandboxEvent {
+            payload: Some(proto::exec_sandbox_event::Payload::Exit(
+                proto::ExecSandboxExit {
+                    exit_code: outcome.exit_code,
+                },
+            )),
+        }));
+        Ok(tonic::Response::new(
+            Box::pin(tokio_stream::iter(events)) as Self::ExecSandboxInteractiveStream
         ))
     }
 
@@ -986,14 +1344,50 @@ impl OpenShell for Stub {
             .map(|meta| meta.name.clone())
             .unwrap_or_default();
         // The credential's FIELD is recorded; its value never is.
-        let fields: Vec<&str> = provider.credentials.keys().map(String::as_str).collect();
+        let mut fields: Vec<&String> = provider.credentials.keys().collect();
+        fields.sort();
         if let Ok(mut supplied) = self.credentials.lock() {
             supplied.extend(provider.credentials.iter().map(|(k, v)| (k.clone(), v.clone())));
         }
-        let mut words = vec!["provider", "create", "--name", &name];
-        words.extend(fields.iter());
-        self.record(&words);
-        if self.credential_reject && !fields.is_empty() {
+        // The case's credential log names where a fixture value is expected to
+        // land; it lives outside the state root so the leak scan stays honest.
+        if let Some(path) = self.fixture("credential-log") {
+            let path = path.trim().to_string();
+            if !path.is_empty() {
+                let mut values: Vec<&String> = provider.credentials.values().collect();
+                values.sort();
+                for value in values {
+                    use std::io::Write;
+                    if let Ok(mut file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+                        let _ = writeln!(file, "{value}");
+                    }
+                }
+            }
+        }
+        let mut words: Vec<String> = vec![
+            "provider".to_string(),
+            "create".to_string(),
+            "--name".to_string(),
+            name.clone(),
+            "--type".to_string(),
+            provider.r#type.clone(),
+        ];
+        for field in fields {
+            words.push("--credential".to_string());
+            words.push(field.clone());
+        }
+        let mut config: Vec<(&String, &String)> = provider.config.iter().collect();
+        config.sort();
+        for (key, value) in config {
+            words.push("--config".to_string());
+            words.push(format!("{key}={value}"));
+        }
+        if provider.profile_workspace.is_empty() {
+            words.push("--global-profile".to_string());
+        }
+        let recorded: Vec<&str> = words.iter().map(String::as_str).collect();
+        self.record(&recorded);
+        if self.credential_reject && !provider.credentials.is_empty() {
             return Err(tonic::Status::invalid_argument("credential rejected"));
         }
         self.add_provider(&name)
@@ -1467,8 +1861,8 @@ impl OpenShell for Stub {
     ) -> std::result::Result<tonic::Response<proto::GetDraftPolicyResponse>, tonic::Status> {
         let request = request.into_inner();
         self.record(&["rule", "get", &request.sandbox, "--status", "pending"]);
-        let chunks = self
-            .chunks(&request.sandbox)
+        let (version, chunks) = self.rules(&request.sandbox);
+        let chunks = chunks
             .into_iter()
             .filter(|chunk| {
                 request.status_filter.is_empty() || chunk.status == request.status_filter
@@ -1477,7 +1871,7 @@ impl OpenShell for Stub {
         Ok(tonic::Response::new(proto::GetDraftPolicyResponse {
             chunks,
             rolling_summary: String::new(),
-            draft_version: 1,
+            draft_version: version,
             last_analyzed_time: None,
         }))
     }

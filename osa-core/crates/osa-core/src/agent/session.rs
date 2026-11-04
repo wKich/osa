@@ -416,7 +416,7 @@ fn ensure_project_sandbox(ctx: &Context, sync: &mut SyncSession) -> Outcome {
             ));
             match phase.as_str() {
                 "Ready" => ctx.note(&format!("Reusing sandbox '{name}'.")),
-                "Stopped" | "Completed" | "Error" => {
+                "Stopped" | "Completed" | "Error" | "Suspended" => {
                     ctx.note(&format!("Starting sandbox '{name}' (phase: {phase})..."));
                     ctx.start_sandbox(&name)?;
                     wait_for_sandbox_ready(ctx, &name)?;
@@ -474,7 +474,7 @@ fn ensure_caller_sandbox(ctx: &Context, name: &str) -> Outcome {
     match ctx.sandbox_phase(name)? {
         Some(phase) => match phase.as_str() {
             "Ready" => ctx.note(&format!("Reusing sandbox '{name}'.")),
-            "Stopped" | "Completed" | "Error" => {
+            "Stopped" | "Completed" | "Error" | "Suspended" => {
                 ctx.note(&format!("Starting sandbox '{name}' (phase: {phase})..."));
                 ctx.start_sandbox(name)?;
                 wait_for_sandbox_ready(ctx, name)?;
@@ -506,54 +506,12 @@ fn ensure_caller_sandbox(ctx: &Context, name: &str) -> Outcome {
 
 fn create_sandbox_allow_fail(ctx: &Context, name: &str) -> Result<i32, Failure> {
     ctx.check_env_hygiene()?;
-    let image = ctx.image();
-    let policy = ctx.policy();
-    let providers = ctx.providers();
-    let cpu = ctx.cpu();
-    let memory = ctx.memory();
-    let mut args: Vec<String> = vec![
-        "sandbox".into(),
-        "create".into(),
-        "--name".into(),
-        name.into(),
-        "--from".into(),
-        image,
-        "--policy".into(),
-        policy,
-        "--detach".into(),
-    ];
-    if !cpu.is_empty() {
-        args.push("--cpu".into());
-        args.push(cpu);
+    match ctx.create_sandbox(ctx.sandbox_spec(name)) {
+        // A create that lost the race leaves the winner's sandbox in place;
+        // the caller re-reads the phase and reuses it.
+        Ok(()) => Ok(0),
+        Err(_) => Ok(1),
     }
-    if !memory.is_empty() {
-        args.push("--memory".into());
-        args.push(memory);
-    }
-    for provider in providers.iter().filter(|provider| !provider.is_empty()) {
-        args.push("--provider".into());
-        args.push(provider.clone());
-    }
-    for pair in ctx.options.envs.iter().filter(|pair| !pair.is_empty()) {
-        args.push("--env".into());
-        args.push(pair.clone());
-    }
-    for pair in ctx.options.env_froms.iter().filter(|pair| !pair.is_empty()) {
-        args.push("--env-from".into());
-        args.push(pair.clone());
-    }
-    let words: Vec<&str> = args.iter().map(String::as_str).collect();
-    let mut command = ctx.openshell(&words);
-    if ctx.gateway_stdout_to_stderr.get() {
-        command.stdout(Stdio::from(unsafe {
-            std::fs::File::from_raw_fd(libc::dup(2))
-        }));
-    }
-    Ok(match command.status() {
-        Ok(status) if status.success() => 0,
-        Ok(status) => crate::process::exit_code(status),
-        Err(_) => 1,
-    })
 }
 
 pub(crate) fn wait_for_sandbox_ready(ctx: &Context, name: &str) -> Outcome {
@@ -1770,7 +1728,7 @@ fn export_review_files(ctx: &Context, sync: &mut SyncSession, patch: &str) -> i3
             &scripts::manifest(ctx.program()),
             None,
         )
-        .filter(|output| output.status.success());
+        .filter(|output| output.exit_code == 0);
     let Some(output) = output else {
         ctx.warn("cannot read the changed-file manifest from the sandbox");
         let _ = fs::remove_dir_all(&dir);
@@ -2020,19 +1978,13 @@ fn collect_sandbox_patch(ctx: &Context, sync: &mut SyncSession, patch: &Path) ->
 }
 
 fn announce_pending_proposals(ctx: &Context, name: &str) {
-    let output = ctx
-        .openshell(&["rule", "get", name, "--status", "pending"])
-        .output();
-    let Ok(output) = output else {
+    let Ok(listing) = ctx.rule_listing(name) else {
         return;
     };
-    if !output.status.success() {
-        return;
-    }
-    let text = String::from_utf8_lossy(&output.stdout);
-    let count = text
-        .lines()
-        .filter(|line| line.starts_with("  Chunk: "))
+    let count = listing
+        .rules
+        .iter()
+        .filter(|rule| rule.status.as_deref() == Some("pending"))
         .count();
     if count > 0 {
         ctx.note(&format!(
@@ -2078,50 +2030,144 @@ fn exec_sandbox(
     env: &[(String, String)],
     stdin: StdinMode,
 ) -> Result<i32, Failure> {
-    let mut args: Vec<String> = vec!["sandbox".into(), "exec".into(), "-n".into(), name.into()];
+    let stdin_bytes = match stdin {
+        StdinMode::Inherit => None,
+        StdinMode::Null => Some(Vec::new()),
+        StdinMode::File(path) => Some(
+            fs::read(&path)
+                .map_err(|_| Failure::usage("could not read the prompt from stdin"))?,
+        ),
+    };
+    let interrupt = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (sender, receiver) = tokio::sync::mpsc::channel(16);
+    let mut pumps = Vec::new();
     if tty {
-        args.push("--tty".into());
-    } else {
-        args.push("--no-login-shell".into());
+        pumps.push(start_input_pump(sender.clone()));
+        pumps.push(start_resize_pump(sender.clone()));
     }
-    args.push("--workdir".into());
-    args.push(workdir.to_string());
-    for (key, value) in env {
-        args.push("--env".into());
-        args.push(format!("{key}={value}"));
-    }
-    args.push("--".into());
-    args.extend(argv.iter().cloned());
-    let words: Vec<&str> = args.iter().map(String::as_str).collect();
-    let mut command = ctx.openshell(&words);
-    match stdin {
-        StdinMode::Inherit => {
-            command.stdin(Stdio::inherit());
-        }
-        StdinMode::Null => {
-            command.stdin(Stdio::null());
-        }
-        StdinMode::File(path) => {
-            let file = fs::File::open(path)
-                .map_err(|_| Failure::usage("could not read the prompt from stdin"))?;
-            command.stdin(Stdio::from(file));
-        }
-    }
-    signals::capture();
-    let mut child = command.spawn().map_err(|error| {
-        signals::release();
-        Failure::dep(format!(
-            "cannot run openshell: {error}; install it from https://github.com/NVIDIA/OpenShell"
-        ))
-    })?;
-    signals::child(Some(child.id()));
-    let status = child.wait();
+    let exec = crate::gateway::InteractiveExec {
+        request: crate::gateway::ExecRequest {
+            sandbox: name.to_string(),
+            command: argv.to_vec(),
+            workdir: Some(workdir.to_string()),
+            no_login_shell: !tty,
+            stdin: if tty { None } else { stdin_bytes },
+            timeout: None,
+        },
+        env: env.to_vec(),
+        tty,
+        size: terminal_size(),
+        interrupt: Some(interrupt.clone()),
+    };
+    let terminal = if tty { RawTerminal::enter() } else { None };
     signals::child(None);
+    signals::capture();
+    signals::watch_interrupt(&interrupt);
+    let mut sink = std::io::stdout();
+    let result = ctx.exec_interactive(exec, receiver, &mut sink);
+    signals::unwatch_interrupt();
     signals::release();
-    let status = status.map_err(|error| {
-        Failure::dep(format!(
-            "cannot run openshell: {error}; install it from https://github.com/NVIDIA/OpenShell"
-        ))
-    })?;
-    Ok(crate::process::exit_code(status))
+    drop(terminal);
+    drop(pumps);
+    let status = result?;
+    Ok(status.code)
+}
+
+/// Put the terminal in raw mode for a session and restore it on drop, so an
+/// interrupt or an error never leaves the caller's shell unusable.
+struct RawTerminal {
+    saved: libc::termios,
+}
+
+impl RawTerminal {
+    fn enter() -> Option<Self> {
+        unsafe {
+            if libc::isatty(0) != 1 {
+                return None;
+            }
+            let mut saved: libc::termios = std::mem::zeroed();
+            if libc::tcgetattr(0, &mut saved) != 0 {
+                return None;
+            }
+            let mut raw = saved;
+            libc::cfmakeraw(&mut raw);
+            if libc::tcsetattr(0, libc::TCSANOW, &raw) != 0 {
+                return None;
+            }
+            Some(RawTerminal { saved })
+        }
+    }
+}
+
+impl Drop for RawTerminal {
+    fn drop(&mut self) {
+        unsafe {
+            libc::tcsetattr(0, libc::TCSANOW, &self.saved);
+        }
+    }
+}
+
+fn terminal_size() -> Option<(u16, u16)> {
+    unsafe {
+        let mut size: libc::winsize = std::mem::zeroed();
+        if libc::ioctl(0, libc::TIOCGWINSZ, &mut size) == 0
+            && size.ws_col > 0
+            && size.ws_row > 0
+        {
+            return Some((size.ws_col, size.ws_row));
+        }
+    }
+    None
+}
+
+/// Forward terminal input as stdin frames until the session ends.
+fn start_input_pump(
+    sender: tokio::sync::mpsc::Sender<crate::gateway::ExecInput>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut buffer = [0u8; 4096];
+        loop {
+            let read = unsafe { libc::read(0, buffer.as_mut_ptr().cast(), buffer.len()) };
+            if read > 0 {
+                let bytes = buffer[..read as usize].to_vec();
+                if sender
+                    .blocking_send(crate::gateway::ExecInput::Stdin(bytes))
+                    .is_err()
+                {
+                    break;
+                }
+            } else if read == 0 {
+                break;
+            } else if std::io::Error::last_os_error().kind() != std::io::ErrorKind::Interrupted {
+                break;
+            }
+        }
+    })
+}
+
+/// Forward terminal resizes until the session ends.
+fn start_resize_pump(
+    sender: tokio::sync::mpsc::Sender<crate::gateway::ExecInput>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut current = terminal_size();
+        loop {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+            if sender.is_closed() {
+                break;
+            }
+            let now = terminal_size();
+            if now != current {
+                current = now;
+                if let Some((cols, rows)) = now {
+                    if sender
+                        .blocking_send(crate::gateway::ExecInput::Resize { cols, rows })
+                        .is_err()
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+    })
 }

@@ -4,8 +4,8 @@
 Provides the whole documented `osa` command surface from one Rust binary built
 out of `osa-core/`: registry, pending-marker, and configuration format parity
 in both directions, one JSON implementation, typed state-tree and gateway
-reads, credential-safe provider setup, and an offline test suite, gated by
-conformance parity against the shell command it replaces.
+reads, credential-safe provider setup, and an offline test suite, verified by
+conformance cases that record the gateway seam.
 
 ## Requirements
 
@@ -117,13 +117,21 @@ per-sandbox session lock, the resolve directory, and the pending marker kinds.
 
 ### Requirement: Credentials never travel outside the child environment
 
-The core SHALL deliver a credential value to the OpenShell CLI only through the
-child process environment. It SHALL NOT place a value in argv, in a file under
-the state root, or in stdout or stderr.
+The core SHALL deliver a credential value only through the channel the current
+transport designates: the child process environment when a gateway operation
+is still performed by the OpenShell CLI, and the designated request field when
+the operation goes through the typed gateway client.
+
+In both cases the value SHALL NOT appear in argv, in a file under the state
+root, in stdout or stderr, in request tracing, or in error text.
 
 #### Scenario: Provider setup leaks nothing
-- **WHEN** `osa provider setup` runs with a fixture credential
-- **THEN** the conformance leak case finds no fixture value in any recorded argv, state file, or output
+- **WHEN** `osa provider setup` runs with a fixture credential against either transport
+- **THEN** the conformance leak case finds no fixture value in any recorded invocation or request, state file, or output
+
+#### Scenario: The transport is not observable in the leak surface
+- **WHEN** the same provider case runs once on the CLI transport and once on the client transport
+- **THEN** both report no leak, and the only transcript difference is the declared transport
 
 ### Requirement: An offline core test suite
 
@@ -138,18 +146,3 @@ using temporary state roots and stub executables.
 #### Scenario: Format goldens are part of the suite
 - **WHEN** the flat TOML writer or the JSON serializer changes its output
 - **THEN** the golden-comparison tests fail and name the differing line
-
-### Requirement: Parity with the shell implementation before removal
-
-Until `bin/osa`'s shell implementation is removed, the conformance harness
-SHALL be able to run its case set against the Rust binary as one backend and the
-previous shell command as the other, and the case set SHALL produce an
-`identical` verdict for every non-excluded case.
-
-#### Scenario: Parity is green before the shim replaces the script
-- **WHEN** parity mode runs the conformance set against the shell `osa` and the Rust binary
-- **THEN** every case reports identical, or is on a documented exclusion list with a reason
-
-#### Scenario: A behavioral difference blocks replacement
-- **WHEN** a case reports divergent state or output
-- **THEN** the shell implementation stays in place until the divergence is resolved or documented as intentional

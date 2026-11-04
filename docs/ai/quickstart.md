@@ -52,15 +52,25 @@ group or rootless). Landlock ABI v3 needs Linux 6.2 or newer.
 You need `git` and `curl` for the clone and the installer, and the pinned Rust
 toolchain (`rustup`) for `make build`; the helper is a Rust binary.
 
-Install OpenShell v0.1.5 and confirm the gateway:
+Install OpenShell v0.1.7 and confirm the gateway:
 
 ```sh
 curl -LsSf https://raw.githubusercontent.com/NVIDIA/OpenShell/main/install.sh \
-  | OPENSHELL_VERSION=v0.1.5 sh
-openshell status        # Status: Connected
+  | OPENSHELL_VERSION=v0.1.7 sh
+openshell status        # Status: Connected, Authentication: Authenticated (mTLS transport)
 ```
 
-Details and install fallbacks: [`host-playbook.md`](host-playbook.md).
+The local gateway requires mTLS authentication. Point the helper at the client
+bundle the installer writes, in the agent's config file:
+
+```toml
+# ${XDG_CONFIG_HOME:-$HOME/.config}/maki-oss/config.toml
+tls_dir = "/home/you/.config/openshell/gateways/openshell/mtls"
+```
+
+Use `opencode-oss`, `claude-oss`, or `codex-oss` in both the directory and the
+key's environment prefix. Details and install fallbacks:
+[`host-playbook.md`](host-playbook.md).
 
 ### 2. Clone, build, and put `bin/` on `PATH`
 

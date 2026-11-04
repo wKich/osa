@@ -161,6 +161,8 @@ fn phase_code(phase: &str) -> i32 {
         "Stopped" => proto::SandboxPhase::Stopped,
         "Starting" => proto::SandboxPhase::Starting,
         "Completed" => proto::SandboxPhase::Completed,
+        "Suspending" => proto::SandboxPhase::Suspending,
+        "Suspended" => proto::SandboxPhase::Suspended,
         _ => proto::SandboxPhase::Unknown,
     };
     value as i32
@@ -464,6 +466,46 @@ impl OpenShell for Plane {
         let name = request.into_inner().name;
         if !self.state.exists(&name) {
             return Err(Status::not_found(format!("sandbox {name} not found")));
+        }
+        self.state
+            .set_phase(&name, "Ready")
+            .map_err(|error| Status::internal(error.to_string()))?;
+        Ok(Response::new(proto::SandboxResponse {
+            sandbox: Some(self.sandbox(&name)?),
+            service_urls: Default::default(),
+        }))
+    }
+
+    async fn suspend_sandbox(
+        &self,
+        request: Request<proto::SuspendSandboxRequest>,
+    ) -> std::result::Result<Response<proto::SandboxResponse>, Status> {
+        let name = request.into_inner().name;
+        if !self.state.exists(&name) {
+            return Err(Status::not_found(format!("sandbox {name} not found")));
+        }
+        self.state
+            .set_phase(&name, "Suspended")
+            .map_err(|error| Status::internal(error.to_string()))?;
+        Ok(Response::new(proto::SandboxResponse {
+            sandbox: Some(self.sandbox(&name)?),
+            service_urls: Default::default(),
+        }))
+    }
+
+    async fn resume_sandbox(
+        &self,
+        request: Request<proto::ResumeSandboxRequest>,
+    ) -> std::result::Result<Response<proto::SandboxResponse>, Status> {
+        let name = request.into_inner().name;
+        match self.state.phase(&name) {
+            None => return Err(Status::not_found(format!("sandbox {name} not found"))),
+            Some(phase) if phase != "Suspended" => {
+                return Err(Status::failed_precondition(format!(
+                    "sandbox {name} is {phase}, not suspended"
+                )))
+            }
+            Some(_) => {}
         }
         self.state
             .set_phase(&name, "Ready")

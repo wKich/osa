@@ -94,8 +94,21 @@ fi
 state=${STUB_STATE_DIR:-}
 sandboxes=$state/sandboxes
 providers=$state/providers
+fixtures=$state/fixtures
 nl='
 '
+
+# Per-run fixtures cross the seam as files under the state root, so the CLI
+# stub and the fake gateway read the same one. Env knobs stay as the
+# fallback for a case that invokes the stub directly.
+stub_fixture() { # NAME
+    [ -n "$state" ] && [ -f "$fixtures/$1" ] && cat "$fixtures/$1"
+    return 0
+}
+
+stub_fixture_present() { # NAME
+    [ -n "$state" ] && [ -f "$fixtures/$1" ]
+}
 
 # Appends a provider name to the simulated gateway provider list.
 stub_record_provider() {
@@ -172,7 +185,8 @@ case $command_name in
                     exit 2
                 fi
                 mkdir -p "$sandboxes" "$providers"
-                if [ "${STUB_CREATE_RACE:-0}" = 1 ] && [ ! -e "$sandboxes/$sandbox_name" ]; then
+                if { [ "${STUB_CREATE_RACE:-0}" = 1 ] || stub_fixture_present create.race; } \
+                    && [ ! -e "$sandboxes/$sandbox_name" ]; then
                     # A concurrent run won: the sandbox now exists, but this
                     # create loses.
                     printf 'Ready\n' > "$sandboxes/$sandbox_name"
@@ -278,7 +292,7 @@ case $command_name in
                 ;;
             delete)
                 sandbox_name=${1:-}
-                if [ "${STUB_DELETE_FAIL:-0}" = 1 ]; then
+                if [ "${STUB_DELETE_FAIL:-0}" = 1 ] || stub_fixture_present delete.fail; then
                     printf 'stub: cannot delete sandbox %s\n' "$sandbox_name" >&2
                     exit 1
                 fi
@@ -289,7 +303,13 @@ case $command_name in
                 ;;
             exec)
                 stub_exec_args=$*
-                if [ -n "${STUB_EXEC_CASES:-}" ] && [ -f "$STUB_EXEC_CASES" ]; then
+                stub_cases=
+                if stub_fixture_present exec.cases; then
+                    stub_cases=$fixtures/exec.cases
+                elif [ -n "${STUB_EXEC_CASES:-}" ] && [ -f "$STUB_EXEC_CASES" ]; then
+                    stub_cases=$STUB_EXEC_CASES
+                fi
+                if [ -n "$stub_cases" ]; then
                     while IFS='|' read -r stub_key stub_exit stub_file; do
                         [ -n "$stub_key" ] || continue
                         case "$stub_exec_args" in
@@ -300,7 +320,7 @@ case $command_name in
                                 exit "$stub_exit"
                                 ;;
                         esac
-                    done <"$STUB_EXEC_CASES"
+                    done <"$stub_cases"
                 fi
                 stub_workdir=
                 while [ "$#" -gt 0 ]; do
@@ -365,7 +385,14 @@ case $command_name in
                         fi
                         ;;
                 esac
-                printf '%s\n' "${STUB_EXEC_STDOUT:-stub-exec-output}"
+                if stub_fixture_present exec.stdout; then
+                    cat "$fixtures/exec.stdout"
+                else
+                    printf '%s\n' "${STUB_EXEC_STDOUT:-stub-exec-output}"
+                fi
+                if stub_fixture_present exec.exit; then
+                    exit "$(cat "$fixtures/exec.exit")"
+                fi
                 exit "${STUB_EXEC_EXIT:-0}"
                 ;;
             upload)
@@ -494,7 +521,7 @@ case $command_name in
                             printf 'stub: sandbox %s not found\n' "$sandbox_name" >&2
                             exit 1
                         fi
-                        if [ "${STUB_ATTACH_FAIL:-0}" = 1 ]; then
+                        if [ "${STUB_ATTACH_FAIL:-0}" = 1 ] || stub_fixture_present attach.fail; then
                             # Wrapped over two lines behind gutters, as openshell does.
                             printf 'Error:   × stub: attach of %s timed out waiting\n  │ for the supervisor\n' "$provider_name" >&2
                             exit 1
@@ -716,11 +743,11 @@ case $command_name in
         if [ "$#" -gt 0 ]; then
             shift
         fi
+        rule_sandbox=${1:-}
         case $rule_action in
             approve)
                 # Model the gateway's one-chunk write so both transports leave
                 # the same policy state behind.
-                rule_sandbox=${1:-}
                 rule_chunk=
                 while [ "$#" -gt 0 ]; do
                     case $1 in
@@ -739,10 +766,52 @@ case $command_name in
                 fi
                 ;;
         esac
-        if [ -n "${STUB_RULE_PENDING:-}" ]; then
-            printf '%s\n' "$STUB_RULE_PENDING"
+        # Render the same text the core renders from the structured listing,
+        # so a case's output is identical over either transport.
+        stub_rule_file=
+        if [ -n "${state:-}" ] && [ -f "$fixtures/rules" ]; then
+            stub_rule_file=$fixtures/rules
+        elif [ -n "${state:-}" ] && [ -n "$rule_sandbox" ] \
+            && [ -f "$state/rules/$rule_sandbox" ]; then
+            stub_rule_file=$state/rules/$rule_sandbox
+        fi
+        if [ -z "$stub_rule_file" ]; then
+            printf "No network rules for sandbox '%s'\n" "$rule_sandbox"
         else
-            printf 'Network Rules:  (version 1, 0 chunks)\n\n'
+            stub_rule_version=1
+            if stub_fixture_present rules.version; then
+                stub_rule_version=$(cat "$fixtures/rules.version")
+                [ -n "$stub_rule_version" ] || stub_rule_version=1
+            fi
+            stub_rule_count=0
+            while IFS= read -r stub_line; do
+                [ -n "$stub_line" ] || continue
+                stub_rule_count=$((stub_rule_count + 1))
+            done <"$stub_rule_file"
+            printf 'Network Rules:  (version %s, %s chunk' \
+                "$stub_rule_version" "$stub_rule_count"
+            [ "$stub_rule_count" -eq 1 ] || printf 's'
+            printf ')\n\n'
+            while IFS= read -r stub_line; do
+                [ -n "$stub_line" ] || continue
+                stub_rest=$stub_line
+                stub_id=${stub_rest%%|*}
+                stub_rest=${stub_rest#*|}
+                stub_name=${stub_rest%%|*}
+                stub_rest=${stub_rest#*|}
+                stub_binary=${stub_rest%%|*}
+                stub_rest=${stub_rest#*|}
+                stub_endpoint=${stub_rest%%|*}
+                stub_rest=${stub_rest#*|}
+                stub_verdict=${stub_rest%%|*}
+                printf '  Chunk: %s\n' "$stub_id"
+                printf '  Status: pending\n'
+                printf '  Rule: %s\n' "$stub_name"
+                [ -z "$stub_binary" ] || printf '  Binary: %s\n' "$stub_binary"
+                [ -z "$stub_endpoint" ] || printf '  Endpoints: %s\n' "$stub_endpoint"
+                [ -z "$stub_verdict" ] || printf '  Prover: %s\n' "$stub_verdict"
+                printf '\n'
+            done <"$stub_rule_file"
         fi
         ;;
     logs)

@@ -62,45 +62,8 @@ pub fn up(ctx: &Context) -> Outcome {
 
 fn create_sandbox(ctx: &Context, name: &str) -> Outcome {
     ctx.check_env_hygiene()?;
-    let image = ctx.image();
-    let policy = ctx.policy();
-    let providers = ctx.providers();
-    let cpu = ctx.cpu();
-    let memory = ctx.memory();
-
-    let mut args: Vec<String> = vec![
-        "sandbox".into(),
-        "create".into(),
-        "--name".into(),
-        name.into(),
-        "--from".into(),
-        image,
-        "--policy".into(),
-        policy,
-        "--detach".into(),
-    ];
-    if !cpu.is_empty() {
-        args.push("--cpu".into());
-        args.push(cpu);
-    }
-    if !memory.is_empty() {
-        args.push("--memory".into());
-        args.push(memory);
-    }
-    for provider in providers.iter().filter(|provider| !provider.is_empty()) {
-        args.push("--provider".into());
-        args.push(provider.clone());
-    }
-    for pair in ctx.options.envs.iter().filter(|pair| !pair.is_empty()) {
-        args.push("--env".into());
-        args.push(pair.clone());
-    }
-    for pair in ctx.options.env_froms.iter().filter(|pair| !pair.is_empty()) {
-        args.push("--env-from".into());
-        args.push(pair.clone());
-    }
-    let words: Vec<&str> = args.iter().map(String::as_str).collect();
-    ctx.run_gateway(&words)
+    ctx.create_sandbox(ctx.sandbox_spec(name))?;
+    Ok(())
 }
 
 pub fn status(ctx: &Context) -> Outcome {
@@ -694,44 +657,35 @@ pub fn provider_add(ctx: &Context, args: &[OsString]) -> Outcome {
             "provider add requires --type (a provider profile id)",
         ));
     };
+    let mut credential_keys = Vec::new();
     for credential in &ctx.options.credentials {
         if credential.contains('=') {
             return Err(Failure::usage(
                 "--credential takes the KEY name only; inline KEY=VALUE is not accepted (use --from-existing)",
             ));
         }
-    }
-    let mut argv: Vec<String> = vec![
-        "provider".into(),
-        "create".into(),
-        "--name".into(),
-        provider.into(),
-        "--type".into(),
-        type_.clone(),
-    ];
-    if ctx.options.from_existing {
-        argv.push("--from-existing".into());
-    }
-    if ctx.options.runtime_credentials {
-        argv.push("--runtime-credentials".into());
-    }
-    if ctx.options.global_profile {
-        argv.push("--global-profile".into());
-    }
-    for credential in &ctx.options.credentials {
         if !credential.is_empty() {
-            argv.push("--credential".into());
-            argv.push(credential.clone());
+            credential_keys.push(credential.clone());
         }
     }
-    for pair in &ctx.options.configs {
-        if !pair.is_empty() {
-            argv.push("--config".into());
-            argv.push(pair.clone());
-        }
-    }
-    let words: Vec<&str> = argv.iter().map(String::as_str).collect();
-    ctx.run_gateway(&words)?;
+    let config = ctx
+        .options
+        .configs
+        .iter()
+        .filter(|pair| !pair.is_empty())
+        .filter_map(|pair| pair.split_once('=').map(|(k, v)| (k.to_string(), v.to_string())))
+        .collect();
+    ctx.create_provider(crate::gateway::ProviderSpec {
+        name: provider.into(),
+        profile: type_.clone(),
+        from_existing: ctx.options.from_existing,
+        global_profile: ctx.options.global_profile,
+        runtime_credentials: ctx.options.runtime_credentials,
+        credential_keys,
+        config,
+        credential_key: None,
+        credential: None,
+    })?;
     ctx.say(&format!("Provider '{provider}' created."));
     let path = remember_provider(ctx, provider)?;
     ctx.say(&format!(
@@ -877,16 +831,12 @@ pub fn policy(ctx: &Context, args: &[OsString]) -> Outcome {
             ctx.require_openshell()?;
             let name = ctx.sandbox_name()?;
             commands_require_sandbox(ctx, &name)?;
-            run_argv(
-                ctx,
-                &[
-                    "rule".to_string(),
-                    "get".to_string(),
-                    name,
-                    "--status".to_string(),
-                    "pending".to_string(),
-                ],
-            )
+            let mut listing = ctx.rule_listing(&name)?;
+            listing
+                .rules
+                .retain(|rule| rule.status.as_deref() == Some("pending"));
+            print!("{}", crate::gateway::render_rules(&name, &listing));
+            Ok(())
         }
         "approve" => {
             if rest.len() != 1 {

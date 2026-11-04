@@ -8,7 +8,7 @@ use std::time::Duration;
 use osa_core::gateway::sdk::SdkGateway;
 use osa_core::gateway::{
     AuthMode, ChunkSink, Credential, Endpoint, ExecRequest, Gateway, GatewayError, LogOptions,
-    ProviderSpec, Rule, SandboxSpec,
+    ProviderSpec, SandboxSpec,
 };
 use stub_gateway::Stub;
 
@@ -159,10 +159,14 @@ async fn create_and_start_and_stop_run_over_the_client() {
             .as_deref(),
         Some("Ready")
     );
-    assert!(stub
-        .requests()
-        .iter()
-        .any(|line| line == "sandbox create --name demo --detach"));
+    // The record carries the full create spec, so the argument surface the
+    // conformance cases pin stays reviewable after the conversion.
+    assert!(
+        stub.requests().iter().any(|line| line
+            == "sandbox create --name demo --from maki-agent:local --detach"),
+        "{:?}",
+        stub.requests()
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -254,6 +258,11 @@ async fn providers_attach_detach_and_list_over_the_client() {
         .create_provider(ProviderSpec {
             name: "maki-deepseek".to_string(),
             profile: "maki-deepseek".to_string(),
+            from_existing: false,
+            global_profile: false,
+            runtime_credentials: false,
+            credential_keys: Vec::new(),
+            config: Vec::new(),
             credential_key: Some("DEEPSEEK_API_KEY".to_string()),
             credential: None,
         })
@@ -301,7 +310,9 @@ async fn rule_listing_carries_the_structured_fields_and_approval_targets_one_chu
     .expect("chunks");
     let transport = gateway(stub.clone()).await;
 
-    let rules: Vec<Rule> = transport.list_rules("demo").await.expect("listed");
+    let listing = transport.list_rules("demo").await.expect("listed");
+    let rules = &listing.rules;
+    assert_eq!(listing.version, 1);
     assert_eq!(rules.len(), 2);
     let first = &rules[0];
     assert_eq!(first.chunk_id.as_deref(), Some("chunk-1"));
@@ -315,8 +326,8 @@ async fn rule_listing_carries_the_structured_fields_and_approval_targets_one_chu
         .await
         .expect("approved");
     let remaining = transport.list_rules("demo").await.expect("listed");
-    assert_eq!(remaining.len(), 1);
-    assert_eq!(remaining[0].chunk_id.as_deref(), Some("chunk-2"));
+    assert_eq!(remaining.rules.len(), 1);
+    assert_eq!(remaining.rules[0].chunk_id.as_deref(), Some("chunk-2"));
     let writes: Vec<String> = stub
         .requests()
         .into_iter()
@@ -359,6 +370,11 @@ async fn a_credential_travels_only_in_the_designated_field_and_nowhere_else() {
         .create_provider(ProviderSpec {
             name: "maki-deepseek".to_string(),
             profile: "maki-deepseek".to_string(),
+            from_existing: false,
+            global_profile: false,
+            runtime_credentials: false,
+            credential_keys: Vec::new(),
+            config: Vec::new(),
             credential_key: Some("DEEPSEEK_API_KEY".to_string()),
             credential: Some(Credential::new(SENTINEL)),
         })
@@ -402,6 +418,11 @@ async fn a_rejected_credential_names_the_field_and_the_status_but_not_the_value(
         .create_provider(ProviderSpec {
             name: "maki-deepseek".to_string(),
             profile: "maki-deepseek".to_string(),
+            from_existing: false,
+            global_profile: false,
+            runtime_credentials: false,
+            credential_keys: Vec::new(),
+            config: Vec::new(),
             credential_key: Some("DEEPSEEK_API_KEY".to_string()),
             credential: Some(Credential::new(SENTINEL)),
         })

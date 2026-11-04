@@ -7,6 +7,8 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
+use crate::gateway::{Credential, ProviderSpec};
+
 use super::config;
 use super::context::Context;
 use super::failure::{Failure, Outcome};
@@ -1077,17 +1079,17 @@ fn run_setup(ctx: &Context, progress: &mut Progress, program: bool) -> Outcome {
         }
     } else {
         progress.doing = format!("create of '{provider_name}'");
-        let create = [
-            "provider".to_string(),
-            "create".to_string(),
-            "--name".to_string(),
-            provider_name.clone(),
-            "--type".to_string(),
-            profile_id.clone(),
-            "--from-existing".to_string(),
-            "--global-profile".to_string(),
-        ];
-        gateway_step_env(ctx, &profile_env, &chosen.value, &create, program)?;
+        ctx.create_provider(ProviderSpec {
+            name: provider_name.clone(),
+            profile: profile_id.clone(),
+            from_existing: true,
+            global_profile: true,
+            runtime_credentials: false,
+            credential_keys: Vec::new(),
+            config: Vec::new(),
+            credential_key: Some(profile_env.to_string()),
+            credential: Some(Credential::new(chosen.value.clone())),
+        })?;
         progress.steps.push("created");
         ctx.say(&format!("Provider '{provider_name}' created."));
     }
@@ -1675,18 +1677,17 @@ fn codex_setup(ctx: &Context) -> Outcome {
             .status();
         ctx.say(&format!("Provider '{CX_PROVIDER}' updated."));
     } else {
-        let create = [
-            "provider".to_string(),
-            "create".to_string(),
-            "--name".to_string(),
-            CX_PROVIDER.to_string(),
-            "--type".to_string(),
-            CX_PROVIDER.to_string(),
-            "--credential".to_string(),
-            CX_TOKEN_ENV.to_string(),
-            "--global-profile".to_string(),
-        ];
-        gateway_step_env(ctx, CX_TOKEN_ENV, &access, &create, false)?;
+        ctx.create_provider(ProviderSpec {
+            name: CX_PROVIDER.to_string(),
+            profile: CX_PROVIDER.to_string(),
+            from_existing: false,
+            global_profile: true,
+            runtime_credentials: false,
+            credential_keys: Vec::new(),
+            config: Vec::new(),
+            credential_key: Some(CX_TOKEN_ENV.to_string()),
+            credential: Some(Credential::new(access.clone())),
+        })?;
         ctx.say(&format!("Provider '{CX_PROVIDER}' created."));
     }
 

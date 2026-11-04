@@ -5,7 +5,7 @@
 | Agent | `Maki` |
 | Covers | `P6` |
 | Reference | `docs/ai/playbooks/maki.md` |
-| Verified | OpenShell v0.1.5, Maki v0.6.4, 2026-10-22; sync matrix, 2026-10-26 |
+| Verified | OpenShell v0.1.7, Maki v0.6.5, 2026-11-04; earlier runs: v0.1.5, 2026-10-22/26 |
 
 # Verification: Maki
 
@@ -33,20 +33,19 @@ names.
 The recorded run for this repository is in
 [`docs/verification-log.md`](../../verification-log.md).
 
-**Expected version: OpenShell v0.1.5.** The checklist below was last run
-against that version on 2026-10-22. Section 7 was re-run for the
-disposable-workspace change on 2026-10-26; see
+**Expected version: OpenShell v0.1.7.** Checks 1-6 were re-run against it on
+2026-11-04 with `maki-agent:personal` (Maki 0.6.5) and the provider
+`maki-synthetic`; substitute that provider wherever the checks say
+`maki-anthropic`. Section 7's 7.1 case ran up to the session's deliberate fast
+failure (`--model nope/nope`), which exercised upload, exec, and the sync
+refusal path but not a successful patch application. Checks 8-9 remain the
+earlier MCP smoke tests. The details are in
 [`docs/verification-log.md`](../../verification-log.md).
 
-This page is a reorganization of those recorded runs, not a new run. Checks 1-6
-record the 2026-10-22 OpenShell v0.1.5 run, whose image pinned Maki 0.6.4;
-checks 8-9 record the MCP smoke tests added before that run; check 7 records the
-2026-10-26 sync pass, which used `maki-agent:personal`; its Maki version is not
-recorded. No result below is carried forward from a later version.
-
-The current image pin is Maki 0.6.5 (`examples/maki-image/Dockerfile`). No 0.6.5
-isolation run has been recorded, so nothing on this page is a 0.6.5 measurement;
-the checks below remain the historical 0.6.4 run.
+Checks 1-6 also record the 2026-10-22 OpenShell v0.1.5 run, whose image pinned
+Maki 0.6.4; check 7 records the 2026-10-26 sync pass, which used
+`maki-agent:personal`; checks 8-9 record the MCP smoke tests added before the
+2026-10-22 run. No result below is carried forward from a later version.
 
 ## Check 1 — Denied egress
 

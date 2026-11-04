@@ -20,8 +20,8 @@ use std::time::Duration;
 use super::credential::REDACTED;
 use super::error::GatewayError;
 use super::{
-    ChunkSink, Credential, Endpoint, ExecOutput, ExecRequest, ExitStatus, Gateway, LogOptions,
-    ProviderSpec, Rule, Sandbox, SandboxSpec,
+    ChunkSink, Credential, Endpoint, ExecInput, ExecOutput, ExecRequest, ExitStatus, Gateway,
+    InteractiveExec, LogOptions, ProviderSpec, Rule, RuleListing, Sandbox, SandboxSpec,
 };
 
 /// One recorded request: what operation ran, on what, with which non-secret
@@ -203,6 +203,23 @@ impl Gateway for RecordingGateway {
         self.inner.exec_buffered(request).await
     }
 
+    async fn exec_interactive(
+        &self,
+        exec: InteractiveExec,
+        input: tokio::sync::mpsc::Receiver<ExecInput>,
+        sink: &mut (dyn ChunkSink + Send),
+    ) -> Result<ExitStatus, GatewayError> {
+        let entry = Entry::new("exec_interactive", exec.request.sandbox.clone())
+            .field("command", exec.request.command.join(" "))
+            .field("workdir", exec.request.workdir.clone().unwrap_or_default())
+            .field("no_login_shell", exec.request.no_login_shell.to_string())
+            .field("tty", exec.tty.to_string())
+            .field("size", format!("{:?}", exec.size))
+            .field("env", exec.env.iter().map(|(key, _)| key.clone()).collect::<Vec<_>>().join(","));
+        self.record(entry);
+        self.inner.exec_interactive(exec, input, sink).await
+    }
+
     async fn logs(
         &self,
         sandbox: &str,
@@ -269,7 +286,7 @@ impl Gateway for RecordingGateway {
         self.inner.get_rule(sandbox, name, pending_only).await
     }
 
-    async fn list_rules(&self, sandbox: &str) -> Result<Vec<Rule>, GatewayError> {
+    async fn list_rules(&self, sandbox: &str) -> Result<RuleListing, GatewayError> {
         self.record(Entry::new("list_rules", sandbox));
         self.inner.list_rules(sandbox).await
     }
@@ -375,6 +392,15 @@ mod tests {
                 stderr: Vec::new(),
             })
         }
+        async fn exec_interactive(
+            &self,
+            _exec: InteractiveExec,
+            _input: tokio::sync::mpsc::Receiver<ExecInput>,
+            sink: &mut (dyn ChunkSink + Send),
+        ) -> Result<ExitStatus, GatewayError> {
+            sink.write(b"interactive\n");
+            Ok(ExitStatus { code: 0 })
+        }
         async fn logs(
             &self,
             _sandbox: &str,
@@ -415,8 +441,11 @@ mod tests {
         ) -> Result<Option<Rule>, GatewayError> {
             Ok(None)
         }
-        async fn list_rules(&self, _sandbox: &str) -> Result<Vec<Rule>, GatewayError> {
-            Ok(Vec::new())
+        async fn list_rules(&self, _sandbox: &str) -> Result<RuleListing, GatewayError> {
+            Ok(RuleListing {
+                version: 1,
+                rules: Vec::new(),
+            })
         }
         async fn approve_rule(&self, _sandbox: &str, _chunk: &str) -> Result<(), GatewayError> {
             Ok(())
@@ -464,6 +493,11 @@ mod tests {
                 .create_provider(ProviderSpec {
                     name: "maki-deepseek".to_string(),
                     profile: "maki-deepseek".to_string(),
+                    from_existing: true,
+                    global_profile: true,
+                    runtime_credentials: false,
+                    credential_keys: Vec::new(),
+                    config: Vec::new(),
                     credential_key: Some("DEEPSEEK_API_KEY".to_string()),
                     credential: Some(Credential::new("sentinel-value")),
                 })

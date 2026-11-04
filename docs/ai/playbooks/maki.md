@@ -10,7 +10,7 @@
 | Handoff | `docs/ai/verification/maki.md` |
 | Verification | `docs/ai/verification/maki.md` |
 | Reference | `docs/ai/reference/maki.md` |
-| Verified | OpenShell v0.1.5, Maki v0.6.5, 2026-10-25 |
+| Verified | OpenShell v0.1.7, Maki v0.6.5, 2026-11-04 (helper up/run/status); earlier: v0.1.5, 2026-10-25 |
 
 > `Covers: P0-P8` — P0-P2 are the shared host phases plus the optional host Maki
 > check; the image-pinned binary at P3 is authoritative.

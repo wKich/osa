@@ -4,7 +4,10 @@ use std::os::unix::io::FromRawFd;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
-use crate::gateway::{self, ExecOutput, ExecRequest, Gateway, GatewayError};
+use crate::gateway::{
+    self, ChunkSink, ExecInput, ExecOutput, ExecRequest, ExitStatus, Gateway, GatewayError,
+    InteractiveExec,
+};
 
 use super::context::Context;
 use super::failure::{Failure, Outcome};
@@ -133,12 +136,73 @@ impl Context {
     }
 
     pub fn rule_names(&self, name: &str, pending_only: bool) -> Result<Vec<String>, Failure> {
-        let rules = self.gateway_call(|client| gateway::block_on(client.list_rules(name)))?;
-        Ok(rules
+        let listing = self.gateway_call(|client| gateway::block_on(client.list_rules(name)))?;
+        Ok(listing
+            .rules
             .into_iter()
             .filter(|rule| !pending_only || rule.status.as_deref() == Some("pending"))
             .map(|rule| rule.name)
             .collect())
+    }
+
+    /// The structured rule listing for `name`, unfiltered.
+    pub fn rule_listing(&self, name: &str) -> Result<gateway::RuleListing, Failure> {
+        self.gateway_call(|client| gateway::block_on(client.list_rules(name)))
+    }
+
+    /// The create spec the documented flags describe, in the form both
+    /// transports record before building a request.
+    pub fn sandbox_spec(&self, name: &str) -> gateway::SandboxSpec {
+        let cpu = self.cpu();
+        let memory = self.memory();
+        gateway::SandboxSpec {
+            name: name.to_string(),
+            image: self.image(),
+            policy: Some(self.policy()).filter(|value| !value.is_empty()),
+            cpu: (!cpu.is_empty()).then_some(cpu),
+            memory: (!memory.is_empty()).then_some(memory),
+            providers: self
+                .providers()
+                .into_iter()
+                .filter(|value| !value.is_empty())
+                .collect(),
+            env: self
+                .options
+                .envs
+                .iter()
+                .filter(|pair| !pair.is_empty())
+                .cloned()
+                .collect(),
+            env_from: self
+                .options
+                .env_froms
+                .iter()
+                .filter(|pair| !pair.is_empty())
+                .cloned()
+                .collect(),
+        }
+    }
+
+    /// One create through the transport. `Ok` covers a create that won;
+    /// `AlreadyExists` is the caller's race path, not a hard failure.
+    pub fn create_sandbox(&self, spec: gateway::SandboxSpec) -> Result<(), Failure> {
+        self.gateway_call(|client| gateway::block_on(client.create_sandbox(spec)))
+            .map(|_| ())
+    }
+
+    pub fn create_provider(&self, spec: gateway::ProviderSpec) -> Outcome {
+        self.gateway_call(|client| gateway::block_on(client.create_provider(spec)))
+    }
+
+    /// One interactive or scripted exec through the transport, streaming
+    /// output to `sink` and forwarding stdin and resize frames.
+    pub fn exec_interactive(
+        &self,
+        exec: InteractiveExec,
+        input: tokio::sync::mpsc::Receiver<ExecInput>,
+        sink: &mut (dyn ChunkSink + Send),
+    ) -> Result<ExitStatus, Failure> {
+        self.gateway_call(|client| gateway::block_on(client.exec_interactive(exec, input, sink)))
     }
 
     /// Map one file-transfer failure onto the command's exit status and text.
@@ -254,52 +318,52 @@ impl Context {
     }
 
     pub fn sandbox_mkdir(&self, name: &str, workdir: &str) -> bool {
-        let output = self
-            .openshell(&[
-                "sandbox",
-                "exec",
-                "-n",
-                name,
-                "--no-login-shell",
-                "--",
-                "sh",
-                "-c",
-                "mkdir -p \"$1\"",
-                &format!("{}-git", self.program()),
-                workdir,
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .output();
-        matches!(output, Ok(output) if output.status.success())
+        let command = vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            r#"mkdir -p "$1""#.to_string(),
+            format!("{}-git", self.program()),
+            workdir.to_string(),
+        ];
+        self.exec_buffered(name, command, None, true)
+            .is_some_and(|output| output.exit_code == 0)
+    }
+
+    fn script_request(
+        &self,
+        name: &str,
+        workdir: &str,
+        script: &str,
+        extra: Option<&str>,
+    ) -> ExecRequest {
+        let git_dir = sandbox_git_dir(workdir, self.profile.state_name);
+        let mut command = vec![
+            "sh".to_string(),
+            "-c".to_string(),
+            script.to_string(),
+            format!("{}-git", self.program()),
+            git_dir,
+            workdir.to_string(),
+        ];
+        if let Some(extra) = extra {
+            command.push(extra.to_string());
+        }
+        ExecRequest {
+            sandbox: name.to_string(),
+            command,
+            workdir: Some(workdir.to_string()),
+            no_login_shell: true,
+            stdin: None,
+            timeout: None,
+        }
     }
 
     pub fn sandbox_script_bytes(&self, name: &str, workdir: &str, script: &str) -> Option<Vec<u8>> {
-        let git_dir = sandbox_git_dir(workdir, self.profile.state_name);
+        let request = self.script_request(name, workdir, script, None);
         let output = self
-            .openshell(&[
-                "sandbox",
-                "exec",
-                "-n",
-                name,
-                "--no-login-shell",
-                "--workdir",
-                workdir,
-                "--",
-                "sh",
-                "-c",
-                script,
-            ])
-            .arg(format!("{}-git", self.program()))
-            .arg(&git_dir)
-            .arg(workdir)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
+            .gateway_call(|client| gateway::block_on(client.exec_buffered(request)))
             .ok()?;
-        output.status.success().then_some(output.stdout)
+        (output.exit_code == 0).then_some(output.stdout)
     }
 
     pub fn sandbox_script_output(
@@ -308,33 +372,9 @@ impl Context {
         workdir: &str,
         script: &str,
         extra: Option<&str>,
-    ) -> Option<std::process::Output> {
-        let git_dir = sandbox_git_dir(workdir, self.profile.state_name);
-        let mut command = self.openshell(&[
-            "sandbox",
-            "exec",
-            "-n",
-            name,
-            "--no-login-shell",
-            "--workdir",
-            workdir,
-            "--",
-            "sh",
-            "-c",
-            script,
-        ]);
-        command
-            .arg(format!("{}-git", self.program()))
-            .arg(&git_dir)
-            .arg(workdir);
-        if let Some(extra) = extra {
-            command.arg(extra);
-        }
-        command
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output()
+    ) -> Option<ExecOutput> {
+        let request = self.script_request(name, workdir, script, extra);
+        self.gateway_call(|client| gateway::block_on(client.exec_buffered(request)))
             .ok()
     }
 
@@ -346,7 +386,7 @@ impl Context {
         extra: Option<&str>,
     ) -> Option<String> {
         let output = self.sandbox_script_output(name, workdir, script, extra)?;
-        if !output.status.success() {
+        if output.exit_code != 0 {
             return None;
         }
         Some(

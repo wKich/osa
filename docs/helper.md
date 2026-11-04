@@ -107,7 +107,7 @@ repository root, so a copied shim alone does not run.
 The core reaches OpenShell in one of two ways, and the split is explicit in
 `osa-core/crates/osa-core/src/gateway/`:
 
-- **Typed client** (`gateway/sdk.rs`, `openshell-sdk` v0.1.5): sandbox `get`,
+- **Typed client** (`gateway/sdk.rs`, `openshell-sdk` v0.1.7): sandbox `get`,
   `list`, `start`, `stop`, and `delete`, the readiness and deletion waits, log
   streaming (`logs`), provider `list`/`attach`/`detach`, and rule approval.
   Streamed exec, provider creation, and rule listing are implemented and tested
@@ -149,7 +149,10 @@ sources it tried, and gives the fix before any state changes.
 
 The typed client can use plaintext transport, a bearer token
 (`OPENSHELL_TOKEN`), or an mTLS client certificate supplied with `--tls-dir`
-(`ca.crt`, `tls.crt`, `tls.key`). If discovery reports the mTLS mode and no
+(`ca.crt`, `tls.crt`, `tls.key`). OpenShell v0.1.6 and newer require
+authentication for local gateways; the installer's client bundle is at
+`~/.config/openshell/gateways/<gateway>/mtls`, and the `tls_dir` config key
+names it once for every command. If discovery reports the mTLS mode and no
 certificate is supplied, the command fails naming the mode and the supported
 alternatives (bearer token or plaintext) with exit status 2; there is no
 automatic fallback to the CLI, because that would give the same command two
@@ -193,7 +196,7 @@ defaults: [OpenCode](ai/reference/opencode.md),
 | `engine` | `MAKI_OSS_ENGINE` | `docker` | `docker` or `podman` |
 | `gateway` | `MAKI_OSS_GATEWAY` | empty | OpenShell gateway name (`-g`) |
 | `workdir` | `MAKI_OSS_WORKDIR` | `/sandbox/project` | In-sandbox project directory used by `upload`, `download`, `maki`, and `run` |
-| `tls_dir` | `MAKI_OSS_TLS_DIR` | empty | Directory holding `ca.crt`, `tls.crt`, and `tls.key` for a gateway that requires a client certificate (`--tls-dir`). Commands that reach the gateway through the typed client fail before connecting when a file is missing; without it, an mTLS gateway reports only that the endpoint is unreachable |
+| `tls_dir` | `MAKI_OSS_TLS_DIR` | empty | Directory holding `ca.crt`, `tls.crt`, and `tls.key` for a gateway that requires a client certificate (`--tls-dir`). OpenShell v0.1.6+ local gateways always do; the installer's bundle is `~/.config/openshell/gateways/<gateway>/mtls`. Commands that reach the gateway through the typed client fail before connecting when a file is missing; without it, an mTLS gateway reports only that the endpoint is unreachable |
 | `model` | `MAKI_OSS_MODEL` | empty | Default model passed to Maki (`provider/model`); `--model` overrides it |
 | `tui` | `MAKI_OSS_TUI` | empty | Interactive TUI for bare `maki-oss` and `maki-oss maki`: empty keeps Maki's own TUI, `opencode` runs the OpenCode TUI against the local bridge; any other value is a usage error. `run` ignores it |
 | `idle_stop` | `MAKI_OSS_IDLE_STOP` | `1h` | Stop the sandbox this long after the last session closes (seconds, or with an `s`, `m`, or `h` suffix); `0` disables it. `--idle-stop` overrides it. See [Idle stop](#idle-stop) |
@@ -1537,7 +1540,7 @@ surprises:
 ## Manual verification (historical)
 
 This records an earlier run against OpenShell 0.1.2 and Maki 0.6.0. The
-current pins are OpenShell v0.1.5 and Maki 0.6.5; current runs are in
+current pins are OpenShell v0.1.7 and Maki 0.6.5; current runs are in
 [`docs/verification-log.md`](verification-log.md). A full dry run against a real
 OpenShell 0.1.2 gateway (macOS 26.5, Apple
 Silicon, Docker Engine 29.4.0 via OrbStack, `maki-agent:local` built from

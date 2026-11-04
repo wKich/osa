@@ -22,8 +22,8 @@ use tonic::transport::{Certificate, ClientTlsConfig, Endpoint as TonicEndpoint, 
 use super::error::GatewayError;
 use super::tls::ClientIdentity;
 use super::{
-    AuthMode, ChunkSink, Endpoint, ExecOutput, ExecRequest, ExitStatus, Gateway, LogOptions,
-    ProviderSpec, Rule, Sandbox, SandboxSpec,
+    AuthMode, ChunkSink, Endpoint, ExecInput, ExecOutput, ExecRequest, ExitStatus, Gateway,
+    InteractiveExec, LogOptions, ProviderSpec, Rule, RuleListing, Sandbox, SandboxSpec,
 };
 
 /// How long a readiness or deletion wait polls between reads.
@@ -186,6 +186,8 @@ fn proto_phase_name(phase: i32) -> &'static str {
         Ok(proto::SandboxPhase::Stopped) => "Stopped",
         Ok(proto::SandboxPhase::Starting) => "Starting",
         Ok(proto::SandboxPhase::Completed) => "Completed",
+        Ok(proto::SandboxPhase::Suspending) => "Suspending",
+        Ok(proto::SandboxPhase::Suspended) => "Suspended",
         Ok(proto::SandboxPhase::Unknown) | Err(_) => "Unknown",
     }
 }
@@ -201,6 +203,8 @@ fn phase_name(phase: openshell_sdk::SandboxPhase) -> &'static str {
         SandboxPhase::Stopped => "Stopped",
         SandboxPhase::Starting => "Starting",
         SandboxPhase::Completed => "Completed",
+        SandboxPhase::Suspending => "Suspending",
+        SandboxPhase::Suspended => "Suspended",
         _ => "Unknown",
     }
 }
@@ -530,6 +534,141 @@ impl Gateway for SdkGateway {
         })
     }
 
+    async fn exec_interactive(
+        &self,
+        exec: InteractiveExec,
+        mut input: tokio::sync::mpsc::Receiver<ExecInput>,
+        sink: &mut (dyn ChunkSink + Send),
+    ) -> Result<ExitStatus, GatewayError> {
+        let request = exec.request;
+        let sandbox = request.sandbox.clone();
+        let (cols, rows) = exec
+            .size
+            .map(|(cols, rows)| (u32::from(cols), u32::from(rows)))
+            .unwrap_or((0, 0));
+        let start = proto::ExecSandboxRequest {
+            workspace_scope: Self::scope(),
+            sandbox: sandbox.clone(),
+            command: request.command.clone(),
+            workdir: request.workdir.clone().unwrap_or_default(),
+            environment: exec.env.iter().cloned().collect(),
+            execution_timeout: request.timeout.map(|timeout| prost_types::Duration {
+                seconds: timeout.as_secs() as i64,
+                nanos: timeout.subsec_nanos() as i32,
+            }),
+            stdin: request.stdin.clone().unwrap_or_default(),
+            tty: exec.tty,
+            cols,
+            rows,
+            no_login_shell: request.no_login_shell,
+            ..Default::default()
+        };
+        let (sender, receiver) = tokio::sync::mpsc::channel::<proto::ExecSandboxInput>(16);
+        sender
+            .send(proto::ExecSandboxInput {
+                payload: Some(proto::exec_sandbox_input::Payload::Start(start)),
+            })
+            .await
+            .map_err(|_| GatewayError::Failed {
+                operation: "sandbox exec",
+                detail: "the request stream closed before the exec started".to_string(),
+            })?;
+        let mut stream = self
+            .client
+            .raw_grpc()
+            .exec_sandbox_interactive(tokio_stream::wrappers::ReceiverStream::new(receiver))
+            .await
+            .map_err(|status| GatewayError::Failed {
+                operation: "sandbox exec",
+                detail: status.message().to_string(),
+            })?
+            .into_inner();
+
+        let mut sender = Some(sender);
+        let mut input_open = true;
+        let mut exit_code = None;
+        let mut failure = None;
+        let mut tick = tokio::time::interval(Duration::from_millis(100));
+        loop {
+            let interrupted = exec
+                .interrupt
+                .as_ref()
+                .is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed));
+            if interrupted {
+                // Dropping the stream cancels the RPC, which ends the process.
+                drop(stream);
+                return Ok(ExitStatus { code: 130 });
+            }
+            tokio::select! {
+                frame = input.recv(), if input_open => {
+                    match frame {
+                        Some(ExecInput::Stdin(bytes)) => {
+                            if let Some(out) = sender.as_ref() {
+                                let frame = proto::ExecSandboxInput {
+                                    payload: Some(proto::exec_sandbox_input::Payload::Stdin(bytes)),
+                                };
+                                if out.send(frame).await.is_err() {
+                                    input_open = false;
+                                    sender = None;
+                                }
+                            }
+                        }
+                        Some(ExecInput::Resize { cols, rows }) => {
+                            if let Some(out) = sender.as_ref() {
+                                let frame = proto::ExecSandboxInput {
+                                    payload: Some(proto::exec_sandbox_input::Payload::Resize(
+                                        proto::ExecSandboxWindowResize {
+                                            cols: u32::from(cols),
+                                            rows: u32::from(rows),
+                                        },
+                                    )),
+                                };
+                                let _ = out.send(frame).await;
+                            }
+                        }
+                        None => {
+                            // Stdin ended; keep the response half open so the
+                            // command can finish on its own.
+                            input_open = false;
+                            sender = None;
+                        }
+                    }
+                }
+                event = stream.message() => {
+                    match event {
+                        Ok(Some(event)) => match event.payload {
+                            Some(proto::exec_sandbox_event::Payload::Stdout(chunk)) => {
+                                sink.write(&chunk.data);
+                            }
+                            Some(proto::exec_sandbox_event::Payload::Stderr(chunk)) => {
+                                sink.write(&chunk.data);
+                            }
+                            Some(proto::exec_sandbox_event::Payload::Exit(exit)) => {
+                                exit_code = Some(exit.exit_code);
+                            }
+                            None => {}
+                        },
+                        Ok(None) => break,
+                        Err(status) => {
+                            failure = Some(status.message().to_string());
+                            break;
+                        }
+                    }
+                }
+                _ = tick.tick() => {}
+            }
+        }
+        if let Some(detail) = failure {
+            return Err(GatewayError::Failed {
+                operation: "sandbox exec",
+                detail,
+            });
+        }
+        Ok(ExitStatus {
+            code: exit_code.unwrap_or(-1),
+        })
+    }
+
     async fn logs(
         &self,
         sandbox: &str,
@@ -634,9 +773,37 @@ impl Gateway for SdkGateway {
                 .credential_key
                 .clone()
                 .unwrap_or_else(|| spec.profile.clone());
-            credentials.insert(key.clone(), credential.expose().to_string());
-            credentials.retain(|field, _| field == &key);
+            credentials.insert(key, credential.expose().to_string());
         }
+        // A named credential field resolves from the caller's environment: the
+        // existing local credential is the source, and the request field stays
+        // the only channel it travels in.
+        for key in spec.credential_keys.iter().filter(|key| !key.is_empty()) {
+            let value = std::env::var(key).map_err(|_| GatewayError::Failed {
+                operation: "provider create",
+                detail: format!(
+                    "requires local env var '{key}' to be set to a non-empty value"
+                ),
+            })?;
+            if value.trim().is_empty() {
+                return Err(GatewayError::Failed {
+                    operation: "provider create",
+                    detail: format!(
+                        "requires local env var '{key}' to be set to a non-empty value"
+                    ),
+                });
+            }
+            credentials.insert(key.clone(), value);
+        }
+        let mut config = HashMap::new();
+        for (key, value) in spec.config.iter().filter(|(key, _)| !key.is_empty()) {
+            config.insert(key.clone(), value.clone());
+        }
+        let profile_workspace = if spec.global_profile {
+            String::new()
+        } else {
+            WORKSPACE.to_string()
+        };
         let response = self
             .client
             .raw_grpc()
@@ -649,6 +816,8 @@ impl Gateway for SdkGateway {
                     }),
                     r#type: spec.profile.clone(),
                     credentials,
+                    config,
+                    profile_workspace,
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -657,12 +826,13 @@ impl Gateway for SdkGateway {
         match response {
             Ok(_) => Ok(()),
             Err(status) => {
-                if spec.credential.is_some() {
+                if spec.credential.is_some() || !spec.credential_keys.is_empty() {
                     // Names the field and the status; never the value.
                     Err(GatewayError::CredentialRejected {
                         field: spec
                             .credential_key
                             .clone()
+                            .or_else(|| spec.credential_keys.first().cloned())
                             .unwrap_or_else(|| spec.profile.clone()),
                         status: status.code() as u16,
                     })
@@ -738,13 +908,13 @@ impl Gateway for SdkGateway {
         name: &str,
         pending_only: bool,
     ) -> Result<Option<Rule>, GatewayError> {
-        let rules = self.list_rules(sandbox).await?;
-        Ok(rules.into_iter().find(|rule| {
+        let listing = self.list_rules(sandbox).await?;
+        Ok(listing.rules.into_iter().find(|rule| {
             rule.name == name && (!pending_only || rule.status.as_deref() == Some("pending"))
         }))
     }
 
-    async fn list_rules(&self, sandbox: &str) -> Result<Vec<Rule>, GatewayError> {
+    async fn list_rules(&self, sandbox: &str) -> Result<RuleListing, GatewayError> {
         let policy = self
             .client
             .raw_grpc()
@@ -759,7 +929,10 @@ impl Gateway for SdkGateway {
                 detail: status.message().to_string(),
             })?
             .into_inner();
-        Ok(policy.chunks.iter().map(rule_of).collect())
+        Ok(RuleListing {
+            version: policy.draft_version,
+            rules: policy.chunks.iter().map(rule_of).collect(),
+        })
     }
 
     async fn approve_rule(&self, sandbox: &str, chunk: &str) -> Result<(), GatewayError> {

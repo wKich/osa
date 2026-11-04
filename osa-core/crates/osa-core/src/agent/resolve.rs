@@ -428,7 +428,7 @@ fn ready_sandbox(ctx: &Context, name: &str, start: bool) -> Result<String, (i32,
             format!("sandbox '{name}' is not on the gateway; nothing changed"),
         )),
         Some("Ready") => Ok(String::new()),
-        Some(stopped @ ("Stopped" | "Completed" | "Error")) => {
+        Some(stopped @ ("Stopped" | "Completed" | "Error" | "Suspended")) => {
             if !start {
                 return Err((
                     EX_REFUSED,

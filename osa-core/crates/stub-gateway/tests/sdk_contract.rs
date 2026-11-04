@@ -113,7 +113,7 @@ async fn health_and_sandbox_lifecycle_round_trip() {
     let requests = stub.requests();
     assert!(requests
         .iter()
-        .any(|line| line == "sandbox create --name demo --detach"));
+        .any(|line| line == "sandbox create --name demo --from maki-agent:local --detach"));
     assert!(requests.iter().any(|line| line == "sandbox delete demo"));
     assert!(requests.iter().any(|line| line == "sandbox start demo"));
     assert!(requests.iter().any(|line| line == "sandbox stop demo"));

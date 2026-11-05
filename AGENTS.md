@@ -39,6 +39,7 @@ Start here:
 Supporting docs: `docs/setup-guide.md` (full walkthrough),
 `docs/ai/verification/maki.md` (Maki isolation checklist; the OpenCode,
 Claude, and `docs/ai/verification/codex.md` pages sit beside it),
+`docs/ai/dev-environment.md` (the in-sandbox development loop),
 `docs/glossary.md` (vocabulary),
 `docs/verification-log.md` (dry-run record), `docs/oskhs.md` (kiss
 adapter, Track B). Canonical configuration lives in

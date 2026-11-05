@@ -19,30 +19,81 @@ It is not a base and not a supported user image. No front-end selects it, it
 carries no credential and no egress rule, and it keeps the base's agent
 binary, uid/gid 1500, and `/sandbox` home.
 
-## The loop
+## Create it with maki-oss
 
-1. **Build the image** from the store, as its README describes. The base must
-   exist first.
-2. **Create the sandbox with the development policy**
-   [`examples/policies/osa-dev-environment.yaml`](../../examples/policies/osa-dev-environment.yaml).
-   It is the minimal policy plus the three paths this image's tools need (CPU
-   topology, `/dev/zero`, `/dev/pts`); no egress rule is added.
-3. **Upload the project** to `/sandbox/project`, then run the checks from
-   inside:
+The base and any environment layer you use must exist first. The development
+layer is built `FROM` the agent image you actually run, so that image's
+providers and preferences stay and the toolchain is added on top. The tag
+below is a local convention, not a supported user image.
+
+1. **Build the chain.** Base, then any environment layer, then the development
+   layer. With the personal store in use:
+
+   ```sh
+   ./bin/maki-oss image build
+   docker build -t maki-agent:reference examples/environments/reference
+   docker build -t maki-agent:personal ~/.config/maki-oss/environments/personal
+   docker build -t osa-dev:personal \
+       --build-arg OSA_DEV_BASE=maki-agent:personal \
+       --build-arg OSA_DEV_AGENT=maki \
+       examples/environments/dev
+   ```
+
+   Without a derived environment, build the base directly:
+   `docker build -t osa-dev:local examples/environments/dev`.
+
+2. **Persist the image and policy** in the helper's config file
+   (`${XDG_CONFIG_HOME:-$HOME/.config}/maki-oss/config.toml`):
+
+   ```toml
+   image = "osa-dev:personal"
+   policy = "examples/policies/osa-dev-environment.yaml"
+   ```
+
+   A relative policy path is tried against the current directory first, then
+   the repository root. The policy must be the development one: it is the
+   minimal policy plus `/sys/devices/system/cpu`, `/dev/zero`, and `/dev/pts`,
+   and it adds no egress rule. Flags and `MAKI_OSS_IMAGE` / `MAKI_OSS_POLICY`
+   override the file; see the settings table in
+   [`docs/helper.md`](../helper.md#configuration). `maki-oss image build`
+   always tags the base and ignores `image`, so it cannot overwrite the
+   environment tag.
+
+3. **Create or recreate the sandbox.** Image and policy are fixed at
+   creation, so an existing sandbox keeps the old ones:
+
+   ```sh
+   ./bin/maki-oss rm --yes && ./bin/maki-oss up
+   ```
+
+   `up` uploads the checkout to `/sandbox/project`; there is no host bind
+   mount. Deletion drops that sandbox's sessions, so collect or download any
+   work first.
+
+4. **Verify and run from inside**, by script rather than `make` (a sandbox
+   refuses `execve` from make's child process; see below):
 
    ```sh
    scripts/verify-dev-environment.sh
+   scripts/build-e2e.sh
+   tests/e2e/run.sh local
    ```
 
-   It fails naming the first missing or mismatched runtime, and it never
-   reports success for a check it skipped.
-4. **Work, then hand the work back as a patch.** The sandbox is the only copy
+   The verification script fails naming the first missing or mismatched
+   runtime, and it never reports success for a check it skipped.
+
+## The loop
+
+1. **Set up the sandbox** as described above: build the image chain, persist
+   the image and policy, and create or recreate it. `up` uploads the checkout
+   to `/sandbox/project`.
+2. **Work, then hand the work back as a patch.** The sandbox is the only copy
    of what you edit there. In caller mode, `maki-oss collect-patch --out FILE`
    (the same command on the other helper names) writes the workdir's changes as
    a binary patch against the `sync-in` baseline; on the managed path, download
    before you delete the sandbox, exactly as with any other project in a
    sandbox. The patch is the only thing that crosses to the host.
-5. **Let the host run the gate.** Nothing runs automatically on a patch the
+3. **Let the host run the gate.** Nothing runs automatically on a patch the
    sandbox produced — no watcher, no hook, no auto-apply. A person (or a
    scheduled job on a host that has a gateway) runs:
 

@@ -232,7 +232,11 @@ boundary_gate_apply() { # TARGET BASE_SHA
     if ! git -C "$target" apply --index --binary --whitespace=nowarn "$PATCH" 2> "$WORK/apply.err"; then
         boundary_gate_stop "refused: the patch does not apply at base $base_sha: $(sed -n '1p' "$WORK/apply.err")"
     fi
-    if ! git -C "$target" commit --quiet --no-verify -m 'boundary gate: apply sandbox patch' >/dev/null 2>&1; then
+    # The fixed identity belongs to this one commit. Exported, it would also
+    # override the repo-local identity a suite sets for its own commits.
+    if ! git -C "$target" -c user.name='osa-boundary' \
+        -c user.email='boundary@osa.invalid' \
+        commit --quiet --no-verify -m 'boundary gate: apply sandbox patch' >/dev/null 2>&1; then
         boundary_gate_stop "refused: cannot commit the applied patch in $target"
     fi
     PATCH_COMMIT=$(git -C "$target" rev-parse HEAD) \
@@ -538,16 +542,14 @@ boundary_gate_main() {
     fi
     boundary_gate_note "work: $WORK"
 
-    # No host git identity, no credential helper, no prompt: the checkout runs
-    # with a fixed identity and cannot reach the host's credential store.
-    GIT_AUTHOR_NAME=osa-boundary
-    GIT_AUTHOR_EMAIL=boundary@osa.invalid
-    GIT_COMMITTER_NAME=osa-boundary
-    GIT_COMMITTER_EMAIL=boundary@osa.invalid
+    # No host git config, no credential helper, no prompt: the gate's own git
+    # commands cannot reach the host's identity or credential store. The
+    # identity stays on the one commit the gate makes, never the environment
+    # the suites inherit, so a suite that sets its own repo-local identity
+    # still gets it.
     GIT_CONFIG_GLOBAL=/dev/null
     GIT_CONFIG_NOSYSTEM=1
     GIT_TERMINAL_PROMPT=0
-    export GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL
     export GIT_CONFIG_GLOBAL GIT_CONFIG_NOSYSTEM GIT_TERMINAL_PROMPT
 
     if [ -n "$PATCH" ]; then

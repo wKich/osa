@@ -223,31 +223,42 @@ impl Stub {
         self.fixtures_dir().join(name).exists()
     }
 
+    /// The answer a case supplied for one command, if any.
+    fn exec_case(&self, command: &[String]) -> Option<ExecOutcome> {
+        let joined = command.join(" ");
+        let cases = self.fixture("exec.cases")?;
+        for line in cases.lines() {
+            let mut fields = line.split('|');
+            let key = fields.next().unwrap_or_default();
+            if key.is_empty() || !joined.contains(key) {
+                continue;
+            }
+            let exit_code = fields
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .parse()
+                .unwrap_or(0);
+            let file = fields.next().unwrap_or_default();
+            let stdout = if file.is_empty() {
+                Vec::new()
+            } else {
+                fs::read(file).unwrap_or_default()
+            };
+            return Some(ExecOutcome {
+                stdout,
+                stderr: Vec::new(),
+                exit_code,
+            });
+        }
+        None
+    }
+
     /// The canned exec outcome for this command: a per-command case first,
     /// then the run's stdout and exit status.
     fn exec_outcome(&self, command: &[String]) -> (Vec<u8>, i32) {
-        let joined = command.join(" ");
-        if let Some(cases) = self.fixture("exec.cases") {
-            for line in cases.lines() {
-                let mut fields = line.split('|');
-                let key = fields.next().unwrap_or_default();
-                if key.is_empty() || !joined.contains(key) {
-                    continue;
-                }
-                let exit = fields
-                    .next()
-                    .unwrap_or_default()
-                    .trim()
-                    .parse()
-                    .unwrap_or(0);
-                let file = fields.next().unwrap_or_default();
-                let stdout = if file.is_empty() {
-                    Vec::new()
-                } else {
-                    fs::read(file).unwrap_or_default()
-                };
-                return (stdout, exit);
-            }
+        if let Some(outcome) = self.exec_case(command) {
+            return (outcome.stdout, outcome.exit_code);
         }
         let stdout = self
             .fixture("exec.stdout")
@@ -281,15 +292,26 @@ impl Stub {
     /// canned outcome. Fixtures arrive as files under the state root.
     async fn run_exec(&self, request: &proto::ExecSandboxRequest) -> ExecOutcome {
         let command = &request.command;
-        let internal = command.len() >= 4
-            && command[0] == "sh"
-            && command[1] == "-c"
-            && command[3].ends_with("-git");
-        let wrapper = command.len() >= 4
-            && command[0] == "sh"
-            && command[1] == "-c"
-            && command[3].ends_with("-run")
-            && self.fixture_present("exec.run-wrapper");
+        // A case's per-command answer applies to every exec, the helper's own
+        // scripts included, so a probe behaves the same over both transports.
+        if let Some(outcome) = self.exec_case(command) {
+            return outcome;
+        }
+        // The helper runs each of its own probes as `sh -c <script> <label>
+        // [args…]`, where the label names the probe `<program>-<purpose>`.
+        // The purpose is not part of the rule: a probe the helper adds later is
+        // covered without editing this gateway. An agent run's argv starts with
+        // the agent binary, or with a shell form whose fourth word is a plain
+        // argv0 (`sh`), not one of the helper's labels.
+        let label = (command.len() >= 4 && command[0] == "sh" && command[1] == "-c")
+            .then(|| command[3].as_str())
+            .filter(|label| label.contains('-'));
+        // The run wrapper is the one helper label that carries an agent run, so
+        // it executes locally only when a case opts in, exactly as the CLI
+        // stub's wrapper switch does.
+        let run_wrapper = label.is_some_and(|label| label.ends_with("-run"));
+        let internal = label.is_some() && !run_wrapper;
+        let wrapper = run_wrapper && self.fixture_present("exec.run-wrapper");
         if internal {
             if let Some(fail) = self.fixture("exec.fail") {
                 let fail = fail.trim();
@@ -1246,15 +1268,14 @@ impl OpenShell for Stub {
         request: tonic::Request<proto::ExecSandboxRequest>,
     ) -> std::result::Result<tonic::Response<Self::ExecSandboxStream>, tonic::Status> {
         let request = request.into_inner();
-        let name = request.sandbox.clone();
         let words = exec_words(&request, false);
         let recorded: Vec<&str> = words.iter().map(String::as_str).collect();
         self.record(&recorded);
-        if self.phase(&name).is_none() {
-            return Err(tonic::Status::not_found(format!(
-                "sandbox {name} not found"
-            )));
-        }
+        // The CLI stub runs an exec without consulting the sandbox registry:
+        // a lifecycle operation is what reports a sandbox that is gone (its
+        // stop and start do). The fake gateway does the same, so a case that
+        // removes the registry entry to make the next lifecycle call fail can
+        // reach that call over either transport.
         let outcome = self.run_exec(&request).await;
         let mut events: Vec<std::result::Result<proto::ExecSandboxEvent, tonic::Status>> =
             Vec::new();

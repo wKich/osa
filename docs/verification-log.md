@@ -1938,3 +1938,53 @@ A record names provider variables only; it never contains a credential value, a
 request body, or a literal placeholder string. A record written from a run
 inside a sandbox is not a boundary record — see
 [`docs/ai/verification/claims.md`](ai/verification/claims.md#the-boundary-gate).
+
+## Boundary gate — 2026-11-05
+
+The first gate run on this tree that reached all three parts, recorded by the
+change that made the gate produce a verdict (`make-boundary-gate-verifiable`).
+On macOS 26.5 (Apple Silicon, Docker 29.4.0), OpenShell 0.1.7, image
+`maki-agent:reference` (Maki 0.6.5), OpenCode v2.1.4 on PATH (the journey pin,
+not the host's v2.2.5), MongoDB 7 on loopback behind `OSKHS_TEST_MONGO_URI`,
+and the verification sandbox `maki-check` created from `maki-agent:local` with
+`examples/policies/maki-minimal.yaml` and provider `claude-anthropic`:
+
+```sh
+make test-boundary BOUNDARY_ARGS='--sandbox maki-check --credential-var ANTHROPIC_API_KEY'
+```
+
+Part 1 reported 329 passed in the shell suite, conformance strict at 380
+compared with 5 excluded and 0 mismatched, the converted-set parity run, and
+the core, bridge, dashboard, and oskhs suites with MongoDB. Part 2 recorded 62
+live journeys (52 parity, 8 diverges, 2 broken). Part 3 passed all six
+isolation checks. The record the gate printed:
+
+```text
+boundary record
+  gateway: OpenShell 0.1.7
+  agent: maki 0.6.5
+  engine: docker 29.4.0
+  image: maki-agent:reference (sha256:80008b1e16fcd5c9299a1fe5e857148018b8f5e64bca9312abc4393a6ce8e400)
+  patch: none (working tree 1d3e2e3)
+  checks:
+    egress-denied: pass
+    credential-shape: pass
+    host-paths: pass
+    sandbox-user: pass
+    no-bind-mount: pass
+    gateway-log-refusal: pass
+  verdict: passed
+```
+
+- `maki-agent:reference` is the image the live journey run needs: the
+  agent-only base image carries no Bun, so its loopback provider cannot start.
+  The isolation checks ran in `maki-check`, built from `maki-agent:local`.
+- The live journey run rewrote `bridge/compat/journeys.json` and the
+  `view-usage-statistics` live snapshots because the TUI's stats view now spans
+  `Jan – Nov 2026` where the committed reference spans `Jan – Oct 2026`. Those
+  files were left as committed: that divergence is time-dependent, and
+  recording it is a journey-catalog change outside this gate run.
+- The gate's fixed git identity now applies to the one commit it makes for an
+  applied patch, not to the environment the suites inherit. Exported, it
+  overrode the repo-local identity the oskhs collect test sets and failed that
+  test inside the gate while it passed alone.
